@@ -1,0 +1,22 @@
+{
+  "name": "litter-bear",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Litter Bear - AI 驱动的跨平台小程序（Monorepo）",
+  "scripts": {
+    "prepare": "husky",
+    "commit": "cz"
+  },
+  "config": {
+    "commitizen": {
+      "path": "node_modules/cz-git"
+    }
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.4.4",
+    "@commitlint/config-conventional": "^20.4.4",
+    "commitizen": "^4.3.1",
+    "cz-git": "^1.12.0",
+    "husky": "^9.1.7"
+  }
+}

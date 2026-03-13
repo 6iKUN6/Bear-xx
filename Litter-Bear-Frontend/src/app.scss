@@ -1,0 +1,31 @@
+@use 'taro-ui/dist/style/index.scss' as *;
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --td-bg-page: #F3F5F9;
+  --td-text-primary: #1D2129;
+  --td-border-base: #DCDCDC;
+}
+
+page {
+  background: var(--td-bg-page);
+  color: var(--td-text-primary);
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Hairline border utilities (1rpx on retina) */
+.hairline-t {
+  border-top: 1rpx solid var(--td-border-base);
+}
+.hairline-b {
+  border-bottom: 1rpx solid var(--td-border-base);
+}
+.hairline-l {
+  border-left: 1rpx solid var(--td-border-base);
+}
+.hairline-r {
+  border-right: 1rpx solid var(--td-border-base);
+}

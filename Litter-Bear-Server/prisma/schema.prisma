@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  nickname      String         @default("用户")
+  avatarUrl     String         @default("")
+  phone         String?        @unique
+  wechatOpenId  String?        @unique @map("wechat_open_id")
+  wechatUnionId String?        @unique @map("wechat_union_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  conversations Conversation[]
+
+  @@map("users")
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  title     String    @default("新对话")
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  role           MessageRole
+  content        String        @db.Text
+  imageUrl       String?       @map("image_url")
+  status         MessageStatus @default(DONE)
+  conversationId String        @map("conversation_id")
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum MessageStatus {
+  DONE
+  ERROR
+}
+
+model SmsCode {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone, code])
+  @@map("sms_codes")
+}

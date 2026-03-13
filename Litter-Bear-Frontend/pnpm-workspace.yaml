@@ -1,0 +1,9 @@
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - '@swc/core'
+  - '@tarojs/binding'
+  - '@tarojs/cli'
+  - core-js
+  - core-js-pure
+  - esbuild
+  - weapp-tailwindcss

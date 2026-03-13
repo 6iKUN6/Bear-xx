@@ -1,0 +1,34 @@
+export default {
+  extends: ["@commitlint/config-conventional"],
+  prompt: {
+    messages: {
+      type: "选择提交类型:",
+      scope: "选择修改范围 (可选):",
+      subject: "填写简短描述:\n",
+      body: '填写详细描述 (可选)，使用 "|" 换行:\n',
+      confirmCommit: "确认提交？",
+    },
+    types: [
+      { value: "feat", name: "feat:     新功能", emoji: "" },
+      { value: "fix", name: "fix:      修复 bug", emoji: "" },
+      { value: "docs", name: "docs:     文档变更", emoji: "" },
+      { value: "style", name: "style:    代码格式（不影响逻辑）", emoji: "" },
+      { value: "refactor", name: "refactor: 重构（非新功能、非修复）", emoji: "" },
+      { value: "perf", name: "perf:     性能优化", emoji: "" },
+      { value: "test", name: "test:     测试相关", emoji: "" },
+      { value: "chore", name: "chore:    构建/工具/依赖变更", emoji: "" },
+      { value: "ci", name: "ci:       CI 配置变更", emoji: "" },
+      { value: "revert", name: "revert:   回退提交", emoji: "" },
+    ],
+    useEmoji: false,
+    scopes: [
+      { value: "fe", name: "fe:       前端" },
+      { value: "be", name: "be:       后端" },
+      { value: "ci", name: "ci:       CI/CD" },
+    ],
+    skipQuestions: ["footer", "footerPrefix", "breaking"],
+    allowCustomScopes: true,
+    allowEmptyScopes: true,
+    subjectLimit: 72,
+  },
+};
