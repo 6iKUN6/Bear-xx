@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { View, Textarea } from "@tarojs/components";
-import { Audio, Edit, Plus, StopCircle, ArrowUp } from "@taroify/icons";
+import { View, Text, Textarea } from "@tarojs/components";
 import IconButton from "../IconButton";
 import VoiceButton from "../VoiceButton";
+import { safeAreaBottom } from "../../utils/style";
+import "./index.scss";
 
 interface ChatInputProps {
   onSend: (content: string) => void;
@@ -12,7 +13,7 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
-const ICON_SIZE = 22;
+const iconClassName = "chat-input__icon at-icon";
 
 export default function ChatInput({
   onSend,
@@ -23,6 +24,10 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "voice">("text");
+
+  const renderIcon = (name: string, extraClassName = "") => (
+    <Text className={`at-icon at-icon-${name} ${iconClassName} ${extraClassName}`.trim()} />
+  );
 
   const hasContent = value.trim().length > 0;
 
@@ -50,12 +55,8 @@ export default function ChatInput({
     if (inputMode === "voice") {
       return (
         <>
-          <IconButton
-            icon={<Edit size={ICON_SIZE} />}
-            variant='ghost'
-            onClick={toggleMode}
-          />
-          <IconButton icon={<Plus size={ICON_SIZE} />} variant='ghost' />
+          <IconButton icon={renderIcon("edit")} variant='ghost' onClick={toggleMode} />
+          <IconButton icon={renderIcon("add")} variant='ghost' />
         </>
       );
     }
@@ -63,9 +64,9 @@ export default function ChatInput({
     if (isStreaming) {
       return (
         <>
-          <IconButton icon={<Plus size={ICON_SIZE} />} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant='ghost' />
           <IconButton
-            icon={<StopCircle size={ICON_SIZE} color='#fff' />}
+            icon={renderIcon("stop", "text-white")}
             variant='primary'
             onClick={handleStop}
           />
@@ -76,9 +77,9 @@ export default function ChatInput({
     if (hasContent) {
       return (
         <>
-          <IconButton icon={<Plus size={ICON_SIZE} />} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant='ghost' />
           <IconButton
-            icon={<ArrowUp size={ICON_SIZE} color='#fff' />}
+            icon={renderIcon("arrow-up", "text-white")}
             variant='primary'
             onClick={handleSend}
           />
@@ -89,30 +90,25 @@ export default function ChatInput({
     // Default: mic + plus
     return (
       <>
-        <IconButton
-          icon={<Audio size={ICON_SIZE} />}
-          variant='ghost'
-          onClick={toggleMode}
-        />
-        <IconButton icon={<Plus size={ICON_SIZE} />} variant='ghost' />
+        <IconButton icon={renderIcon("sound")} variant='ghost' onClick={toggleMode} />
+        <IconButton icon={renderIcon("add")} variant='ghost' />
       </>
     );
   };
 
   return (
     <View
-      className='flex items-end gap-[8rpx] px-4 pt-3 bg-white border-t border-td-border-base'
-      style={{ paddingBottom: "calc(20rpx + env(safe-area-inset-bottom))" }}
+      className='chat-input'
+      style={{ paddingBottom: safeAreaBottom(20) }}
     >
-      {/* Left: input area or voice button */}
-      <View className='flex-1'>
+      <View className='chat-input__field'>
         {inputMode === "text" ? (
           <Textarea
-            className='w-full min-h-[80rpx] max-h-[220rpx] px-4 py-[14rpx] bg-td-bg-secondary rounded-td-pill text-[28rpx] leading-[1.4] text-td-text-primary'
+            className='chat-input__textarea'
             value={value}
             onInput={(e) => setValue(e.detail.value)}
             placeholder='发消息或按住说话'
-            placeholderClass='text-td-text-disabled'
+            placeholderClass='chat-input__placeholder'
             maxlength={2000}
             disabled={disabled || isStreaming}
             autoHeight
@@ -127,8 +123,7 @@ export default function ChatInput({
         )}
       </View>
 
-      {/* Right: action buttons */}
-      <View className='flex items-center gap-[8rpx] pb-[4rpx]'>
+      <View className='chat-input__actions'>
         {renderRightButtons()}
       </View>
     </View>

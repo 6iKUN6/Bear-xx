@@ -1,1 +1,10 @@
-/* Styles handled by TailwindCSS */
+.message-list {
+  flex: 1;
+  padding-top: 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.message-list__bottom {
+  height: 12px;
+}

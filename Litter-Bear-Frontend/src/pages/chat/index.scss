@@ -1,1 +1,14 @@
-/* Styles handled by TailwindCSS */
+.chat-page {
+  min-height: 100vh;
+}
+
+.chat-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-page__composer {
+  flex-shrink: 0;
+  background: #FFFFFF;
+}

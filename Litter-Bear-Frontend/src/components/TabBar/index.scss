@@ -1,0 +1,72 @@
+.app-tabbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(220, 220, 220, 0.92);
+  box-shadow: 0 -6px 20px rgba(17, 24, 39, 0.06);
+}
+
+.app-tabbar__inner {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  min-height: 56px;
+}
+
+.app-tabbar__item {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0 8px;
+  box-sizing: border-box;
+  color: var(--td-text-tertiary);
+  text-align: center;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.app-tabbar__item--active {
+  color: var(--td-brand);
+}
+
+.app-tabbar__item--active::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 28px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--td-brand);
+  transform: translateX(-50%);
+  content: "";
+}
+
+.app-tabbar__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.app-tabbar__icon::before {
+  display: block;
+}
+
+.app-tabbar__label {
+  display: block;
+  font-size: 11px;
+  line-height: 1.1;
+  font-weight: 500;
+}

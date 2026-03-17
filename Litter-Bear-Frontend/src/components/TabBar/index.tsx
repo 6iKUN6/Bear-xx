@@ -1,5 +1,6 @@
 import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
+import "./index.scss";
 
 interface TabBarProps {
   current: number; // 0=聊天, 1=画图, 2=我的
@@ -25,30 +26,20 @@ export default function TabBar({ current }: TabBarProps) {
 
   return (
     <View
-      className='fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-td-border-base shadow-td-sm'
+      className='app-tabbar'
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <View className='flex h-[108rpx]'>
+      <View className='app-tabbar__inner'>
         {tabs.map((tab, index) => {
           const isActive = index === current;
           return (
             <View
               key={tab.title}
-              className='flex-1 flex flex-col items-center justify-center'
+              className={`app-tabbar__item ${isActive ? "app-tabbar__item--active" : ""}`}
               onClick={() => handleClick(index)}
             >
-              <Text
-                className={`at-icon ${tab.icon} text-[44rpx] leading-none mb-[6rpx] ${
-                  isActive ? "text-td-brand" : "text-td-text-tertiary"
-                }`}
-              />
-              <Text
-                className={`text-[22rpx] leading-none ${
-                  isActive ? "text-td-brand font-medium" : "text-td-text-tertiary"
-                }`}
-              >
-                {tab.title}
-              </Text>
+              <Text className={`app-tabbar__icon at-icon ${tab.icon}`} />
+              <Text className='app-tabbar__label'>{tab.title}</Text>
             </View>
           );
         })}

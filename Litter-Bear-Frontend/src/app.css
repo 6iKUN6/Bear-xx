@@ -1,0 +1,5 @@
+@import "weapp-tailwindcss/theme.css" layer(theme);
+@import "weapp-tailwindcss/utilities.css" layer(utilities);
+
+@layer theme, base, components, utilities;
+@config "../tailwind.config.js";

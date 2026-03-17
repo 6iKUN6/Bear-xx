@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ScrollView, View } from "@tarojs/components";
 import ChatBubble from "../ChatBubble";
+import "./index.scss";
 
 interface MessageListProps {
   messages: Message[];
@@ -17,7 +18,7 @@ export default function MessageList({ messages }: MessageListProps) {
 
   return (
     <ScrollView
-      className='flex-1 pt-4 overflow-hidden'
+      className='message-list'
       scrollY
       scrollIntoView={scrollIntoView}
       scrollWithAnimation
@@ -26,7 +27,7 @@ export default function MessageList({ messages }: MessageListProps) {
       {messages.map((msg) => (
         <ChatBubble key={msg.id} message={msg} />
       ))}
-      <View id='msg-bottom' className='h-[24rpx]' />
+      <View id='msg-bottom' className='message-list__bottom' />
     </ScrollView>
   );
 }

@@ -11,6 +11,7 @@
   },
   "scripts": {
     "new": "taro new",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "build:weapp": "taro build --type weapp",
     "build:swan": "taro build --type swan",
     "build:alipay": "taro build --type alipay",
@@ -38,7 +39,6 @@
   "author": "",
   "dependencies": {
     "@babel/runtime": "^7.24.4",
-    "@taroify/icons": "^0.9.0",
     "@tarojs/components": "4.1.11",
     "@tarojs/helper": "4.1.11",
     "@tarojs/plugin-framework-react": "4.1.11",
@@ -63,6 +63,7 @@
     "@babel/core": "^7.24.4",
     "@babel/plugin-transform-class-properties": "7.25.9",
     "@babel/preset-react": "^7.24.1",
+    "@tailwindcss/postcss": "^4.2.1",
     "@tarojs/cli": "4.1.11",
     "@tarojs/plugin-generator": "4.1.11",
     "@tarojs/vite-runner": "4.1.11",
@@ -81,7 +82,7 @@
     "sass": "^1.75.0",
     "stylelint": "^16.4.0",
     "stylelint-config-standard": "^38.0.0",
-    "tailwindcss": "^3.4.19",
+    "tailwindcss": "^4.2.1",
     "terser": "^5.30.4",
     "typescript": "^5.4.5",
     "unplugin-auto-import": "^21.0.0",

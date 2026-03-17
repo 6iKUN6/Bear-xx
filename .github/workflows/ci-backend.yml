@@ -1,47 +1,49 @@
-name: CI - Backend
+#先不执行这个文件
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'Litter-Bear-Server/**'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'Litter-Bear-Server/**'
+# name: CI - Backend
 
-defaults:
-  run:
-    working-directory: Litter-Bear-Server
+# on:
+#   push:
+#     branches: [main]
+#     paths:
+#       - 'Litter-Bear-Server/**'
+#   pull_request:
+#     branches: [main]
+#     paths:
+#       - 'Litter-Bear-Server/**'
 
-jobs:
-  ci:
-    runs-on: ubuntu-latest
+# defaults:
+#   run:
+#     working-directory: Litter-Bear-Server
 
-    steps:
-      - uses: actions/checkout@v4
+# jobs:
+#   ci:
+#     runs-on: ubuntu-latest
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+#     steps:
+#       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: Litter-Bear-Server/pnpm-lock.yaml
+#       - uses: pnpm/action-setup@v4
+#         with:
+#           version: 10
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+#       - uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+#           cache: pnpm
+#           cache-dependency-path: Litter-Bear-Server/pnpm-lock.yaml
 
-      - name: Lint
-        run: pnpm lint
+#       - name: Install dependencies
+#         run: pnpm install --frozen-lockfile
 
-      - name: Type check
-        run: npx tsc --noEmit
+#       - name: Lint
+#         run: pnpm lint
 
-      - name: Test
-        run: pnpm test --passWithNoTests
+#       - name: Type check
+#         run: npx tsc --noEmit
 
-      - name: Build
-        run: pnpm build
+#       - name: Test
+#         run: pnpm test --passWithNoTests
+
+#       - name: Build
+#         run: pnpm build

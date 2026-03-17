@@ -1,19 +1,37 @@
 @use 'taro-ui/dist/style/index.scss' as *;
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 :root {
   --td-bg-page: #F3F5F9;
   --td-text-primary: #1D2129;
+  --td-text-secondary: #4E5969;
+  --td-text-tertiary: #86909C;
   --td-border-base: #DCDCDC;
+  --td-bg-card: #FFFFFF;
+  --td-brand: #0052D9;
+  --td-shadow-sm: 0 2px 10px rgba(17, 24, 39, 0.06);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--td-bg-page);
+  color: var(--td-text-primary);
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Helvetica Neue', Arial, sans-serif;
 }
 
 page {
   background: var(--td-bg-page);
   color: var(--td-text-primary);
   font-family: 'PingFang SC', 'Hiragino Sans GB', 'Helvetica Neue', Arial, sans-serif;
+}
+
+.taro_page {
+  min-height: 100%;
 }
 
 /* Hairline border utilities (1rpx on retina) */
@@ -28,4 +46,94 @@ page {
 }
 .hairline-r {
   border-right: 1rpx solid var(--td-border-base);
+}
+
+.app-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--td-bg-page);
+}
+
+.app-page__body {
+  flex: 1;
+  box-sizing: border-box;
+  padding-bottom: 78px;
+}
+
+.app-surface {
+  box-sizing: border-box;
+  background: var(--td-bg-card);
+  border: 1px solid var(--td-border-base);
+  border-radius: 20px;
+  box-shadow: var(--td-shadow-sm);
+}
+
+.app-section-title {
+  display: block;
+  font-size: 23px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.app-section-subtitle {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--td-text-tertiary);
+}
+
+.app-text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-animate-fade-in {
+  animation: app-fade-in .28s ease both;
+}
+
+.app-animate-fade-in-up {
+  animation: app-fade-in-up .32s ease both;
+}
+
+.app-animate-scale-in {
+  animation: app-scale-in .24s ease both;
+}
+
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

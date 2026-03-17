@@ -1,1 +1,82 @@
-/* Styles handled by TailwindCSS */
+.login-page {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  overflow: hidden;
+}
+
+.login-page__orb {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.login-page__orb--top {
+  top: -70px;
+  right: -60px;
+  width: 230px;
+  height: 230px;
+  background: #E2ECFF;
+}
+
+.login-page__orb--bottom {
+  bottom: -110px;
+  left: -80px;
+  width: 280px;
+  height: 280px;
+  background: #D8E6FF;
+}
+
+.login-page__card {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  padding: 36px 32px;
+  box-sizing: border-box;
+  border-radius: 24px;
+}
+
+.login-page__logo {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 60px;
+  line-height: 1;
+  text-align: center;
+}
+
+.login-page__title {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--td-text-primary);
+  text-align: center;
+}
+
+.login-page__subtitle {
+  display: block;
+  margin-bottom: 48px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--td-text-secondary);
+  text-align: center;
+}
+
+.login-page__button {
+  width: 100%;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #1A67FF 0%, #0052D9 100%);
+  box-shadow: 0 10px 24px rgba(0, 82, 217, 0.2);
+  text-align: center;
+}
+
+.login-page__button-text {
+  color: #FFFFFF;
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 600;
+}

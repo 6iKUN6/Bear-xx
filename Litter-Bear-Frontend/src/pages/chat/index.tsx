@@ -5,6 +5,7 @@ import MessageList from "../../components/MessageList";
 import ChatInput from "../../components/ChatInput";
 import { useChatStore } from "../../store/chatStore";
 import { sendMessage } from "../../api/chat";
+import "./index.scss";
 
 let idCounter = Date.now();
 function genMsgId(): string {
@@ -90,11 +91,11 @@ export default function ChatPage() {
   const messages = currentConversation?.messages || [];
 
   return (
-    <View className='flex flex-col h-screen bg-td-bg-page'>
-      <View className='flex-1 overflow-hidden'>
+    <View className='app-page chat-page'>
+      <View className='chat-page__body'>
         <MessageList messages={messages} />
       </View>
-      <View className='flex-shrink-0'>
+      <View className='chat-page__composer'>
         <ChatInput
           onSend={handleSend}
           onStop={() => abortRef.current?.abort()}

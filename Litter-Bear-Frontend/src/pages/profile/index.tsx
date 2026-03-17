@@ -5,6 +5,8 @@ import { useUserStore } from "../../store/userStore";
 import { useChatStore } from "../../store/chatStore";
 import { STORAGE_KEYS } from "../../utils/constants";
 import * as storage from "../../utils/storage";
+import { rpx } from "../../utils/style";
+import "./index.scss";
 
 export default function ProfilePage() {
   const { userInfo, isLoggedIn, logout } = useUserStore();
@@ -40,44 +42,44 @@ export default function ProfilePage() {
   };
 
   return (
-    <View className='flex flex-col min-h-screen bg-td-bg-page'>
-      <View className='flex-1 pb-[156rpx]'>
-        {/* Avatar & nickname header */}
-        <View className='mx-4 mt-4 rounded-td-lg shadow-td-sm overflow-hidden border border-td-border-base bg-white'>
-          <View className='flex flex-col items-center pt-[64rpx] pb-[52rpx] px-6 bg-td-bg-soft'>
+    <View className='app-page profile-page'>
+      <View className='app-page__body profile-page__body'>
+        <View className='app-surface profile-page__hero'>
+          <View className='profile-page__hero-header'>
             {userInfo?.avatarUrl ? (
               <Image
-                className='w-[136rpx] h-[136rpx] rounded-full mb-3 border-[3rpx] border-white'
+                className='profile-page__avatar'
                 src={userInfo.avatarUrl}
                 mode='aspectFill'
               />
             ) : (
-              <View className='w-[136rpx] h-[136rpx] rounded-full mb-3 bg-white border border-td-border-base' />
+              <View className='profile-page__avatar profile-page__avatar--placeholder' />
             )}
-            <Text className='text-[38rpx] font-semibold text-td-text-primary'>
+            <Text className='profile-page__nickname'>
               {userInfo?.nickname || "未登录"}
             </Text>
           </View>
         </View>
 
-        {/* Settings group card */}
-        <View className='mx-4 mt-4 bg-white rounded-td-lg shadow-td-sm overflow-hidden border border-td-border-base'>
+        <View className='app-surface profile-page__settings'>
           <View
-            className='flex items-center justify-between px-4 py-[28rpx] active:bg-td-bg-secondary transition-colors duration-150'
+            className='profile-page__setting-item'
             onClick={handleClearChat}
           >
-            <Text className='text-[32rpx] text-td-text-primary'>清除聊天记录</Text>
-            <Text className='at-icon at-icon-chevron-right text-[32rpx] text-td-text-disabled' />
+            <Text className='profile-page__setting-label'>清除聊天记录</Text>
+            <Text className='profile-page__setting-arrow at-icon at-icon-chevron-right' />
           </View>
-          <View className='hairline-b' style={{ marginLeft: "32rpx" }} />
+          <View className='hairline-b' style={{ marginLeft: rpx(32) }} />
           <View
-            className='flex items-center justify-between px-4 py-[28rpx] active:bg-td-bg-secondary transition-colors duration-150'
+            className='profile-page__setting-item'
             onClick={handleLoginOrLogout}
           >
-            <Text className={`text-[32rpx] ${isLoggedIn ? "text-td-danger" : "text-td-brand"}`}>
+            <Text
+              className={`profile-page__setting-label ${isLoggedIn ? "profile-page__setting-label--danger" : "profile-page__setting-label--brand"}`}
+            >
               {isLoggedIn ? "退出登录" : "去登录"}
             </Text>
-            <Text className='at-icon at-icon-chevron-right text-[32rpx] text-td-text-disabled' />
+            <Text className='profile-page__setting-arrow at-icon at-icon-chevron-right' />
           </View>
         </View>
       </View>

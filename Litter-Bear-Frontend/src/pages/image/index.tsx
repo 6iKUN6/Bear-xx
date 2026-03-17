@@ -1,16 +1,17 @@
 import { View, Text } from "@tarojs/components";
 import TabBar from "../../components/TabBar";
+import "./index.scss";
 
 export default function ImagePage() {
   return (
-    <View className='flex flex-col min-h-screen bg-td-bg-page'>
-      <View className='flex-1 flex flex-col items-center justify-center px-6 pb-[156rpx]'>
-        <View className='animate-fade-in-up w-full max-w-[640rpx] bg-white border border-td-border-base rounded-td-lg shadow-td-sm px-8 py-[72rpx]'>
-          <Text className='text-[120rpx] block text-center mb-4'>🎨</Text>
-          <Text className='text-[40rpx] font-semibold text-td-text-primary block text-center mb-2'>
+    <View className='app-page image-page'>
+      <View className='app-page__body image-page__body'>
+        <View className='app-surface image-page__card app-animate-fade-in-up'>
+          <Text className='image-page__icon'>🎨</Text>
+          <Text className='image-page__title'>
             AI 画图
           </Text>
-          <Text className='text-[28rpx] text-td-text-secondary block text-center'>
+          <Text className='image-page__subtitle'>
             功能开发中，敬请期待...
           </Text>
         </View>

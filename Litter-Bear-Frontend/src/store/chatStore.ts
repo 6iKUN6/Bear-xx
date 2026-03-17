@@ -1,7 +1,7 @@
-import { create } from "zustand";
 import * as storage from "../utils/storage";
 import { STORAGE_KEYS } from "../utils/constants";
 import * as chatApi from "../api/chat";
+import { createBoundStore } from "./createBoundStore";
 
 interface ChatState {
   conversations: Conversation[];
@@ -20,7 +20,7 @@ interface ChatState {
   hydrateConversations: () => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   conversations: [],
   currentConversation: null,
 

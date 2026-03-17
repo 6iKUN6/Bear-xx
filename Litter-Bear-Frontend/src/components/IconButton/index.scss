@@ -1,0 +1,36 @@
+.icon-button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  box-sizing: border-box;
+  transition: transform .15s ease, background-color .15s ease, color .15s ease;
+}
+
+.icon-button--sm {
+  width: 28px;
+  height: 28px;
+}
+
+.icon-button--md {
+  width: 36px;
+  height: 36px;
+}
+
+.icon-button--default {
+  background: #EEF3FF;
+  color: var(--td-brand);
+}
+
+.icon-button--primary {
+  background: var(--td-brand);
+  color: #FFFFFF;
+  box-shadow: var(--td-shadow-sm);
+}
+
+.icon-button--ghost {
+  background: #F7F8FA;
+  border: 1px solid var(--td-border-base);
+  color: var(--td-text-secondary);
+}

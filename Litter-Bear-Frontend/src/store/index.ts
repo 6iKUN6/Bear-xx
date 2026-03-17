@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { createBoundStore } from "./createBoundStore";
 
 interface AppState {
   count: number
@@ -7,7 +7,7 @@ interface AppState {
   reset: () => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = createBoundStore<AppState>((set) => ({
   count: 0,
   increment: () => set((state) => ({ count: state.count + 1 })),
   decrement: () => set((state) => ({ count: state.count - 1 })),
