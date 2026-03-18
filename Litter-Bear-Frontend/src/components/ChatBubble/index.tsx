@@ -1,5 +1,4 @@
 import { View, Text } from "@tarojs/components";
-import "./index.scss";
 
 interface ChatBubbleProps {
   message: Message;
@@ -10,17 +9,17 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
 
   return (
     <View
-      className={`chat-bubble app-animate-fade-in ${isUser ? "chat-bubble--user" : "chat-bubble--assistant"}`}
+      className={`app-animate-fade-in mb-rpx-24 flex px-rpx-32 ${isUser ? "justify-end" : "justify-start"}`}
     >
       <View
-        className={`chat-bubble__inner ${isUser ? "chat-bubble__inner--user" : "chat-bubble__inner--assistant"}`}
+        className={`max-w-[82%] box-border px-rpx-32 py-rpx-20 shadow-td-sm ${isUser ? "rounded-[20rpx_4rpx_20rpx_20rpx] bg-td-brand text-white" : "rounded-[4rpx_20rpx_20rpx_20rpx] border border-td-border-base bg-white text-td-text-primary"}`}
       >
-        <Text className='chat-bubble__text'>{message.content}</Text>
+        <Text className='whitespace-pre-wrap text-rpx-28 leading-[1.6]'>{message.content}</Text>
         {message.status === "streaming" && (
-          <Text className='chat-bubble__cursor'>▍</Text>
+          <Text className='ml-rpx-4 animate-blink text-td-text-tertiary'>▍</Text>
         )}
         {message.status === "error" && (
-          <Text className='chat-bubble__status'>发送失败</Text>
+          <Text className='mt-rpx-8 block text-rpx-24 text-td-danger'>发送失败</Text>
         )}
       </View>
     </View>

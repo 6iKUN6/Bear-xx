@@ -1,6 +1,5 @@
 import { View, Text } from "@tarojs/components";
 import useRecord, { RecordStatus } from "../../hooks/useRecord";
-import "./index.scss";
 
 interface VoiceButtonProps {
   onRecordComplete: (tempFilePath: string) => void;
@@ -31,12 +30,12 @@ export default function VoiceButton({
 
   return (
     <View
-      className={`voice-button ${isRecording ? "voice-button--recording" : ""}`}
+      className={`flex-1 min-h-rpx-80 flex items-center justify-center box-border rounded-td-pill-rpx border bg-td-bg-secondary ${isRecording ? "border-[#F8B5B3] bg-[#FFECEB]" : "border-td-border-base"}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <Text
-        className={`voice-button__label ${isRecording ? "voice-button__label--recording" : ""}`}
+        className={`select-none text-rpx-28 leading-none ${isRecording ? "text-td-danger" : "text-td-text-secondary"}`}
       >
         {isRecording ? "松开 结束" : "按住 说话"}
       </Text>

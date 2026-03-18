@@ -2,7 +2,6 @@ import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { loginByWechat } from "../../api/user";
 import { useUserStore } from "../../store/userStore";
-import "./index.scss";
 
 export default function LoginPage() {
   const login = useUserStore((s) => s.login);
@@ -23,24 +22,24 @@ export default function LoginPage() {
   };
 
   return (
-    <View className='app-page login-page'>
-      <View className='login-page__orb login-page__orb--top' />
-      <View className='login-page__orb login-page__orb--bottom' />
+    <View className='app-page relative items-center justify-center overflow-hidden px-rpx-48'>
+      <View className='pointer-events-none absolute -right-[120rpx] -top-[140rpx] h-[460rpx] w-[460rpx] rounded-td-pill-rpx bg-[#E2ECFF]' />
+      <View className='pointer-events-none absolute -bottom-[220rpx] -left-[160rpx] h-[560rpx] w-[560rpx] rounded-td-pill-rpx bg-[#D8E6FF]' />
 
-      <View className='app-surface login-page__card app-animate-fade-in-up'>
-        <Text className='login-page__logo'>🐻</Text>
-        <Text className='login-page__title'>
+      <View className='app-surface app-animate-fade-in-up relative w-full max-w-[640rpx] rounded-td-xl-rpx px-rpx-64 py-rpx-72 box-border'>
+        <Text className='mb-rpx-24 block text-center text-[120rpx] leading-none'>🐻</Text>
+        <Text className='mb-rpx-16 block text-center text-rpx-48 font-bold leading-[1.2] text-td-text-primary'>
           Litter Bear
         </Text>
-        <Text className='login-page__subtitle'>
+        <Text className='mb-rpx-96 block text-center text-rpx-28 leading-[1.5] text-td-text-secondary'>
           AI 智能助手
         </Text>
 
         <View
-          className='login-page__button'
+          className='w-full rounded-td-rpx bg-gradient-to-b from-[#1A67FF] to-[#0052D9] px-rpx-32 py-rpx-24 text-center shadow-[0_10rpx_24rpx_rgba(0,82,217,0.2)] box-border'
           onClick={handleLogin}
         >
-          <Text className='login-page__button-text'>微信登录</Text>
+          <Text className='text-rpx-32 font-semibold leading-[1.2] text-white'>微信登录</Text>
         </View>
       </View>
     </View>

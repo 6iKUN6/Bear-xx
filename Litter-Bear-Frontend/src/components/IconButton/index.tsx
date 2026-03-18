@@ -1,6 +1,5 @@
 import { type ReactNode } from "react";
 import { View } from "@tarojs/components";
-import "./index.scss";
 
 interface IconButtonProps {
   icon: ReactNode;
@@ -17,9 +16,17 @@ export default function IconButton({
   onClick,
   className = "",
 }: IconButtonProps) {
+  const sizeClass = size === "sm" ? "w-rpx-56 h-rpx-56" : "w-rpx-72 h-rpx-72";
+  const variantClass =
+    variant === "default"
+      ? "bg-td-bg-soft text-td-brand"
+      : variant === "primary"
+        ? "bg-td-brand text-white shadow-td-sm"
+        : "bg-td-bg-secondary border border-td-border-base text-td-text-secondary";
+
   return (
     <View
-      className={`icon-button icon-button--${size} icon-button--${variant} ${className}`.trim()}
+      className={`shrink-0 inline-flex items-center justify-center rounded-td-pill-rpx box-border transition-transform transition-colors duration-150 ${sizeClass} ${variantClass} ${className}`.trim()}
       onClick={onClick}
     >
       {icon}

@@ -3,8 +3,8 @@ import Taro, { useLaunch } from "@tarojs/taro";
 import { useUserStore } from "./store/userStore";
 import { useChatStore } from "./store/chatStore";
 
-import "./app.css";
 import "./app.scss";
+import "./app.css";
 
 // type LegacySystemInfoOptions = {
 //   success?: (res: Record<string, any>) => void;
