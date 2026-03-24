@@ -2,7 +2,6 @@ import {
   Controller,
   Post,
   Body,
-  Req,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -11,7 +10,6 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { SseRequest } from '../../common/sse';
 import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
@@ -25,7 +23,6 @@ import { VoiceCompletionsDto } from './dto/voice-completions.dto';
 import { ImageGenerationDto } from './dto/image-generation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Sse, SseInterceptor } from '../../common/sse';
 
 @ApiTags('聊天')
 @ApiBearerAuth()
@@ -37,56 +34,45 @@ export class ChatController {
   @Post('completions')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  @Sse()
-  @UseInterceptors(SseInterceptor)
   @ApiOperation({
-    summary: 'AI 流式聊天',
-    description: 'SSE 流式返回 AI 回复，支持断线重连',
+    summary: '创建 AI 聊天任务',
+    description:
+      '创建可恢复的 SSE 聊天任务，随后使用 /sse-tasks/:taskId/stream 或 /resume 建链',
   })
   async completions(
     @Body() dto: ChatCompletionsDto,
     @CurrentUser('id') userId: string,
-    @Req() req: SseRequest,
   ) {
-    const signal = req.__sseAbortSignal;
-
-    return this.chatService.streamCompletion(
+    return this.chatService.createCompletionTask(
       dto.conversationId,
       dto.content,
       userId,
-      signal,
     );
   }
 
   @Post('voice-completions')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  @Sse()
-  @UseInterceptors(SseInterceptor, FileInterceptor('audio'))
+  @UseInterceptors(FileInterceptor('audio'))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: '语音流式聊天',
-    description: '上传音频文件，Whisper 转文字后 SSE 流式返回 AI 回复',
+    summary: '创建语音聊天任务',
+    description: '上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务',
   })
-  async voiceCompletions(
+  voiceCompletions(
     @Body() dto: VoiceCompletionsDto,
     @UploadedFile() audio: Express.Multer.File,
     @CurrentUser('id') userId: string,
-    @Req() req: Request,
   ) {
     if (!audio) {
       throw new BadRequestException('音频文件不能为空');
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    const signal = (req as any).__sseAbortSignal as AbortSignal | undefined;
-
-    return this.chatService.voiceCompletion(
+    return this.chatService.createVoiceTask(
       dto.conversationId,
       audio.buffer,
       audio.originalname,
       userId,
-      signal,
     );
   }
 

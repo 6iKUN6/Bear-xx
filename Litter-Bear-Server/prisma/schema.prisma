@@ -17,6 +17,7 @@ model User {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   conversations Conversation[]
+  sseTasks      SseTask[]
 
   @@map("users")
 }
@@ -27,6 +28,7 @@ model Conversation {
   userId    String    @map("user_id")
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
+  sseTasks   SseTask[]
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
@@ -43,9 +45,37 @@ model Message {
   conversationId String        @map("conversation_id")
   conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   createdAt      DateTime      @default(now()) @map("created_at")
+  sseTasks       SseTask[]
 
   @@index([conversationId])
   @@map("messages")
+}
+
+model SseTask {
+  id              String        @id @default(cuid())
+  type            SseTaskType
+  status          SseTaskStatus @default(PENDING)
+  userId          String        @map("user_id")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId  String        @map("conversation_id")
+  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId       String        @map("message_id")
+  message         Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  requestPayload  Json          @map("request_payload")
+  lastEventId     Int           @default(0) @map("last_event_id")
+  fullContent     String        @default("") @db.Text @map("full_content")
+  errorMessage    String?       @db.Text @map("error_message")
+  startedAt       DateTime?     @map("started_at")
+  lastHeartbeatAt DateTime?     @map("last_heartbeat_at")
+  completedAt     DateTime?     @map("completed_at")
+  expiresAt       DateTime      @map("expires_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([userId, status])
+  @@index([conversationId])
+  @@index([messageId])
+  @@map("sse_tasks")
 }
 
 enum MessageRole {
@@ -54,8 +84,24 @@ enum MessageRole {
 }
 
 enum MessageStatus {
+  STREAMING
   DONE
   ERROR
+}
+
+enum SseTaskType {
+  CHAT_COMPLETION
+  VOICE_COMPLETION
+}
+
+enum SseTaskStatus {
+  PENDING
+  STREAMING
+  PAUSED
+  COMPLETED
+  ERROR
+  EXPIRED
+  CANCELED
 }
 
 model SmsCode {

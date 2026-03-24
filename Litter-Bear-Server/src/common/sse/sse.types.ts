@@ -2,6 +2,7 @@ import type { Request } from 'express';
 
 export interface SseRequest extends Request {
   __sseAbortSignal?: AbortSignal;
+  __sseLastEventId?: number;
 }
 
 export interface SseEvent {
