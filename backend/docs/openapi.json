@@ -1,0 +1,819 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/auth/wechat-login": {
+      "post": {
+        "description": "使用微信 code 换取 JWT Token",
+        "operationId": "AuthController_wechatLogin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WechatLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "微信登录",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/auth/phone/send-code": {
+      "post": {
+        "description": "向指定手机号发送短信验证码，60秒内不可重复发送",
+        "operationId": "AuthController_sendCode",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "发送手机验证码",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/auth/phone/login": {
+      "post": {
+        "description": "使用手机号 + 验证码登录，自动注册新用户",
+        "operationId": "AuthController_phoneLogin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "手机号登录",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "description": "使用 Refresh Token 换取新的 Access Token",
+        "operationId": "AuthController_refresh",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "刷新令牌",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "description": "将当前 Access Token 加入黑名单",
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "登出",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/user/profile": {
+      "get": {
+        "operationId": "UserController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取当前用户信息",
+        "tags": [
+          "用户"
+        ]
+      },
+      "patch": {
+        "description": "可更新昵称和头像",
+        "operationId": "UserController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新用户资料",
+        "tags": [
+          "用户"
+        ]
+      }
+    },
+    "/conversations": {
+      "get": {
+        "description": "返回当前用户的所有会话及消息列表",
+        "operationId": "ConversationController_findAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取所有会话",
+        "tags": [
+          "会话"
+        ]
+      },
+      "post": {
+        "operationId": "ConversationController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建新会话",
+        "tags": [
+          "会话"
+        ]
+      }
+    },
+    "/conversations/{id}": {
+      "delete": {
+        "description": "删除指定会话及其所有消息",
+        "operationId": "ConversationController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除会话",
+        "tags": [
+          "会话"
+        ]
+      }
+    },
+    "/chat/completions": {
+      "post": {
+        "description": "创建可恢复的 SSE 聊天任务，随后使用 /sse-tasks/:taskId/stream 或 /resume 建链",
+        "operationId": "ChatController_completions",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建 AI 聊天任务",
+        "tags": [
+          "聊天"
+        ]
+      }
+    },
+    "/chat/voice-completions": {
+      "post": {
+        "description": "上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务",
+        "operationId": "ChatController_voiceCompletions",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceCompletionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建语音聊天任务",
+        "tags": [
+          "聊天"
+        ]
+      }
+    },
+    "/chat/image-generations": {
+      "post": {
+        "description": "使用 DALL-E 3 生成图片",
+        "operationId": "ChatController_imageGenerations",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageGenerationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "AI 图片生成",
+        "tags": [
+          "聊天"
+        ]
+      }
+    },
+    "/sse-tasks/{taskId}": {
+      "get": {
+        "operationId": "SseTaskController_getTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "查询 SSE 任务状态",
+        "tags": [
+          "SSE 任务"
+        ]
+      }
+    },
+    "/sse-tasks/{taskId}/stream": {
+      "get": {
+        "operationId": "SseTaskController_streamTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "浏览器 SSE 建链/恢复",
+        "tags": [
+          "SSE 任务"
+        ]
+      }
+    },
+    "/sse-tasks/{taskId}/resume": {
+      "post": {
+        "operationId": "SseTaskController_resumeTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeSseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "微信小程序/通用客户端恢复 SSE",
+        "tags": [
+          "SSE 任务"
+        ]
+      }
+    },
+    "/sse-tasks/{taskId}/cancel": {
+      "post": {
+        "operationId": "SseTaskController_cancelTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "取消 SSE 任务",
+        "tags": [
+          "SSE 任务"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "检查数据库和 Redis 连接状态",
+        "operationId": "HealthController_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "The Health Check is successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {},
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Health Check is not successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "error"
+                    },
+                    "info": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "example": {
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      "nullable": true
+                    },
+                    "details": {
+                      "type": "object",
+                      "example": {
+                        "database": {
+                          "status": "up"
+                        },
+                        "redis": {
+                          "status": "down",
+                          "message": "Could not connect"
+                        }
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ],
+                        "properties": {
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "健康检查",
+        "tags": [
+          "健康检查"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Litter Bear API",
+    "description": "Litter Bear 后端接口文档",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "WechatLoginDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "微信登录临时凭证 code",
+            "example": "0a1B2c3D4e5F6g"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "SendCodeDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "手机号码",
+            "example": "13812345678"
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      },
+      "PhoneLoginDto": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "手机号码",
+            "example": "13812345678"
+          },
+          "code": {
+            "type": "string",
+            "description": "6位短信验证码",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "phone",
+          "code"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "description": "刷新令牌",
+            "example": "eyJhbGciOiJIUzI1NiIs..."
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "description": "用户昵称",
+            "example": "小熊同学"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "头像 URL",
+            "example": "https://example.com/avatar.png"
+          }
+        }
+      },
+      "CreateConversationDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "会话标题",
+            "example": "新对话"
+          }
+        }
+      },
+      "ChatCompletionsDto": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "conv_abc123"
+          },
+          "content": {
+            "type": "string",
+            "description": "用户消息内容",
+            "example": "你好，请帮我写一首诗"
+          }
+        },
+        "required": [
+          "conversationId",
+          "content"
+        ]
+      },
+      "VoiceCompletionsDto": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "conv_abc123"
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      },
+      "ImageGenerationDto": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "conv_abc123"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "图片生成提示词",
+            "example": "一只可爱的小熊在森林里散步",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "conversationId",
+          "prompt"
+        ]
+      },
+      "ResumeSseDto": {
+        "type": "object",
+        "properties": {
+          "lastEventId": {
+            "type": "number",
+            "description": "客户端已收到的最后一个事件 ID",
+            "example": 12
+          }
+        }
+      }
+    }
+  }
+}

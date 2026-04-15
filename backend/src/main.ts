@@ -1,8 +1,9 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { createSwaggerDocument } from './swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -18,13 +19,7 @@ async function bootstrap() {
 
   app.enableCors();
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Litter Bear API')
-    .setDescription('Litter Bear 后端接口文档')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  const document = createSwaggerDocument(app);
   SwaggerModule.setup('api-docs', app, document);
 
   const preferredPort = Number(process.env.PORT) || 3000;
