@@ -11,6 +11,7 @@
   },
   "scripts": {
     "new": "taro new",
+    "generate:api": "node ./scripts/generate-api.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "build:weapp": "taro build --type weapp",
     "build:swan": "taro build --type swan",
@@ -70,6 +71,7 @@
     "@types/minimatch": "^5",
     "@types/react": "^18.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "ejs": "^3.1.10",
     "autoprefixer": "^10.4.27",
     "babel-preset-taro": "4.1.11",
     "eslint": "^8.57.0",
