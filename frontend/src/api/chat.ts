@@ -1,9 +1,23 @@
-import Taro from "@tarojs/taro";
-import { API_BASE_URL, USE_MOCK, STORAGE_KEYS } from "../utils/constants";
+import { USE_MOCK, STORAGE_KEYS } from "../utils/constants";
 import * as storage from "../utils/storage";
-import { get, post } from "./request";
+import { api } from "./generated";
 
 let mockIdCounter = Date.now();
+
+interface ChatTaskResult {
+  taskId: string;
+  messageId: string;
+  status: string;
+}
+
+interface StreamPayload {
+  taskId?: string;
+  messageId?: string;
+  delta?: string;
+  content?: string;
+  message?: string;
+}
+
 function genId(): string {
   return "id_" + ++mockIdCounter;
 }
@@ -15,40 +29,58 @@ const MOCK_REPLIES = [
   "这个话题很有趣！我可以提供一些相关的见解和建议。",
 ];
 
+function asStreamPayload(data: unknown): StreamPayload {
+  if (typeof data === "string") {
+    try {
+      return JSON.parse(data) as StreamPayload;
+    } catch {
+      return {};
+    }
+  }
+
+  if (data && typeof data === "object") {
+    return data as StreamPayload;
+  }
+
+  return {};
+}
+
 export async function getConversations(): Promise<Conversation[]> {
   if (USE_MOCK) {
     return storage.get<Conversation[]>(STORAGE_KEYS.CONVERSATIONS) || [];
   }
-  return get<Conversation[]>("/conversations");
+
+  return (await api.findAll()) as Conversation[];
 }
 
 export async function createConversation(): Promise<Conversation> {
   if (USE_MOCK) {
-    const conv: Conversation = {
+    return {
       id: genId(),
       title: "新对话",
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    return conv;
   }
-  return post<Conversation>("/conversations");
+
+  return (await api.create({})) as Conversation;
 }
 
 export async function deleteConversation(id: string): Promise<void> {
   if (USE_MOCK) {
     return;
   }
-  await post("/conversations/delete", { id });
+
+  await api.delete({ id });
 }
 
 export function sendMessage(
-  _conversationId: string,
+  conversationId: string,
   content: string,
   onChunk: (text: string) => void,
   onDone: () => void,
-  onError: (err: string) => void
+  onError: (err: string) => void,
 ): { abort: () => void } {
   if (USE_MOCK) {
     const reply =
@@ -61,6 +93,7 @@ export function sendMessage(
         clearInterval(timer);
         return;
       }
+
       if (index < reply.length) {
         onChunk(reply[index]);
         index++;
@@ -78,69 +111,106 @@ export function sendMessage(
     };
   }
 
-  // 真实模式：HTTP Chunked 流式请求
-  const token = storage.get<string>(STORAGE_KEYS.TOKEN);
-  const requestTask = Taro.request({
-    url: `${API_BASE_URL}/chat/completions`,
-    method: "POST",
-    enableChunked: true,
-    header: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    data: { conversationId: _conversationId, content },
-    success() {
-      onDone();
-    },
-    fail(err) {
-      onError(err.errMsg || "请求失败");
-    },
-  });
+  let taskId = "";
+  let settled = false;
+  let aborted = false;
+  let streamHandle: { abort: () => void } | null = null;
 
-  requestTask.onChunkReceived?.((res) => {
-    try {
-      const text = arrayBufferToString(res.data as ArrayBuffer);
-      // 解析 SSE 格式数据
-      const lines = text.split("\n");
-      for (const line of lines) {
-        if (line.startsWith("data:")) {
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") {
-            onDone();
-            return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            const chunk = parsed.choices?.[0]?.delta?.content;
-            if (chunk) {
-              onChunk(chunk);
-            }
-          } catch {
-            // 非 JSON 行，忽略
-          }
-        }
-      }
-    } catch {
-      // 解析异常，忽略
+  const finishDone = () => {
+    if (settled) {
+      return;
     }
-  });
+    settled = true;
+    onDone();
+  };
+
+  const finishError = (message: string) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    onError(message);
+  };
+
+  void api
+    .completions({ conversationId, content })
+    .then((result) => {
+      const task = result as ChatTaskResult;
+      if (!task?.taskId) {
+        throw new Error("未拿到可恢复的聊天任务 ID");
+      }
+
+      taskId = task.taskId;
+
+      if (aborted) {
+        streamHandle?.abort();
+        void api.cancelTask({ taskId }).catch(() => {});
+        return;
+      }
+
+      streamHandle = api.resumeTask(
+        {
+          taskId,
+          body: {},
+        },
+        {
+          onMessage(event) {
+            const payload = asStreamPayload(event.data);
+
+            if (event.event === "message.delta" && payload.delta) {
+              onChunk(payload.delta);
+              return;
+            }
+
+            if (
+              event.event === "message.done" ||
+              event.event === "task.completed"
+            ) {
+              finishDone();
+              return;
+            }
+
+            if (event.event === "task.error") {
+              finishError(payload.message || "聊天任务执行失败");
+              return;
+            }
+
+            if (event.event === "task.expired") {
+              finishError("聊天任务已过期");
+              return;
+            }
+
+            if (event.event === "task.canceled") {
+              finishError("聊天任务已取消");
+            }
+          },
+          onDone() {
+            finishDone();
+          },
+          onError(error) {
+            finishError(error.message || "流式请求失败");
+          },
+        },
+      );
+
+      if (aborted) {
+        streamHandle.abort();
+      }
+    })
+    .catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : "创建聊天任务失败";
+      finishError(message);
+    });
 
   return {
     abort() {
-      requestTask.abort();
+      aborted = true;
+      streamHandle?.abort();
+
+      if (taskId) {
+        void api.cancelTask({ taskId }).catch(() => {});
+      }
     },
   };
-}
-
-function arrayBufferToString(buffer: ArrayBuffer): string {
-  const uint8Array = new Uint8Array(buffer);
-  let result = "";
-  for (let i = 0; i < uint8Array.length; i++) {
-    result += String.fromCharCode(uint8Array[i]);
-  }
-  try {
-    return decodeURIComponent(escape(result));
-  } catch {
-    return result;
-  }
 }

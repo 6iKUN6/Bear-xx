@@ -1,5 +1,5 @@
 import { USE_MOCK } from "../utils/constants";
-import { post, get } from "./request";
+import { api } from "./generated";
 
 export async function loginByWechat(code: string): Promise<LoginResult> {
   if (USE_MOCK) {
@@ -8,12 +8,12 @@ export async function loginByWechat(code: string): Promise<LoginResult> {
       user: {
         id: "user_001",
         nickname: "小熊用户",
-        avatarUrl:
-          "https://img.yzcdn.cn/vant/cat.jpeg",
+        avatarUrl: "https://img.yzcdn.cn/vant/cat.jpeg",
       },
     };
   }
-  return post<LoginResult>("/auth/wechat-login", { code });
+
+  return (await api.wechatLogin({ code })) as LoginResult;
 }
 
 export async function getUserProfile(): Promise<User> {
@@ -21,9 +21,9 @@ export async function getUserProfile(): Promise<User> {
     return {
       id: "user_001",
       nickname: "小熊用户",
-      avatarUrl:
-        "https://img.yzcdn.cn/vant/cat.jpeg",
+      avatarUrl: "https://img.yzcdn.cn/vant/cat.jpeg",
     };
   }
-  return get<User>("/user/profile");
+
+  return (await api.getProfile()) as User;
 }
