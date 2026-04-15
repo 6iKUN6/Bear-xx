@@ -22,6 +22,7 @@ export default {
     ],
     useEmoji: false,
     scopes: [
+      { value: "all", name: "all:      所有" },
       { value: "fe", name: "fe:       前端" },
       { value: "be", name: "be:       后端" },
       { value: "ci", name: "ci:       CI/CD" },
