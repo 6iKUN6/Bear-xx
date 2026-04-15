@@ -1,0 +1,402 @@
+@import "weapp-tailwindcss/theme.css" layer(theme);
+@import "weapp-tailwindcss/utilities.css" layer(utilities);
+
+@layer theme, base, components, utilities;
+@config "../tailwind.config.js";
+
+@layer base {
+  :root {
+    --lb-bg-start: #eef2ff;
+    --lb-bg-mid: #f5ecff;
+    --lb-bg-end: #fff0f6;
+    --lb-surface: #ffffff;
+    --lb-surface-strong: #ffffff;
+    --lb-surface-border: rgba(255, 255, 255, 0.8);
+    --lb-line-soft: rgba(196, 181, 253, 0.26);
+    --lb-text-primary: #111827;
+    --lb-text-secondary: #6b7280;
+    --lb-text-muted: #9ca3af;
+    --lb-grad-a: #7c3aed;
+    --lb-grad-b: #ec4899;
+    --lb-grad-c: #4f46e5;
+    --lb-grad-warm-a: #facc15;
+    --lb-grad-warm-b: #fb923c;
+    --lb-danger: #dc2626;
+    --lb-shadow-soft: 0 14px 34px rgba(124, 58, 237, 0.08);
+    --lb-shadow-card: 0 8px 24px rgba(124, 58, 237, 0.06);
+    --lb-shadow-glow: 0 16px 42px rgba(124, 58, 237, 0.28);
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  html,
+  body {
+    width: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    color: var(--lb-text-primary);
+    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+    font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+
+  #app {
+    width: 100%;
+    min-height: 100%;
+    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+    position: relative;
+    overflow: hidden;
+  }
+
+  #app > div,
+  #app .taro_router,
+  #app .taro_page {
+    width: 100%;
+    min-height: 100%;
+  }
+
+  page {
+    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+    color: var(--lb-text-primary);
+    font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  image,
+  img,
+  svg {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  .taro_page {
+    min-height: 100%;
+    width: 100%;
+    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  }
+
+  .taro_page .flex {
+    display: flex !important;
+  }
+
+  .taro_page .inline-flex {
+    display: inline-flex !important;
+  }
+
+  .taro_page .grid {
+    display: grid !important;
+  }
+
+  .taro_page .inline-grid {
+    display: inline-grid !important;
+  }
+
+  .taro_page .block {
+    display: block !important;
+  }
+
+  .taro_page .inline-block {
+    display: inline-block !important;
+  }
+
+  .taro_page .inline {
+    display: inline !important;
+  }
+
+  .taro_page .hidden {
+    display: none !important;
+  }
+}
+
+@layer components {
+  .app-page {
+    min-height: 100vh;
+    width: 100%;
+    max-width: 390px;
+    margin: 0 auto;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+  }
+
+  .app-page__body {
+    flex: 1 1 auto;
+    position: relative;
+    box-sizing: border-box;
+    padding-bottom: 104px;
+  }
+
+  .app-screen {
+    position: relative;
+    width: 100%;
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    padding-bottom: 104px;
+  }
+
+  .app-glass-card {
+    background: var(--lb-surface);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 24px;
+    box-shadow: var(--lb-shadow-card);
+  }
+
+  .app-glass-card-strong {
+    background: var(--lb-surface-strong);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 32px;
+    box-shadow: var(--lb-shadow-soft);
+  }
+
+  .app-gradient-text {
+    background-image: linear-gradient(90deg, var(--lb-grad-a), var(--lb-grad-b), var(--lb-grad-c));
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+  }
+
+  .app-gradient-surface {
+    background-image: linear-gradient(135deg, var(--lb-grad-a), var(--lb-grad-b), var(--lb-grad-c));
+    color: #fff;
+  }
+
+  .app-gradient-surface-warm {
+    background-image: linear-gradient(135deg, var(--lb-grad-warm-a), var(--lb-grad-warm-b));
+    color: #fff;
+  }
+
+  .app-hero {
+    padding: 24px 24px 16px;
+  }
+
+  .app-hero-title {
+    display: block;
+    margin: 0 0 8px;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.2;
+    background-image: linear-gradient(90deg, var(--lb-grad-a), var(--lb-grad-b), var(--lb-grad-c));
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+  }
+
+  .app-hero-subtitle {
+    display: block;
+    margin: 0;
+    color: var(--lb-text-secondary);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .app-icon-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background-image: linear-gradient(135deg, var(--lb-grad-a), var(--lb-grad-b), var(--lb-grad-c));
+    color: #fff;
+    box-shadow: 0 14px 28px rgba(124, 58, 237, 0.24);
+  }
+
+  .app-hairline {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(196, 181, 253, 0.46), transparent);
+  }
+
+  .app-nav-capsule {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.7);
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.1);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .app-nav-capsule__inner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(107, 114, 128, 0.9);
+  }
+
+  .app-nav-capsule__dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .app-nav-capsule__line {
+    width: 1px;
+    height: 12px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.35;
+  }
+
+  .app-fab-pulse {
+    animation: app-fab-pulse 3s ease-in-out infinite;
+  }
+
+  .app-float {
+    animation: app-float 4s ease-in-out infinite;
+  }
+
+  .app-float-delayed {
+    animation: app-float 5s ease-in-out infinite 0.6s;
+  }
+
+  .app-twinkle {
+    animation: app-twinkle 2s ease-in-out infinite;
+  }
+
+  .app-spin-slow {
+    animation: app-spin-slow 8s linear infinite;
+  }
+
+  .app-loading-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    animation: app-loading-bounce 0.9s ease-in-out infinite;
+  }
+
+  .app-loading-dot:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .app-loading-dot:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  .app-blur-orb {
+    position: absolute;
+    border-radius: 999px;
+    filter: blur(40px);
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  .app-soft-input {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(196, 181, 253, 0.34);
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.08);
+  }
+
+  .app-solid-nav {
+    background: rgba(255, 255, 255, 0.96);
+    border-bottom: 1px solid rgba(17, 24, 39, 0.06);
+    box-shadow: 0 4px 12px rgba(17, 24, 39, 0.04);
+  }
+
+  .app-text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@layer utilities {
+  .hairline-t {
+    border-top: 1px solid rgba(196, 181, 253, 0.24);
+  }
+
+  .hairline-b {
+    border-bottom: 1px solid rgba(196, 181, 253, 0.24);
+  }
+
+  .hairline-l {
+    border-left: 1px solid rgba(196, 181, 253, 0.24);
+  }
+
+  .hairline-r {
+    border-right: 1px solid rgba(196, 181, 253, 0.24);
+  }
+}
+
+@keyframes app-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes app-twinkle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  35% {
+    transform: rotate(12deg) scale(1.06);
+  }
+
+  70% {
+    transform: rotate(-12deg) scale(0.96);
+  }
+}
+
+@keyframes app-spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes app-fab-pulse {
+  0%,
+  100% {
+    box-shadow: 0 20px 60px -15px rgba(124, 58, 237, 0.45);
+  }
+
+  33% {
+    box-shadow: 0 20px 60px -15px rgba(236, 72, 153, 0.42);
+  }
+
+  66% {
+    box-shadow: 0 20px 60px -15px rgba(79, 70, 229, 0.42);
+  }
+}
+
+@keyframes app-loading-bounce {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.45;
+  }
+
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}

@@ -1,0 +1,407 @@
+# FRONTEND_AGENT.md
+
+## 目的
+
+本文件用于约束与 `Litter-Bear-Server` 对接的前端开发规范。
+
+目标：
+
+- 保持前后端协议理解一致
+- 降低浏览器和微信小程序联调成本
+- 避免因为 SSE、鉴权、统一响应格式理解不一致而反复返工
+
+这份文件面向：
+
+- Web 前端
+- 微信小程序前端
+- 负责联调的客户端开发者
+
+## 当前后端事实
+
+当前后端是 NestJS 服务，接口文档地址：
+
+- `/api-docs`
+
+全局约束：
+
+- 普通 HTTP 接口返回统一结构
+- SSE 接口不走统一包裹
+- 认证使用 JWT Bearer Token
+- 聊天已经改成“先创建任务，再消费 SSE”
+
+## 前端开发原则
+
+### 1. 先按协议实现，不靠猜
+
+所有接口字段、SSE 事件名、返回结构，都应以 Swagger 和后端文档为准。
+
+不要根据旧版本接口习惯自行脑补：
+
+- 聊天接口现在不是直接返回流
+- 创建任务接口和消费流接口已经拆开
+- 浏览器和微信小程序的 SSE 方式不完全相同
+
+### 2. 前端状态要围绕任务而不是请求
+
+对于聊天流式生成，前端应围绕 `taskId` 管理状态，而不是围绕一次 `fetch` 请求管理状态。
+
+推荐状态主键：
+
+- `conversationId`
+- `messageId`
+- `taskId`
+
+### 3. 所有异常都要可见
+
+不要把请求失败、SSE 断流、token 失效、任务过期静默吞掉。
+
+至少要做到：
+
+- 控制台有日志
+- UI 有错误态
+- 可以触发重试或重新发起任务
+
+## HTTP 接口约定
+
+### 1. 普通接口统一返回格式
+
+普通 HTTP 接口统一返回：
+
+```json
+{
+  "code": 200,
+  "data": {},
+  "message": "success"
+}
+```
+
+因此前端请求封装层需要统一解包 `data`，不要每个页面手写一套解析逻辑。
+
+推荐封装：
+
+- 成功时返回 `response.data.data`
+- 非 200/非预期结构时统一抛错
+
+### 2. SSE 接口不是这个结构
+
+SSE 接口返回 `text/event-stream`，不走上面的 `code/data/message` 包裹。
+
+不要把 SSE 响应当普通 JSON 请求处理。
+
+## 鉴权规范
+
+### 1. Token 使用
+
+当前涉及：
+
+- `token`：access token
+- `refreshToken`：refresh token
+
+前端应明确区分，不要混用。
+
+### 2. 受保护接口
+
+除登录、发验证码、刷新 token、健康检查外，大部分业务接口都需要带：
+
+```http
+Authorization: Bearer <token>
+```
+
+### 3. 刷新策略
+
+推荐策略：
+
+1. 请求遇到 401
+2. 尝试调用 `/auth/refresh`
+3. 刷新成功后重放原请求
+4. 刷新失败则清理登录态并跳登录页
+
+不要在多个页面各自实现一套刷新逻辑。
+
+## 模块联调规范
+
+### 1. 认证
+
+当前认证接口：
+
+- `POST /auth/wechat-login`
+- `POST /auth/phone/send-code`
+- `POST /auth/phone/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+
+前端约束：
+
+- 登录成功后统一保存 `token` 和 `refreshToken`
+- 登出时主动调用 `/auth/logout`
+- 不要只删本地 token 而不通知服务端
+
+### 2. 用户
+
+当前接口：
+
+- `GET /user/profile`
+- `PATCH /user/profile`
+
+前端约束：
+
+- 编辑资料页提交字段应只传用户真正修改的内容
+- 不要传空字符串去覆盖未编辑字段，除非产品就是这么定义的
+
+### 3. 会话
+
+当前接口：
+
+- `GET /conversations`
+- `POST /conversations`
+- `DELETE /conversations/:id`
+
+当前 `GET /conversations` 会返回会话及消息列表。
+
+前端约束：
+
+- 列表页应以 `updatedAt` 排序展示
+- 删除会话后要同步清理本地会话状态和当前选中状态
+- 会话页进入时优先读接口返回，不要假设本地缓存一定可信
+
+### 4. 图片生成
+
+当前接口：
+
+- `POST /chat/image-generations`
+
+前端约束：
+
+- 这不是 SSE 接口
+- 结果应视为普通消息结果处理
+- 成功后应把生成出的图片消息同步到当前会话 UI
+
+## SSE 联调规范
+
+这是当前最重要的前端约束。
+
+### 1. 聊天流程不是“一次请求直接出流”
+
+当前正确流程：
+
+1. `POST /chat/completions`
+2. 后端返回 `taskId`、`messageId`、`status`
+3. 前端再根据运行环境连接 SSE
+4. 收到流式事件后更新 UI
+
+语音任务流程类似：
+
+1. `POST /chat/voice-completions`
+2. 拿到 `taskId`
+3. 再连接或恢复 SSE
+
+### 2. 浏览器接法
+
+浏览器优先使用：
+
+- `GET /sse-tasks/:taskId/stream`
+
+恢复时可以依赖：
+
+- `Last-Event-ID`
+- 或 query `cursor`
+
+如果浏览器端使用 `EventSource`，要注意：
+
+- 原生 `EventSource` 对 header 控制有限
+- 若需要更强控制，可自己用流式请求方案
+
+### 3. 微信小程序接法
+
+微信小程序优先使用：
+
+- `POST /sse-tasks/:taskId/resume`
+
+body 示例：
+
+```json
+{
+  "lastEventId": 12
+}
+```
+
+前端职责：
+
+- 自己解析 SSE chunk
+- 自己保存 `lastEventId`
+- 断线后按指数退避重连
+
+### 4. 任务查询接口
+
+当前接口：
+
+- `GET /sse-tasks/:taskId`
+
+前端用途：
+
+- 页面重进时查询任务状态
+- App 恢复前台时确认任务是否还可恢复
+- 判断当前任务是继续连流，还是直接渲染最终结果
+
+### 5. 取消任务
+
+当前接口：
+
+- `POST /sse-tasks/:taskId/cancel`
+
+前端约束：
+
+- 用户点击“停止生成”后应调用该接口
+- 本地 UI 要同步切到“已停止”或“已取消”状态
+- 不要只关闭前端连接，不通知后端
+
+## SSE 事件处理规范
+
+当前后端设计中的事件类型包括：
+
+- `task.started`
+- `message.delta`
+- `message.done`
+- `task.completed`
+- `task.error`
+- `task.expired`
+- `task.canceled`
+
+前端处理建议：
+
+- `task.started`：标记任务进入流式状态
+- `message.delta`：追加增量文本
+- `message.done`：写入最终文本并关闭“生成中”状态
+- `task.completed`：任务完成，收尾
+- `task.error`：展示错误态
+- `task.expired`：提示用户重新发起任务
+- `task.canceled`：标记为已取消
+
+### 重要约束
+
+不要只依赖一个事件名判断一切。
+
+前端状态应同时考虑：
+
+- 当前任务状态
+- 当前消息是否已完成
+- 当前连接是否关闭
+
+## 前端本地状态建议
+
+建议至少维护以下状态：
+
+- `accessToken`
+- `refreshToken`
+- `currentConversationId`
+- `messagesByConversation`
+- `taskByMessageId`
+- `lastEventIdByTaskId`
+- `connectionStateByTaskId`
+
+对流式消息，推荐消息状态至少区分：
+
+- `pending`
+- `streaming`
+- `done`
+- `error`
+- `canceled`
+
+## UI 交互建议
+
+### 1. 聊天发送
+
+发送消息后不要等 SSE 回来再插入 assistant 占位。
+
+建议：
+
+- 先插入 user message
+- 插入 assistant 占位消息
+- 创建任务
+- 绑定 `taskId` 到该 assistant message
+- 随流式事件更新内容
+
+### 2. 页面重进恢复
+
+若页面重进时存在未结束任务：
+
+1. 查任务状态
+2. 若仍可恢复，则继续连流
+3. 若已完成，则直接展示最终内容
+4. 若已过期/失败，则展示错误态
+
+### 3. 弱网和断线
+
+前端应假设移动端弱网是常态。
+
+至少做到：
+
+- 连接异常时不立即丢弃任务
+- 保存 `lastEventId`
+- 自动重试
+- 重试失败后给出手动恢复入口
+
+## 微信小程序特别说明
+
+微信小程序端不要默认浏览器那套 SSE 能力完全可用。
+
+实现时优先考虑：
+
+- `POST /sse-tasks/:taskId/resume`
+- 请求体带 `lastEventId`
+- 自己做 chunk 解析
+- 自己管理重连
+
+不要把浏览器 `EventSource` 逻辑原样照搬到小程序。
+
+## 与后端协作的变更纪律
+
+以下内容如果发生变更，前端实现必须同步检查：
+
+- DTO 字段名
+- 接口路径
+- token 字段名
+- SSE 事件名
+- SSE `data` 内容结构
+- 任务状态枚举
+
+如果联调发现协议与实现不一致：
+
+- 先确认代码真实行为
+- 再更新文档
+- 不要让“口头约定”长期替代代码和文档
+
+## 当前已知限制
+
+前端开发时应默认知道以下限制：
+
+- 当前 SSE 更接近“单进程可恢复”
+- 服务重启后，已缓存事件可以补发，但未完成生成不保证真正续跑
+- 语音 SSE 任务链路虽然已有接口，但联调时应重点验证实际执行是否闭环
+- 当前测试覆盖较弱，联调发现问题的概率较高
+
+## 推荐前端封装
+
+建议至少封装以下能力：
+
+- `request()`：统一处理 `code/data/message`
+- `authorizedRequest()`：自动带 token
+- `refreshTokenIfNeeded()`：统一刷新逻辑
+- `createChatTask()`：创建聊天任务
+- `connectSseTask()`：浏览器流式连接
+- `resumeSseTask()`：小程序恢复连接
+- `cancelSseTask()`：取消任务
+
+不要在页面组件里直接散写所有网络协议细节。
+
+## 更新本文件的原则
+
+当以下内容变化时，应优先更新本文件：
+
+- 聊天链路改造
+- SSE 协议变化
+- 认证字段变化
+- 会话和消息数据结构变化
+- 浏览器/微信小程序接法发生变化
+
+这份文件应优先服务联调效率，而不是追求面面俱到。
