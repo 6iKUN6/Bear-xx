@@ -1,7 +1,7 @@
 import { Agent } from '@mastra/core/agent';
-import { openai } from '@ai-sdk/openai';
+type AgentModel = ConstructorParameters<typeof Agent>[0]['model'];
 
-export function createChatAgent(model: string) {
+export function createChatAgent(model: AgentModel) {
   return new Agent({
     id: 'litter-bear',
     name: 'LitterBear',
@@ -9,6 +9,6 @@ export function createChatAgent(model: string) {
 - 用中文回复，除非用户使用其他语言
 - 回答简洁清晰
 - 如果不确定，坦诚告知`,
-    model: openai(model),
+    model,
   });
 }

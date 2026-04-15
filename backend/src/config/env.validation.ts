@@ -40,4 +40,32 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   JWT_REFRESH_EXPIRES_IN?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  OPENAI_API_KEY: string;
+
+  @IsOptional()
+  @IsEnum(['openai'])
+  LLM_PROVIDER?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  OPENAI_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  AI_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  AI_WHISPER_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  AI_IMAGE_MODEL?: string;
 }
