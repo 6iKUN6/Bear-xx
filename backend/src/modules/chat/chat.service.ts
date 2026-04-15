@@ -16,6 +16,14 @@ export class ChatService {
     private readonly sseTaskService: SseTaskService,
   ) {}
 
+  /**
+   * 创建文本聊天任务
+   * @param conversationId 会话ID
+   * @param content 用户消息内容
+   * @param userId 用户ID
+   * @returns 返回任务信息，包含 taskId、messageId 和初始状态
+   * @description 负责接收文本聊天请求，并将实际任务创建委托给 SSE 任务模块处理。
+   */
   async createCompletionTask(
     conversationId: string,
     content: string,
@@ -24,6 +32,15 @@ export class ChatService {
     return this.sseTaskService.createChatTask(conversationId, content, userId);
   }
 
+  /**
+   * 创建语音聊天任务
+   * @param conversationId 会话ID
+   * @param audioBuffer 音频二进制数据
+   * @param filename 音频文件名
+   * @param userId 用户ID
+   * @returns 返回任务信息，包含 taskId、messageId 和初始状态
+   * @description 负责接收语音聊天请求，先转写音频内容，再创建对应的可恢复 SSE 任务。
+   */
   async createVoiceTask(
     conversationId: string,
     audioBuffer: Buffer,
@@ -38,6 +55,14 @@ export class ChatService {
     );
   }
 
+  /**
+   * 处理图片生成请求
+   * @param conversationId 会话ID
+   * @param prompt 图片提示词
+   * @param userId 用户ID
+   * @returns 返回图片消息信息，包含 messageId、imageUrl 和修订后的提示词
+   * @description 校验会话归属后，先写入用户提示词消息，再调用图片生成服务并持久化 AI 图片消息。
+   */
   async generateImage(conversationId: string, prompt: string, userId: string) {
     await this.conversationService.ensureOwnership(conversationId, userId);
 

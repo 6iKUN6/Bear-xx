@@ -1,19 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createChatAgent } from './agents/chat-agent';
-import { type Agent } from '@mastra/core/agent';
 import OpenAI, { toFile } from 'openai';
 
 @Injectable()
 export class AiService {
-  private chatAgent: Agent;
   private openai: OpenAI;
   private whisperModel: string;
   private imageModel: string;
 
   constructor(private readonly configService: ConfigService) {
-    const model = this.configService.get<string>('AI_MODEL') || 'gpt-4o-mini';
-    this.chatAgent = createChatAgent(model);
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY'),
     });
@@ -23,15 +18,13 @@ export class AiService {
       this.configService.get<string>('AI_IMAGE_MODEL') || 'dall-e-3';
   }
 
-  async *streamChat(
-    messages: { role: 'user' | 'assistant'; content: string }[],
-  ): AsyncGenerator<string> {
-    const response = await this.chatAgent.stream(messages as never);
-    for await (const chunk of response.textStream) {
-      yield chunk;
-    }
-  }
-
+  /**
+   * 转写音频内容
+   * @param audioBuffer 音频二进制数据
+   * @param filename 音频文件名
+   * @returns 返回识别得到的文本内容
+   * @description 调用 OpenAI Whisper 模型对上传音频进行转写，供语音聊天任务复用。
+   */
   async transcribeAudio(
     audioBuffer: Buffer,
     filename: string,
@@ -44,6 +37,12 @@ export class AiService {
     return transcription.text;
   }
 
+  /**
+   * 生成图片
+   * @param prompt 图片提示词
+   * @returns 返回图片地址和模型修订后的提示词
+   * @description 调用图片生成模型生成单张图片，并返回可用于消息持久化的结果数据。
+   */
   async generateImage(
     prompt: string,
   ): Promise<{ url: string; revisedPrompt: string }> {

@@ -60,6 +60,22 @@
 - 暴露了恢复接口，但底层 producer 实际不能恢复
 - 新增了 task type，但执行分支没有实现
 
+### 4.备注
+在新增一个新的方法或者函数时，需要对函数或者方法提供详细的备注。备注内容需要有入参和出参、作用和简要描述。（除了参数名外都使用中文）
+
+例子：
+
+/**
+ * 根据任务ID和用户ID获取任务状态
+ * @param taskId 任务ID
+ * @param userId 用户ID
+ * @returns 返回包含任务详情信息的对象，包括状态、会话ID、最后事件ID等
+ * @description 查询指定ID的SSE任务状态。如果不存在将抛出异常。
+ */
+async getTaskStatus(taskId: string, userId: string): Promise<TaskStatusDto> {
+  // ...
+}
+
 ## 目录约定
 
 ### 1. 模块目录

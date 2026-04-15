@@ -44,14 +44,24 @@ export class AuthService {
     private readonly redis: RedisService,
   ) {}
 
-  // ─── WeChat Login ───
-
+  /**
+   * 使用微信登录凭证完成登录
+   * @param code 微信登录 code
+   * @returns 返回登录结果，包含 access token、refresh token 和用户信息
+   * @description 调用微信换取身份信息接口，查询或创建本地用户后，签发系统登录态。
+   */
   async wechatLogin(code: string): Promise<LoginResult> {
     const { openid, unionid } = await this.code2Session(code);
     const user = await this.userService.findOrCreateByOpenId(openid, unionid);
     return this.buildLoginResult(user);
   }
 
+  /**
+   * 调用微信 code2Session 接口
+   * @param code 微信登录 code
+   * @returns 返回微信身份信息，包含 openid 和可选的 unionid
+   * @description 向微信服务端换取用户会话标识；如果微信接口返回错误，则抛出未授权异常。
+   */
   private async code2Session(
     code: string,
   ): Promise<{ openid: string; unionid?: string }> {
@@ -73,12 +83,23 @@ export class AuthService {
     return { openid: data.openid!, unionid: data.unionid };
   }
 
-  // ─── Phone Login ───
-
+  /**
+   * 发送手机验证码
+   * @param phone 手机号
+   * @returns 无返回值
+   * @description 调用短信服务为指定手机号发送登录验证码。
+   */
   async sendPhoneCode(phone: string): Promise<void> {
     await this.smsService.sendCode(phone);
   }
 
+  /**
+   * 使用手机号验证码完成登录
+   * @param phone 手机号
+   * @param code 验证码
+   * @returns 返回登录结果，包含 access token、refresh token 和用户信息
+   * @description 校验短信验证码，通过后查询或创建用户，并签发系统登录态。
+   */
   async phoneLogin(phone: string, code: string): Promise<LoginResult> {
     const valid = await this.smsService.verifyCode(phone, code);
     if (!valid) {
@@ -89,8 +110,12 @@ export class AuthService {
     return this.buildLoginResult(user);
   }
 
-  // ─── Token Refresh ───
-
+  /**
+   * 刷新登录令牌
+   * @param refreshToken 刷新令牌
+   * @returns 返回新的登录结果，包含新 access token、refresh token 和用户信息
+   * @description 校验 refresh token 的合法性、类型和黑名单状态，通过后重新签发一组令牌。
+   */
   async refreshToken(refreshToken: string): Promise<LoginResult> {
     let payload: JwtPayload;
     try {
@@ -122,15 +147,23 @@ export class AuthService {
     return this.buildLoginResult(user);
   }
 
-  // ─── Logout ───
-
+  /**
+   * 执行登出
+   * @param jti 当前访问令牌的唯一标识
+   * @returns 无返回值
+   * @description 将当前 access token 的 jti 加入黑名单，使该令牌在过期前立即失效。
+   */
   async logout(jti: string): Promise<void> {
     // Blacklist access token (TTL = 2h max)
     await this.blacklistToken(jti, 2 * 3600);
   }
 
-  // ─── Helpers ───
-
+  /**
+   * 生成一组登录令牌
+   * @param userId 用户ID
+   * @returns 返回 access token 和 refresh token
+   * @description 为指定用户分别生成访问令牌和刷新令牌，并附带独立的 jti 与过期时间。
+   */
   private async generateTokens(userId: string): Promise<TokenPair> {
     const accessJti = uuidv4();
     const refreshJti = uuidv4();
@@ -173,6 +206,12 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * 组装登录返回结果
+   * @param user 用户实体
+   * @returns 返回统一的登录响应结构
+   * @description 基于用户信息和新签发的令牌构建前端登录接口需要的响应体。
+   */
   private async buildLoginResult(user: User): Promise<LoginResult> {
     const tokens = await this.generateTokens(user.id);
     return {
@@ -186,6 +225,13 @@ export class AuthService {
     };
   }
 
+  /**
+   * 将令牌加入黑名单
+   * @param jti 令牌唯一标识
+   * @param ttl 黑名单过期时间，单位为秒
+   * @returns 无返回值
+   * @description 把指定 jti 写入 Redis 黑名单，直到 ttl 过期前都视为不可用。
+   */
   private async blacklistToken(jti: string, ttl: number): Promise<void> {
     await this.redis.set(`token:blacklist:${jti}`, '1', 'EX', ttl);
   }

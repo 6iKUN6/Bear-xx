@@ -13,6 +13,12 @@ export class SmsService {
     private readonly configService: ConfigService,
   ) {}
 
+  /**
+   * 发送短信验证码
+   * @param phone 手机号
+   * @returns 无返回值
+   * @description 生成六位验证码并写入 Redis，同时持久化到数据库作为兜底，并对发送频率进行限制。
+   */
   async sendCode(phone: string): Promise<void> {
     // Rate limit: 1 code per 60s per phone
     const limitKey = `sms:limit:${phone}`;
@@ -42,6 +48,13 @@ export class SmsService {
     this.logger.log(`[DEV] SMS code for ${phone}: ${code}`);
   }
 
+  /**
+   * 校验短信验证码
+   * @param phone 手机号
+   * @param code 验证码
+   * @returns 返回校验结果，true 表示验证码有效，false 表示无效或已过期
+   * @description 优先校验 Redis 中的验证码；若 Redis 未命中，则回退到数据库中的未使用记录进行校验。
+   */
   async verifyCode(phone: string, code: string): Promise<boolean> {
     const redisKey = `sms:${phone}`;
     const storedCode = await this.redis.get(redisKey);
@@ -78,6 +91,11 @@ export class SmsService {
     return false;
   }
 
+  /**
+   * 生成六位数字验证码
+   * @returns 返回六位数字字符串
+   * @description 生成用于短信登录的随机数字验证码。
+   */
   private generateCode(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }

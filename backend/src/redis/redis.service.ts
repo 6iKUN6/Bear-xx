@@ -31,6 +31,11 @@ export class RedisService extends Redis implements OnModuleDestroy {
     });
   }
 
+  /**
+   * 关闭 Redis 连接
+   * @returns 无返回值
+   * @description 在模块销毁阶段主动断开 Redis 连接，释放底层资源。
+   */
   onModuleDestroy() {
     this.disconnect();
   }
