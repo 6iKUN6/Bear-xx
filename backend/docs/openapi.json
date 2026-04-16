@@ -254,10 +254,10 @@
         ]
       }
     },
-    "/chat/completions": {
+    "/chat/message": {
       "post": {
-        "description": "创建可恢复的 SSE 聊天任务，随后使用 /sse-tasks/:taskId/stream 或 /resume 建链",
-        "operationId": "ChatController_completions",
+        "description": "发送一条文本消息并直接建立首轮 SSE 流；若未传 conversationId，则自动创建新会话",
+        "operationId": "sendMessage",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -271,7 +271,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "聊天流式响应",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -279,16 +286,16 @@
             "bearer": []
           }
         ],
-        "summary": "创建 AI 聊天任务",
+        "summary": "发送文本消息并开始流式回复",
         "tags": [
           "聊天"
         ]
       }
     },
-    "/chat/voice-completions": {
+    "/chat/voice-messages": {
       "post": {
-        "description": "上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务",
-        "operationId": "ChatController_voiceCompletions",
+        "description": "上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话",
+        "operationId": "voiceCompletions",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -310,7 +317,7 @@
             "bearer": []
           }
         ],
-        "summary": "创建语音聊天任务",
+        "summary": "发送语音消息",
         "tags": [
           "聊天"
         ]
@@ -792,7 +799,7 @@
           },
           "conversationId": {
             "type": "string",
-            "description": "会话 ID",
+            "description": "会话 ID；首轮消息可不传，后端会自动创建新会话",
             "example": "conv_abc123"
           },
           "content": {
@@ -802,7 +809,6 @@
           }
         },
         "required": [
-          "conversationId",
           "content"
         ]
       },
@@ -846,13 +852,10 @@
           },
           "conversationId": {
             "type": "string",
-            "description": "会话 ID",
+            "description": "会话 ID；首轮语音消息可不传，后端会自动创建新会话",
             "example": "conv_abc123"
           }
-        },
-        "required": [
-          "conversationId"
-        ]
+        }
       },
       "ImageGenerationDto": {
         "type": "object",

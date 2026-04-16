@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -16,6 +17,9 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiConsumes,
+  ApiExcludeEndpoint,
+  ApiProduces,
+  ApiOkResponse,
 } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
 import { ChatCompletionsDto } from './dto/chat-completions.dto';
@@ -24,6 +28,7 @@ import { ImageGenerationDto } from './dto/image-generation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { LlmTextRequest } from '../llm/llm.types';
+import { Sse, SseInterceptor, type SseRequest } from '../../common/sse';
 
 @ApiTags('聊天')
 @ApiBearerAuth()
@@ -32,18 +37,104 @@ import type { LlmTextRequest } from '../llm/llm.types';
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
+  @Post('message')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Sse()
+  @UseInterceptors(SseInterceptor)
+  @ApiProduces('text/event-stream')
+  @ApiOkResponse({
+    description: '聊天流式响应',
+    content: {
+      'text/event-stream': {
+        schema: {
+          type: 'string',
+        },
+      },
+    },
+  })
+  @ApiOperation({
+    summary: '发送文本消息并开始流式回复',
+    description:
+      '发送一条文本消息并直接建立首轮 SSE 流；若未传 conversationId，则自动创建新会话',
+    operationId: 'sendMessage',
+  })
+  async sendMessage(
+    @Body() dto: ChatCompletionsDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: SseRequest,
+  ) {
+    return this.chatService.streamMessage(
+      dto.conversationId,
+      dto.content,
+      userId,
+      this.buildLlmTextRequest(dto),
+      req.__sseAbortSignal,
+    );
+  }
+
   @Post('completions')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: '创建 AI 聊天任务',
-    description:
-      '创建可恢复的 SSE 聊天任务，随后使用 /sse-tasks/:taskId/stream 或 /resume 建链',
-  })
+  @ApiExcludeEndpoint()
   async completions(
     @Body() dto: ChatCompletionsDto,
     @CurrentUser('id') userId: string,
   ) {
+    return this.createChatMessageTask(dto, userId);
+  }
+
+  @Post('messages')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiExcludeEndpoint()
+  async messages(
+    @Body() dto: ChatCompletionsDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.createChatMessageTask(dto, userId);
+  }
+
+  @Post('voice-messages')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('audio'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: '发送语音消息',
+    description:
+      '上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话',
+    operationId: 'voiceCompletions',
+  })
+  voiceMessages(
+    @Body() dto: VoiceCompletionsDto,
+    @UploadedFile() audio: Express.Multer.File,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.createVoiceMessageTask(dto, audio, userId);
+  }
+
+  @Post('voice-completions')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('audio'))
+  @ApiConsumes('multipart/form-data')
+  @ApiExcludeEndpoint()
+  voiceCompletions(
+    @Body() dto: VoiceCompletionsDto,
+    @UploadedFile() audio: Express.Multer.File,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.createVoiceMessageTask(dto, audio, userId);
+  }
+
+  /**
+   * 创建文本消息任务
+   * @param dto 文本消息请求 DTO
+   * @param userId 用户ID
+   * @returns 返回任务信息，包含 taskId、messageId、conversationId 和初始状态
+   * @description 统一处理文本消息入口，兼容首轮自动建会话和后续按会话继续对话两种场景。
+   */
+  private createChatMessageTask(dto: ChatCompletionsDto, userId: string) {
     return this.chatService.createCompletionTask(
       dto.conversationId,
       dto.content,
@@ -52,19 +143,18 @@ export class ChatController {
     );
   }
 
-  @Post('voice-completions')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('audio'))
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: '创建语音聊天任务',
-    description: '上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务',
-  })
-  voiceCompletions(
-    @Body() dto: VoiceCompletionsDto,
-    @UploadedFile() audio: Express.Multer.File,
-    @CurrentUser('id') userId: string,
+  /**
+   * 创建语音消息任务
+   * @param dto 语音消息请求 DTO
+   * @param audio 上传的音频文件
+   * @param userId 用户ID
+   * @returns 返回任务信息，包含 taskId、messageId、conversationId 和初始状态
+   * @description 统一处理语音消息入口，兼容首轮自动建会话和后续按会话继续对话两种场景。
+   */
+  private createVoiceMessageTask(
+    dto: VoiceCompletionsDto,
+    audio: Express.Multer.File,
+    userId: string,
   ) {
     if (!audio) {
       throw new BadRequestException('音频文件不能为空');

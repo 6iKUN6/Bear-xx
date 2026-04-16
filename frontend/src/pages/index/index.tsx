@@ -10,7 +10,6 @@ export default function IndexPage() {
   const {
     conversations,
     loadConversations,
-    createConversation,
     deleteConversation,
   } = useChatStore();
 
@@ -19,8 +18,7 @@ export default function IndexPage() {
   });
 
   const handleCreate = async () => {
-    const id = await createConversation();
-    Taro.navigateTo({ url: `/pages/chat/index?conversationId=${id}` });
+    Taro.navigateTo({ url: "/pages/chat/index" });
   };
 
   const handleOpen = (id: string) => {

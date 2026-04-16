@@ -11,6 +11,8 @@ interface ChatState {
   createConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   setCurrentConversation: (id: string) => void;
+  ensureDraftConversation: () => string;
+  replaceConversationId: (draftId: string, conversationId: string) => void;
 
   addMessage: (msg: Message) => void;
   updateMessageContent: (msgId: string, content: string) => void;
@@ -55,6 +57,45 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   setCurrentConversation(id: string) {
     const conv = get().conversations.find((c) => c.id === id) || null;
     set({ currentConversation: conv });
+  },
+
+  ensureDraftConversation() {
+    const currentConversation = get().currentConversation;
+    if (currentConversation) {
+      return currentConversation.id;
+    }
+
+    const now = Date.now();
+    const draftConversation: Conversation = {
+      id: `draft_${now}`,
+      title: "新对话",
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    set((state) => ({
+      conversations: [draftConversation, ...state.conversations],
+      currentConversation: draftConversation,
+    }));
+
+    return draftConversation.id;
+  },
+
+  replaceConversationId(draftId: string, conversationId: string) {
+    set((state) => {
+      const conversations = state.conversations.map((conversation) =>
+        conversation.id === draftId
+          ? { ...conversation, id: conversationId }
+          : conversation
+      );
+      const currentConversation =
+        state.currentConversation?.id === draftId
+          ? { ...state.currentConversation, id: conversationId }
+          : state.currentConversation;
+
+      return { conversations, currentConversation };
+    });
   },
 
   addMessage(msg: Message) {

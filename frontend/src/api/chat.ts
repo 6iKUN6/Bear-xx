@@ -7,15 +7,22 @@ let mockIdCounter = Date.now();
 interface ChatTaskResult {
   taskId: string;
   messageId: string;
+  conversationId: string;
   status: string;
 }
 
-interface StreamPayload {
+interface ChatStreamEnvelope<TPayload = undefined> {
+  type?: string;
   taskId?: string;
+  conversationId?: string;
   messageId?: string;
+  status?: string;
+  payload?: TPayload;
+  errorMessage?: string;
+}
+
+interface MessageDeltaPayload {
   delta?: string;
-  content?: string;
-  message?: string;
 }
 
 function genId(): string {
@@ -29,17 +36,19 @@ const MOCK_REPLIES = [
   "这个话题很有趣！我可以提供一些相关的见解和建议。",
 ];
 
-function asStreamPayload(data: unknown): StreamPayload {
+function asStreamPayload<TPayload = undefined>(
+  data: unknown,
+): ChatStreamEnvelope<TPayload> {
   if (typeof data === "string") {
     try {
-      return JSON.parse(data) as StreamPayload;
+      return JSON.parse(data) as ChatStreamEnvelope<TPayload>;
     } catch {
       return {};
     }
   }
 
   if (data && typeof data === "object") {
-    return data as StreamPayload;
+    return data as ChatStreamEnvelope<TPayload>;
   }
 
   return {};
@@ -76,13 +85,21 @@ export async function deleteConversation(id: string): Promise<void> {
 }
 
 export function sendMessage(
-  conversationId: string,
+  conversationId: string | undefined,
   content: string,
+  onTaskCreated: (task: ChatTaskResult) => void,
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: string) => void,
 ): { abort: () => void } {
   if (USE_MOCK) {
+    onTaskCreated({
+      taskId: genId(),
+      messageId: genId(),
+      conversationId: conversationId || genId(),
+      status: "pending",
+    });
+
     const reply =
       MOCK_REPLIES[Math.floor(Math.random() * MOCK_REPLIES.length)];
     let index = 0;
@@ -114,7 +131,6 @@ export function sendMessage(
   let taskId = "";
   let settled = false;
   let aborted = false;
-  let streamHandle: { abort: () => void } | null = null;
 
   const finishDone = () => {
     if (settled) {
@@ -132,81 +148,77 @@ export function sendMessage(
     onError(message);
   };
 
-  void api
-    .completions({ conversationId, content })
-    .then((result) => {
-      const task = result as ChatTaskResult;
-      if (!task?.taskId) {
-        throw new Error("未拿到可恢复的聊天任务 ID");
-      }
+  const streamHandle = api.sendMessage(
+    { conversationId, content },
+    {
+      onMessage(event) {
+        const payload = asStreamPayload(event.data);
 
-      taskId = task.taskId;
+        if (event.event === "task.created") {
+          const task: ChatTaskResult = {
+            taskId: payload.taskId || "",
+            messageId: payload.messageId || "",
+            conversationId: payload.conversationId || "",
+            status: payload.status || "",
+          };
+          if (!task?.taskId || !task?.conversationId) {
+            finishError("未拿到可恢复的聊天任务 ID");
+            return;
+          }
 
-      if (aborted) {
-        streamHandle?.abort();
-        void api.cancelTask({ taskId }).catch(() => {});
-        return;
-      }
+          taskId = task.taskId;
+          onTaskCreated(task);
 
-      streamHandle = api.resumeTask(
-        {
-          taskId,
-          body: {},
-        },
-        {
-          onMessage(event) {
-            const payload = asStreamPayload(event.data);
+          if (aborted) {
+            streamHandle.abort();
+            void api.cancelTask({ taskId }).catch(() => {});
+          }
+          return;
+        }
 
-            if (event.event === "message.delta" && payload.delta) {
-              onChunk(payload.delta);
-              return;
-            }
+        if (event.event === "message.delta") {
+          const deltaPayload = payload.payload as MessageDeltaPayload | undefined;
+          if (deltaPayload?.delta) {
+            onChunk(deltaPayload.delta);
+          }
+          return;
+        }
 
-            if (
-              event.event === "message.done" ||
-              event.event === "task.completed"
-            ) {
-              finishDone();
-              return;
-            }
+        if (
+          event.event === "message.done" ||
+          event.event === "task.completed"
+        ) {
+          finishDone();
+          return;
+        }
 
-            if (event.event === "task.error") {
-              finishError(payload.message || "聊天任务执行失败");
-              return;
-            }
+        if (event.event === "task.error") {
+          finishError(payload.errorMessage || "聊天任务执行失败");
+          return;
+        }
 
-            if (event.event === "task.expired") {
-              finishError("聊天任务已过期");
-              return;
-            }
+        if (event.event === "task.expired") {
+          finishError("聊天任务已过期");
+          return;
+        }
 
-            if (event.event === "task.canceled") {
-              finishError("聊天任务已取消");
-            }
-          },
-          onDone() {
-            finishDone();
-          },
-          onError(error) {
-            finishError(error.message || "流式请求失败");
-          },
-        },
-      );
-
-      if (aborted) {
-        streamHandle.abort();
-      }
-    })
-    .catch((error: unknown) => {
-      const message =
-        error instanceof Error ? error.message : "创建聊天任务失败";
-      finishError(message);
-    });
+        if (event.event === "task.canceled") {
+          finishError("聊天任务已取消");
+        }
+      },
+      onDone() {
+        finishDone();
+      },
+      onError(error) {
+        finishError(error.message || "流式请求失败");
+      },
+    }
+  );
 
   return {
     abort() {
       aborted = true;
-      streamHandle?.abort();
+      streamHandle.abort();
 
       if (taskId) {
         void api.cancelTask({ taskId }).catch(() => {});

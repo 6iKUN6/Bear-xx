@@ -5,6 +5,7 @@ import { ConversationService } from '../conversation/conversation.service';
 import { SseTaskService } from '../sse-task/sse-task.service';
 import { MessageRole, MessageStatus } from '@prisma/client';
 import type { LlmTextRequest } from '../llm/llm.types';
+import type { TaskStreamResult } from '../sse-task/sse-task.service';
 
 @Injectable()
 export class ChatService {
@@ -27,7 +28,7 @@ export class ChatService {
    * @description 负责接收文本聊天请求，并将模型选择与生成参数一并委托给 SSE 任务模块处理。
    */
   async createCompletionTask(
-    conversationId: string,
+    conversationId: string | undefined,
     content: string,
     userId: string,
     llmRequest?: LlmTextRequest,
@@ -37,6 +38,32 @@ export class ChatService {
       content,
       userId,
       llmRequest,
+    );
+  }
+
+  /**
+   * 发送文本消息并直接返回流式结果
+   * @param conversationId 会话ID
+   * @param content 用户消息内容
+   * @param userId 用户ID
+   * @param llmRequest 文本生成请求配置
+   * @param signal 连接中断信号
+   * @returns 返回包含异步 SSE 事件流的对象
+   * @description 统一处理文本消息发送、首轮自动建会话、任务创建和首轮流式建链，供聊天主入口直接使用。
+   */
+  async streamMessage(
+    conversationId: string | undefined,
+    content: string,
+    userId: string,
+    llmRequest?: LlmTextRequest,
+    signal?: AbortSignal,
+  ): Promise<TaskStreamResult> {
+    return this.sseTaskService.streamChatTask(
+      conversationId,
+      content,
+      userId,
+      llmRequest,
+      signal,
     );
   }
 
@@ -51,7 +78,7 @@ export class ChatService {
    * @description 负责接收语音聊天请求，先转写音频内容，再携带模型配置创建对应的可恢复 SSE 任务。
    */
   async createVoiceTask(
-    conversationId: string,
+    conversationId: string | undefined,
     audioBuffer: Buffer,
     filename: string,
     userId: string,

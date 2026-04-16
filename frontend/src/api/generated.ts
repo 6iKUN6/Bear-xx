@@ -15,7 +15,7 @@ export type ChatCompletionsDto = {
   temperature?: number;
   maxOutputTokens?: number;
   topP?: number;
-  conversationId: string;
+  conversationId?: string;
   content: string;
 };
 
@@ -58,7 +58,7 @@ export type VoiceCompletionsDto = {
   temperature?: number;
   maxOutputTokens?: number;
   topP?: number;
-  conversationId: string;
+  conversationId?: string;
 };
 
 export type WechatLoginDto = {
@@ -127,18 +127,6 @@ export class Api extends BaseApiClient {
 
 
   /**
-   * 创建 AI 聊天任务
-   */
-  completions(body: ChatCompletionsDto): Promise<unknown> {
-    return this.request<unknown, ChatCompletionsDto>({
-      url: "/chat/completions",
-      method: "POST",
-      data: body
-    });
-  }
-
-
-  /**
    * AI 图片生成
    */
   imageGenerations(body: ImageGenerationDto): Promise<unknown> {
@@ -151,7 +139,19 @@ export class Api extends BaseApiClient {
 
 
   /**
-   * 创建语音聊天任务
+   * 发送文本消息并开始流式回复
+   */
+  sendMessage(body: ChatCompletionsDto, handlers: StreamHandlers<unknown> = {}): StreamRequestHandle {
+    return this.stream<unknown, ChatCompletionsDto>({
+      url: "/chat/message",
+      method: "POST",
+      data: body
+    }, handlers);
+  }
+
+
+  /**
+   * 发送语音消息
    */
   voiceCompletions(args: {
     body?: VoiceCompletionsDto;
@@ -159,10 +159,10 @@ export class Api extends BaseApiClient {
     fileFieldName?: string;
   }): Promise<unknown> {
     return this.upload<unknown, VoiceCompletionsDto>({
-      url: "/chat/voice-completions",
+      url: "/chat/voice-messages",
       method: "POST",
       filePath: args.filePath,
-      name: args.fileFieldName || "audio",
+      name: args.fileFieldName || "file",
       formData: args.body
     });
   }

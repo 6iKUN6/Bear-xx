@@ -19,6 +19,8 @@ export default function ChatPage() {
   const {
     currentConversation,
     setCurrentConversation,
+    ensureDraftConversation,
+    replaceConversationId,
     addMessage,
     updateMessageContent,
     updateMessageStatus,
@@ -48,7 +50,10 @@ export default function ChatPage() {
   }, [persistConversations]);
 
   const handleSend = (content: string) => {
-    if (!currentConversation) return;
+    const localConversationId =
+      currentConversation?.id || ensureDraftConversation();
+    const requestConversationId =
+      localConversationId.startsWith("draft_") ? undefined : localConversationId;
 
     const userMsg: Message = {
       id: genMsgId(),
@@ -70,8 +75,13 @@ export default function ChatPage() {
     addMessage(aiMsg);
 
     const task = sendMessage(
-      currentConversation.id,
+      requestConversationId,
       content,
+      ({ conversationId: realConversationId }) => {
+        if (localConversationId.startsWith("draft_")) {
+          replaceConversationId(localConversationId, realConversationId);
+        }
+      },
       (chunk) => {
         updateMessageContent(aiMsgId, chunk);
       },

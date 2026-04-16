@@ -20,11 +20,30 @@ import { AiService } from '../ai/ai.service';
 import { LlmService } from '../llm/llm.service';
 import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
 import { ConversationService } from '../conversation/conversation.service';
+import { ChatContextService } from '../memory/chat-context.service';
+import { ConversationSummaryService } from '../memory/conversation-summary.service';
 import { SseTaskRegistry } from './sse-task.registry';
 
 interface ChatTaskPayload {
   content: string;
   llm?: ResolvedLlmTextRequest;
+}
+
+interface CreatedTaskResult {
+  taskId: string;
+  messageId: string;
+  conversationId: string;
+  status: string;
+}
+
+interface SseTaskEventData<TPayload = undefined> {
+  type: string;
+  taskId: string;
+  conversationId: string;
+  messageId: string;
+  status: string;
+  payload?: TPayload;
+  errorMessage?: string;
 }
 
 export interface TaskStreamResult {
@@ -55,6 +74,8 @@ export class SseTaskService {
     private readonly llmService: LlmService,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
+    private readonly chatContextService: ChatContextService,
+    private readonly conversationSummaryService: ConversationSummaryService,
     private readonly registry: SseTaskRegistry,
   ) {
     this.bufferTtl = this.configService.get<number>('SSE_BUFFER_TTL', 300);
@@ -71,7 +92,7 @@ export class SseTaskService {
    * @description 基于文本消息创建一条可恢复的 SSE 聊天任务，并将本次请求的模型选择配置持久化到任务中。
    */
   async createChatTask(
-    conversationId: string,
+    conversationId: string | undefined,
     content: string,
     userId: string,
     llmRequest?: LlmTextRequest,
@@ -86,6 +107,49 @@ export class SseTaskService {
   }
 
   /**
+   * 创建文本任务并直接返回首轮流式结果
+   * @param conversationId 会话ID
+   * @param content 用户消息内容
+   * @param userId 用户ID
+   * @param llmRequest 文本生成请求配置
+   * @param signal 连接中断信号
+   * @returns 返回包含异步 SSE 事件流的对象
+   * @description 用于聊天主入口：先创建可恢复任务，再在同一请求中直接进入首轮 SSE 事件流，同时向客户端下发 task.created 事件。
+   */
+  async streamChatTask(
+    conversationId: string | undefined,
+    content: string,
+    userId: string,
+    llmRequest?: LlmTextRequest,
+    signal?: AbortSignal,
+  ): Promise<TaskStreamResult> {
+    const task = await this.createChatTask(
+      conversationId,
+      content,
+      userId,
+      llmRequest,
+    );
+    const taskStream = await this.resumeTaskStream(
+      task.taskId,
+      userId,
+      0,
+      signal,
+    );
+
+    return {
+      stream: this.prependEvent(
+        this.buildTaskSseEvent('0', 'task.created', {
+          taskId: task.taskId,
+          conversationId: task.conversationId,
+          messageId: task.messageId,
+          status: task.status,
+        }),
+        taskStream.stream,
+      ),
+    };
+  }
+
+  /**
    * 创建语音聊天任务
    * @param conversationId 会话ID
    * @param audioBuffer 音频二进制数据
@@ -96,7 +160,7 @@ export class SseTaskService {
    * @description 先将音频转写成文本，再复用文本任务创建逻辑生成可恢复的 SSE 任务，并保留模型配置。
    */
   async createVoiceTask(
-    conversationId: string,
+    conversationId: string | undefined,
     audioBuffer: Buffer,
     filename: string,
     userId: string,
@@ -123,13 +187,12 @@ export class SseTaskService {
    * @description 在一个事务内依次写入用户消息、assistant 占位消息以及 SSE 任务记录，并将解析后的模型配置一并持久化。
    */
   private async createTextTask(
-    conversationId: string,
+    conversationId: string | undefined,
     content: string,
     userId: string,
     type: SseTaskType,
     llmRequest?: LlmTextRequest,
   ) {
-    await this.conversationService.ensureOwnership(conversationId, userId);
     const resolvedLlmRequest = this.llmService.resolveTextRequest(llmRequest);
     const requestPayload = JSON.parse(
       JSON.stringify({
@@ -139,55 +202,107 @@ export class SseTaskService {
     ) as Prisma.JsonObject;
 
     const result = await this.prisma.$transaction(async (tx) => {
+      const targetConversationId = await this.resolveConversationId(
+        tx,
+        conversationId,
+        userId,
+      );
+
+      //消息入库
       await tx.message.create({
         data: {
           role: MessageRole.USER,
           content,
           status: MessageStatus.DONE,
-          conversationId,
+          conversationId: targetConversationId,
         },
       });
 
+      //统计用户消息数量
       const userMessageCount = await tx.message.count({
-        where: { conversationId, role: MessageRole.USER },
+        where: { conversationId: targetConversationId, role: MessageRole.USER },
       });
 
       if (userMessageCount === 1) {
         await tx.conversation.update({
-          where: { id: conversationId },
+          where: { id: targetConversationId },
           data: { title: content.slice(0, 20) },
         });
       }
 
+      //assistant 消息入库
       const assistantMessage = await tx.message.create({
         data: {
           role: MessageRole.ASSISTANT,
           content: '',
           status: MessageStatus.STREAMING,
-          conversationId,
+          conversationId: targetConversationId,
         },
       });
 
+      //SSE 任务入库
       const task = await tx.sseTask.create({
         data: {
           type,
           status: SseTaskStatus.PENDING,
           userId,
-          conversationId,
+          conversationId: targetConversationId,
           messageId: assistantMessage.id,
           requestPayload,
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
         },
       });
 
-      return { task, assistantMessage };
+      return { task, assistantMessage, conversationId: targetConversationId };
     });
 
     return {
       taskId: result.task.id,
       messageId: result.assistantMessage.id,
+      conversationId: result.conversationId,
       status: result.task.status.toLowerCase(),
-    };
+    } satisfies CreatedTaskResult;
+  }
+
+  /**
+   * 解析会话ID
+   * @param tx Prisma 事务客户端
+   * @param conversationId 会话ID
+   * @param userId 用户ID
+   * @returns 返回可用于本次任务的会话ID
+   * @description 当请求未传会话ID时自动创建新会话；若已传，则在事务内校验该会话属于当前用户，保证首轮消息和会话创建在同一链路中闭环。
+   */
+  private async resolveConversationId(
+    tx: Prisma.TransactionClient,
+    conversationId: string | undefined,
+    userId: string,
+  ): Promise<string> {
+    if (!conversationId) {
+      const conversation = await tx.conversation.create({
+        data: {
+          userId,
+          title: '新对话',
+        },
+      });
+
+      return conversation.id;
+    }
+
+    const conversation = await tx.conversation.findFirst({
+      where: {
+        id: conversationId,
+        userId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('会话不存在');
+    }
+
+    return conversation.id;
   }
 
   /**
@@ -232,7 +347,13 @@ export class SseTaskService {
     const event = await this.persistEvent(
       taskId,
       'task.canceled',
-      JSON.stringify({ taskId, messageId: task.messageId }),
+      this.serializeTaskEventData({
+        type: 'task.canceled',
+        taskId,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        status: SseTaskStatus.CANCELED.toLowerCase(),
+      }),
       {
         status: SseTaskStatus.CANCELED,
         fullContent: task.fullContent,
@@ -291,11 +412,14 @@ export class SseTaskService {
     if (task.status === SseTaskStatus.EXPIRED || task.expiresAt <= new Date()) {
       await this.expireTask(task.id);
       return {
-        stream: this.singleEventStream({
-          id: String(lastEventId + 1),
-          event: 'task.expired',
-          data: JSON.stringify({ taskId }),
-        }),
+        stream: this.singleEventStream(
+          this.buildTaskSseEvent(String(lastEventId + 1), 'task.expired', {
+            taskId,
+            conversationId: task.conversationId,
+            messageId: task.messageId,
+            status: SseTaskStatus.EXPIRED.toLowerCase(),
+          }),
+        ),
       };
     }
 
@@ -411,7 +535,13 @@ export class SseTaskService {
       const startedEvent = await this.persistEvent(
         taskId,
         'task.started',
-        JSON.stringify({ taskId, messageId: task.messageId }),
+        this.serializeTaskEventData({
+          type: 'task.started',
+          taskId,
+          conversationId: task.conversationId,
+          messageId: task.messageId,
+          status: SseTaskStatus.STREAMING.toLowerCase(),
+        }),
       );
       this.registry.publish(taskId, startedEvent);
 
@@ -447,20 +577,10 @@ export class SseTaskService {
     executionSignal: AbortSignal,
   ) {
     const payload = task.requestPayload as unknown as ChatTaskPayload;
-    const history = await this.prisma.message.findMany({
-      where: { conversationId: task.conversationId },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const messages = history
-      .filter((message) => message.id !== task.messageId)
-      .map((message) => ({
-        role:
-          message.role === MessageRole.USER
-            ? ('user' as const)
-            : ('assistant' as const),
-        content: message.content,
-      }));
+    const messages = await this.chatContextService.buildChatMessages(
+      task.conversationId,
+      task.messageId,
+    );
 
     if (!payload.content) {
       throw new Error('Missing chat task payload');
@@ -479,10 +599,15 @@ export class SseTaskService {
       const deltaEvent = await this.persistEvent(
         task.id,
         'message.delta',
-        JSON.stringify({
+        this.serializeTaskEventData({
+          type: 'message.delta',
           taskId: task.id,
+          conversationId: task.conversationId,
           messageId: task.messageId,
-          delta: chunk,
+          status: SseTaskStatus.STREAMING.toLowerCase(),
+          payload: {
+            delta: chunk,
+          },
         }),
         {
           fullContent,
@@ -499,10 +624,15 @@ export class SseTaskService {
     const doneEvent = await this.persistEvent(
       task.id,
       'message.done',
-      JSON.stringify({
+      this.serializeTaskEventData({
+        type: 'message.done',
         taskId: task.id,
+        conversationId: task.conversationId,
         messageId: task.messageId,
-        content: fullContent,
+        status: SseTaskStatus.COMPLETED.toLowerCase(),
+        payload: {
+          content: fullContent,
+        },
       }),
       {
         fullContent,
@@ -538,13 +668,39 @@ export class SseTaskService {
     const completedEvent = await this.persistEvent(
       task.id,
       'task.completed',
-      JSON.stringify({ taskId: task.id, messageId: task.messageId }),
+      this.serializeTaskEventData({
+        type: 'task.completed',
+        taskId: task.id,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        status: SseTaskStatus.COMPLETED.toLowerCase(),
+      }),
       {
         fullContent,
         status: SseTaskStatus.COMPLETED,
       },
     );
     this.registry.publish(task.id, completedEvent);
+
+    void this.refreshConversationSummary(task.conversationId);
+  }
+
+  /**
+   * 刷新会话摘要
+   * @param conversationId 会话ID
+   * @returns 无返回值
+   * @description 在回复完成后异步更新会话摘要，避免摘要生成阻塞当前 SSE 任务的完成事件返回。
+   */
+  private async refreshConversationSummary(conversationId: string) {
+    try {
+      await this.conversationSummaryService.refreshConversationSummary(
+        conversationId,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Refresh conversation summary failed: ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -565,7 +721,14 @@ export class SseTaskService {
     const errorEvent = await this.persistEvent(
       taskId,
       'task.error',
-      JSON.stringify({ taskId, message }),
+      this.serializeTaskEventData({
+        type: 'task.error',
+        taskId,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        status: SseTaskStatus.ERROR.toLowerCase(),
+        errorMessage: message,
+      }),
       {
         status: SseTaskStatus.ERROR,
         errorMessage: message,
@@ -777,6 +940,41 @@ export class SseTaskService {
   }
 
   /**
+   * 序列化任务事件数据
+   * @param eventData 任务事件业务数据
+   * @returns 返回可直接写入 SSE data 字段的 JSON 字符串
+   * @description 为任务相关事件统一输出固定数据结构，避免不同事件的 payload 形状漂移。
+   */
+  private serializeTaskEventData<TPayload>(
+    eventData: SseTaskEventData<TPayload>,
+  ) {
+    return JSON.stringify(eventData);
+  }
+
+  /**
+   * 构建任务 SSE 事件对象
+   * @param eventId 事件ID
+   * @param eventName SSE 事件名称
+   * @param eventData 任务事件业务数据
+   * @returns 返回包含标准 data JSON 的 SSE 事件对象
+   * @description 用于生成首包事件或单次事件流中的任务事件，确保 event 名和业务 type 字段保持一致。
+   */
+  private buildTaskSseEvent<TPayload>(
+    eventId: string,
+    eventName: string,
+    eventData: Omit<SseTaskEventData<TPayload>, 'type'>,
+  ): SseEvent {
+    return {
+      id: eventId,
+      event: eventName,
+      data: this.serializeTaskEventData({
+        type: eventName,
+        ...eventData,
+      }),
+    };
+  }
+
+  /**
    * 生成任务缓冲区 Key
    * @param taskId 任务ID
    * @returns 返回任务事件缓冲区对应的 Redis Key
@@ -797,5 +995,23 @@ export class SseTaskService {
       await Promise.resolve();
       yield event;
     })();
+  }
+
+  /**
+   * 在事件流前插入单个事件
+   * @param initialEvent 首个需要插入的 SSE 事件
+   * @param stream 原始事件流
+   * @returns 返回新的 SSE 事件流
+   * @description 用于在首轮聊天建链时先向客户端发送 task.created 事件，再继续产出任务自身的流式事件。
+   */
+  private async *prependEvent(
+    initialEvent: SseEvent,
+    stream: AsyncGenerator<SseEvent>,
+  ): AsyncGenerator<SseEvent> {
+    yield initialEvent;
+
+    for await (const event of stream) {
+      yield event;
+    }
   }
 }
