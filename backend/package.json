@@ -29,8 +29,8 @@
     "db:push": "prisma db push"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.41",
-    "@mastra/core": "^1.10.0",
+    "@langchain/core": "^1.1.40",
+    "@langchain/openai": "^1.4.4",
     "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
@@ -42,7 +42,6 @@
     "@nestjs/terminus": "^11.1.1",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.19.2",
-    "ai": "^6.0.116",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "ioredis": "^5.10.0",

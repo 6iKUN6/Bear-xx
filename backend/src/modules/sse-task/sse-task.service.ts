@@ -18,11 +18,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AiService } from '../ai/ai.service';
 import { LlmService } from '../llm/llm.service';
+import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
 import { ConversationService } from '../conversation/conversation.service';
 import { SseTaskRegistry } from './sse-task.registry';
 
 interface ChatTaskPayload {
   content: string;
+  llm?: ResolvedLlmTextRequest;
 }
 
 export interface TaskStreamResult {
@@ -64,19 +66,22 @@ export class SseTaskService {
    * @param conversationId 会话ID
    * @param content 用户消息内容
    * @param userId 用户ID
+   * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 基于文本消息创建一条可恢复的 SSE 聊天任务，并预创建 assistant 占位消息。
+   * @description 基于文本消息创建一条可恢复的 SSE 聊天任务，并将本次请求的模型选择配置持久化到任务中。
    */
   async createChatTask(
     conversationId: string,
     content: string,
     userId: string,
+    llmRequest?: LlmTextRequest,
   ) {
     return this.createTextTask(
       conversationId,
       content,
       userId,
       SseTaskType.CHAT_COMPLETION,
+      llmRequest,
     );
   }
 
@@ -86,14 +91,16 @@ export class SseTaskService {
    * @param audioBuffer 音频二进制数据
    * @param filename 音频文件名
    * @param userId 用户ID
+   * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 先将音频转写成文本，再复用文本任务创建逻辑生成可恢复的 SSE 任务。
+   * @description 先将音频转写成文本，再复用文本任务创建逻辑生成可恢复的 SSE 任务，并保留模型配置。
    */
   async createVoiceTask(
     conversationId: string,
     audioBuffer: Buffer,
     filename: string,
     userId: string,
+    llmRequest?: LlmTextRequest,
   ) {
     const content = await this.aiService.transcribeAudio(audioBuffer, filename);
     return this.createTextTask(
@@ -101,6 +108,7 @@ export class SseTaskService {
       content,
       userId,
       SseTaskType.VOICE_COMPLETION,
+      llmRequest,
     );
   }
 
@@ -110,16 +118,25 @@ export class SseTaskService {
    * @param content 消息内容
    * @param userId 用户ID
    * @param type 任务类型
+   * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 在一个事务内依次写入用户消息、assistant 占位消息以及 SSE 任务记录，确保链路一致。
+   * @description 在一个事务内依次写入用户消息、assistant 占位消息以及 SSE 任务记录，并将解析后的模型配置一并持久化。
    */
   private async createTextTask(
     conversationId: string,
     content: string,
     userId: string,
     type: SseTaskType,
+    llmRequest?: LlmTextRequest,
   ) {
     await this.conversationService.ensureOwnership(conversationId, userId);
+    const resolvedLlmRequest = this.llmService.resolveTextRequest(llmRequest);
+    const requestPayload = JSON.parse(
+      JSON.stringify({
+        content,
+        llm: resolvedLlmRequest,
+      }),
+    ) as Prisma.JsonObject;
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.message.create({
@@ -158,7 +175,7 @@ export class SseTaskService {
           userId,
           conversationId,
           messageId: assistantMessage.id,
-          requestPayload: { content } satisfies Prisma.JsonObject,
+          requestPayload,
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
         },
       });
@@ -221,7 +238,14 @@ export class SseTaskService {
         fullContent: task.fullContent,
       },
     );
-    this.registry.abortRunning(taskId, TASK_CANCELED_REASON);
+    const abortedRunningTask = this.registry.abortRunning(
+      taskId,
+      TASK_CANCELED_REASON,
+    );
+
+    if (abortedRunningTask) {
+      this.logger.debug(`Abort running provider stream for task ${taskId}`);
+    }
 
     await this.prisma.$transaction([
       this.prisma.sseTask.update({
@@ -263,6 +287,7 @@ export class SseTaskService {
   ): Promise<TaskStreamResult> {
     const task = await this.loadTask(taskId, userId);
 
+    //任务过期
     if (task.status === SseTaskStatus.EXPIRED || task.expiresAt <= new Date()) {
       await this.expireTask(task.id);
       return {
@@ -443,9 +468,13 @@ export class SseTaskService {
 
     let fullContent = '';
 
-    for await (const chunk of this.llmService.streamText(messages, undefined, {
-      abortSignal: executionSignal,
-    })) {
+    for await (const chunk of this.llmService.streamChatText(
+      messages,
+      payload.llm,
+      {
+        abortSignal: executionSignal,
+      },
+    )) {
       fullContent += chunk;
       const deltaEvent = await this.persistEvent(
         task.id,

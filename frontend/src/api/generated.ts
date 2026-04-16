@@ -8,6 +8,13 @@
 import { BaseApiClient, StreamHandlers, StreamRequestHandle } from "./request";
 
 export type ChatCompletionsDto = {
+  modelId?: string;
+  provider?: string;
+  platform?: string;
+  model?: string;
+  temperature?: number;
+  maxOutputTokens?: number;
+  topP?: number;
   conversationId: string;
   content: string;
 };
@@ -44,6 +51,13 @@ export type UpdateProfileDto = {
 };
 
 export type VoiceCompletionsDto = {
+  modelId?: string;
+  provider?: string;
+  platform?: string;
+  model?: string;
+  temperature?: number;
+  maxOutputTokens?: number;
+  topP?: number;
   conversationId: string;
 };
 

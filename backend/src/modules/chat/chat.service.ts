@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { SseTaskService } from '../sse-task/sse-task.service';
 import { MessageRole, MessageStatus } from '@prisma/client';
+import type { LlmTextRequest } from '../llm/llm.types';
 
 @Injectable()
 export class ChatService {
@@ -21,15 +22,22 @@ export class ChatService {
    * @param conversationId 会话ID
    * @param content 用户消息内容
    * @param userId 用户ID
+   * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 负责接收文本聊天请求，并将实际任务创建委托给 SSE 任务模块处理。
+   * @description 负责接收文本聊天请求，并将模型选择与生成参数一并委托给 SSE 任务模块处理。
    */
   async createCompletionTask(
     conversationId: string,
     content: string,
     userId: string,
+    llmRequest?: LlmTextRequest,
   ) {
-    return this.sseTaskService.createChatTask(conversationId, content, userId);
+    return this.sseTaskService.createChatTask(
+      conversationId,
+      content,
+      userId,
+      llmRequest,
+    );
   }
 
   /**
@@ -38,20 +46,23 @@ export class ChatService {
    * @param audioBuffer 音频二进制数据
    * @param filename 音频文件名
    * @param userId 用户ID
+   * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 负责接收语音聊天请求，先转写音频内容，再创建对应的可恢复 SSE 任务。
+   * @description 负责接收语音聊天请求，先转写音频内容，再携带模型配置创建对应的可恢复 SSE 任务。
    */
   async createVoiceTask(
     conversationId: string,
     audioBuffer: Buffer,
     filename: string,
     userId: string,
+    llmRequest?: LlmTextRequest,
   ) {
     return this.sseTaskService.createVoiceTask(
       conversationId,
       audioBuffer,
       filename,
       userId,
+      llmRequest,
     );
   }
 

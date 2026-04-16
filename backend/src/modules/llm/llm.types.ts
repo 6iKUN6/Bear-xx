@@ -12,7 +12,43 @@ export interface LlmModelConfig {
   baseURL?: string;
 }
 
-export interface LlmStreamOptions {
+export interface LlmModelPreset extends LlmModelConfig {
+  id: string;
+  platform: string;
+  enabled?: boolean;
   temperature?: number;
+  maxOutputTokens?: number;
+  topP?: number;
+}
+
+export interface LlmModelSelector {
+  modelId?: string;
+  provider?: string;
+  platform?: string;
+  model?: string;
+}
+
+export interface LlmGenerationConfig {
+  temperature?: number;
+  maxOutputTokens?: number;
+  topP?: number;
+}
+
+export interface LlmTextRequest {
+  model?: LlmModelSelector;
+  generation?: LlmGenerationConfig;
+}
+
+export interface ResolvedLlmModelConfig extends LlmModelConfig {
+  id: string;
+  platform: string;
+}
+
+export interface ResolvedLlmTextRequest {
+  model: ResolvedLlmModelConfig;
+  generation: LlmGenerationConfig;
+}
+
+export interface LlmStreamOptions {
   abortSignal?: AbortSignal;
 }

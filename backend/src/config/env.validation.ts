@@ -55,6 +55,14 @@ export class EnvConfig {
 
   @IsOptional()
   @IsString()
+  LLM_DEFAULT_MODEL_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_MODEL_PRESETS?: string;
+
+  @IsOptional()
+  @IsString()
   OPENAI_BASE_URL?: string;
 
   @IsOptional()

@@ -755,6 +755,41 @@
       "ChatCompletionsDto": {
         "type": "object",
         "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "模型预设 ID，优先级最高，例如 openai:gpt-4o-mini",
+            "example": "openai:gpt-4o-mini"
+          },
+          "provider": {
+            "type": "string",
+            "description": "LLM Provider 名称，例如 openai",
+            "example": "openai"
+          },
+          "platform": {
+            "type": "string",
+            "description": "模型平台或商家名称，例如 openai、deepseek",
+            "example": "openai"
+          },
+          "model": {
+            "type": "string",
+            "description": "模型名称，例如 gpt-4o-mini",
+            "example": "gpt-4o-mini"
+          },
+          "temperature": {
+            "type": "number",
+            "description": "采样温度，建议范围 0 到 2",
+            "example": 0.7
+          },
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 Token 数",
+            "example": 2048
+          },
+          "topP": {
+            "type": "number",
+            "description": "Top P 采样参数，范围 0 到 1",
+            "example": 1
+          },
           "conversationId": {
             "type": "string",
             "description": "会话 ID",
@@ -774,6 +809,41 @@
       "VoiceCompletionsDto": {
         "type": "object",
         "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "模型预设 ID，优先级最高，例如 openai:gpt-4o-mini",
+            "example": "openai:gpt-4o-mini"
+          },
+          "provider": {
+            "type": "string",
+            "description": "LLM Provider 名称，例如 openai",
+            "example": "openai"
+          },
+          "platform": {
+            "type": "string",
+            "description": "模型平台或商家名称，例如 openai、deepseek",
+            "example": "openai"
+          },
+          "model": {
+            "type": "string",
+            "description": "模型名称，例如 gpt-4o-mini",
+            "example": "gpt-4o-mini"
+          },
+          "temperature": {
+            "type": "number",
+            "description": "采样温度，建议范围 0 到 2",
+            "example": 0.7
+          },
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 Token 数",
+            "example": 2048
+          },
+          "topP": {
+            "type": "number",
+            "description": "Top P 采样参数，范围 0 到 1",
+            "example": 1
+          },
           "conversationId": {
             "type": "string",
             "description": "会话 ID",

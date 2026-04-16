@@ -5,6 +5,23 @@ const { execFileSync } = require('child_process');
 const backendRoot = path.resolve(__dirname, '..');
 process.chdir(backendRoot);
 
+function applyOpenApiEnvFallbacks() {
+  const fallbackEntries = {
+    DATABASE_URL: 'postgresql://docs:docs@localhost:5432/litter_bear_docs',
+    REDIS_HOST: '127.0.0.1',
+    REDIS_PORT: '6379',
+    JWT_ACCESS_SECRET: 'docs-access-secret',
+    JWT_REFRESH_SECRET: 'docs-refresh-secret',
+    OPENAI_API_KEY: 'docs-openai-key',
+  };
+
+  for (const [key, value] of Object.entries(fallbackEntries)) {
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 function buildBackend() {
   execFileSync('pnpm', ['build'], {
     cwd: backendRoot,
@@ -13,6 +30,7 @@ function buildBackend() {
 }
 
 async function exportOpenApi() {
+  applyOpenApiEnvFallbacks();
   buildBackend();
 
   require('reflect-metadata');
