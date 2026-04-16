@@ -23,17 +23,31 @@ model User {
 }
 
 model Conversation {
-  id        String    @id @default(cuid())
-  title     String    @default("新对话")
-  userId    String    @map("user_id")
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  Message[]
+  id         String               @id @default(cuid())
+  title      String               @default("新对话")
+  userId     String               @map("user_id")
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages   Message[]
+  summary    ConversationSummary?
   sseTasks   SseTask[]
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  createdAt  DateTime             @default(now()) @map("created_at")
+  updatedAt  DateTime             @updatedAt @map("updated_at")
 
   @@index([userId])
   @@map("conversations")
+}
+
+model ConversationSummary {
+  id              String       @id @default(cuid())
+  conversationId  String       @unique @map("conversation_id")
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  summary         String       @db.Text
+  latestMessageId String?      @map("latest_message_id")
+  messageCount    Int          @default(0) @map("message_count")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@map("conversation_summaries")
 }
 
 model Message {

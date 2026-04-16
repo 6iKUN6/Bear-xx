@@ -1,0 +1,1 @@
+export const CHAT_CONTEXT_RECENT_MESSAGE_LIMIT = 12;

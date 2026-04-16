@@ -41,25 +41,9 @@ export class EnvConfig {
   @IsString()
   JWT_REFRESH_EXPIRES_IN?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  OPENAI_API_KEY: string;
-
-  @IsOptional()
-  @IsEnum(['openai'])
-  LLM_PROVIDER?: string;
-
   @IsOptional()
   @IsString()
-  LLM_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  LLM_DEFAULT_MODEL_ID?: string;
-
-  @IsOptional()
-  @IsString()
-  LLM_MODEL_PRESETS?: string;
+  OPENAI_API_KEY?: string;
 
   @IsOptional()
   @IsString()
@@ -67,7 +51,55 @@ export class EnvConfig {
 
   @IsOptional()
   @IsString()
-  AI_MODEL?: string;
+  OPENAI_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  DEEPSEEK_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  DEEPSEEK_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  DEEPSEEK_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  KIMI_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  KIMI_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  KIMI_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  DOUBAO_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  DOUBAO_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  DOUBAO_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_DEFAULT_MODEL_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_MODEL_PRESETS?: string;
 
   @IsOptional()
   @IsString()
