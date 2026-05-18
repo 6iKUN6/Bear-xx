@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { API_GLOBAL_PREFIX } from './app.constants';
 import { createSwaggerDocument } from './swagger';
 
 async function bootstrap() {
@@ -18,6 +19,7 @@ async function bootstrap() {
   );
 
   app.enableCors();
+  app.setGlobalPrefix(API_GLOBAL_PREFIX);
 
   const document = createSwaggerDocument(app);
   SwaggerModule.setup('api-docs', app, document);
@@ -29,6 +31,7 @@ async function bootstrap() {
     try {
       await app.listen(port);
       console.log(`Litter-Bear Server running on http://localhost:${port}`);
+      console.log(`API Prefix: http://localhost:${port}/${API_GLOBAL_PREFIX}`);
       console.log(`API Docs: http://localhost:${port}/api-docs`);
       return;
     } catch (err: unknown) {

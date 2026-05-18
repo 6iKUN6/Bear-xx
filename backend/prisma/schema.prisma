@@ -11,6 +11,9 @@ model User {
   id            String         @id @default(cuid())
   nickname      String         @default("用户")
   avatarUrl     String         @default("")
+  username      String?        @unique
+  passwordHash  String?        @map("password_hash")
+  passwordUpdatedAt DateTime?  @map("password_updated_at")
   phone         String?        @unique
   wechatOpenId  String?        @unique @map("wechat_open_id")
   wechatUnionId String?        @unique @map("wechat_union_id")

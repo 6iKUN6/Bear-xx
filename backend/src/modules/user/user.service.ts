@@ -37,6 +37,16 @@ export class UserService {
   }
 
   /**
+   * 根据账号名查询用户
+   * @param username 账号名
+   * @returns 返回用户记录；若不存在则返回 null
+   * @description 用于账号密码登录流程中按唯一账号名定位本地用户。
+   */
+  async findByUsername(username: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { username } });
+  }
+
+  /**
    * 根据微信身份查询或创建用户
    * @param wechatOpenId 微信OpenID
    * @param wechatUnionId 微信UnionID
@@ -67,6 +77,44 @@ export class UserService {
 
     return this.prisma.user.create({
       data: { phone },
+    });
+  }
+
+  /**
+   * 创建账号密码用户
+   * @param data 账号密码用户创建数据
+   * @returns 返回新创建的用户记录
+   * @description 使用账号名、密码哈希和可选昵称创建本地用户，供账号密码登录入口在首登时自动注册。
+   */
+  async createWithPassword(data: {
+    username: string;
+    passwordHash: string;
+    nickname?: string;
+  }): Promise<User> {
+    return this.prisma.user.create({
+      data: {
+        username: data.username,
+        passwordHash: data.passwordHash,
+        passwordUpdatedAt: new Date(),
+        nickname: data.nickname ?? data.username,
+      },
+    });
+  }
+
+  /**
+   * 更新用户密码
+   * @param userId 用户ID
+   * @param passwordHash 新密码哈希
+   * @returns 返回更新后的用户记录
+   * @description 为指定用户写入新的密码哈希，并刷新密码更新时间，供后续密码修改场景复用。
+   */
+  async updatePassword(userId: string, passwordHash: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        passwordUpdatedAt: new Date(),
+      },
     });
   }
 

@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.0",
   "paths": {
-    "/auth/wechat-login": {
+    "/api/auth/wechat-login": {
       "post": {
         "description": "使用微信 code 换取 JWT Token",
         "operationId": "AuthController_wechatLogin",
@@ -27,7 +27,7 @@
         ]
       }
     },
-    "/auth/phone/send-code": {
+    "/api/auth/phone/send-code": {
       "post": {
         "description": "向指定手机号发送短信验证码，60秒内不可重复发送",
         "operationId": "AuthController_sendCode",
@@ -53,7 +53,33 @@
         ]
       }
     },
-    "/auth/phone/login": {
+    "/api/auth/account/login": {
+      "post": {
+        "description": "使用账号名和密码登录；若账号不存在，则自动注册后返回登录态",
+        "operationId": "AuthController_accountLogin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "账号密码登录或自动注册",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/api/auth/phone/login": {
       "post": {
         "description": "使用手机号 + 验证码登录，自动注册新用户",
         "operationId": "AuthController_phoneLogin",
@@ -79,7 +105,7 @@
         ]
       }
     },
-    "/auth/refresh": {
+    "/api/auth/refresh": {
       "post": {
         "description": "使用 Refresh Token 换取新的 Access Token",
         "operationId": "AuthController_refresh",
@@ -105,7 +131,7 @@
         ]
       }
     },
-    "/auth/logout": {
+    "/api/auth/logout": {
       "post": {
         "description": "将当前 Access Token 加入黑名单",
         "operationId": "AuthController_logout",
@@ -126,7 +152,7 @@
         ]
       }
     },
-    "/user/profile": {
+    "/api/user/profile": {
       "get": {
         "operationId": "UserController_getProfile",
         "parameters": [],
@@ -175,7 +201,7 @@
         ]
       }
     },
-    "/conversations": {
+    "/api/conversations": {
       "get": {
         "description": "返回当前用户的所有会话及消息列表",
         "operationId": "ConversationController_findAll",
@@ -224,7 +250,7 @@
         ]
       }
     },
-    "/conversations/{id}": {
+    "/api/conversations/{id}": {
       "delete": {
         "description": "删除指定会话及其所有消息",
         "operationId": "ConversationController_delete",
@@ -254,7 +280,7 @@
         ]
       }
     },
-    "/chat/message": {
+    "/api/chat/message": {
       "post": {
         "description": "发送一条文本消息并直接建立首轮 SSE 流；若未传 conversationId，则自动创建新会话",
         "operationId": "sendMessage",
@@ -292,7 +318,7 @@
         ]
       }
     },
-    "/chat/voice-messages": {
+    "/api/chat/voice-messages": {
       "post": {
         "description": "上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话",
         "operationId": "voiceCompletions",
@@ -323,7 +349,7 @@
         ]
       }
     },
-    "/chat/image-generations": {
+    "/api/chat/image-generations": {
       "post": {
         "description": "使用 DALL-E 3 生成图片",
         "operationId": "ChatController_imageGenerations",
@@ -354,7 +380,7 @@
         ]
       }
     },
-    "/sse-tasks/{taskId}": {
+    "/api/sse-tasks/{taskId}": {
       "get": {
         "operationId": "SseTaskController_getTask",
         "parameters": [
@@ -383,7 +409,7 @@
         ]
       }
     },
-    "/sse-tasks/{taskId}/stream": {
+    "/api/sse-tasks/{taskId}/stream": {
       "get": {
         "operationId": "SseTaskController_streamTask",
         "parameters": [
@@ -420,7 +446,7 @@
         ]
       }
     },
-    "/sse-tasks/{taskId}/resume": {
+    "/api/sse-tasks/{taskId}/resume": {
       "post": {
         "operationId": "SseTaskController_resumeTask",
         "parameters": [
@@ -459,7 +485,7 @@
         ]
       }
     },
-    "/sse-tasks/{taskId}/cancel": {
+    "/api/sse-tasks/{taskId}/cancel": {
       "post": {
         "operationId": "SseTaskController_cancelTask",
         "parameters": [
@@ -488,7 +514,7 @@
         ]
       }
     },
-    "/health": {
+    "/api/health": {
       "get": {
         "description": "检查数据库和 Redis 连接状态",
         "operationId": "HealthController_check",
@@ -700,6 +726,30 @@
         },
         "required": [
           "phone"
+        ]
+      },
+      "AccountLoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "账号名，支持字母、数字和下划线，4 到 20 位",
+            "example": "sparkle_01"
+          },
+          "password": {
+            "type": "string",
+            "description": "登录密码，至少8位",
+            "example": "12345678"
+          },
+          "nickname": {
+            "type": "string",
+            "description": "首次自动注册时使用的昵称，不传则默认使用账号名",
+            "example": "Sparkle"
+          }
+        },
+        "required": [
+          "username",
+          "password"
         ]
       },
       "PhoneLoginDto": {

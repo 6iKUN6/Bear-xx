@@ -9,6 +9,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { AccountLoginDto } from './dto/account-login.dto';
 import { WechatLoginDto } from './dto/wechat-login.dto';
 import { SendCodeDto, PhoneLoginDto } from './dto/phone-login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -40,6 +41,21 @@ export class AuthController {
   async sendCode(@Body() dto: SendCodeDto) {
     await this.authService.sendPhoneCode(dto.phone);
     return null;
+  }
+
+  @Post('account/login')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '账号密码登录或自动注册',
+    description: '使用账号名和密码登录；若账号不存在，则自动注册后返回登录态',
+  })
+  async accountLogin(@Body() dto: AccountLoginDto) {
+    return this.authService.accountLogin(
+      dto.username,
+      dto.password,
+      dto.nickname,
+    );
   }
 
   @Post('phone/login')

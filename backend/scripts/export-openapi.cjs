@@ -37,11 +37,13 @@ async function exportOpenApi() {
 
   const { NestFactory } = require('@nestjs/core');
   const { AppModule } = require('../dist/app.module');
+  const { API_GLOBAL_PREFIX } = require('../dist/app.constants');
   const { createSwaggerDocument } = require('../dist/swagger');
 
   const app = await NestFactory.create(AppModule, { logger: false });
 
   try {
+    app.setGlobalPrefix(API_GLOBAL_PREFIX);
     const document = createSwaggerDocument(app);
     const outputPath = path.resolve(backendRoot, 'docs/openapi.json');
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });

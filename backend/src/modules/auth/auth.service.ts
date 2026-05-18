@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type { StringValue } from 'ms';
 import { User } from '@prisma/client';
@@ -13,6 +14,7 @@ import { UserService } from '../user/user.service';
 import { SmsService } from '../sms/sms.service';
 import { RedisService } from '../../redis/redis.service';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { promisify } from 'util';
 
 interface WechatSessionResponse {
   openid?: string;
@@ -25,6 +27,11 @@ interface TokenPair {
   accessToken: string;
   refreshToken: string;
 }
+
+const PASSWORD_SALT_LENGTH = 16;
+const PASSWORD_KEY_LENGTH = 64;
+const PASSWORD_HASH_PREFIX = 'scrypt';
+const scrypt = promisify(scryptCallback);
 
 export interface LoginResult {
   token: string;
@@ -91,6 +98,48 @@ export class AuthService {
    */
   async sendPhoneCode(phone: string): Promise<void> {
     await this.smsService.sendCode(phone);
+  }
+
+  /**
+   * 使用账号密码登录或自动注册
+   * @param username 账号名
+   * @param password 登录密码
+   * @param nickname 首次自动注册时使用的昵称
+   * @returns 返回登录结果，包含 access token、refresh token 和用户信息
+   * @description 若账号已存在则校验密码并登录；若账号不存在，则使用当前密码自动注册新用户后直接登录。
+   */
+  async accountLogin(
+    username: string,
+    password: string,
+    nickname?: string,
+  ): Promise<LoginResult> {
+    const normalizedUsername = username.trim().toLowerCase();
+    const existingUser =
+      await this.userService.findByUsername(normalizedUsername);
+
+    if (!existingUser) {
+      const passwordHash = await this.hashPassword(password);
+      const createdUser = await this.userService.createWithPassword({
+        username: normalizedUsername,
+        passwordHash,
+        nickname,
+      });
+      return this.buildLoginResult(createdUser);
+    }
+
+    if (!existingUser.passwordHash) {
+      throw new UnauthorizedException('该账号暂不支持密码登录');
+    }
+
+    const passwordMatched = await this.verifyPassword(
+      password,
+      existingUser.passwordHash,
+    );
+    if (!passwordMatched) {
+      throw new UnauthorizedException('账号或密码错误');
+    }
+
+    return this.buildLoginResult(existingUser);
   }
 
   /**
@@ -234,5 +283,48 @@ export class AuthService {
    */
   private async blacklistToken(jti: string, ttl: number): Promise<void> {
     await this.redis.set(`token:blacklist:${jti}`, '1', 'EX', ttl);
+  }
+
+  /**
+   * 生成密码哈希
+   * @param password 明文密码
+   * @returns 返回可持久化存储的密码哈希字符串
+   * @description 使用随机盐和 scrypt 生成密码哈希，避免在数据库中存储明文密码。
+   */
+  private async hashPassword(password: string): Promise<string> {
+    const salt = randomBytes(PASSWORD_SALT_LENGTH).toString('hex');
+    const derivedKey = (await scrypt(
+      password,
+      salt,
+      PASSWORD_KEY_LENGTH,
+    )) as Buffer;
+
+    return [PASSWORD_HASH_PREFIX, salt, derivedKey.toString('hex')].join('$');
+  }
+
+  /**
+   * 校验密码是否匹配
+   * @param password 明文密码
+   * @param storedPasswordHash 已存储的密码哈希
+   * @returns 返回布尔值，true 表示密码匹配
+   * @description 解析已存储的 scrypt 哈希并重新计算派生密钥，通过常量时间比较判断密码是否正确。
+   */
+  private async verifyPassword(
+    password: string,
+    storedPasswordHash: string,
+  ): Promise<boolean> {
+    const [prefix, salt, hashHex] = storedPasswordHash.split('$');
+    if (!prefix || !salt || !hashHex || prefix !== PASSWORD_HASH_PREFIX) {
+      return false;
+    }
+
+    const expectedBuffer = Buffer.from(hashHex, 'hex');
+    const actualBuffer = (await scrypt(
+      password,
+      salt,
+      expectedBuffer.length,
+    )) as Buffer;
+
+    return timingSafeEqual(expectedBuffer, actualBuffer);
   }
 }

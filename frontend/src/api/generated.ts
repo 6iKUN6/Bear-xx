@@ -7,6 +7,12 @@
 
 import { BaseApiClient, StreamHandlers, StreamRequestHandle } from "./request";
 
+export type AccountLoginDto = {
+  username: string;
+  password: string;
+  nickname?: string;
+};
+
 export type ChatCompletionsDto = {
   modelId?: string;
   provider?: string;
@@ -68,11 +74,23 @@ export type WechatLoginDto = {
 export class Api extends BaseApiClient {
 
   /**
+   * 账号密码登录或自动注册
+   */
+  accountLogin(body: AccountLoginDto): Promise<unknown> {
+    return this.request<unknown, AccountLoginDto>({
+      url: "/api/auth/account/login",
+      method: "POST",
+      data: body
+    });
+  }
+
+
+  /**
    * 登出
    */
   logout(): Promise<unknown> {
     return this.request<unknown>({
-      url: "/auth/logout",
+      url: "/api/auth/logout",
       method: "POST"
     });
   }
@@ -83,7 +101,7 @@ export class Api extends BaseApiClient {
    */
   phoneLogin(body: PhoneLoginDto): Promise<unknown> {
     return this.request<unknown, PhoneLoginDto>({
-      url: "/auth/phone/login",
+      url: "/api/auth/phone/login",
       method: "POST",
       data: body
     });
@@ -95,7 +113,7 @@ export class Api extends BaseApiClient {
    */
   sendCode(body: SendCodeDto): Promise<unknown> {
     return this.request<unknown, SendCodeDto>({
-      url: "/auth/phone/send-code",
+      url: "/api/auth/phone/send-code",
       method: "POST",
       data: body
     });
@@ -107,7 +125,7 @@ export class Api extends BaseApiClient {
    */
   refresh(body: RefreshTokenDto): Promise<unknown> {
     return this.request<unknown, RefreshTokenDto>({
-      url: "/auth/refresh",
+      url: "/api/auth/refresh",
       method: "POST",
       data: body
     });
@@ -119,7 +137,7 @@ export class Api extends BaseApiClient {
    */
   wechatLogin(body: WechatLoginDto): Promise<unknown> {
     return this.request<unknown, WechatLoginDto>({
-      url: "/auth/wechat-login",
+      url: "/api/auth/wechat-login",
       method: "POST",
       data: body
     });
@@ -131,7 +149,7 @@ export class Api extends BaseApiClient {
    */
   imageGenerations(body: ImageGenerationDto): Promise<unknown> {
     return this.request<unknown, ImageGenerationDto>({
-      url: "/chat/image-generations",
+      url: "/api/chat/image-generations",
       method: "POST",
       data: body
     });
@@ -143,7 +161,7 @@ export class Api extends BaseApiClient {
    */
   sendMessage(body: ChatCompletionsDto, handlers: StreamHandlers<unknown> = {}): StreamRequestHandle {
     return this.stream<unknown, ChatCompletionsDto>({
-      url: "/chat/message",
+      url: "/api/chat/message",
       method: "POST",
       data: body
     }, handlers);
@@ -159,7 +177,7 @@ export class Api extends BaseApiClient {
     fileFieldName?: string;
   }): Promise<unknown> {
     return this.upload<unknown, VoiceCompletionsDto>({
-      url: "/chat/voice-messages",
+      url: "/api/chat/voice-messages",
       method: "POST",
       filePath: args.filePath,
       name: args.fileFieldName || "file",
@@ -173,7 +191,7 @@ export class Api extends BaseApiClient {
    */
   findAll(): Promise<unknown> {
     return this.request<unknown>({
-      url: "/conversations",
+      url: "/api/conversations",
       method: "GET"
     });
   }
@@ -184,7 +202,7 @@ export class Api extends BaseApiClient {
    */
   create(body: CreateConversationDto): Promise<unknown> {
     return this.request<unknown, CreateConversationDto>({
-      url: "/conversations",
+      url: "/api/conversations",
       method: "POST",
       data: body
     });
@@ -198,7 +216,7 @@ export class Api extends BaseApiClient {
     id: string;
   }): Promise<unknown> {
     return this.request<unknown>({
-      url: "/conversations/{id}",
+      url: "/api/conversations/{id}",
       method: "DELETE",
       pathParams: {
             id: args.id
@@ -252,7 +270,7 @@ export class Api extends BaseApiClient {
     };
   };
 }>({
-      url: "/health",
+      url: "/api/health",
       method: "GET"
     });
   }
@@ -265,7 +283,7 @@ export class Api extends BaseApiClient {
     taskId: string;
   }): Promise<unknown> {
     return this.request<unknown>({
-      url: "/sse-tasks/{taskId}",
+      url: "/api/sse-tasks/{taskId}",
       method: "GET",
       pathParams: {
             taskId: args.taskId
@@ -281,7 +299,7 @@ export class Api extends BaseApiClient {
     taskId: string;
   }): Promise<unknown> {
     return this.request<unknown>({
-      url: "/sse-tasks/{taskId}/cancel",
+      url: "/api/sse-tasks/{taskId}/cancel",
       method: "POST",
       pathParams: {
             taskId: args.taskId
@@ -298,7 +316,7 @@ export class Api extends BaseApiClient {
     body: ResumeSseDto;
   }, handlers: StreamHandlers<unknown> = {}): StreamRequestHandle {
     return this.stream<unknown, ResumeSseDto>({
-      url: "/sse-tasks/{taskId}/resume",
+      url: "/api/sse-tasks/{taskId}/resume",
       method: "POST",
       pathParams: {
             taskId: args.taskId
@@ -316,7 +334,7 @@ export class Api extends BaseApiClient {
     cursor: number;
   }, handlers: StreamHandlers<unknown> = {}): StreamRequestHandle {
     return this.stream<unknown>({
-      url: "/sse-tasks/{taskId}/stream",
+      url: "/api/sse-tasks/{taskId}/stream",
       method: "GET",
       pathParams: {
             taskId: args.taskId
@@ -333,7 +351,7 @@ export class Api extends BaseApiClient {
    */
   getProfile(): Promise<unknown> {
     return this.request<unknown>({
-      url: "/user/profile",
+      url: "/api/user/profile",
       method: "GET"
     });
   }
@@ -344,7 +362,7 @@ export class Api extends BaseApiClient {
    */
   updateProfile(body: UpdateProfileDto): Promise<unknown> {
     return this.request<unknown, UpdateProfileDto>({
-      url: "/user/profile",
+      url: "/api/user/profile",
       method: "PATCH",
       data: body
     });
