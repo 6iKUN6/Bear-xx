@@ -37,13 +37,6 @@ export class SseInterceptor implements NestInterceptor {
     const req = httpCtx.getRequest<SseRequest>();
     const res = httpCtx.getResponse<Response>();
 
-    // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders();
-
     // Abort controller for client disconnect
     const abortController = new AbortController();
     res.on('close', () => abortController.abort());
@@ -82,6 +75,7 @@ export class SseInterceptor implements NestInterceptor {
             | AsyncGenerator<SseEvent>,
         ) => {
           const stream = this.isAsyncGenerator(result) ? result : result.stream;
+          this.prepareSseResponse(res);
           return from(
             this.handleSseStream(
               res,
@@ -94,6 +88,18 @@ export class SseInterceptor implements NestInterceptor {
       ),
       switchMap(() => EMPTY),
     );
+  }
+
+  private prepareSseResponse(res: Response) {
+    if (res.headersSent) {
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
   }
 
   private async handleSseStream(

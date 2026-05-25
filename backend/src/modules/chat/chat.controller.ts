@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UnauthorizedException,
   Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -66,7 +67,7 @@ export class ChatController {
     return this.chatService.streamMessage(
       dto.conversationId,
       dto.content,
-      userId,
+      this.requireUserId(userId),
       this.buildLlmTextRequest(dto),
       req.__sseAbortSignal,
     );
@@ -138,7 +139,7 @@ export class ChatController {
     return this.chatService.createCompletionTask(
       dto.conversationId,
       dto.content,
-      userId,
+      this.requireUserId(userId),
       this.buildLlmTextRequest(dto),
     );
   }
@@ -164,7 +165,7 @@ export class ChatController {
       dto.conversationId,
       audio.buffer,
       audio.originalname,
-      userId,
+      this.requireUserId(userId),
       this.buildLlmTextRequest(dto),
     );
   }
@@ -183,8 +184,16 @@ export class ChatController {
     return this.chatService.generateImage(
       dto.conversationId,
       dto.prompt,
-      userId,
+      this.requireUserId(userId),
     );
+  }
+
+  private requireUserId(userId: string | undefined): string {
+    if (!userId) {
+      throw new UnauthorizedException('请先登录后再使用聊天接口');
+    }
+
+    return userId;
   }
 
   /**
