@@ -11,4 +11,3 @@ export function createSwaggerDocument(app: INestApplication) {
 
   return SwaggerModule.createDocument(app, swaggerConfig);
 }
-

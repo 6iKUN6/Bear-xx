@@ -1,4 +1,4 @@
-export type LlmProviderName = 'openai';
+export type LlmProviderName = 'openai' | 'anthropic';
 
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant';
@@ -29,9 +29,9 @@ export interface LlmModelSelector {
 }
 
 export interface LlmGenerationConfig {
-  temperature?: number;
-  maxOutputTokens?: number;
-  topP?: number;
+  temperature?: number; // 采样温度
+  maxOutputTokens?: number; // 最大输出 token 数
+  topP?: number; // Top P 采样参数
 }
 
 export interface LlmTextRequest {

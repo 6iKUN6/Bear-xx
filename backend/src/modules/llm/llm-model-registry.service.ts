@@ -2,6 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BUILTIN_LLM_MODEL_PRESETS } from './llm.presets';
 import {
+  ANTHROPIC_PLATFORM,
+  AnthropicChatModel,
+  createAnthropicModelPreset,
+} from './providers/anthropic';
+import {
   DEEPSEEK_PLATFORM,
   DeepseekChatModel,
   createDeepseekModelPreset,
@@ -100,11 +105,12 @@ export class LlmModelRegistryService {
   /**
    * 加载环境变量模型预设
    * @returns 返回根据环境变量生成的模型预设列表
-   * @description 读取 OpenAI、DeepSeek、Kimi、豆包等供应商的专用环境变量，自动生成对应的模型预设，减少在 .env 中手写 JSON 的成本。
+   * @description 读取 OpenAI、Anthropic、DeepSeek、Kimi、豆包等供应商的专用环境变量，自动生成对应的模型预设，减少在 .env 中手写 JSON 的成本。
    */
   private loadEnvironmentModelPresets(): LlmModelPreset[] {
     const presets: LlmModelPreset[] = [];
     const openAiApiKey = this.readConfigString('OPENAI_API_KEY');
+    const anthropicApiKey = this.readConfigString('ANTHROPIC_API_KEY');
     const deepseekApiKey = this.readConfigString('DEEPSEEK_API_KEY');
     const kimiApiKey = this.readConfigString('KIMI_API_KEY');
     const doubaoApiKey = this.readConfigString('DOUBAO_API_KEY');
@@ -120,6 +126,18 @@ export class LlmModelRegistryService {
           model,
           apiKey: openAiApiKey,
           baseURL: this.readConfigString('OPENAI_BASE_URL'),
+        }),
+      );
+    }
+
+    if (anthropicApiKey) {
+      presets.push(
+        createAnthropicModelPreset({
+          model:
+            this.readConfigString('ANTHROPIC_MODEL') ??
+            AnthropicChatModel.CLAUDE_SONNET_4_5,
+          apiKey: anthropicApiKey,
+          baseURL: this.readConfigString('ANTHROPIC_BASE_URL'),
         }),
       );
     }
@@ -351,14 +369,9 @@ export class LlmModelRegistryService {
   private resolveAdHocModel(
     selector?: LlmModelSelector,
   ): ResolvedLlmModelConfig {
-    const configuredProvider = selector?.provider ?? 'openai';
-    const provider = this.ensureSupportedProvider(configuredProvider);
-    const model =
-      selector?.model ??
-      this.readConfigString('LLM_MODEL') ??
-      this.readConfigString('OPENAI_MODEL') ??
-      'gpt-4o-mini';
+    const provider = this.resolveAdHocProvider(selector);
     const platform = selector?.platform ?? provider;
+    const model = selector?.model ?? this.resolveDefaultModel(provider);
 
     if (!model) {
       throw new BadRequestException('未指定可用的模型名称');
@@ -369,8 +382,8 @@ export class LlmModelRegistryService {
       provider,
       platform,
       model,
-      apiKey: this.resolvePlatformApiKey(platform),
-      baseURL: this.resolvePlatformBaseUrl(platform),
+      apiKey: this.resolvePlatformApiKey(platform, provider),
+      baseURL: this.resolvePlatformBaseUrl(platform, provider),
     };
   }
 
@@ -380,8 +393,13 @@ export class LlmModelRegistryService {
    * @returns 返回平台对应的 API Key；若未配置则返回 undefined
    * @description 为临时模型选择场景提供平台级默认鉴权信息，避免调用方在每次请求里重复传递 API Key。
    */
-  private resolvePlatformApiKey(platform: string): string | undefined {
+  private resolvePlatformApiKey(
+    platform: string,
+    provider: LlmProviderName,
+  ): string | undefined {
     switch (platform) {
+      case ANTHROPIC_PLATFORM:
+        return this.readConfigString('ANTHROPIC_API_KEY');
       case DEEPSEEK_PLATFORM:
         return this.readConfigString('DEEPSEEK_API_KEY');
       case KIMI_PLATFORM:
@@ -389,8 +407,11 @@ export class LlmModelRegistryService {
       case DOUBAO_PLATFORM:
         return this.readConfigString('DOUBAO_API_KEY');
       case 'openai':
-      default:
         return this.readConfigString('OPENAI_API_KEY');
+      default:
+        return provider === 'anthropic'
+          ? this.readConfigString('ANTHROPIC_API_KEY')
+          : this.readConfigString('OPENAI_API_KEY');
     }
   }
 
@@ -400,8 +421,13 @@ export class LlmModelRegistryService {
    * @returns 返回平台对应的 Base URL；若未配置则返回 undefined
    * @description 为临时模型选择场景提供平台级默认网关地址，兼容不同 OpenAI 协议供应商的地址差异。
    */
-  private resolvePlatformBaseUrl(platform: string): string | undefined {
+  private resolvePlatformBaseUrl(
+    platform: string,
+    provider: LlmProviderName,
+  ): string | undefined {
     switch (platform) {
+      case ANTHROPIC_PLATFORM:
+        return this.readConfigString('ANTHROPIC_BASE_URL');
       case DEEPSEEK_PLATFORM:
         return this.readConfigString('DEEPSEEK_BASE_URL');
       case KIMI_PLATFORM:
@@ -409,9 +435,30 @@ export class LlmModelRegistryService {
       case DOUBAO_PLATFORM:
         return this.readConfigString('DOUBAO_BASE_URL');
       case 'openai':
-      default:
         return this.readConfigString('OPENAI_BASE_URL');
+      default:
+        return provider === 'anthropic'
+          ? this.readConfigString('ANTHROPIC_BASE_URL')
+          : this.readConfigString('OPENAI_BASE_URL');
     }
+  }
+
+  /**
+   * 解析临时模型 provider
+   * @param selector 模型选择条件
+   * @returns 返回临时模型应使用的 provider
+   * @description 请求未显式传 provider 时，根据 Anthropic 平台推断 provider，其他平台默认按 OpenAI 兼容协议处理。
+   */
+  private resolveAdHocProvider(selector?: LlmModelSelector): LlmProviderName {
+    if (selector?.provider) {
+      return this.ensureSupportedProvider(selector.provider);
+    }
+
+    if (selector?.platform === ANTHROPIC_PLATFORM) {
+      return 'anthropic';
+    }
+
+    return 'openai';
   }
 
   /**
@@ -457,11 +504,33 @@ export class LlmModelRegistryService {
    * @description 确认传入 provider 已在系统中注册，否则抛出参数错误。
    */
   private ensureSupportedProvider(provider: string): LlmProviderName {
-    if (provider !== 'openai') {
+    if (provider !== 'openai' && provider !== 'anthropic') {
       throw new BadRequestException(`不支持的 LLM Provider: ${provider}`);
     }
 
     return provider as LlmProviderName;
+  }
+
+  /**
+   * 解析 provider 默认模型名
+   * @param provider provider 名称
+   * @returns 返回当前 provider 对应的默认模型名
+   * @description 临时模型配置未显式指定 model 时，按 provider 读取对应环境变量，避免 Anthropic 请求落到 OpenAI 默认模型。
+   */
+  private resolveDefaultModel(provider: LlmProviderName): string | undefined {
+    if (provider === 'anthropic') {
+      return (
+        this.readConfigString('ANTHROPIC_MODEL') ??
+        this.readConfigString('LLM_MODEL') ??
+        AnthropicChatModel.CLAUDE_SONNET_4_5
+      );
+    }
+
+    return (
+      this.readConfigString('LLM_MODEL') ??
+      this.readConfigString('OPENAI_MODEL') ??
+      'gpt-4o-mini'
+    );
   }
 
   /**

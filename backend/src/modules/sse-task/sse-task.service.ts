@@ -51,6 +51,8 @@ export interface TaskStreamResult {
 }
 
 const TASK_CANCELED_REASON = 'task_canceled';
+const EMPTY_ASSISTANT_CONTENT =
+  '模型本次没有返回有效文本。请检查模型名称、中转站响应格式或流式输出配置。';
 
 const TERMINAL_EVENTS = new Set([
   'message.done',
@@ -587,6 +589,18 @@ export class SseTaskService {
     }
 
     let fullContent = '';
+    let deltaCount = 0;
+    let emptyDeltaCount = 0;
+    const startedAt = Date.now();
+
+    this.debugTaskLog('sse.chat_task.llm_start', {
+      taskId: task.id,
+      conversationId: task.conversationId,
+      messageId: task.messageId,
+      messageCount: messages.length,
+      model: this.toSafeTaskModelLog(payload.llm),
+      generation: payload.llm?.generation,
+    });
 
     for await (const chunk of this.llmService.streamChatText(
       messages,
@@ -595,6 +609,12 @@ export class SseTaskService {
         abortSignal: executionSignal,
       },
     )) {
+      if (!chunk) {
+        emptyDeltaCount++;
+        continue;
+      }
+
+      deltaCount++;
       fullContent += chunk;
       const deltaEvent = await this.persistEvent(
         task.id,
@@ -621,6 +641,34 @@ export class SseTaskService {
       throw executionSignal.reason;
     }
 
+    const completionWarning =
+      fullContent.trim().length === 0 ? EMPTY_ASSISTANT_CONTENT : undefined;
+    const finalContent = completionWarning ?? fullContent;
+
+    if (completionWarning) {
+      this.logger.warn(
+        this.formatTaskLog('sse.chat_task.empty_completion', {
+          taskId: task.id,
+          conversationId: task.conversationId,
+          messageId: task.messageId,
+          deltaCount,
+          emptyDeltaCount,
+          fullContentLength: fullContent.length,
+          durationMs: Date.now() - startedAt,
+        }),
+      );
+    } else {
+      this.debugTaskLog('sse.chat_task.llm_completed', {
+        taskId: task.id,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        deltaCount,
+        emptyDeltaCount,
+        fullContentLength: fullContent.length,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
     const doneEvent = await this.persistEvent(
       task.id,
       'message.done',
@@ -631,11 +679,12 @@ export class SseTaskService {
         messageId: task.messageId,
         status: SseTaskStatus.COMPLETED.toLowerCase(),
         payload: {
-          content: fullContent,
+          content: finalContent,
+          warning: completionWarning,
         },
       }),
       {
-        fullContent,
+        fullContent: finalContent,
         status: SseTaskStatus.COMPLETED,
       },
     );
@@ -644,7 +693,7 @@ export class SseTaskService {
       this.prisma.message.update({
         where: { id: task.messageId },
         data: {
-          content: fullContent,
+          content: finalContent,
           status: MessageStatus.DONE,
         },
       }),
@@ -658,7 +707,7 @@ export class SseTaskService {
           status: SseTaskStatus.COMPLETED,
           completedAt: new Date(),
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
-          fullContent,
+          fullContent: finalContent,
         },
       }),
     ]);
@@ -674,9 +723,14 @@ export class SseTaskService {
         conversationId: task.conversationId,
         messageId: task.messageId,
         status: SseTaskStatus.COMPLETED.toLowerCase(),
+        payload: {
+          warning: completionWarning,
+          deltaCount,
+          fullContentLength: finalContent.length,
+        },
       }),
       {
-        fullContent,
+        fullContent: finalContent,
         status: SseTaskStatus.COMPLETED,
       },
     );
@@ -949,6 +1003,50 @@ export class SseTaskService {
     eventData: SseTaskEventData<TPayload>,
   ) {
     return JSON.stringify(eventData);
+  }
+
+  private formatTaskLog(event: string, payload: Record<string, unknown>) {
+    return JSON.stringify({ event, ...payload });
+  }
+
+  private debugTaskLog(event: string, payload: Record<string, unknown>) {
+    if (!this.isDebugEnabled()) {
+      return;
+    }
+
+    this.logger.log(this.formatTaskLog(event, payload));
+  }
+
+  private toSafeTaskModelLog(llmRequest: ChatTaskPayload['llm']) {
+    if (!llmRequest?.model) {
+      return undefined;
+    }
+
+    return {
+      id: llmRequest.model.id,
+      provider: llmRequest.model.provider,
+      platform: llmRequest.model.platform,
+      model: llmRequest.model.model,
+      baseURL: this.toSafeBaseUrl(llmRequest.model.baseURL),
+      hasApiKey: Boolean(llmRequest.model.apiKey),
+    };
+  }
+
+  private toSafeBaseUrl(baseURL: string | undefined) {
+    if (!baseURL) {
+      return undefined;
+    }
+
+    try {
+      return new URL(baseURL).origin;
+    } catch {
+      return '[invalid-url]';
+    }
+  }
+
+  private isDebugEnabled() {
+    const value = this.configService.get<string>('LLM_DEBUG');
+    return value === 'true' || value === '1';
   }
 
   /**

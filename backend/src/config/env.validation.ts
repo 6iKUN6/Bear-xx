@@ -55,6 +55,18 @@ export class EnvConfig {
 
   @IsOptional()
   @IsString()
+  ANTHROPIC_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  ANTHROPIC_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  ANTHROPIC_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
   DEEPSEEK_API_KEY?: string;
 
   @IsOptional()
@@ -100,6 +112,26 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   LLM_MODEL_PRESETS?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_DEBUG?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_DEBUG_CHUNKS?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_DEBUG_CHUNK_PREVIEW_LENGTH?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_DEBUG_TIMEOUT_MS?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_DEBUG_PROVIDER?: string;
 
   @IsOptional()
   @IsString()
