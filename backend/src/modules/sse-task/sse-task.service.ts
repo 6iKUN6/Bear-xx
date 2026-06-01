@@ -17,7 +17,10 @@ import type { SseEvent } from '../../common/sse';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AiService } from '../ai/ai.service';
-import { LlmService } from '../llm/llm.service';
+import {
+  CommonChatAgentService,
+  type CommonChatAgentStreamEvent,
+} from '../ai/agents';
 import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
 import { ConversationService } from '../conversation/conversation.service';
 import { ChatContextService } from '../memory/chat-context.service';
@@ -73,7 +76,7 @@ export class SseTaskService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly aiService: AiService,
-    private readonly llmService: LlmService,
+    private readonly commonChatAgentService: CommonChatAgentService,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
     private readonly chatContextService: ChatContextService,
@@ -195,7 +198,8 @@ export class SseTaskService {
     type: SseTaskType,
     llmRequest?: LlmTextRequest,
   ) {
-    const resolvedLlmRequest = this.llmService.resolveTextRequest(llmRequest);
+    const resolvedLlmRequest =
+      this.commonChatAgentService.resolveTextRequest(llmRequest);
     const requestPayload = JSON.parse(
       JSON.stringify({
         content,
@@ -593,7 +597,7 @@ export class SseTaskService {
     let emptyDeltaCount = 0;
     const startedAt = Date.now();
 
-    this.debugTaskLog('sse.chat_task.llm_start', {
+    this.debugTaskLog('sse.chat_task.agent_start', {
       taskId: task.id,
       conversationId: task.conversationId,
       messageId: task.messageId,
@@ -602,20 +606,23 @@ export class SseTaskService {
       generation: payload.llm?.generation,
     });
 
-    for await (const chunk of this.llmService.streamChatText(
+    for await (const event of this.commonChatAgentService.streamEvents({
       messages,
-      payload.llm,
-      {
-        abortSignal: executionSignal,
-      },
-    )) {
-      if (!chunk) {
+      llm: payload.llm,
+      abortSignal: executionSignal,
+    })) {
+      if (event.type === 'tool.call.delta') {
+        await this.handleToolCallDeltaEvent(task, event);
+        continue;
+      }
+
+      if (!event.delta) {
         emptyDeltaCount++;
         continue;
       }
 
       deltaCount++;
-      fullContent += chunk;
+      fullContent += event.delta;
       const deltaEvent = await this.persistEvent(
         task.id,
         'message.delta',
@@ -626,7 +633,7 @@ export class SseTaskService {
           messageId: task.messageId,
           status: SseTaskStatus.STREAMING.toLowerCase(),
           payload: {
-            delta: chunk,
+            delta: event.delta,
           },
         }),
         {
@@ -658,7 +665,7 @@ export class SseTaskService {
         }),
       );
     } else {
-      this.debugTaskLog('sse.chat_task.llm_completed', {
+      this.debugTaskLog('sse.chat_task.agent_completed', {
         taskId: task.id,
         conversationId: task.conversationId,
         messageId: task.messageId,
@@ -737,6 +744,44 @@ export class SseTaskService {
     this.registry.publish(task.id, completedEvent);
 
     void this.refreshConversationSummary(task.conversationId);
+  }
+
+  /**
+   * 处理工具调用增量事件
+   * @param task 聊天任务上下文
+   * @param event agent 工具调用增量事件
+   * @returns 无返回值
+   * @description 将 agent 层的工具调用增量转发为 SSE 事件，后续工具执行和结果事件可以沿用同一通道扩展。
+   */
+  private async handleToolCallDeltaEvent(
+    task: {
+      id: string;
+      conversationId: string;
+      messageId: string;
+    },
+    event: Extract<CommonChatAgentStreamEvent, { type: 'tool.call.delta' }>,
+  ) {
+    const toolEvent = await this.persistEvent(
+      task.id,
+      'tool.call.delta',
+      this.serializeTaskEventData({
+        type: 'tool.call.delta',
+        taskId: task.id,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        status: SseTaskStatus.STREAMING.toLowerCase(),
+        payload: {
+          toolCallId: event.toolCallId,
+          name: event.name,
+          args: event.args,
+          index: event.index,
+        },
+      }),
+      {
+        status: SseTaskStatus.STREAMING,
+      },
+    );
+    this.registry.publish(task.id, toolEvent);
   }
 
   /**

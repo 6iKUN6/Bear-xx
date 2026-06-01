@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
-import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from './config/config.module';
+import { LoggingModule } from './common/logger/logging.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { RedisService } from './redis/redis.service';
@@ -17,65 +17,12 @@ import { SseTaskModule } from './modules/sse-task/sse-task.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
-const SENSITIVE_HEADER_VALUE = '[Redacted]';
-
-function maskHeaderValue(value: unknown) {
-  return value ? SENSITIVE_HEADER_VALUE : undefined;
-}
-
 @Module({
   imports: [
     ConfigModule,
+    LoggingModule,
     PrismaModule,
     RedisModule,
-    LoggerModule.forRoot({
-      pinoHttp: {
-        redact: {
-          paths: [
-            'req.headers.authorization',
-            'req.headers.cookie',
-            'req.headers["x-api-key"]',
-            'req.headers["x-openai-api-key"]',
-          ],
-          censor: SENSITIVE_HEADER_VALUE,
-        },
-        serializers: {
-          req(req) {
-            return {
-              id: req.id,
-              method: req.method,
-              url: req.url,
-              query: req.query,
-              params: req.params,
-              headers: {
-                authorization: maskHeaderValue(req.headers?.authorization),
-                'user-agent': req.headers?.['user-agent'],
-                'content-type': req.headers?.['content-type'],
-                accept: req.headers?.accept,
-              },
-              remoteAddress: req.remoteAddress,
-              remotePort: req.remotePort,
-            };
-          },
-          res(res) {
-            return {
-              statusCode: res.statusCode,
-              headers: {
-                'content-type': res.headers?.['content-type'],
-                'x-ratelimit-limit': res.headers?.['x-ratelimit-limit'],
-                'x-ratelimit-remaining': res.headers?.['x-ratelimit-remaining'],
-                'x-ratelimit-reset': res.headers?.['x-ratelimit-reset'],
-              },
-            };
-          },
-        },
-        transport:
-          process.env.NODE_ENV !== 'production'
-            ? { target: 'pino-pretty', options: { colorize: true } }
-            : undefined,
-        autoLogging: true,
-      },
-    }),
     ThrottlerModule.forRootAsync({
       inject: [RedisService],
       useFactory: (redis: RedisService) => ({

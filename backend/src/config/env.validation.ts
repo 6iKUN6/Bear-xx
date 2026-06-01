@@ -9,6 +9,22 @@ export class EnvConfig {
   @IsEnum(['development', 'production', 'test'])
   NODE_ENV?: string;
 
+  @IsOptional()
+  @IsString()
+  LOG_LEVEL?: string;
+
+  @IsOptional()
+  @IsString()
+  LOG_PRETTY?: string;
+
+  @IsOptional()
+  @IsString()
+  LOG_TO_FILE?: string;
+
+  @IsOptional()
+  @IsString()
+  LOG_FILE_PATH?: string;
+
   @IsString()
   @IsNotEmpty()
   DATABASE_URL: string;

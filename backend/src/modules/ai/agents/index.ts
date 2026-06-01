@@ -3,5 +3,8 @@ export type {
   AgentFinish,
   AgentStep,
 } from '@langchain/core/agents';
-export type { CommonChatAgentRequest } from './common-chat-agent';
+export type {
+  CommonChatAgentRequest,
+  CommonChatAgentStreamEvent,
+} from './common-chat-agent';
 export { CommonChatAgentService } from './common-chat-agent';

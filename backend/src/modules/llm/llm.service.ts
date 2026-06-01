@@ -147,7 +147,7 @@ export class LlmService {
    * @returns 返回可执行流式生成的 LangChain 聊天模型实例
    * @description 委托统一模型工厂根据 provider 创建具体 LangChain ChatModel 实例。
    */
-  private createChatModel(request: ResolvedLlmTextRequest) {
+  createChatModel(request: ResolvedLlmTextRequest) {
     return this.chatModelFactory.createChatModel(request);
   }
 
