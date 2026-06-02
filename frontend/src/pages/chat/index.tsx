@@ -108,7 +108,7 @@ export default function ChatPage() {
         showBack
         capsule='hidden'
         className='app-solid-nav'
-        barClassName='px-[8px]'
+        barClassName='px-[0.5rem]'
       />
 
       <View className='flex min-h-0 flex-1 flex-col'>
@@ -116,8 +116,8 @@ export default function ChatPage() {
       </View>
 
       {isStreaming && (
-        <View className='pointer-events-none px-[16px] pb-[8px]'>
-          <View className='inline-flex items-center gap-[8px] rounded-full bg-white/80 px-[14px] py-[8px] shadow-[0_10px_24px_rgba(124,58,237,0.08)] backdrop-blur-[18px]'>
+        <View className='pointer-events-none px-[1rem] pb-[0.5rem]'>
+          <View className='inline-flex items-center gap-[0.5rem] rounded-full bg-white/80 px-[0.875rem] py-[0.5rem] shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.08)] backdrop-blur-[1.125rem]'>
             <View className='app-loading-dot bg-gradient-to-r from-[#7c3aed] to-[#ec4899]' />
             <View className='app-loading-dot bg-gradient-to-r from-[#ec4899] to-[#4f46e5]' />
             <View className='app-loading-dot bg-gradient-to-r from-[#4f46e5] to-[#7c3aed]' />

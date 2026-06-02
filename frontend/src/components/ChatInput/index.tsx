@@ -12,7 +12,7 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
-const iconClassName = "inline-flex items-center justify-center text-[20px] leading-none [&::before]:block";
+const iconClassName = "inline-flex items-center justify-center text-[1.25rem] leading-none [&::before]:block";
 
 export default function ChatInput({
   onSend,
@@ -95,14 +95,14 @@ export default function ChatInput({
 
   return (
     <View
-      className='border-t border-[rgba(17,24,39,0.05)] bg-white px-[12px] pt-[10px] shadow-[0_-8px_20px_rgba(124,58,237,0.05)] box-border'
+      className='border-t border-[rgba(17,24,39,0.05)] bg-white px-[0.75rem] pt-[0.625rem] shadow-[0_-0.5rem_1.25rem_rgba(124,58,237,0.05)] box-border'
       style={{ paddingBottom: safeAreaBottom(16) }}
     >
-      <View className='flex items-end gap-[12px]'>
+      <View className='flex items-end gap-[0.75rem]'>
         <View className='flex-1 min-w-0'>
           {inputMode === "text" ? (
             <Textarea
-              className='app-soft-input w-full min-h-[42px] max-h-[120px] rounded-[16px] px-[16px] py-[10px] box-border text-[15px] leading-[1.5] text-[var(--lb-text-primary)]'
+              className='app-soft-input w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[1rem] px-[1rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]'
               value={value}
               onInput={(e) => setValue(e.detail.value)}
               placeholder='发消息或按住说话...'
@@ -121,7 +121,7 @@ export default function ChatInput({
           )}
         </View>
 
-        <View className='flex items-center gap-[8px]'>
+        <View className='flex items-center gap-[0.5rem]'>
           {renderRightButtons()}
         </View>
       </View>

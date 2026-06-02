@@ -3,8 +3,8 @@ import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { useNavBarMetrics } from "../../hooks/useNavBarMetrics";
 
-interface NavBarProps {
-  title?: string;
+export interface NavBarProps {
+  title?: ReactNode | string;
   subtitle?: string;
   left?: ReactNode;
   right?: ReactNode;
@@ -55,12 +55,36 @@ export default function NavBar({
     });
   };
 
+  const renderTitle = () => {
+    if (title === undefined || title === null || title === false) {
+      return null;
+    }
+
+    if (typeof title === "string" || typeof title === "number") {
+      return (
+        <Text
+          className={`block overflow-hidden text-ellipsis whitespace-nowrap text-[1.0625rem] font-semibold leading-[1.25] text-[var(--lb-text-primary)] ${titleClassName}`.trim()}
+        >
+          {title}
+        </Text>
+      );
+    }
+
+    return (
+      <View
+        className={`flex min-w-0 items-center justify-center overflow-hidden text-[1.0625rem] font-semibold leading-[1.25] text-[var(--lb-text-primary)] ${titleClassName}`.trim()}
+      >
+        {title}
+      </View>
+    );
+  };
+
   const leftContent =
     left !== undefined ? (
       left
     ) : showBack ? (
       <View
-        className='flex h-[40px] w-[40px] items-center justify-center rounded-[12px] bg-white/70 text-[18px] text-[var(--lb-text-primary)] shadow-[0_8px_24px_rgba(124,58,237,0.12)] backdrop-blur-[16px]'
+        className='flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] bg-white/70 text-[1.125rem] text-[var(--lb-text-primary)] shadow-[0_0.5rem_1.5rem_rgba(124,58,237,0.12)] backdrop-blur-[1rem]'
         onClick={handleBack}
       >
         <Text className='at-icon at-icon-chevron-left leading-none [&::before]:block' />
@@ -89,12 +113,12 @@ export default function NavBar({
 
   const barVariantClass =
     variant === "ghost"
-      ? "bg-transparent shadow-none border-transparent backdrop-blur-[0px]"
+      ? "bg-transparent shadow-none border-transparent backdrop-blur-[0rem]"
       : "app-solid-nav bg-white";
 
   return (
     <View
-      className={`relative z-[20] px-[16px] pb-[0px] ${className}`.trim()}
+      className={`relative z-[20] px-[1rem] pb-[0rem] ${className}`.trim()}
       style={{
         paddingTop: metrics.topPadding,
         paddingLeft: metrics.horizontalInset,
@@ -102,7 +126,7 @@ export default function NavBar({
       }}
     >
       <View
-        className={`flex items-center px-[12px] ${variant === "glass" ? "rounded-none" : "rounded-[22px]"} ${barVariantClass} ${barClassName}`.trim()}
+        className={`flex items-center px-[0.75rem] ${variant === "glass" ? "rounded-none" : "rounded-[1.375rem]"} ${barVariantClass} ${barClassName}`.trim()}
         style={{ height: metrics.contentHeight }}
       >
         <View
@@ -112,16 +136,10 @@ export default function NavBar({
           {leftContent}
         </View>
 
-        <View className='min-w-0 flex-1 px-[10px] text-center'>
-          {title ? (
-            <Text
-              className={`block overflow-hidden text-ellipsis whitespace-nowrap text-[17px] font-semibold leading-[1.25] text-[var(--lb-text-primary)] ${titleClassName}`.trim()}
-            >
-              {title}
-            </Text>
-          ) : null}
+        <View className='min-w-0 flex-1 px-[0.625rem] text-center'>
+          {renderTitle()}
           {subtitle ? (
-            <Text className='mt-[2px] block overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.2] text-[var(--lb-text-secondary)]'>
+            <Text className='mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.2] text-[var(--lb-text-secondary)]'>
               {subtitle}
             </Text>
           ) : null}

@@ -1,6 +1,7 @@
 import { View, Text, Image } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import TabBar from "../../components/TabBar";
+import TabPageTopInset from "../../components/TabPageTopInset";
 import { useUserStore } from "../../store/userStore";
 import { useChatStore } from "../../store/chatStore";
 import { STORAGE_KEYS } from "../../utils/constants";
@@ -49,39 +50,40 @@ export default function ProfilePage() {
 
   return (
     <View className='app-page'>
+      <TabPageTopInset />
       <View className='app-screen'>
-        <View className='px-[16px] pb-[8px] pt-[34px]'>
+        <View className='px-[1rem] pb-[0.5rem] pt-[0.875rem]'>
           <View className='app-glass-card-strong relative overflow-hidden'>
             <View className='absolute inset-0 bg-gradient-to-br from-[rgba(124,58,237,0.1)] via-[rgba(236,72,153,0.1)] to-[rgba(79,70,229,0.1)]' />
 
-            <View className='relative flex items-center px-[24px] py-[28px]'>
+            <View className='relative flex items-center px-[1.5rem] py-[1.75rem]'>
               <View className='relative'>
                 {userInfo?.avatarUrl ? (
                   <Image
-                    className='h-[80px] w-[80px] rounded-[24px] border-2 border-white box-border shadow-[0_20px_40px_rgba(124,58,237,0.18)]'
+                    className='h-[5rem] w-[5rem] rounded-[1.5rem] border-2 border-white box-border shadow-[0_1.25rem_2.5rem_rgba(124,58,237,0.18)]'
                     src={userInfo.avatarUrl}
                     mode='aspectFill'
                   />
                 ) : (
-                  <View className='app-icon-tile h-[64px] w-[64px] rounded-[18px] text-[28px] shadow-[0_14px_28px_rgba(236,72,153,0.24)]'>
+                  <View className='app-icon-tile h-[4rem] w-[4rem] rounded-[1.125rem] text-[1.75rem] shadow-[0_0.875rem_1.75rem_rgba(236,72,153,0.24)]'>
                     <Text className='leading-none'>🐻</Text>
                   </View>
                 )}
 
                 {isLoggedIn && (
-                  <View className='app-gradient-surface-warm absolute -bottom-[4px] -right-[4px] flex h-[24px] w-[24px] items-center justify-center rounded-full border-2 border-white text-[12px] shadow-[0_8px_20px_rgba(251,146,60,0.24)]'>
+                  <View className='app-gradient-surface-warm absolute -bottom-[0.25rem] -right-[0.25rem] flex h-[1.5rem] w-[1.5rem] items-center justify-center rounded-full border-2 border-white text-[0.75rem] shadow-[0_0.5rem_1.25rem_rgba(251,146,60,0.24)]'>
                     <Text className='leading-none'>◔</Text>
                   </View>
                 )}
               </View>
 
-              <View className='ml-[18px] min-w-0 flex-1'>
-                <Text className='block text-[22px] font-bold leading-[1.2] text-[var(--lb-text-primary)]'>
+              <View className='ml-[1.125rem] min-w-0 flex-1'>
+                <Text className='block text-[1.375rem] font-bold leading-[1.2] text-[var(--lb-text-primary)]'>
                   {isLoggedIn ? userInfo?.nickname || "小熊用户" : "未登录"}
                 </Text>
                 {isLoggedIn && (
-                  <View className='mt-[10px] inline-flex rounded-full app-gradient-surface px-[12px] py-[6px] shadow-[0_8px_18px_rgba(124,58,237,0.18)]'>
-                    <Text className='text-[12px] font-semibold leading-none text-white'>Pro 会员</Text>
+                  <View className='mt-[0.625rem] inline-flex rounded-full app-gradient-surface px-[0.75rem] py-[0.375rem] shadow-[0_0.5rem_1.125rem_rgba(124,58,237,0.18)]'>
+                    <Text className='text-[0.75rem] font-semibold leading-none text-white'>Pro 会员</Text>
                   </View>
                 )}
               </View>
@@ -90,17 +92,17 @@ export default function ProfilePage() {
         </View>
 
         {isLoggedIn && (
-          <View className='px-[16px] pb-[8px] pt-[10px]'>
-            <Text className='mb-[14px] block px-[8px] text-[16px] font-semibold leading-[1.3] text-[var(--lb-text-primary)]'>
+          <View className='px-[1rem] pb-[0.5rem] pt-[0.625rem]'>
+            <Text className='mb-[0.875rem] block px-[0.5rem] text-[1rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]'>
               快捷设置
             </Text>
-            <View className='grid grid-cols-2 gap-[12px]'>
+            <View className='grid grid-cols-2 gap-[0.75rem]'>
               {settingCards.map((item) => (
-                <View key={item.label} className='app-glass-card px-[16px] py-[16px]'>
-                  <View className={`mb-[12px] flex h-[42px] w-[42px] items-center justify-center rounded-[14px] bg-gradient-to-br ${item.gradient} text-[18px] text-white shadow-[0_10px_20px_rgba(124,58,237,0.16)]`}>
+                <View key={item.label} className='app-glass-card px-[1rem] py-[1rem]'>
+                  <View className={`mb-[0.75rem] flex h-[2.625rem] w-[2.625rem] items-center justify-center rounded-[0.875rem] bg-gradient-to-br ${item.gradient} text-[1.125rem] text-white shadow-[0_0.625rem_1.25rem_rgba(124,58,237,0.16)]`}>
                     <Text className='leading-none'>{item.icon}</Text>
                   </View>
-                  <Text className='block text-[14px] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
+                  <Text className='block text-[0.875rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
                     {item.label}
                   </Text>
                 </View>
@@ -109,48 +111,48 @@ export default function ProfilePage() {
           </View>
         )}
 
-        <View className='px-[16px] pt-[14px]'>
+        <View className='px-[1rem] pt-[0.875rem]'>
           <View className='app-glass-card overflow-hidden'>
             {isLoggedIn && (
               <>
                 <View
-                  className='flex items-center justify-between px-[20px] py-[16px]'
+                  className='flex items-center justify-between px-[1.25rem] py-[1rem]'
                   onClick={handleClearChat}
                 >
-                  <View className='flex items-center gap-[14px]'>
-                    <View className='flex h-[40px] w-[40px] items-center justify-center rounded-[12px] bg-gradient-to-br from-[#f3e8ff] to-[#fce7f3] text-[18px]'>
+                  <View className='flex items-center gap-[0.875rem]'>
+                    <View className='flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] bg-gradient-to-br from-[#f3e8ff] to-[#fce7f3] text-[1.125rem]'>
                       <Text className='leading-none'>🗑️</Text>
                     </View>
-                    <Text className='text-[16px] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
+                    <Text className='text-[1rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
                       清除聊天记录
                     </Text>
                   </View>
-                  <Text className='at-icon at-icon-chevron-right text-[16px] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
+                  <Text className='at-icon at-icon-chevron-right text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
                 </View>
-                <View className='app-hairline mx-[20px]' />
+                <View className='app-hairline mx-[1.25rem]' />
               </>
             )}
 
             <View
-              className='flex items-center justify-between px-[20px] py-[16px]'
+              className='flex items-center justify-between px-[1.25rem] py-[1rem]'
               onClick={handleLoginOrLogout}
             >
-              <View className='flex items-center gap-[14px]'>
-                <View className={`flex h-[40px] w-[40px] items-center justify-center rounded-[12px] text-[18px] ${isLoggedIn ? "bg-gradient-to-br from-[#fee2e2] to-[#ffe4e6]" : "app-gradient-surface shadow-[0_12px_24px_rgba(124,58,237,0.24)]"}`}>
+              <View className='flex items-center gap-[0.875rem]'>
+                <View className={`flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] text-[1.125rem] ${isLoggedIn ? "bg-gradient-to-br from-[#fee2e2] to-[#ffe4e6]" : "app-gradient-surface shadow-[0_0.75rem_1.5rem_rgba(124,58,237,0.24)]"}`}>
                   <Text className='leading-none'>{isLoggedIn ? "↗" : "⇢"}</Text>
                 </View>
-                <Text className={`text-[16px] font-medium leading-[1.4] ${isLoggedIn ? "text-[#dc2626]" : "text-[var(--lb-grad-a)]"}`}>
+                <Text className={`text-[1rem] font-medium leading-[1.4] ${isLoggedIn ? "text-[#dc2626]" : "text-[var(--lb-grad-a)]"}`}>
                   {isLoggedIn ? "退出登录" : "立即登录"}
                 </Text>
               </View>
-              <Text className='at-icon at-icon-chevron-right text-[16px] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
+              <Text className='at-icon at-icon-chevron-right text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
             </View>
           </View>
         </View>
 
-        <View className='pt-[28px] text-center'>
-          <Text className='block text-[13px] leading-[1.4] text-[var(--lb-text-muted)]'>Litter Bear v1.0.0</Text>
-          <Text className='mt-[4px] block text-[12px] leading-[1.4] text-[rgba(156,163,175,0.78)]'>
+        <View className='pt-[1.75rem] text-center'>
+          <Text className='block text-[0.8125rem] leading-[1.4] text-[var(--lb-text-muted)]'>Litter Bear v1.0.0</Text>
+          <Text className='mt-[0.25rem] block text-[0.75rem] leading-[1.4] text-[rgba(156,163,175,0.78)]'>
             Powered by AI
           </Text>
         </View>

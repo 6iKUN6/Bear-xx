@@ -16,32 +16,32 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
 
   return (
     <View
-      className={`mb-[24px] flex px-[16px] ${isUser ? "justify-end" : "justify-start"}`}
+      className={`mb-[1.5rem] flex px-[1rem] ${isUser ? "justify-end" : "justify-start"}`}
     >
       <View className={`max-w-[82%] ${isUser ? "items-end" : "items-start"}`}>
         {!isUser && (
-          <View className='app-icon-tile mb-[8px] h-[38px] w-[38px] rounded-[12px] text-[18px] shadow-[0_12px_24px_rgba(236,72,153,0.22)]'>
+          <View className='app-icon-tile mb-[0.5rem] h-[2.375rem] w-[2.375rem] rounded-[0.75rem] text-[1.125rem] shadow-[0_0.75rem_1.5rem_rgba(236,72,153,0.22)]'>
             <Text className='leading-none'>🐻</Text>
           </View>
         )}
 
         <View
-          className={`box-border px-[18px] py-[14px] text-[16px] leading-[1.7] shadow-[0_10px_24px_rgba(124,58,237,0.06)] ${isUser ? "rounded-[18px_18px_6px_18px] bg-gradient-to-r from-[#9333ea] via-[#ec4899] to-[#6366f1] text-white" : "rounded-[18px_18px_18px_6px] border border-[rgba(196,181,253,0.2)] bg-white text-[var(--lb-text-primary)]"}`}
+          className={`box-border px-[1.125rem] py-[0.875rem] text-[1rem] leading-[1.7] shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.06)] ${isUser ? "rounded-[1.125rem_1.125rem_0.375rem_1.125rem] bg-gradient-to-r from-[#9333ea] via-[#ec4899] to-[#6366f1] text-white" : "rounded-[1.125rem_1.125rem_1.125rem_0.375rem] border border-[rgba(196,181,253,0.2)] bg-white text-[var(--lb-text-primary)]"}`}
         >
           <Text className='whitespace-pre-wrap'>{message.content}</Text>
           {message.status === "streaming" && (
-            <Text className='ml-[4px] text-white/90'>▍</Text>
+            <Text className='ml-[0.25rem] text-white/90'>▍</Text>
           )}
         </View>
 
         <Text
-          className={`mt-[8px] px-[6px] text-[12px] leading-none text-[var(--lb-text-muted)] ${isUser ? "text-right" : "text-left"}`}
+          className={`mt-[0.5rem] px-[0.375rem] text-[0.75rem] leading-none text-[var(--lb-text-muted)] ${isUser ? "text-right" : "text-left"}`}
         >
           {formatTime(message.createdAt)}
         </Text>
 
         {message.status === "error" && (
-          <Text className='mt-[6px] block px-[6px] text-[12px] text-[var(--lb-danger)]'>
+          <Text className='mt-[0.375rem] block px-[0.375rem] text-[0.75rem] text-[var(--lb-danger)]'>
             发送失败
           </Text>
         )}

@@ -2,6 +2,7 @@ import { View, Text } from "@tarojs/components";
 import Taro, { useDidShow } from "@tarojs/taro";
 import { AtSwipeAction } from "taro-ui";
 import TabBar from "../../components/TabBar";
+import TabPageTopInset from "../../components/TabPageTopInset";
 import { useChatStore } from "../../store/chatStore";
 
 const swipeOptions = [{ text: "删除", style: { backgroundColor: "#dc2626" } }];
@@ -49,32 +50,33 @@ export default function IndexPage() {
 
   return (
     <View className='app-page'>
+      <TabPageTopInset />
       <View className='app-screen'>
-        <View className='app-hero pt-[44px]'>
+        <View className='app-hero pt-[0.875rem]'>
           <Text className='app-hero-title'>最近会话</Text>
           <Text className='app-hero-subtitle'>继续未完成的对话</Text>
         </View>
 
         {conversations.length === 0 ? (
-          <View className='px-[24px] pt-[48px]'>
-            <View className='app-glass-card-strong flex flex-col items-center px-[32px] py-[48px] text-center'>
-              <View className='app-float mb-[24px]'>
-                <View className='app-icon-tile h-[80px] w-[80px] rounded-[24px] text-[42px] shadow-[0_18px_42px_rgba(124,58,237,0.24)]'>
+          <View className='px-[1.5rem] pt-[3rem]'>
+            <View className='app-glass-card-strong flex flex-col items-center px-[2rem] py-[3rem] text-center'>
+              <View className='app-float mb-[1.5rem]'>
+                <View className='app-icon-tile h-[5rem] w-[5rem] rounded-[1.5rem] text-[2.625rem] shadow-[0_1.125rem_2.625rem_rgba(124,58,237,0.24)]'>
                   <Text className='leading-none'>💬</Text>
                 </View>
               </View>
-              <Text className='mb-[8px] block text-[18px] font-semibold leading-[1.4] text-[var(--lb-text-primary)]'>
+              <Text className='mb-[0.5rem] block text-[1.125rem] font-semibold leading-[1.4] text-[var(--lb-text-primary)]'>
                 还没有对话记录
               </Text>
-              <Text className='block text-[15px] leading-[1.7] text-[var(--lb-text-secondary)]'>
+              <Text className='block text-[0.9375rem] leading-[1.7] text-[var(--lb-text-secondary)]'>
                 点击右下角开始你的第一次对话
               </Text>
             </View>
           </View>
         ) : (
-          <View className='px-[16px] pt-[8px]'>
+          <View className='px-[1rem] pt-[0.5rem]'>
             {conversations.map((conv, index) => (
-              <View key={conv.id} className={index > 0 ? "mt-[12px]" : ""}>
+              <View key={conv.id} className={index > 0 ? "mt-[0.75rem]" : ""}>
                 <AtSwipeAction
                   options={swipeOptions}
                   onOpened={() => {}}
@@ -84,26 +86,26 @@ export default function IndexPage() {
                     className='app-glass-card overflow-hidden active:scale-[0.98]'
                     onClick={() => handleOpen(conv.id)}
                   >
-                    <View className='flex items-start gap-[14px] px-[18px] py-[18px] box-border'>
-                      <View className='app-icon-tile h-[44px] w-[44px] shrink-0 text-[18px] shadow-[0_10px_22px_rgba(236,72,153,0.24)]'>
+                    <View className='flex items-start gap-[0.875rem] px-[1.125rem] py-[1.125rem] box-border'>
+                      <View className='app-icon-tile h-[2.75rem] w-[2.75rem] shrink-0 text-[1.125rem] shadow-[0_0.625rem_1.375rem_rgba(236,72,153,0.24)]'>
                         <Text className='leading-none'>✧</Text>
                       </View>
 
                       <View className='min-w-0 flex-1'>
-                        <View className='mb-[6px] flex items-center justify-between gap-[10px]'>
-                          <Text className='app-text-truncate min-w-0 flex-1 text-[17px] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
+                        <View className='mb-[0.375rem] flex items-center justify-between gap-[0.625rem]'>
+                          <Text className='app-text-truncate min-w-0 flex-1 text-[1.0625rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
                             {conv.title || "新对话"}
                           </Text>
-                          <Text className='shrink-0 text-[13px] leading-none text-[var(--lb-text-muted)]'>
+                          <Text className='shrink-0 text-[0.8125rem] leading-none text-[var(--lb-text-muted)]'>
                             {formatTime(conv.updatedAt)}
                           </Text>
                         </View>
-                        <Text className='app-text-truncate block text-[15px] leading-[1.45] text-[var(--lb-text-secondary)]'>
+                        <Text className='app-text-truncate block text-[0.9375rem] leading-[1.45] text-[var(--lb-text-secondary)]'>
                           {getLastMessage(conv)}
                         </Text>
                       </View>
 
-                      <Text className='at-icon at-icon-chevron-right mt-[10px] shrink-0 text-[15px] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
+                      <Text className='at-icon at-icon-chevron-right mt-[0.625rem] shrink-0 text-[0.9375rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
                     </View>
                   </View>
                 </AtSwipeAction>
@@ -113,14 +115,12 @@ export default function IndexPage() {
         )}
       </View>
 
-      <View
-        className='fixed bottom-[96px] right-[24px] z-[40]'
-      >
+      <View className='app-shell-fixed app-fab-wrap'>
         <View
-          className='app-gradient-surface app-fab-pulse flex h-[64px] w-[64px] items-center justify-center rounded-[20px]'
+          className='app-fab app-gradient-surface app-fab-pulse flex h-[4rem] w-[4rem] items-center justify-center rounded-[1.25rem]'
           onClick={handleCreate}
         >
-          <Text className='at-icon at-icon-add text-[28px] leading-none text-white [&::before]:block' />
+          <Text className='at-icon at-icon-add text-[1.75rem] leading-none text-white [&::before]:block' />
         </View>
       </View>
 

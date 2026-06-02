@@ -137,7 +137,14 @@ export default defineConfig<"vite">(async (merge) => {
         }),
         uvtw({
           cssEntries: [resolve(process.cwd(), "src/app.css")],
-          rem2rpx: process.env.TARO_ENV !== "h5",
+          rem2rpx:
+            process.env.TARO_ENV !== "h5"
+              ? {
+                  rootValue: 32,
+                  propList: ["*"],
+                  transformUnit: "rpx",
+                }
+              : false,
           disabled:
             process.env.TARO_ENV === "harmony" || process.env.TARO_ENV === "rn",
           injectAdditionalCssVarScope: true,

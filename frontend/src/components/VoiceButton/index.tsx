@@ -30,12 +30,12 @@ export default function VoiceButton({
 
   return (
     <View
-      className={`app-soft-input flex min-h-[42px] flex-1 items-center justify-center rounded-[16px] box-border ${isRecording ? "border-[#f9b5c8] bg-[#fff1f7]" : ""}`}
+      className={`app-soft-input flex min-h-[2.625rem] flex-1 items-center justify-center rounded-[1rem] box-border ${isRecording ? "border-[#f9b5c8] bg-[#fff1f7]" : ""}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <Text
-        className={`select-none text-[14px] leading-none ${isRecording ? "text-[#db2777]" : "text-[var(--lb-text-secondary)]"}`}
+        className={`select-none text-[0.875rem] leading-none ${isRecording ? "text-[#db2777]" : "text-[var(--lb-text-secondary)]"}`}
       >
         {isRecording ? "松开结束" : "按住说话"}
       </Text>
