@@ -18,12 +18,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AiService } from '../ai/ai.service';
 import {
-  CommonChatAgentService,
+  CommonChatAgentRunnerService,
   type CommonChatAgentStreamEvent,
 } from '../ai/agents';
 import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
 import { ConversationService } from '../conversation/conversation.service';
-import { ChatContextService } from '../memory/chat-context.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
 import { SseTaskRegistry } from './sse-task.registry';
 
@@ -76,10 +75,9 @@ export class SseTaskService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly aiService: AiService,
-    private readonly commonChatAgentService: CommonChatAgentService,
+    private readonly commonChatAgentRunnerService: CommonChatAgentRunnerService,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
-    private readonly chatContextService: ChatContextService,
     private readonly conversationSummaryService: ConversationSummaryService,
     private readonly registry: SseTaskRegistry,
   ) {
@@ -199,7 +197,7 @@ export class SseTaskService {
     llmRequest?: LlmTextRequest,
   ) {
     const resolvedLlmRequest =
-      this.commonChatAgentService.resolveTextRequest(llmRequest);
+      this.commonChatAgentRunnerService.resolveTextRequest(llmRequest);
     const requestPayload = JSON.parse(
       JSON.stringify({
         content,
@@ -583,14 +581,18 @@ export class SseTaskService {
     executionSignal: AbortSignal,
   ) {
     const payload = task.requestPayload as unknown as ChatTaskPayload;
-    const messages = await this.chatContextService.buildChatMessages(
-      task.conversationId,
-      task.messageId,
-    );
 
     if (!payload.content) {
       throw new Error('Missing chat task payload');
     }
+
+    const agentRun =
+      await this.commonChatAgentRunnerService.prepareConversationRun({
+        conversationId: task.conversationId,
+        pendingMessageId: task.messageId,
+        llm: payload.llm,
+        abortSignal: executionSignal,
+      });
 
     let fullContent = '';
     let deltaCount = 0;
@@ -601,16 +603,14 @@ export class SseTaskService {
       taskId: task.id,
       conversationId: task.conversationId,
       messageId: task.messageId,
-      messageCount: messages.length,
+      messageCount: agentRun.messages.length,
       model: this.toSafeTaskModelLog(payload.llm),
       generation: payload.llm?.generation,
+      hasSystemPrompt: Boolean(agentRun.systemPrompt),
+      toolCount: agentRun.tools.length,
     });
 
-    for await (const event of this.commonChatAgentService.streamEvents({
-      messages,
-      llm: payload.llm,
-      abortSignal: executionSignal,
-    })) {
+    for await (const event of agentRun.events) {
       if (event.type === 'tool.call.delta') {
         await this.handleToolCallDeltaEvent(task, event);
         continue;

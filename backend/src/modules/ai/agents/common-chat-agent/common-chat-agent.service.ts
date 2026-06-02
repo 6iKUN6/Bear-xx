@@ -35,7 +35,6 @@ export interface CommonChatAgentRequest {
   modelPreset?: string | LlmModelPreset;
   llm?: LlmTextRequest | ResolvedLlmTextRequest;
   messages: LlmMessage[];
-  systemPrompt?: string;
   generation?: LlmGenerationConfig;
   tools?: unknown[];
   abortSignal?: AbortSignal;
@@ -86,11 +85,10 @@ export class CommonChatAgentService {
   streamEvents(
     request: CommonChatAgentRequest,
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
-    const messages = this.buildMessages(request);
     const llmRequest = this.buildLlmRequest(request);
 
     return this.createEventStream(
-      messages,
+      request.messages,
       llmRequest,
       request.tools,
       request.abortSignal,
@@ -107,26 +105,6 @@ export class CommonChatAgentService {
     request?: LlmTextRequest | ResolvedLlmTextRequest,
   ): ResolvedLlmTextRequest {
     return this.llmService.resolveTextRequest(request);
-  }
-
-  /**
-   * 构建聊天消息列表
-   * @param request 通用聊天智能体请求配置
-   * @returns 返回可直接传给 llm 模块的聊天消息列表
-   * @description 在普通用户/助手消息前按需插入系统提示词，形成一次完整的聊天上下文。
-   */
-  private buildMessages(request: CommonChatAgentRequest): LlmMessage[] {
-    const messages: LlmMessage[] = [];
-
-    if (request.systemPrompt) {
-      messages.push({
-        role: 'system',
-        content: request.systemPrompt,
-      });
-    }
-
-    messages.push(...request.messages);
-    return messages;
   }
 
   /**
