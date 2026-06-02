@@ -354,6 +354,66 @@ body 示例：
 
 不要把浏览器 `EventSource` 逻辑原样照搬到小程序。
 
+## Tailwind 与小程序 WXSS 兼容注意事项
+
+本项目同时维护 H5 和微信小程序端，CSS 方案基于 Tailwind CSS + `weapp-tailwindcss/vite`。改 UI 或调整构建配置时，要特别注意 Tailwind 的扫描范围和单位转换。
+
+### 1. 不要让原型代码进入业务 Tailwind 扫描
+
+`frontend/UI/` 目录用于存放图片、Figma 下载原型代码和参考素材，不是小程序业务源码。
+
+业务入口 `src/app.css` 必须显式限制 Tailwind 扫描范围：
+
+```css
+@import "weapp-tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./**/*.{html,js,ts,jsx,tsx}";
+```
+
+不要随意去掉 `source(none)`，也不要把 `frontend/UI/**`、`proto-code/**` 加进业务 Tailwind content/source。原型代码中常见的 shadcn/Radix/CSS4 写法会生成小程序不支持的 WXSS。
+
+### 2. WXSS 报 token `view` 时优先查非法选择器
+
+如果微信开发者工具报类似错误：
+
+```text
+[ WXSS 文件编译错误]
+./app-origin.wxss(...): error at token `view`
+```
+
+优先检查 `dist/weapp/app-origin.wxss` 是否混入了这些选择器或类名：
+
+- `:has(`
+- `cmdk`
+- `data-sidebar`
+- `group-has`
+- `peer-data`
+
+可用命令：
+
+```bash
+rg -n ":has\(|cmdk|data-sidebar|group-has|peer-data" dist/weapp/app-origin.wxss
+```
+
+如果能搜到，通常说明 Tailwind 又扫到了 `frontend/UI/proto-code` 一类的原型目录，需要先修正扫描范围，而不是在生成后的 WXSS 里手工删规则。
+
+### 3. 单位转换保持跨端一致
+
+当前 `weapp-tailwindcss/vite` 的 `rem2rpx` 只应在非 H5 环境开启；H5 端保持 rem，微信小程序端转换为 rpx。改动 `config/index.ts` 时不要简单改成全端统一转换，否则容易再次出现 H5 尺寸异常或小程序 UI 缩放错位。
+
+涉及 UI 尺寸的新增样式优先使用项目现有的 rem/Tailwind 写法，由构建链路负责在小程序端转为 rpx。
+
+### 4. 改完 CSS 构建配置必须双端验证
+
+涉及 `src/app.css`、`tailwind.config.js`、`config/index.ts`、`weapp-tailwindcss` 配置的改动，至少执行：
+
+```bash
+pnpm build:weapp
+pnpm build:h5
+pnpm typecheck
+```
+
+小程序构建通过后，还要确认生成的 `app-origin.wxss` 中没有上面列出的非法选择器。
+
 ## 与后端协作的变更纪律
 
 以下内容如果发生变更，前端实现必须同步检查：
