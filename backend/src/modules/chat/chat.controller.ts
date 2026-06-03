@@ -21,11 +21,17 @@ import {
   ApiExcludeEndpoint,
   ApiProduces,
   ApiOkResponse,
+  ApiBody,
 } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
 import { ChatCompletionsDto } from './dto/chat-completions.dto';
 import { VoiceCompletionsDto } from './dto/voice-completions.dto';
 import { ImageGenerationDto } from './dto/image-generation.dto';
+import {
+  ChatTaskResultDto,
+  ImageGenerationResultDto,
+  VoiceCompletionsFormDataDto,
+} from './dto/chat-response.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { LlmTextRequest } from '../llm/llm.types';
@@ -77,6 +83,7 @@ export class ChatController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiExcludeEndpoint()
+  @ApiOkResponse({ description: '聊天任务创建成功', type: ChatTaskResultDto })
   async completions(
     @Body() dto: ChatCompletionsDto,
     @CurrentUser('id') userId: string,
@@ -88,6 +95,7 @@ export class ChatController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @ApiExcludeEndpoint()
+  @ApiOkResponse({ description: '聊天任务创建成功', type: ChatTaskResultDto })
   async messages(
     @Body() dto: ChatCompletionsDto,
     @CurrentUser('id') userId: string,
@@ -100,11 +108,16 @@ export class ChatController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FileInterceptor('audio'))
   @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: VoiceCompletionsFormDataDto })
   @ApiOperation({
     summary: '发送语音消息',
     description:
       '上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话',
     operationId: 'voiceCompletions',
+  })
+  @ApiOkResponse({
+    description: '语音聊天任务创建成功',
+    type: ChatTaskResultDto,
   })
   voiceMessages(
     @Body() dto: VoiceCompletionsDto,
@@ -120,6 +133,11 @@ export class ChatController {
   @UseInterceptors(FileInterceptor('audio'))
   @ApiConsumes('multipart/form-data')
   @ApiExcludeEndpoint()
+  @ApiBody({ type: VoiceCompletionsFormDataDto })
+  @ApiOkResponse({
+    description: '语音聊天任务创建成功',
+    type: ChatTaskResultDto,
+  })
   voiceCompletions(
     @Body() dto: VoiceCompletionsDto,
     @UploadedFile() audio: Express.Multer.File,
@@ -176,6 +194,10 @@ export class ChatController {
   @ApiOperation({
     summary: 'AI 图片生成',
     description: '使用 DALL-E 3 生成图片',
+  })
+  @ApiOkResponse({
+    description: '图片生成结果',
+    type: ImageGenerationResultDto,
   })
   async imageGenerations(
     @Body() dto: ImageGenerationDto,

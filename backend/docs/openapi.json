@@ -18,7 +18,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResultDto"
+                }
+              }
+            }
           }
         },
         "summary": "微信登录",
@@ -44,7 +51,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "验证码发送成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
           }
         },
         "summary": "发送手机验证码",
@@ -70,7 +84,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResultDto"
+                }
+              }
+            }
           }
         },
         "summary": "账号密码登录或自动注册",
@@ -96,7 +117,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResultDto"
+                }
+              }
+            }
           }
         },
         "summary": "手机号登录",
@@ -122,7 +150,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "刷新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResultDto"
+                }
+              }
+            }
           }
         },
         "summary": "刷新令牌",
@@ -138,7 +173,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "登出成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -158,7 +200,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "当前用户信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -187,7 +236,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "更新后的用户信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -208,7 +264,17 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "会话列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConversationDto"
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -235,8 +301,15 @@
           }
         },
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "新建会话",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -266,7 +339,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -328,14 +408,21 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/VoiceCompletionsDto"
+                "$ref": "#/components/schemas/VoiceCompletionsFormDataDto"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "语音聊天任务创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatTaskResultDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -366,7 +453,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "图片生成结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageGenerationResultDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -395,7 +489,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "SSE 任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SseTaskStatusDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -432,7 +533,15 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "SSE 事件流，data 为序列化后的任务事件载荷",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -471,7 +580,15 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "SSE 事件流，data 为序列化后的任务事件载荷",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -500,7 +617,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "取消后的任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelSseTaskResultDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -715,6 +839,59 @@
           "code"
         ]
       },
+      "AuthUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "用户 ID",
+            "example": "cmf_user_123"
+          },
+          "nickname": {
+            "type": "string",
+            "description": "用户昵称",
+            "example": "小熊用户"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "用户头像地址",
+            "example": ""
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "avatarUrl"
+        ]
+      },
+      "LoginResultDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "访问令牌",
+            "example": "eyJhbGciOiJIUzI1NiIs..."
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "刷新令牌",
+            "example": "eyJhbGciOiJIUzI1NiIs..."
+          },
+          "user": {
+            "description": "登录用户信息",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuthUserDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "token",
+          "refreshToken",
+          "user"
+        ]
+      },
       "SendCodeDto": {
         "type": "object",
         "properties": {
@@ -726,6 +903,19 @@
         },
         "required": [
           "phone"
+        ]
+      },
+      "EmptyResultDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "操作是否成功",
+            "example": true
+          }
+        },
+        "required": [
+          "success"
         ]
       },
       "AccountLoginDto": {
@@ -784,6 +974,31 @@
           "refreshToken"
         ]
       },
+      "UserProfileDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "用户 ID",
+            "example": "cmf_user_123"
+          },
+          "nickname": {
+            "type": "string",
+            "description": "用户昵称",
+            "example": "小熊用户"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "用户头像地址",
+            "example": ""
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "avatarUrl"
+        ]
+      },
       "UpdateProfileDto": {
         "type": "object",
         "properties": {
@@ -798,6 +1013,91 @@
             "example": "https://example.com/avatar.png"
           }
         }
+      },
+      "ConversationMessageDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "消息 ID",
+            "example": "cmf_msg_123"
+          },
+          "role": {
+            "type": "string",
+            "description": "消息角色",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "example": "user"
+          },
+          "content": {
+            "type": "string",
+            "description": "消息文本内容",
+            "example": "你好"
+          },
+          "status": {
+            "type": "string",
+            "description": "消息状态",
+            "enum": [
+              "streaming",
+              "done",
+              "error"
+            ],
+            "example": "done"
+          },
+          "createdAt": {
+            "type": "number",
+            "description": "消息创建时间戳（毫秒）",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "status",
+          "createdAt"
+        ]
+      },
+      "ConversationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "title": {
+            "type": "string",
+            "description": "会话标题",
+            "example": "新对话"
+          },
+          "messages": {
+            "description": "会话消息列表",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessageDto"
+            }
+          },
+          "createdAt": {
+            "type": "number",
+            "description": "会话创建时间戳（毫秒）",
+            "example": 1735689600000
+          },
+          "updatedAt": {
+            "type": "number",
+            "description": "会话更新时间戳（毫秒）",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "messages",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "CreateConversationDto": {
         "type": "object",
@@ -862,9 +1162,19 @@
           "content"
         ]
       },
-      "VoiceCompletionsDto": {
+      "VoiceCompletionsFormDataDto": {
         "type": "object",
         "properties": {
+          "audio": {
+            "type": "string",
+            "description": "音频文件",
+            "format": "binary"
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID；首轮语音消息可不传，后端会自动创建新会话",
+            "example": "cmf_conv_123"
+          },
           "modelId": {
             "type": "string",
             "description": "模型预设 ID，优先级最高，例如 openai:gpt-4o-mini",
@@ -872,22 +1182,22 @@
           },
           "provider": {
             "type": "string",
-            "description": "LLM Provider 名称，例如 openai",
+            "description": "LLM Provider 名称",
             "example": "openai"
           },
           "platform": {
             "type": "string",
-            "description": "模型平台或商家名称，例如 openai、deepseek",
+            "description": "模型平台或商家名称",
             "example": "openai"
           },
           "model": {
             "type": "string",
-            "description": "模型名称，例如 gpt-4o-mini",
+            "description": "模型名称",
             "example": "gpt-4o-mini"
           },
           "temperature": {
             "type": "number",
-            "description": "采样温度，建议范围 0 到 2",
+            "description": "采样温度",
             "example": 0.7
           },
           "maxOutputTokens": {
@@ -897,15 +1207,53 @@
           },
           "topP": {
             "type": "number",
-            "description": "Top P 采样参数，范围 0 到 1",
+            "description": "Top P 采样参数",
             "example": 1
+          }
+        },
+        "required": [
+          "audio"
+        ]
+      },
+      "ChatTaskResultDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "SSE 任务 ID",
+            "example": "cmf_task_123"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "本次 assistant 占位消息 ID",
+            "example": "cmf_msg_123"
           },
           "conversationId": {
             "type": "string",
-            "description": "会话 ID；首轮语音消息可不传，后端会自动创建新会话",
-            "example": "conv_abc123"
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务初始状态",
+            "enum": [
+              "pending",
+              "streaming",
+              "paused",
+              "completed",
+              "error",
+              "expired",
+              "canceled"
+            ],
+            "example": "pending"
           }
-        }
+        },
+        "required": [
+          "taskId",
+          "messageId",
+          "conversationId",
+          "status"
+        ]
       },
       "ImageGenerationDto": {
         "type": "object",
@@ -927,6 +1275,166 @@
           "prompt"
         ]
       },
+      "ImageGenerationResultDto": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "description": "图片消息 ID",
+            "example": "cmf_msg_123"
+          },
+          "imageUrl": {
+            "type": "string",
+            "description": "生成图片地址",
+            "example": "https://example.com/generated-image.png"
+          },
+          "revisedPrompt": {
+            "type": "string",
+            "description": "模型修订后的提示词",
+            "example": "一只可爱的小熊在森林里散步"
+          }
+        },
+        "required": [
+          "messageId",
+          "imageUrl",
+          "revisedPrompt"
+        ]
+      },
+      "SseTaskEventPayloadDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "事件类型",
+            "example": "message.delta"
+          },
+          "taskId": {
+            "type": "string",
+            "description": "SSE 任务 ID",
+            "example": "cmf_task_123"
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "assistant 消息 ID",
+            "example": "cmf_msg_123"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务状态",
+            "example": "streaming"
+          },
+          "payload": {
+            "type": "object",
+            "description": "事件业务载荷，结构随事件类型变化",
+            "example": {
+              "delta": "你好"
+            }
+          },
+          "errorMessage": {
+            "type": "string",
+            "description": "错误事件中的错误信息",
+            "example": "聊天任务执行失败"
+          }
+        },
+        "required": [
+          "type",
+          "taskId",
+          "conversationId",
+          "messageId",
+          "status"
+        ]
+      },
+      "SseTaskStatusDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "SSE 任务 ID",
+            "example": "cmf_task_123"
+          },
+          "type": {
+            "type": "string",
+            "description": "任务类型",
+            "enum": [
+              "chat_completion",
+              "voice_completion"
+            ],
+            "example": "chat_completion"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务状态",
+            "enum": [
+              "pending",
+              "streaming",
+              "paused",
+              "completed",
+              "error",
+              "expired",
+              "canceled"
+            ],
+            "example": "streaming"
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "assistant 消息 ID",
+            "example": "cmf_msg_123"
+          },
+          "lastEventId": {
+            "type": "number",
+            "description": "服务端已持久化的最后事件 ID",
+            "example": 12
+          },
+          "fullContent": {
+            "type": "string",
+            "description": "当前累计生成内容",
+            "example": "你好，我是 Litter Bear"
+          },
+          "errorMessage": {
+            "type": "object",
+            "description": "任务错误信息",
+            "example": "模型服务请求失败",
+            "nullable": true
+          },
+          "canResume": {
+            "type": "boolean",
+            "description": "当前任务是否可恢复",
+            "example": true
+          },
+          "expiresAt": {
+            "type": "number",
+            "description": "任务过期时间戳（毫秒）",
+            "example": 1735689600000
+          },
+          "updatedAt": {
+            "type": "number",
+            "description": "任务更新时间戳（毫秒）",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "taskId",
+          "type",
+          "status",
+          "conversationId",
+          "messageId",
+          "lastEventId",
+          "fullContent",
+          "canResume",
+          "expiresAt",
+          "updatedAt"
+        ]
+      },
       "ResumeSseDto": {
         "type": "object",
         "properties": {
@@ -936,6 +1444,34 @@
             "example": 12
           }
         }
+      },
+      "CancelSseTaskResultDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "SSE 任务 ID",
+            "example": "cmf_task_123"
+          },
+          "status": {
+            "type": "string",
+            "description": "取消后的任务状态",
+            "enum": [
+              "pending",
+              "streaming",
+              "paused",
+              "completed",
+              "error",
+              "expired",
+              "canceled"
+            ],
+            "example": "canceled"
+          }
+        },
+        "required": [
+          "taskId",
+          "status"
+        ]
       }
     }
   }
