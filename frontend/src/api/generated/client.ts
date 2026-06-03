@@ -7,17 +7,25 @@
  */
 import type {
   AccountLoginDto,
+  CancelSseTaskResultDto,
   ChatCompletionsDto,
+  ChatTaskResultDto,
+  ConversationDto,
   CreateConversationDto,
+  EmptyResultDto,
   HealthControllerCheck200,
   ImageGenerationDto,
+  ImageGenerationResultDto,
+  LoginResultDto,
   PhoneLoginDto,
   RefreshTokenDto,
   ResumeSseDto,
   SendCodeDto,
   SseTaskControllerStreamTaskParams,
+  SseTaskStatusDto,
   UpdateProfileDto,
-  VoiceCompletionsDto,
+  UserProfileDto,
+  VoiceCompletionsFormDataDto,
   WechatLoginDto
 } from './models';
 
@@ -34,9 +42,9 @@ export const getAuthControllerWechatLoginUrl = () => {
  * 使用微信 code 换取 JWT Token
  * @summary 微信登录
  */
-export const authControllerWechatLogin = async (wechatLoginDto: WechatLoginDto, options?: RequestInit): Promise<void> => {
+export const authControllerWechatLogin = async (wechatLoginDto: WechatLoginDto, options?: RequestInit): Promise<LoginResultDto> => {
 
-  return taroRequest<void>(getAuthControllerWechatLoginUrl(),
+  return taroRequest<LoginResultDto>(getAuthControllerWechatLoginUrl(),
   {
     ...options,
     method: 'POST',
@@ -59,9 +67,9 @@ export const getAuthControllerSendCodeUrl = () => {
  * 向指定手机号发送短信验证码，60秒内不可重复发送
  * @summary 发送手机验证码
  */
-export const authControllerSendCode = async (sendCodeDto: SendCodeDto, options?: RequestInit): Promise<void> => {
+export const authControllerSendCode = async (sendCodeDto: SendCodeDto, options?: RequestInit): Promise<EmptyResultDto> => {
 
-  return taroRequest<void>(getAuthControllerSendCodeUrl(),
+  return taroRequest<EmptyResultDto>(getAuthControllerSendCodeUrl(),
   {
     ...options,
     method: 'POST',
@@ -84,9 +92,9 @@ export const getAuthControllerAccountLoginUrl = () => {
  * 使用账号名和密码登录；若账号不存在，则自动注册后返回登录态
  * @summary 账号密码登录或自动注册
  */
-export const authControllerAccountLogin = async (accountLoginDto: AccountLoginDto, options?: RequestInit): Promise<void> => {
+export const authControllerAccountLogin = async (accountLoginDto: AccountLoginDto, options?: RequestInit): Promise<LoginResultDto> => {
 
-  return taroRequest<void>(getAuthControllerAccountLoginUrl(),
+  return taroRequest<LoginResultDto>(getAuthControllerAccountLoginUrl(),
   {
     ...options,
     method: 'POST',
@@ -109,9 +117,9 @@ export const getAuthControllerPhoneLoginUrl = () => {
  * 使用手机号 + 验证码登录，自动注册新用户
  * @summary 手机号登录
  */
-export const authControllerPhoneLogin = async (phoneLoginDto: PhoneLoginDto, options?: RequestInit): Promise<void> => {
+export const authControllerPhoneLogin = async (phoneLoginDto: PhoneLoginDto, options?: RequestInit): Promise<LoginResultDto> => {
 
-  return taroRequest<void>(getAuthControllerPhoneLoginUrl(),
+  return taroRequest<LoginResultDto>(getAuthControllerPhoneLoginUrl(),
   {
     ...options,
     method: 'POST',
@@ -134,9 +142,9 @@ export const getAuthControllerRefreshUrl = () => {
  * 使用 Refresh Token 换取新的 Access Token
  * @summary 刷新令牌
  */
-export const authControllerRefresh = async (refreshTokenDto: RefreshTokenDto, options?: RequestInit): Promise<void> => {
+export const authControllerRefresh = async (refreshTokenDto: RefreshTokenDto, options?: RequestInit): Promise<LoginResultDto> => {
 
-  return taroRequest<void>(getAuthControllerRefreshUrl(),
+  return taroRequest<LoginResultDto>(getAuthControllerRefreshUrl(),
   {
     ...options,
     method: 'POST',
@@ -159,9 +167,9 @@ export const getAuthControllerLogoutUrl = () => {
  * 将当前 Access Token 加入黑名单
  * @summary 登出
  */
-export const authControllerLogout = async ( options?: RequestInit): Promise<void> => {
+export const authControllerLogout = async ( options?: RequestInit): Promise<EmptyResultDto> => {
 
-  return taroRequest<void>(getAuthControllerLogoutUrl(),
+  return taroRequest<EmptyResultDto>(getAuthControllerLogoutUrl(),
   {
     ...options,
     method: 'POST'
@@ -183,9 +191,9 @@ export const getUserControllerGetProfileUrl = () => {
 /**
  * @summary 获取当前用户信息
  */
-export const userControllerGetProfile = async ( options?: RequestInit): Promise<void> => {
+export const userControllerGetProfile = async ( options?: RequestInit): Promise<UserProfileDto> => {
 
-  return taroRequest<void>(getUserControllerGetProfileUrl(),
+  return taroRequest<UserProfileDto>(getUserControllerGetProfileUrl(),
   {
     ...options,
     method: 'GET'
@@ -208,9 +216,9 @@ export const getUserControllerUpdateProfileUrl = () => {
  * 可更新昵称和头像
  * @summary 更新用户资料
  */
-export const userControllerUpdateProfile = async (updateProfileDto: UpdateProfileDto, options?: RequestInit): Promise<void> => {
+export const userControllerUpdateProfile = async (updateProfileDto: UpdateProfileDto, options?: RequestInit): Promise<UserProfileDto> => {
 
-  return taroRequest<void>(getUserControllerUpdateProfileUrl(),
+  return taroRequest<UserProfileDto>(getUserControllerUpdateProfileUrl(),
   {
     ...options,
     method: 'PATCH',
@@ -233,9 +241,9 @@ export const getConversationControllerFindAllUrl = () => {
  * 返回当前用户的所有会话及消息列表
  * @summary 获取所有会话
  */
-export const conversationControllerFindAll = async ( options?: RequestInit): Promise<void> => {
+export const conversationControllerFindAll = async ( options?: RequestInit): Promise<ConversationDto[]> => {
 
-  return taroRequest<void>(getConversationControllerFindAllUrl(),
+  return taroRequest<ConversationDto[]>(getConversationControllerFindAllUrl(),
   {
     ...options,
     method: 'GET'
@@ -257,9 +265,9 @@ export const getConversationControllerCreateUrl = () => {
 /**
  * @summary 创建新会话
  */
-export const conversationControllerCreate = async (createConversationDto: CreateConversationDto, options?: RequestInit): Promise<void> => {
+export const conversationControllerCreate = async (createConversationDto: CreateConversationDto, options?: RequestInit): Promise<ConversationDto> => {
 
-  return taroRequest<void>(getConversationControllerCreateUrl(),
+  return taroRequest<ConversationDto>(getConversationControllerCreateUrl(),
   {
     ...options,
     method: 'POST',
@@ -282,9 +290,9 @@ export const getConversationControllerDeleteUrl = (id: string,) => {
  * 删除指定会话及其所有消息
  * @summary 删除会话
  */
-export const conversationControllerDelete = async (id: string, options?: RequestInit): Promise<void> => {
+export const conversationControllerDelete = async (id: string, options?: RequestInit): Promise<EmptyResultDto> => {
 
-  return taroRequest<void>(getConversationControllerDeleteUrl(id),
+  return taroRequest<EmptyResultDto>(getConversationControllerDeleteUrl(id),
   {
     ...options,
     method: 'DELETE'
@@ -332,34 +340,35 @@ export const getVoiceCompletionsUrl = () => {
  * 上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话
  * @summary 发送语音消息
  */
-export const voiceCompletions = async (voiceCompletionsDto: VoiceCompletionsDto, options?: RequestInit): Promise<void> => {
+export const voiceCompletions = async (voiceCompletionsFormDataDto: VoiceCompletionsFormDataDto, options?: RequestInit): Promise<ChatTaskResultDto> => {
     const formData = new FormData();
-if(voiceCompletionsDto.modelId !== undefined) {
- formData.append(`modelId`, voiceCompletionsDto.modelId);
+formData.append(`audio`, voiceCompletionsFormDataDto.audio);
+if(voiceCompletionsFormDataDto.conversationId !== undefined) {
+ formData.append(`conversationId`, voiceCompletionsFormDataDto.conversationId);
  }
-if(voiceCompletionsDto.provider !== undefined) {
- formData.append(`provider`, voiceCompletionsDto.provider);
+if(voiceCompletionsFormDataDto.modelId !== undefined) {
+ formData.append(`modelId`, voiceCompletionsFormDataDto.modelId);
  }
-if(voiceCompletionsDto.platform !== undefined) {
- formData.append(`platform`, voiceCompletionsDto.platform);
+if(voiceCompletionsFormDataDto.provider !== undefined) {
+ formData.append(`provider`, voiceCompletionsFormDataDto.provider);
  }
-if(voiceCompletionsDto.model !== undefined) {
- formData.append(`model`, voiceCompletionsDto.model);
+if(voiceCompletionsFormDataDto.platform !== undefined) {
+ formData.append(`platform`, voiceCompletionsFormDataDto.platform);
  }
-if(voiceCompletionsDto.temperature !== undefined) {
- formData.append(`temperature`, voiceCompletionsDto.temperature.toString())
+if(voiceCompletionsFormDataDto.model !== undefined) {
+ formData.append(`model`, voiceCompletionsFormDataDto.model);
  }
-if(voiceCompletionsDto.maxOutputTokens !== undefined) {
- formData.append(`maxOutputTokens`, voiceCompletionsDto.maxOutputTokens.toString())
+if(voiceCompletionsFormDataDto.temperature !== undefined) {
+ formData.append(`temperature`, voiceCompletionsFormDataDto.temperature.toString())
  }
-if(voiceCompletionsDto.topP !== undefined) {
- formData.append(`topP`, voiceCompletionsDto.topP.toString())
+if(voiceCompletionsFormDataDto.maxOutputTokens !== undefined) {
+ formData.append(`maxOutputTokens`, voiceCompletionsFormDataDto.maxOutputTokens.toString())
  }
-if(voiceCompletionsDto.conversationId !== undefined) {
- formData.append(`conversationId`, voiceCompletionsDto.conversationId);
+if(voiceCompletionsFormDataDto.topP !== undefined) {
+ formData.append(`topP`, voiceCompletionsFormDataDto.topP.toString())
  }
 
-  return taroRequest<void>(getVoiceCompletionsUrl(),
+  return taroRequest<ChatTaskResultDto>(getVoiceCompletionsUrl(),
   {
     ...options,
     method: 'POST'
@@ -382,9 +391,9 @@ export const getChatControllerImageGenerationsUrl = () => {
  * 使用 DALL-E 3 生成图片
  * @summary AI 图片生成
  */
-export const chatControllerImageGenerations = async (imageGenerationDto: ImageGenerationDto, options?: RequestInit): Promise<void> => {
+export const chatControllerImageGenerations = async (imageGenerationDto: ImageGenerationDto, options?: RequestInit): Promise<ImageGenerationResultDto> => {
 
-  return taroRequest<void>(getChatControllerImageGenerationsUrl(),
+  return taroRequest<ImageGenerationResultDto>(getChatControllerImageGenerationsUrl(),
   {
     ...options,
     method: 'POST',
@@ -406,9 +415,9 @@ export const getSseTaskControllerGetTaskUrl = (taskId: string,) => {
 /**
  * @summary 查询 SSE 任务状态
  */
-export const sseTaskControllerGetTask = async (taskId: string, options?: RequestInit): Promise<void> => {
+export const sseTaskControllerGetTask = async (taskId: string, options?: RequestInit): Promise<SseTaskStatusDto> => {
 
-  return taroRequest<void>(getSseTaskControllerGetTaskUrl(taskId),
+  return taroRequest<SseTaskStatusDto>(getSseTaskControllerGetTaskUrl(taskId),
   {
     ...options,
     method: 'GET'
@@ -439,9 +448,9 @@ export const getSseTaskControllerStreamTaskUrl = (taskId: string,
  * @summary 浏览器 SSE 建链/恢复
  */
 export const sseTaskControllerStreamTask = async (taskId: string,
-    params: SseTaskControllerStreamTaskParams, options?: RequestInit): Promise<void> => {
+    params: SseTaskControllerStreamTaskParams, options?: RequestInit): Promise<string> => {
 
-  return taroRequest<void>(getSseTaskControllerStreamTaskUrl(taskId,params),
+  return taroRequest<string>(getSseTaskControllerStreamTaskUrl(taskId,params),
   {
     ...options,
     method: 'GET'
@@ -464,9 +473,9 @@ export const getSseTaskControllerResumeTaskUrl = (taskId: string,) => {
  * @summary 微信小程序/通用客户端恢复 SSE
  */
 export const sseTaskControllerResumeTask = async (taskId: string,
-    resumeSseDto: ResumeSseDto, options?: RequestInit): Promise<void> => {
+    resumeSseDto: ResumeSseDto, options?: RequestInit): Promise<string> => {
 
-  return taroRequest<void>(getSseTaskControllerResumeTaskUrl(taskId),
+  return taroRequest<string>(getSseTaskControllerResumeTaskUrl(taskId),
   {
     ...options,
     method: 'POST',
@@ -488,9 +497,9 @@ export const getSseTaskControllerCancelTaskUrl = (taskId: string,) => {
 /**
  * @summary 取消 SSE 任务
  */
-export const sseTaskControllerCancelTask = async (taskId: string, options?: RequestInit): Promise<void> => {
+export const sseTaskControllerCancelTask = async (taskId: string, options?: RequestInit): Promise<CancelSseTaskResultDto> => {
 
-  return taroRequest<void>(getSseTaskControllerCancelTaskUrl(taskId),
+  return taroRequest<CancelSseTaskResultDto>(getSseTaskControllerCancelTaskUrl(taskId),
   {
     ...options,
     method: 'POST'

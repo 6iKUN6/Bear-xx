@@ -6,21 +6,23 @@
  * OpenAPI spec version: 1.0
  */
 
-export interface VoiceCompletionsDto {
+export interface VoiceCompletionsFormDataDto {
+  /** 音频文件 */
+  audio: Blob;
+  /** 会话 ID；首轮语音消息可不传，后端会自动创建新会话 */
+  conversationId?: string;
   /** 模型预设 ID，优先级最高，例如 openai:gpt-4o-mini */
   modelId?: string;
-  /** LLM Provider 名称，例如 openai */
+  /** LLM Provider 名称 */
   provider?: string;
-  /** 模型平台或商家名称，例如 openai、deepseek */
+  /** 模型平台或商家名称 */
   platform?: string;
-  /** 模型名称，例如 gpt-4o-mini */
+  /** 模型名称 */
   model?: string;
-  /** 采样温度，建议范围 0 到 2 */
+  /** 采样温度 */
   temperature?: number;
   /** 最大输出 Token 数 */
   maxOutputTokens?: number;
-  /** Top P 采样参数，范围 0 到 1 */
+  /** Top P 采样参数 */
   topP?: number;
-  /** 会话 ID；首轮语音消息可不传，后端会自动创建新会话 */
-  conversationId?: string;
 }

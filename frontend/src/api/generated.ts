@@ -28,10 +28,12 @@ import type {
   SendCodeDto,
   SseTaskControllerStreamTaskParams,
   UpdateProfileDto,
-  VoiceCompletionsDto,
+  VoiceCompletionsFormDataDto,
   WechatLoginDto,
 } from "./generated/models";
 import { BaseApiClient, type StreamHandlers, type StreamRequestHandle } from "./request";
+
+export type VoiceCompletionsDto = Omit<VoiceCompletionsFormDataDto, "audio">;
 
 export type {
   AccountLoginDto,
@@ -44,7 +46,7 @@ export type {
   SendCodeDto,
   SseTaskControllerStreamTaskParams,
   UpdateProfileDto,
-  VoiceCompletionsDto,
+  VoiceCompletionsFormDataDto,
   WechatLoginDto,
 };
 
@@ -123,7 +125,7 @@ export class Api extends BaseApiClient {
       url: "/api/chat/voice-messages",
       method: "POST",
       filePath: args.filePath,
-      name: args.fileFieldName || "file",
+      name: args.fileFieldName || "audio",
       formData: args.body,
     });
   }
