@@ -1,4 +1,4 @@
-# FRONTEND_AGENT.md
+# FRONTEND_AGENTS.md
 
 ## 目的
 

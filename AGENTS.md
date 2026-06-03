@@ -1,4 +1,4 @@
-# AGENT.md
+# AGENTS.md
 
 ## 项目概况
 
@@ -11,8 +11,8 @@
 
 前后端的具体开发约束、接口约定、运行注意事项和历史问题说明，请优先查看对应目录下的文档：
 
-- 前端开发明细：[frontend/AGENT.md](frontend/AGENT.md)
-- 后端开发明细：[backend/AGENT.md](backend/AGENT.md)
+- 前端开发明细：[frontend/AGENTS.md](frontend/AGENTS.md)
+- 后端开发明细：[backend/AGENTS.md](backend/AGENTS.md)
 
 ## 通用开发条款
 
