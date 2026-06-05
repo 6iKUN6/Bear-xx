@@ -8,7 +8,7 @@
 
 - 保持接口行为稳定
 - 保持数据库变更可追踪
-- 保持 SSE 任务模型一致
+- 保持 StreamTask 流式任务模型一致
 - 降低随手改动导致的前后端联调成本
 
 这是一份初版规范，后续可以继续补充和收紧。
@@ -31,7 +31,7 @@
 - 用户：查询和更新资料
 - 会话：创建、列表、删除
 - 聊天：创建聊天任务、语音转写任务、图片生成
-- SSE 任务：状态查询、浏览器流式连接、微信小程序恢复、取消任务
+- 流式任务：状态查询、流式连接、任务恢复、取消任务
 - 健康检查
 
 ## 开发原则
@@ -70,9 +70,9 @@
  * @param taskId 任务ID
  * @param userId 用户ID
  * @returns 返回包含任务详情信息的对象，包括状态、会话ID、最后事件ID等
- * @description 查询指定ID的SSE任务状态。如果不存在将抛出异常。
+ * @description 查询指定 ID 的流式任务状态。如果不存在将抛出异常。
  */
-async getTaskStatus(taskId: string, userId: string): Promise<TaskStatusDto> {
+async getTaskStatus(taskId: string, userId: string): Promise<StreamTaskStatusDto> {
   // ...
 }
 
@@ -163,7 +163,7 @@ Git 提交信息统一使用中文，标题和正文都不使用英文描述核�
 - 会话历史以数据库消息记录为事实来源，不依赖框架自带 memory 作为主存储
 - 模型选择、生成参数和运行时参数要分层表示，不允许混成一个模糊对象四处透传
 - 请求级模型配置如果会影响可恢复任务，必须在创建任务时持久化，保证重连和恢复使用同一份配置
-- 新增或重构 AI 模块时，应优先复用现有 SSE 任务机制，而不是为流式输出再造一套并行链路
+- 新增或重构 AI 模块时，应优先复用现有 StreamTask 机制，而不是为流式输出再造一套并行链路
 - 构建 agent 的动作应尽量集中在同一编排层，包括构建上下文、系统提示词、模型参数、工具注入和消息组装
 - Controller 不应直接拼 prompt、构建 LangChain message 或注入工具；普通业务 Service 也不应散落 agent 构建细节
 
@@ -227,9 +227,11 @@ SSE 接口不走统一响应包装，使用 `text/event-stream`。
 - 前端 Orval 生成类型
 - 联调说明或 AGENT 文档
 
-## SSE 任务规范
+## 流式任务规范
 
-当前仓库已经采用“任务化 SSE”方案，设计文档见 `docs/sse-task-architecture.md`。
+当前仓库已经采用 `StreamTask` 作为业务流式任务模型，`SSE` 只表示 `text/event-stream` 传输协议。
+
+历史上的 `SseTask` 数据库模型暂时保留，但新增和重构逻辑应优先使用 `StreamTask`、`StreamTaskRun`、`StreamTaskEvent`。
 
 ### 1. 一次流式生成 = 一个任务
 
@@ -237,7 +239,7 @@ SSE 接口不走统一响应包装，使用 `text/event-stream`。
 
 ### 2. 任务状态必须可追踪
 
-涉及 SSE 任务时，应优先通过 `SseTask` 记录：
+涉及流式任务时，应优先通过 `StreamTask` 记录：
 
 - 任务类型
 - 当前状态
@@ -249,18 +251,19 @@ SSE 接口不走统一响应包装，使用 `text/event-stream`。
 - 错误信息
 - 过期时间
 
-### 3. 浏览器和微信小程序要同时兼容
+### 3. H5 和微信小程序优先统一流式接入
 
-设计 SSE 接口时必须同时考虑：
+当前工程不要按“H5/浏览器”和“微信小程序”强制拆成两套流式协议。
 
-- 浏览器 `GET /stream`
-- 微信小程序或通用客户端 `POST /resume`
+优先约定如下：
 
-恢复游标应允许从以下来源读取：
+- 首轮发送并消费流：优先使用 `POST /chat/message` 这类可携带 body、鉴权 header，并直接返回 `text/event-stream` 的接口。
+- 已有任务恢复消费流：优先使用 `POST /stream-tasks/:taskId/resume`，H5、微信小程序和通用客户端都可以使用这一入口。
+- `GET /stream-tasks/:taskId/stream` 只作为浏览器原生 `EventSource` 或历史联调兼容入口保留，不应再被描述成 H5 必须使用的专属接口。
 
-- body `lastEventId`
-- query `cursor`
-- header `Last-Event-ID`
+当初保留 `GET /stream` 的主要原因是原生浏览器 `EventSource` 只能使用 GET，不能携带 request body，对自定义 header 的控制也有限；但当前前端工程使用 Taro/请求封装消费 chunk 流，H5 和微信小程序都可以通过 POST 携带 body 与鉴权信息，因此工程设计上应优先收敛到同一个 POST 流式入口。
+
+恢复游标优先通过 body `lastEventId` 传入；兼容入口仍可读取 query `cursor` 或 header `Last-Event-ID`。
 
 ### 4. 不要重复落库或重复执行
 
@@ -274,7 +277,7 @@ SSE 接口不走统一响应包装，使用 `text/event-stream`。
 
 ### 5. 任务状态机必须闭环
 
-如果新增或修改 `SseTaskStatus`，必须同步检查：
+如果新增或修改 `StreamTaskStatus`，必须同步检查：
 
 - 创建时写入什么状态
 - 开始执行时写入什么状态
@@ -338,7 +341,7 @@ Prisma 模型和字段命名应优先保持业务语义一致，不为短而短�
 - 新接口
 - 接口返回结构变化
 - 鉴权逻辑变化
-- SSE 任务状态流转变化
+- StreamTask 状态流转变化
 - 数据库写入路径变化
 
 ### 2. 当前测试状态
@@ -350,7 +353,7 @@ Prisma 模型和字段命名应优先保持业务语义一致，不为短而短�
 - auth e2e
 - conversation e2e
 - chat task create e2e
-- sse-task status/resume/cancel e2e
+- stream-task status/resume/cancel e2e
 
 ## 提交前检查
 
@@ -387,9 +390,9 @@ pnpm db:migrate:create
 
 不要把 refresh 逻辑和 access token 使用场景混淆。
 
-### 2. SSE 联调
+### 2. 流式任务联调
 
-联调 SSE 时，应明确区分：
+联调流式任务时，应明确区分：
 
 - 创建任务接口
 - 建立流接口
@@ -411,7 +414,7 @@ pnpm db:migrate:create
 
 ### 4. 日志与敏感信息
 
-LLM 调用、SSE 任务、第三方 API 调用和认证流程应保留必要日志，方便定位问题。
+LLM 调用、流式任务、第三方 API 调用和认证流程应保留必要日志，方便定位问题。
 
 但日志中不要记录以下敏感信息：
 
@@ -441,7 +444,7 @@ LLM 调用、SSE 任务、第三方 API 调用和认证流程应保留必要日�
 - Swagger 路径是 `/api-docs`
 - 默认存在统一响应拦截器
 - SSE 接口显式跳过统一响应包裹
-- 项目当前更接近“单进程可恢复 SSE”，不是多实例完全恢复架构
+- 项目当前更接近“单进程可恢复流式任务”，不是多实例完全恢复架构
 
 ## 更新本文件的原则
 
@@ -449,7 +452,7 @@ LLM 调用、SSE 任务、第三方 API 调用和认证流程应保留必要日�
 
 - 新增一类核心架构约束
 - 引入新的通用开发流程
-- 修改了 SSE / 数据库 / 接口的核心协作方式
+- 修改了流式任务 / 数据库 / 接口的核心协作方式
 - 发现团队反复踩同一个坑
 
 这份文件应保持“短而有效”，避免写成大而空的流程文件。

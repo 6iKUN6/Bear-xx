@@ -1,10 +1,10 @@
-# SSE Task Architecture
+# Stream Task Architecture
 
 ## Goal
 
-Move text chat SSE from a request-scoped implementation to a task-scoped implementation.
+Move text chat streaming delivery from a request-scoped implementation to a task-scoped implementation.
 
-Each long-running stream becomes an `SseTask` with:
+Each long-running stream becomes a `StreamTask` with:
 
 - stable `taskId`
 - persistent status
@@ -41,7 +41,7 @@ If the request does not provide `conversationId`, the server will:
 1. create a new conversation
 2. persist the user message
 3. persist an assistant placeholder message
-4. persist the `SseTask`
+4. persist the `StreamTask`
 5. immediately enter the first SSE stream
 
 That means the external protocol is now one-step for the first round:
@@ -51,7 +51,7 @@ That means the external protocol is now one-step for the first round:
 3. first event is `task.created`
 4. subsequent events are produced by the underlying resumable task pipeline
 
-The internal implementation still reuses `resumeTaskStream(...)` so that:
+The internal implementation still reuses `openTaskStream(...)` so that:
 
 - the first round
 - browser reconnect
@@ -79,7 +79,7 @@ Notes:
 State transitions:
 
 1. client sends a chat message
-2. server stores conversation, message, assistant placeholder, and `SseTask`
+2. server stores conversation, message, assistant placeholder, and `StreamTask`
 3. server emits `task.created`
 4. client enters `/stream` semantics immediately, or resumes an existing task later
 5. server replays buffered events after `lastEventId`
@@ -108,7 +108,7 @@ First round:
 
 Reconnect:
 
-1. use `GET /sse-tasks/:taskId/stream`
+1. use `GET /stream-tasks/:taskId/stream`
 2. browser can reconnect with `Last-Event-ID` or `cursor` query
 
 ### WeChat Mini Program
@@ -121,7 +121,7 @@ First round:
 
 Resume:
 
-1. use `POST /sse-tasks/:taskId/resume`
+1. use `POST /stream-tasks/:taskId/resume`
 2. send `lastEventId` in request body
 3. manually parse SSE chunks and keep persisting `lastEventId`
 
@@ -141,7 +141,7 @@ Priority:
 
 ### PostgreSQL
 
-`SseTask` stores:
+`StreamTask` stores:
 
 - task identity and ownership
 - task type
@@ -154,8 +154,8 @@ Priority:
 
 ### Redis
 
-- `sse:buffer:{taskId}`: ZSET of serialized SSE events
-- `sse:lock:{taskId}`: producer lock
+- `stream-task:buffer:{taskId}`: ZSET of serialized SSE events
+- `stream-task:lock:{taskId}`: producer lock
 
 ## API
 
@@ -193,17 +193,17 @@ Returns the same task payload after Whisper transcription completes.
 
 ### Query task
 
-`GET /sse-tasks/:taskId`
+`GET /stream-tasks/:taskId`
 
 Returns status, `lastEventId`, `fullContent`, and whether resume is still possible.
 
 ### Browser stream
 
-`GET /sse-tasks/:taskId/stream?cursor=12`
+`GET /stream-tasks/:taskId/stream?cursor=12`
 
 ### Mini Program resume
 
-`POST /sse-tasks/:taskId/resume`
+`POST /stream-tasks/:taskId/resume`
 
 Body:
 
@@ -215,7 +215,7 @@ Body:
 
 ### Cancel task
 
-`POST /sse-tasks/:taskId/cancel`
+`POST /stream-tasks/:taskId/cancel`
 
 ## Event Types
 
@@ -280,11 +280,11 @@ Current event-specific payload conventions:
 
 - `chat/message` is the semantic first-round text chat entrypoint
 - `chat` owns the business entrypoint, but not the replay mechanism
-- `sse-task` owns replay, live subscribe, status query, and cancel
+- `stream-task` owns replay, live subscribe, status query, and cancel
 - `SseInterceptor` is reduced to transport writing only
 - event ids are assigned before buffering so replayed events keep stable ids
 - task creation and task execution are separated
-- the first round and resume path share the same `SseTask` execution pipeline
+- the first round and resume path share the same `StreamTask` execution pipeline
 - model selection parameters are persisted in task payload so resume uses the same LLM config
 
 ## Known Limitation

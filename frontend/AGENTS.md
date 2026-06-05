@@ -195,16 +195,23 @@ Authorization: Bearer <token>
 2. 拿到 `taskId`
 3. 再连接或恢复 SSE
 
-### 2. 浏览器接法
+### 2. H5 和浏览器接法
 
-浏览器优先使用：
+H5 和浏览器端优先使用项目请求封装消费 chunk 流，恢复已有任务时使用：
 
-- `GET /sse-tasks/:taskId/stream`
+- `POST /stream-tasks/:taskId/resume`
 
-恢复时可以依赖：
+浏览器原生 `EventSource` 兼容入口为：
+
+- `GET /stream-tasks/:taskId/stream`
+
+该入口只用于确实需要原生 `EventSource` 的场景，不是 H5 必须使用的专属接口。
+
+恢复游标可以依赖：
 
 - `Last-Event-ID`
 - 或 query `cursor`
+- 或 body `lastEventId`
 
 如果浏览器端使用 `EventSource`，要注意：
 
@@ -215,7 +222,7 @@ Authorization: Bearer <token>
 
 微信小程序优先使用：
 
-- `POST /sse-tasks/:taskId/resume`
+- `POST /stream-tasks/:taskId/resume`
 
 body 示例：
 
@@ -235,7 +242,7 @@ body 示例：
 
 当前接口：
 
-- `GET /sse-tasks/:taskId`
+- `GET /stream-tasks/:taskId`
 
 前端用途：
 
@@ -247,7 +254,7 @@ body 示例：
 
 当前接口：
 
-- `POST /sse-tasks/:taskId/cancel`
+- `POST /stream-tasks/:taskId/cancel`
 
 前端约束：
 
@@ -390,7 +397,7 @@ body 示例：
 - tabbar 页面容器
 - 空状态、错误态、加载态
 - 请求状态和重试入口
-- SSE 任务连接与恢复逻辑
+- 流式任务连接与恢复逻辑
 
 公共组件应保持 props 语义清晰，不要为了兼容未来假想场景提前塞入大量可选参数。
 
@@ -400,7 +407,7 @@ body 示例：
 
 实现时优先考虑：
 
-- `POST /sse-tasks/:taskId/resume`
+- `POST /stream-tasks/:taskId/resume`
 - 请求体带 `lastEventId`
 - 自己做 chunk 解析
 - 自己管理重连
@@ -517,9 +524,9 @@ pnpm typecheck
 
 前端开发时应默认知道以下限制：
 
-- 当前 SSE 更接近“单进程可恢复”
+- 当前流式任务更接近“单进程可恢复”
 - 服务重启后，已缓存事件可以补发，但未完成生成不保证真正续跑
-- 语音 SSE 任务链路虽然已有接口，但联调时应重点验证实际执行是否闭环
+- 语音流式任务链路虽然已有接口，但联调时应重点验证实际执行是否闭环
 - 当前测试覆盖较弱，联调发现问题的概率较高
 
 ## 推荐前端封装
@@ -530,9 +537,9 @@ pnpm typecheck
 - `authorizedRequest()`：自动带 token
 - `refreshTokenIfNeeded()`：统一刷新逻辑
 - `createChatTask()`：创建聊天任务
-- `connectSseTask()`：浏览器流式连接
-- `resumeSseTask()`：小程序恢复连接
-- `cancelSseTask()`：取消任务
+- `connectStreamTask()`：浏览器流式连接
+- `resumeStreamTask()`：恢复流式任务连接
+- `cancelStreamTask()`：取消流式任务
 
 不要在页面组件里直接散写所有网络协议细节。
 
