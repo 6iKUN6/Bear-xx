@@ -1,8 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ChatTaskResultDto {
-  @ApiProperty({ description: 'SSE 任务 ID', example: 'cmf_task_123' })
+  @ApiProperty({ description: '流式任务 ID', example: 'cmf_task_123' })
   taskId: string;
+
+  @ApiProperty({
+    description: '当前执行流片段 ID',
+    example: 'cmf_stream_123',
+  })
+  streamId: string;
 
   @ApiProperty({
     description: '本次 assistant 占位消息 ID',
@@ -19,6 +25,7 @@ export class ChatTaskResultDto {
       'pending',
       'streaming',
       'paused',
+      'waiting_human',
       'completed',
       'error',
       'expired',

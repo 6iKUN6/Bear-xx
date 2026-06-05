@@ -1,12 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class SseTaskStatusDto {
-  @ApiProperty({ description: 'SSE 任务 ID', example: 'cmf_task_123' })
+export class StreamTaskStatusDto {
+  @ApiProperty({ description: '流式任务 ID', example: 'cmf_task_123' })
   taskId: string;
+
+  @ApiPropertyOptional({
+    description: '当前执行流片段 ID',
+    example: 'cmf_stream_123',
+    nullable: true,
+  })
+  streamId?: string | null;
 
   @ApiProperty({
     description: '任务类型',
-    enum: ['chat_completion', 'voice_completion'],
+    enum: ['chat_completion', 'voice_completion', 'agent_workflow'],
     example: 'chat_completion',
   })
   type: string;
@@ -17,6 +24,7 @@ export class SseTaskStatusDto {
       'pending',
       'streaming',
       'paused',
+      'waiting_human',
       'completed',
       'error',
       'expired',
@@ -51,11 +59,12 @@ export class SseTaskStatusDto {
   @ApiProperty({ description: '当前任务是否可恢复', example: true })
   canResume: boolean;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: '任务过期时间戳（毫秒）',
     example: 1735689600000,
+    nullable: true,
   })
-  expiresAt: number;
+  expiresAt: number | null;
 
   @ApiProperty({
     description: '任务更新时间戳（毫秒）',
@@ -64,8 +73,8 @@ export class SseTaskStatusDto {
   updatedAt: number;
 }
 
-export class CancelSseTaskResultDto {
-  @ApiProperty({ description: 'SSE 任务 ID', example: 'cmf_task_123' })
+export class CancelStreamTaskResultDto {
+  @ApiProperty({ description: '流式任务 ID', example: 'cmf_task_123' })
   taskId: string;
 
   @ApiProperty({
@@ -74,6 +83,7 @@ export class CancelSseTaskResultDto {
       'pending',
       'streaming',
       'paused',
+      'waiting_human',
       'completed',
       'error',
       'expired',
@@ -84,12 +94,18 @@ export class CancelSseTaskResultDto {
   status: string;
 }
 
-export class SseTaskEventPayloadDto {
+export class StreamTaskEventPayloadDto {
   @ApiProperty({ description: '事件类型', example: 'message.delta' })
   type: string;
 
-  @ApiProperty({ description: 'SSE 任务 ID', example: 'cmf_task_123' })
+  @ApiProperty({ description: '流式任务 ID', example: 'cmf_task_123' })
   taskId: string;
+
+  @ApiPropertyOptional({
+    description: '事件所属执行流片段 ID',
+    example: 'cmf_stream_123',
+  })
+  streamId?: string;
 
   @ApiProperty({ description: '会话 ID', example: 'cmf_conv_123' })
   conversationId: string;

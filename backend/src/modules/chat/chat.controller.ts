@@ -112,7 +112,7 @@ export class ChatController {
   @ApiOperation({
     summary: '发送语音消息',
     description:
-      '上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话',
+      '上传音频文件，Whisper 转文字后创建可恢复的流式任务；若未传 conversationId，则自动创建新会话',
     operationId: 'voiceCompletions',
   })
   @ApiOkResponse({

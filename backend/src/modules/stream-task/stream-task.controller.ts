@@ -25,30 +25,30 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Sse, SseInterceptor, type SseRequest } from '../../common/sse';
-import { ResumeSseDto } from './dto/resume-sse.dto';
+import { ResumeStreamTaskDto } from './dto/resume-stream-task.dto';
 import {
-  CancelSseTaskResultDto,
-  SseTaskEventPayloadDto,
-  SseTaskStatusDto,
-} from './dto/sse-task-response.dto';
-import { SseTaskService } from './sse-task.service';
+  CancelStreamTaskResultDto,
+  StreamTaskEventPayloadDto,
+  StreamTaskStatusDto,
+} from './dto/stream-task-response.dto';
+import { StreamTaskService } from './stream-task.service';
 
-@ApiTags('SSE 任务')
+@ApiTags('流式任务')
 @ApiBearerAuth()
-@ApiExtraModels(SseTaskEventPayloadDto)
-@Controller('sse-tasks')
+@ApiExtraModels(StreamTaskEventPayloadDto)
+@Controller('stream-tasks')
 @UseGuards(JwtAuthGuard)
-export class SseTaskController {
-  constructor(private readonly sseTaskService: SseTaskService) {}
+export class StreamTaskController {
+  constructor(private readonly streamTaskService: StreamTaskService) {}
 
   @Get(':taskId')
-  @ApiOperation({ summary: '查询 SSE 任务状态' })
-  @ApiOkResponse({ description: 'SSE 任务状态', type: SseTaskStatusDto })
+  @ApiOperation({ summary: '查询流式任务状态' })
+  @ApiOkResponse({ description: '流式任务状态', type: StreamTaskStatusDto })
   async getTask(
     @Param('taskId') taskId: string,
     @CurrentUser('id') userId: string,
   ) {
-    return this.sseTaskService.getTaskStatus(taskId, userId);
+    return this.streamTaskService.getTaskStatus(taskId, userId);
   }
 
   @Get(':taskId/stream')
@@ -56,15 +56,15 @@ export class SseTaskController {
   @Sse()
   @UseInterceptors(SseInterceptor)
   @ApiProduces('text/event-stream')
-  @ApiOperation({ summary: '浏览器 SSE 建链/恢复' })
+  @ApiOperation({ summary: '浏览器流式任务建链/恢复' })
   @ApiOkResponse({
-    description: 'SSE 事件流，data 为序列化后的任务事件载荷',
+    description: '流式事件响应，data 为序列化后的任务事件载荷',
     content: {
       'text/event-stream': {
         schema: {
           type: 'string',
           example:
-            'id: 1\nevent: message.delta\ndata: {"type":"message.delta","taskId":"cmf_task_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n',
+            'id: 1\nevent: message.delta\ndata: {"type":"message.delta","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n',
         },
       },
     },
@@ -77,7 +77,7 @@ export class SseTaskController {
   ) {
     const lastEventId =
       req.__sseLastEventId !== undefined ? req.__sseLastEventId : cursor;
-    return this.sseTaskService.resumeTaskStream(
+    return this.streamTaskService.openTaskStream(
       taskId,
       userId,
       lastEventId,
@@ -91,27 +91,27 @@ export class SseTaskController {
   @Sse()
   @UseInterceptors(SseInterceptor)
   @ApiProduces('text/event-stream')
-  @ApiOperation({ summary: '微信小程序/通用客户端恢复 SSE' })
+  @ApiOperation({ summary: '微信小程序/通用客户端恢复流式任务' })
   @ApiOkResponse({
-    description: 'SSE 事件流，data 为序列化后的任务事件载荷',
+    description: '流式事件响应，data 为序列化后的任务事件载荷',
     content: {
       'text/event-stream': {
         schema: {
           type: 'string',
           example:
-            'id: 1\nevent: message.delta\ndata: {"type":"message.delta","taskId":"cmf_task_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n',
+            'id: 1\nevent: message.delta\ndata: {"type":"message.delta","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n',
         },
       },
     },
   })
   async resumeTask(
     @Param('taskId') taskId: string,
-    @Body() dto: ResumeSseDto,
+    @Body() dto: ResumeStreamTaskDto,
     @CurrentUser('id') userId: string,
     @Req() req: SseRequest,
   ) {
     const lastEventId = dto.lastEventId ?? req.__sseLastEventId ?? 0;
-    return this.sseTaskService.resumeTaskStream(
+    return this.streamTaskService.openTaskStream(
       taskId,
       userId,
       lastEventId,
@@ -121,15 +121,15 @@ export class SseTaskController {
 
   @Post(':taskId/cancel')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '取消 SSE 任务' })
+  @ApiOperation({ summary: '取消流式任务' })
   @ApiOkResponse({
     description: '取消后的任务状态',
-    type: CancelSseTaskResultDto,
+    type: CancelStreamTaskResultDto,
   })
   async cancelTask(
     @Param('taskId') taskId: string,
     @CurrentUser('id') userId: string,
   ) {
-    return this.sseTaskService.cancelTask(taskId, userId);
+    return this.streamTaskService.cancelTask(taskId, userId);
   }
 }

@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AiService } from '../ai/ai.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
-import { SseTaskService } from '../sse-task/sse-task.service';
+import { StreamTaskService } from '../stream-task/stream-task.service';
 import { MessageRole, MessageStatus } from '@prisma/client';
 import type { LlmTextRequest } from '../llm/llm.types';
-import type { TaskStreamResult } from '../sse-task/sse-task.service';
+import type { TaskStreamResult } from '../stream-task/stream-task.service';
 
 @Injectable()
 export class ChatService {
@@ -15,7 +15,7 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly conversationService: ConversationService,
-    private readonly sseTaskService: SseTaskService,
+    private readonly streamTaskService: StreamTaskService,
   ) {}
 
   /**
@@ -25,7 +25,7 @@ export class ChatService {
    * @param userId 用户ID
    * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 负责接收文本聊天请求，并将模型选择与生成参数一并委托给 SSE 任务模块处理。
+   * @description 负责接收文本聊天请求，并将模型选择与生成参数一并委托给流式任务模块处理。
    */
   async createCompletionTask(
     conversationId: string | undefined,
@@ -33,7 +33,7 @@ export class ChatService {
     userId: string,
     llmRequest?: LlmTextRequest,
   ) {
-    return this.sseTaskService.createChatTask(
+    return this.streamTaskService.createChatTask(
       conversationId,
       content,
       userId,
@@ -48,7 +48,7 @@ export class ChatService {
    * @param userId 用户ID
    * @param llmRequest 文本生成请求配置
    * @param signal 连接中断信号
-   * @returns 返回包含异步 SSE 事件流的对象
+   * @returns 返回包含异步流式事件的对象
    * @description 统一处理文本消息发送、首轮自动建会话、任务创建和首轮流式建链，供聊天主入口直接使用。
    */
   async streamMessage(
@@ -58,7 +58,7 @@ export class ChatService {
     llmRequest?: LlmTextRequest,
     signal?: AbortSignal,
   ): Promise<TaskStreamResult> {
-    return this.sseTaskService.streamChatTask(
+    return this.streamTaskService.streamChatTask(
       conversationId,
       content,
       userId,
@@ -75,7 +75,7 @@ export class ChatService {
    * @param userId 用户ID
    * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 负责接收语音聊天请求，先转写音频内容，再携带模型配置创建对应的可恢复 SSE 任务。
+   * @description 负责接收语音聊天请求，先转写音频内容，再携带模型配置创建对应的可恢复的流式任务。
    */
   async createVoiceTask(
     conversationId: string | undefined,
@@ -84,7 +84,7 @@ export class ChatService {
     userId: string,
     llmRequest?: LlmTextRequest,
   ) {
-    return this.sseTaskService.createVoiceTask(
+    return this.streamTaskService.createVoiceTask(
       conversationId,
       audioBuffer,
       filename,

@@ -400,7 +400,7 @@
     },
     "/api/chat/voice-messages": {
       "post": {
-        "description": "上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话",
+        "description": "上传音频文件，Whisper 转文字后创建可恢复的流式任务；若未传 conversationId，则自动创建新会话",
         "operationId": "voiceCompletions",
         "parameters": [],
         "requestBody": {
@@ -474,9 +474,9 @@
         ]
       }
     },
-    "/api/sse-tasks/{taskId}": {
+    "/api/stream-tasks/{taskId}": {
       "get": {
-        "operationId": "SseTaskController_getTask",
+        "operationId": "StreamTaskController_getTask",
         "parameters": [
           {
             "name": "taskId",
@@ -489,11 +489,11 @@
         ],
         "responses": {
           "200": {
-            "description": "SSE 任务状态",
+            "description": "流式任务状态",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SseTaskStatusDto"
+                  "$ref": "#/components/schemas/StreamTaskStatusDto"
                 }
               }
             }
@@ -504,15 +504,15 @@
             "bearer": []
           }
         ],
-        "summary": "查询 SSE 任务状态",
+        "summary": "查询流式任务状态",
         "tags": [
-          "SSE 任务"
+          "流式任务"
         ]
       }
     },
-    "/api/sse-tasks/{taskId}/stream": {
+    "/api/stream-tasks/{taskId}/stream": {
       "get": {
-        "operationId": "SseTaskController_streamTask",
+        "operationId": "StreamTaskController_streamTask",
         "parameters": [
           {
             "name": "taskId",
@@ -533,12 +533,12 @@
         ],
         "responses": {
           "200": {
-            "description": "SSE 事件流，data 为序列化后的任务事件载荷",
+            "description": "流式事件响应，data 为序列化后的任务事件载荷",
             "content": {
               "text/event-stream": {
                 "schema": {
                   "type": "string",
-                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
+                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"streamId\":\"cmf_stream_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
                 }
               }
             }
@@ -549,15 +549,15 @@
             "bearer": []
           }
         ],
-        "summary": "浏览器 SSE 建链/恢复",
+        "summary": "浏览器流式任务建链/恢复",
         "tags": [
-          "SSE 任务"
+          "流式任务"
         ]
       }
     },
-    "/api/sse-tasks/{taskId}/resume": {
+    "/api/stream-tasks/{taskId}/resume": {
       "post": {
-        "operationId": "SseTaskController_resumeTask",
+        "operationId": "StreamTaskController_resumeTask",
         "parameters": [
           {
             "name": "taskId",
@@ -573,19 +573,19 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ResumeSseDto"
+                "$ref": "#/components/schemas/ResumeStreamTaskDto"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "SSE 事件流，data 为序列化后的任务事件载荷",
+            "description": "流式事件响应，data 为序列化后的任务事件载荷",
             "content": {
               "text/event-stream": {
                 "schema": {
                   "type": "string",
-                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
+                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"streamId\":\"cmf_stream_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
                 }
               }
             }
@@ -596,15 +596,15 @@
             "bearer": []
           }
         ],
-        "summary": "微信小程序/通用客户端恢复 SSE",
+        "summary": "微信小程序/通用客户端恢复流式任务",
         "tags": [
-          "SSE 任务"
+          "流式任务"
         ]
       }
     },
-    "/api/sse-tasks/{taskId}/cancel": {
+    "/api/stream-tasks/{taskId}/cancel": {
       "post": {
-        "operationId": "SseTaskController_cancelTask",
+        "operationId": "StreamTaskController_cancelTask",
         "parameters": [
           {
             "name": "taskId",
@@ -621,7 +621,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CancelSseTaskResultDto"
+                  "$ref": "#/components/schemas/CancelStreamTaskResultDto"
                 }
               }
             }
@@ -632,9 +632,9 @@
             "bearer": []
           }
         ],
-        "summary": "取消 SSE 任务",
+        "summary": "取消流式任务",
         "tags": [
-          "SSE 任务"
+          "流式任务"
         ]
       }
     },
@@ -1220,8 +1220,13 @@
         "properties": {
           "taskId": {
             "type": "string",
-            "description": "SSE 任务 ID",
+            "description": "流式任务 ID",
             "example": "cmf_task_123"
+          },
+          "streamId": {
+            "type": "string",
+            "description": "当前执行流片段 ID",
+            "example": "cmf_stream_123"
           },
           "messageId": {
             "type": "string",
@@ -1240,6 +1245,7 @@
               "pending",
               "streaming",
               "paused",
+              "waiting_human",
               "completed",
               "error",
               "expired",
@@ -1250,6 +1256,7 @@
         },
         "required": [
           "taskId",
+          "streamId",
           "messageId",
           "conversationId",
           "status"
@@ -1300,7 +1307,7 @@
           "revisedPrompt"
         ]
       },
-      "SseTaskEventPayloadDto": {
+      "StreamTaskEventPayloadDto": {
         "type": "object",
         "properties": {
           "type": {
@@ -1310,8 +1317,13 @@
           },
           "taskId": {
             "type": "string",
-            "description": "SSE 任务 ID",
+            "description": "流式任务 ID",
             "example": "cmf_task_123"
+          },
+          "streamId": {
+            "type": "string",
+            "description": "事件所属执行流片段 ID",
+            "example": "cmf_stream_123"
           },
           "conversationId": {
             "type": "string",
@@ -1349,20 +1361,27 @@
           "status"
         ]
       },
-      "SseTaskStatusDto": {
+      "StreamTaskStatusDto": {
         "type": "object",
         "properties": {
           "taskId": {
             "type": "string",
-            "description": "SSE 任务 ID",
+            "description": "流式任务 ID",
             "example": "cmf_task_123"
+          },
+          "streamId": {
+            "type": "object",
+            "description": "当前执行流片段 ID",
+            "example": "cmf_stream_123",
+            "nullable": true
           },
           "type": {
             "type": "string",
             "description": "任务类型",
             "enum": [
               "chat_completion",
-              "voice_completion"
+              "voice_completion",
+              "agent_workflow"
             ],
             "example": "chat_completion"
           },
@@ -1373,6 +1392,7 @@
               "pending",
               "streaming",
               "paused",
+              "waiting_human",
               "completed",
               "error",
               "expired",
@@ -1412,9 +1432,10 @@
             "example": true
           },
           "expiresAt": {
-            "type": "number",
+            "type": "object",
             "description": "任务过期时间戳（毫秒）",
-            "example": 1735689600000
+            "example": 1735689600000,
+            "nullable": true
           },
           "updatedAt": {
             "type": "number",
@@ -1431,11 +1452,10 @@
           "lastEventId",
           "fullContent",
           "canResume",
-          "expiresAt",
           "updatedAt"
         ]
       },
-      "ResumeSseDto": {
+      "ResumeStreamTaskDto": {
         "type": "object",
         "properties": {
           "lastEventId": {
@@ -1445,12 +1465,12 @@
           }
         }
       },
-      "CancelSseTaskResultDto": {
+      "CancelStreamTaskResultDto": {
         "type": "object",
         "properties": {
           "taskId": {
             "type": "string",
-            "description": "SSE 任务 ID",
+            "description": "流式任务 ID",
             "example": "cmf_task_123"
           },
           "status": {
@@ -1460,6 +1480,7 @@
               "pending",
               "streaming",
               "paused",
+              "waiting_human",
               "completed",
               "error",
               "expired",

@@ -60,7 +60,7 @@ class TaskChannel {
 }
 
 @Injectable()
-export class SseTaskRegistry {
+export class StreamTaskRegistry {
   private readonly channels = new Map<string, TaskChannel>();
   private readonly runningTasks = new Map<string, AbortController>();
 

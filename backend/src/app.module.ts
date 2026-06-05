@@ -13,7 +13,7 @@ import { ConversationModule } from './modules/conversation/conversation.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { HealthModule } from './modules/health/health.module';
 import { LlmModule } from './modules/llm/llm.module';
-import { SseTaskModule } from './modules/sse-task/sse-task.module';
+import { StreamTaskModule } from './modules/stream-task/stream-task.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
@@ -35,7 +35,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     LlmModule,
     ConversationModule,
     ChatModule,
-    SseTaskModule,
+    StreamTaskModule,
     HealthModule,
   ],
   providers: [

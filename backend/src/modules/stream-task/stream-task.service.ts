@@ -6,11 +6,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  StreamTaskStatus,
+  StreamTaskRunStatus,
+  StreamTaskType,
   MessageRole,
   MessageStatus,
   Prisma,
-  SseTaskStatus,
-  SseTaskType,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import type { SseEvent } from '../../common/sse';
@@ -24,7 +25,7 @@ import {
 import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
 import { ConversationService } from '../conversation/conversation.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
-import { SseTaskRegistry } from './sse-task.registry';
+import { StreamTaskRegistry } from './stream-task.registry';
 
 interface ChatTaskPayload {
   content: string;
@@ -33,14 +34,16 @@ interface ChatTaskPayload {
 
 interface CreatedTaskResult {
   taskId: string;
+  streamId: string;
   messageId: string;
   conversationId: string;
   status: string;
 }
 
-interface SseTaskEventData<TPayload = undefined> {
+interface StreamTaskEventData<TPayload = undefined> {
   type: string;
   taskId: string;
+  streamId?: string;
   conversationId: string;
   messageId: string;
   status: string;
@@ -57,19 +60,20 @@ const EMPTY_ASSISTANT_CONTENT =
   '模型本次没有返回有效文本。请检查模型名称、中转站响应格式或流式输出配置。';
 
 const TERMINAL_EVENTS = new Set([
-  'message.done',
   'task.completed',
   'task.error',
   'task.expired',
   'task.canceled',
 ]);
 
+const INITIAL_STREAM_TRIGGER = 'initial';
+
 @Injectable()
-export class SseTaskService {
-  private readonly logger = new Logger(SseTaskService.name);
+export class StreamTaskService {
+  private readonly logger = new Logger(StreamTaskService.name);
   private readonly bufferTtl: number;
   private readonly bufferKeyPrefix: string;
-  private readonly lockKeyPrefix = 'sse:lock';
+  private readonly lockKeyPrefix = 'stream-task:lock';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -79,10 +83,12 @@ export class SseTaskService {
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
     private readonly conversationSummaryService: ConversationSummaryService,
-    private readonly registry: SseTaskRegistry,
+    private readonly registry: StreamTaskRegistry,
   ) {
-    this.bufferTtl = this.configService.get<number>('SSE_BUFFER_TTL', 300);
-    this.bufferKeyPrefix = 'sse:buffer';
+    this.bufferTtl =
+      this.configService.get<number>('STREAM_TASK_BUFFER_TTL') ??
+      this.configService.get<number>('SSE_BUFFER_TTL', 300);
+    this.bufferKeyPrefix = 'stream-task:buffer';
   }
 
   /**
@@ -92,7 +98,7 @@ export class SseTaskService {
    * @param userId 用户ID
    * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 基于文本消息创建一条可恢复的 SSE 聊天任务，并将本次请求的模型选择配置持久化到任务中。
+   * @description 基于文本消息创建一条可恢复的流式聊天任务，并将本次请求的模型选择配置持久化到任务中。
    */
   async createChatTask(
     conversationId: string | undefined,
@@ -104,7 +110,7 @@ export class SseTaskService {
       conversationId,
       content,
       userId,
-      SseTaskType.CHAT_COMPLETION,
+      StreamTaskType.CHAT_COMPLETION,
       llmRequest,
     );
   }
@@ -116,8 +122,8 @@ export class SseTaskService {
    * @param userId 用户ID
    * @param llmRequest 文本生成请求配置
    * @param signal 连接中断信号
-   * @returns 返回包含异步 SSE 事件流的对象
-   * @description 用于聊天主入口：先创建可恢复任务，再在同一请求中直接进入首轮 SSE 事件流，同时向客户端下发 task.created 事件。
+   * @returns 返回包含异步流式事件的对象
+   * @description 用于聊天主入口：先创建可恢复任务，再在同一请求中直接进入首轮流式事件，同时向客户端下发 task.created 事件。
    */
   async streamChatTask(
     conversationId: string | undefined,
@@ -132,7 +138,7 @@ export class SseTaskService {
       userId,
       llmRequest,
     );
-    const taskStream = await this.resumeTaskStream(
+    const taskStream = await this.openTaskStream(
       task.taskId,
       userId,
       0,
@@ -143,6 +149,7 @@ export class SseTaskService {
       stream: this.prependEvent(
         this.buildTaskSseEvent('0', 'task.created', {
           taskId: task.taskId,
+          streamId: task.streamId,
           conversationId: task.conversationId,
           messageId: task.messageId,
           status: task.status,
@@ -160,7 +167,7 @@ export class SseTaskService {
    * @param userId 用户ID
    * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 先将音频转写成文本，再复用文本任务创建逻辑生成可恢复的 SSE 任务，并保留模型配置。
+   * @description 先将音频转写成文本，再复用文本任务创建逻辑生成可恢复的流式任务，并保留模型配置。
    */
   async createVoiceTask(
     conversationId: string | undefined,
@@ -174,26 +181,26 @@ export class SseTaskService {
       conversationId,
       content,
       userId,
-      SseTaskType.VOICE_COMPLETION,
+      StreamTaskType.VOICE_COMPLETION,
       llmRequest,
     );
   }
 
   /**
-   * 创建文本类型的 SSE 任务
+   * 创建文本类型的 流式任务
    * @param conversationId 会话ID
    * @param content 消息内容
    * @param userId 用户ID
    * @param type 任务类型
    * @param llmRequest 文本生成请求配置
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 在一个事务内依次写入用户消息、assistant 占位消息以及 SSE 任务记录，并将解析后的模型配置一并持久化。
+   * @description 在一个事务内依次写入用户消息、assistant 占位消息以及 流式任务记录，并将解析后的模型配置一并持久化。
    */
   private async createTextTask(
     conversationId: string | undefined,
     content: string,
     userId: string,
-    type: SseTaskType,
+    type: StreamTaskType,
     llmRequest?: LlmTextRequest,
   ) {
     const resolvedLlmRequest =
@@ -244,11 +251,11 @@ export class SseTaskService {
         },
       });
 
-      //SSE 任务入库
-      const task = await tx.sseTask.create({
+      //流式任务入库
+      const task = await tx.streamTask.create({
         data: {
           type,
-          status: SseTaskStatus.PENDING,
+          status: StreamTaskStatus.PENDING,
           userId,
           conversationId: targetConversationId,
           messageId: assistantMessage.id,
@@ -257,11 +264,31 @@ export class SseTaskService {
         },
       });
 
-      return { task, assistantMessage, conversationId: targetConversationId };
+      const stream = await tx.streamTaskRun.create({
+        data: {
+          taskId: task.id,
+          sequence: 1,
+          status: StreamTaskRunStatus.PENDING,
+          trigger: INITIAL_STREAM_TRIGGER,
+        },
+      });
+
+      await tx.streamTask.update({
+        where: { id: task.id },
+        data: { currentRunId: stream.id },
+      });
+
+      return {
+        task,
+        stream,
+        assistantMessage,
+        conversationId: targetConversationId,
+      };
     });
 
     return {
       taskId: result.task.id,
+      streamId: result.stream.id,
       messageId: result.assistantMessage.id,
       conversationId: result.conversationId,
       status: result.task.status.toLowerCase(),
@@ -314,22 +341,24 @@ export class SseTaskService {
    * @param taskId 任务ID
    * @param userId 用户ID
    * @returns 返回任务详情信息，包括状态、会话ID、最后事件ID、累计内容和过期时间等
-   * @description 加载指定 SSE 任务，并返回前端恢复流或展示状态所需的全部关键信息。
+   * @description 加载指定 流式任务，并返回前端恢复流或展示状态所需的全部关键信息。
    */
   async getTaskStatus(taskId: string, userId: string) {
     const task = await this.loadTask(taskId, userId);
     return {
       taskId: task.id,
+      streamId: task.currentRunId,
       type: task.type.toLowerCase(),
       status: task.status.toLowerCase(),
-      conversationId: task.conversationId,
-      messageId: task.messageId,
+      conversationId: this.requireConversationId(task),
+      messageId: this.requireMessageId(task),
       lastEventId: task.lastEventId,
       fullContent: task.fullContent,
       errorMessage: task.errorMessage,
       canResume:
-        !this.isTerminalStatus(task.status) && task.expiresAt > new Date(),
-      expiresAt: task.expiresAt.getTime(),
+        !this.isTerminalStatus(task.status) &&
+        (!task.expiresAt || task.expiresAt > new Date()),
+      expiresAt: task.expiresAt?.getTime() ?? null,
       updatedAt: task.updatedAt.getTime(),
     };
   }
@@ -348,18 +377,22 @@ export class SseTaskService {
       return { taskId, status: task.status.toLowerCase() };
     }
 
+    const conversationId = this.requireConversationId(task);
+    const messageId = this.requireMessageId(task);
     const event = await this.persistEvent(
       taskId,
+      task.currentRunId,
       'task.canceled',
       this.serializeTaskEventData({
         type: 'task.canceled',
         taskId,
-        conversationId: task.conversationId,
-        messageId: task.messageId,
-        status: SseTaskStatus.CANCELED.toLowerCase(),
+        streamId: task.currentRunId ?? undefined,
+        conversationId,
+        messageId,
+        status: StreamTaskStatus.CANCELED.toLowerCase(),
       }),
       {
-        status: SseTaskStatus.CANCELED,
+        status: StreamTaskStatus.CANCELED,
         fullContent: task.fullContent,
       },
     );
@@ -373,17 +406,30 @@ export class SseTaskService {
     }
 
     await this.prisma.$transaction([
-      this.prisma.sseTask.update({
+      this.prisma.streamTask.update({
         where: { id: taskId },
         data: {
-          status: SseTaskStatus.CANCELED,
+          status: StreamTaskStatus.CANCELED,
           completedAt: new Date(),
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
           fullContent: task.fullContent,
         },
       }),
+      ...(task.currentRunId
+        ? [
+            this.prisma.streamTaskRun.update({
+              where: { id: task.currentRunId },
+              data: {
+                status: StreamTaskRunStatus.CANCELED,
+                endedAt: new Date(),
+                closeReason: 'task_canceled',
+                endEventId: task.lastEventId + 1,
+              },
+            }),
+          ]
+        : []),
       this.prisma.message.update({
-        where: { id: task.messageId },
+        where: { id: messageId },
         data: {
           content: task.fullContent || '生成已取消',
           status: MessageStatus.ERROR,
@@ -401,10 +447,10 @@ export class SseTaskService {
    * @param userId 用户ID
    * @param lastEventId 客户端已接收的最后事件ID
    * @param signal 连接中断信号
-   * @returns 返回包含异步 SSE 事件流的对象
+   * @returns 返回包含异步流式事件的对象
    * @description 校验任务状态并根据游标恢复事件流；若任务已过期，则返回单个过期事件流。
    */
-  async resumeTaskStream(
+  async openTaskStream(
     taskId: string,
     userId: string,
     lastEventId: number,
@@ -413,15 +459,19 @@ export class SseTaskService {
     const task = await this.loadTask(taskId, userId);
 
     //任务过期
-    if (task.status === SseTaskStatus.EXPIRED || task.expiresAt <= new Date()) {
+    if (
+      task.status === StreamTaskStatus.EXPIRED ||
+      (task.expiresAt && task.expiresAt <= new Date())
+    ) {
       await this.expireTask(task.id);
       return {
         stream: this.singleEventStream(
           this.buildTaskSseEvent(String(lastEventId + 1), 'task.expired', {
             taskId,
-            conversationId: task.conversationId,
-            messageId: task.messageId,
-            status: SseTaskStatus.EXPIRED.toLowerCase(),
+            streamId: task.currentRunId ?? undefined,
+            conversationId: this.requireConversationId(task),
+            messageId: this.requireMessageId(task),
+            status: StreamTaskStatus.EXPIRED.toLowerCase(),
           }),
         ),
       };
@@ -436,7 +486,7 @@ export class SseTaskService {
    * @param taskId 任务ID
    * @param lastEventId 客户端已接收的最后事件ID
    * @param signal 连接中断信号
-   * @returns 返回可迭代的 SSE 事件流
+   * @returns 返回可迭代的流式事件
    * @description 先重放 Redis 缓冲中的历史事件，再订阅内存中的实时事件，并按需触发任务执行。
    */
   private async *createTaskStream(
@@ -520,7 +570,7 @@ export class SseTaskService {
     executionSignal: AbortSignal,
   ) {
     try {
-      const task = await this.prisma.sseTask.findUnique({
+      const task = await this.prisma.streamTask.findUnique({
         where: { id: taskId },
       });
 
@@ -528,40 +578,120 @@ export class SseTaskService {
         return;
       }
 
-      await this.prisma.sseTask.update({
-        where: { id: taskId },
-        data: {
-          status: SseTaskStatus.STREAMING,
-          startedAt: task.startedAt ?? new Date(),
-        },
-      });
+      const stream = await this.ensureCurrentStream(task.id);
+
+      await this.prisma.$transaction([
+        this.prisma.streamTask.update({
+          where: { id: taskId },
+          data: {
+            status: StreamTaskStatus.STREAMING,
+            startedAt: task.startedAt ?? new Date(),
+            currentRunId: stream.id,
+            currentAgent: 'common-chat-agent',
+            currentStep: 'streaming',
+          },
+        }),
+        this.prisma.streamTaskRun.update({
+          where: { id: stream.id },
+          data: {
+            status: StreamTaskRunStatus.STREAMING,
+            startedAt: stream.startedAt ?? new Date(),
+          },
+        }),
+      ]);
+
+      const conversationId = this.requireConversationId(task);
+      const messageId = this.requireMessageId(task);
 
       const startedEvent = await this.persistEvent(
         taskId,
+        stream.id,
         'task.started',
         this.serializeTaskEventData({
           type: 'task.started',
           taskId,
-          conversationId: task.conversationId,
-          messageId: task.messageId,
-          status: SseTaskStatus.STREAMING.toLowerCase(),
+          streamId: stream.id,
+          conversationId,
+          messageId,
+          status: StreamTaskStatus.STREAMING.toLowerCase(),
         }),
       );
       this.registry.publish(taskId, startedEvent);
 
-      if (task.type === SseTaskType.CHAT_COMPLETION) {
-        await this.runChatTask(task, executionSignal);
+      if (
+        task.type === StreamTaskType.CHAT_COMPLETION ||
+        task.type === StreamTaskType.VOICE_COMPLETION
+      ) {
+        await this.runChatTask(
+          {
+            id: task.id,
+            streamId: stream.id,
+            conversationId,
+            messageId,
+            requestPayload: task.requestPayload,
+          },
+          executionSignal,
+        );
       }
     } catch (error) {
       if (await this.shouldIgnoreAbort(taskId, error, executionSignal)) {
         return;
       }
 
-      this.logger.error(`SSE task failed: ${(error as Error).message}`);
+      this.logger.error(`Stream task failed: ${(error as Error).message}`);
       await this.failTask(taskId, (error as Error).message);
     } finally {
       await this.releaseLock(lockKey, lockValue);
     }
+  }
+
+  /**
+   * 确保任务存在当前执行流片段
+   * @param taskId 任务ID
+   * @returns 返回当前任务流片段
+   * @description 当前单 agent 任务默认只创建一个流片段；后续人机协同时可在 continue 阶段创建新的流片段。
+   */
+  private async ensureCurrentStream(taskId: string) {
+    const task = await this.prisma.streamTask.findUnique({
+      where: { id: taskId },
+      select: { currentRunId: true },
+    });
+
+    if (task?.currentRunId) {
+      const stream = await this.prisma.streamTaskRun.findUnique({
+        where: { id: task.currentRunId },
+      });
+
+      if (stream) {
+        return stream;
+      }
+    }
+
+    const latestStream = await this.prisma.streamTaskRun.findFirst({
+      where: { taskId },
+      orderBy: { sequence: 'desc' },
+    });
+
+    if (latestStream) {
+      await this.prisma.streamTask.update({
+        where: { id: taskId },
+        data: { currentRunId: latestStream.id },
+      });
+      return latestStream;
+    }
+
+    const stream = await this.prisma.streamTaskRun.create({
+      data: {
+        taskId,
+        sequence: 1,
+        trigger: INITIAL_STREAM_TRIGGER,
+      },
+    });
+    await this.prisma.streamTask.update({
+      where: { id: taskId },
+      data: { currentRunId: stream.id },
+    });
+    return stream;
   }
 
   /**
@@ -574,6 +704,7 @@ export class SseTaskService {
   private async runChatTask(
     task: {
       id: string;
+      streamId: string;
       conversationId: string;
       messageId: string;
       requestPayload: Prisma.JsonValue;
@@ -599,7 +730,7 @@ export class SseTaskService {
     let emptyDeltaCount = 0;
     const startedAt = Date.now();
 
-    this.debugTaskLog('sse.chat_task.agent_start', {
+    this.debugTaskLog('stream_task.chat.agent_start', {
       taskId: task.id,
       conversationId: task.conversationId,
       messageId: task.messageId,
@@ -625,20 +756,22 @@ export class SseTaskService {
       fullContent += event.delta;
       const deltaEvent = await this.persistEvent(
         task.id,
+        task.streamId,
         'message.delta',
         this.serializeTaskEventData({
           type: 'message.delta',
           taskId: task.id,
+          streamId: task.streamId,
           conversationId: task.conversationId,
           messageId: task.messageId,
-          status: SseTaskStatus.STREAMING.toLowerCase(),
+          status: StreamTaskStatus.STREAMING.toLowerCase(),
           payload: {
             delta: event.delta,
           },
         }),
         {
           fullContent,
-          status: SseTaskStatus.STREAMING,
+          status: StreamTaskStatus.STREAMING,
         },
       );
       this.registry.publish(task.id, deltaEvent);
@@ -654,7 +787,7 @@ export class SseTaskService {
 
     if (completionWarning) {
       this.logger.warn(
-        this.formatTaskLog('sse.chat_task.empty_completion', {
+        this.formatTaskLog('stream_task.chat.empty_completion', {
           taskId: task.id,
           conversationId: task.conversationId,
           messageId: task.messageId,
@@ -665,7 +798,7 @@ export class SseTaskService {
         }),
       );
     } else {
-      this.debugTaskLog('sse.chat_task.agent_completed', {
+      this.debugTaskLog('stream_task.chat.agent_completed', {
         taskId: task.id,
         conversationId: task.conversationId,
         messageId: task.messageId,
@@ -678,13 +811,15 @@ export class SseTaskService {
 
     const doneEvent = await this.persistEvent(
       task.id,
+      task.streamId,
       'message.done',
       this.serializeTaskEventData({
         type: 'message.done',
         taskId: task.id,
+        streamId: task.streamId,
         conversationId: task.conversationId,
         messageId: task.messageId,
-        status: SseTaskStatus.COMPLETED.toLowerCase(),
+        status: StreamTaskStatus.COMPLETED.toLowerCase(),
         payload: {
           content: finalContent,
           warning: completionWarning,
@@ -692,7 +827,7 @@ export class SseTaskService {
       }),
       {
         fullContent: finalContent,
-        status: SseTaskStatus.COMPLETED,
+        status: StreamTaskStatus.COMPLETED,
       },
     );
 
@@ -708,13 +843,20 @@ export class SseTaskService {
         where: { id: task.conversationId },
         data: { updatedAt: new Date() },
       }),
-      this.prisma.sseTask.update({
+      this.prisma.streamTask.update({
         where: { id: task.id },
         data: {
-          status: SseTaskStatus.COMPLETED,
+          status: StreamTaskStatus.COMPLETED,
           completedAt: new Date(),
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
           fullContent: finalContent,
+          resultPayload: JSON.parse(
+            JSON.stringify({
+              content: finalContent,
+              warning: completionWarning,
+            }),
+          ) as Prisma.JsonObject,
+          currentStep: 'completed',
         },
       }),
     ]);
@@ -723,13 +865,15 @@ export class SseTaskService {
 
     const completedEvent = await this.persistEvent(
       task.id,
+      task.streamId,
       'task.completed',
       this.serializeTaskEventData({
         type: 'task.completed',
         taskId: task.id,
+        streamId: task.streamId,
         conversationId: task.conversationId,
         messageId: task.messageId,
-        status: SseTaskStatus.COMPLETED.toLowerCase(),
+        status: StreamTaskStatus.COMPLETED.toLowerCase(),
         payload: {
           warning: completionWarning,
           deltaCount,
@@ -738,10 +882,20 @@ export class SseTaskService {
       }),
       {
         fullContent: finalContent,
-        status: SseTaskStatus.COMPLETED,
+        status: StreamTaskStatus.COMPLETED,
       },
     );
     this.registry.publish(task.id, completedEvent);
+
+    await this.prisma.streamTaskRun.update({
+      where: { id: task.streamId },
+      data: {
+        status: StreamTaskRunStatus.COMPLETED,
+        endedAt: new Date(),
+        closeReason: 'task_completed',
+        endEventId: Number(completedEvent.id),
+      },
+    });
 
     void this.refreshConversationSummary(task.conversationId);
   }
@@ -756,6 +910,7 @@ export class SseTaskService {
   private async handleToolCallDeltaEvent(
     task: {
       id: string;
+      streamId: string;
       conversationId: string;
       messageId: string;
     },
@@ -763,13 +918,15 @@ export class SseTaskService {
   ) {
     const toolEvent = await this.persistEvent(
       task.id,
+      task.streamId,
       'tool.call.delta',
       this.serializeTaskEventData({
         type: 'tool.call.delta',
         taskId: task.id,
+        streamId: task.streamId,
         conversationId: task.conversationId,
         messageId: task.messageId,
-        status: SseTaskStatus.STREAMING.toLowerCase(),
+        status: StreamTaskStatus.STREAMING.toLowerCase(),
         payload: {
           toolCallId: event.toolCallId,
           name: event.name,
@@ -778,7 +935,7 @@ export class SseTaskService {
         },
       }),
       {
-        status: SseTaskStatus.STREAMING,
+        status: StreamTaskStatus.STREAMING,
       },
     );
     this.registry.publish(task.id, toolEvent);
@@ -788,7 +945,7 @@ export class SseTaskService {
    * 刷新会话摘要
    * @param conversationId 会话ID
    * @returns 无返回值
-   * @description 在回复完成后异步更新会话摘要，避免摘要生成阻塞当前 SSE 任务的完成事件返回。
+   * @description 在回复完成后异步更新会话摘要，避免摘要生成阻塞当前 流式任务的完成事件返回。
    */
   private async refreshConversationSummary(conversationId: string) {
     try {
@@ -810,43 +967,61 @@ export class SseTaskService {
    * @description 将任务和对应消息更新为失败状态，同时写入并发布 task.error 事件。
    */
   private async failTask(taskId: string, message: string) {
-    const task = await this.prisma.sseTask.findUnique({
+    const task = await this.prisma.streamTask.findUnique({
       where: { id: taskId },
     });
     if (!task) {
       return;
     }
 
+    const conversationId = this.requireConversationId(task);
+    const messageId = this.requireMessageId(task);
     const errorEvent = await this.persistEvent(
       taskId,
+      task.currentRunId,
       'task.error',
       this.serializeTaskEventData({
         type: 'task.error',
         taskId,
-        conversationId: task.conversationId,
-        messageId: task.messageId,
-        status: SseTaskStatus.ERROR.toLowerCase(),
+        streamId: task.currentRunId ?? undefined,
+        conversationId,
+        messageId,
+        status: StreamTaskStatus.ERROR.toLowerCase(),
         errorMessage: message,
       }),
       {
-        status: SseTaskStatus.ERROR,
+        status: StreamTaskStatus.ERROR,
         errorMessage: message,
         fullContent: task.fullContent,
       },
     );
 
     await this.prisma.$transaction([
-      this.prisma.sseTask.update({
+      this.prisma.streamTask.update({
         where: { id: taskId },
         data: {
-          status: SseTaskStatus.ERROR,
+          status: StreamTaskStatus.ERROR,
           errorMessage: message,
           completedAt: new Date(),
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
+          currentStep: 'error',
         },
       }),
+      ...(task.currentRunId
+        ? [
+            this.prisma.streamTaskRun.update({
+              where: { id: task.currentRunId },
+              data: {
+                status: StreamTaskRunStatus.ERROR,
+                endedAt: new Date(),
+                closeReason: 'task_error',
+                endEventId: Number(errorEvent.id),
+              },
+            }),
+          ]
+        : []),
       this.prisma.message.update({
-        where: { id: task.messageId },
+        where: { id: messageId },
         data: {
           content: task.fullContent || '生成失败',
           status: MessageStatus.ERROR,
@@ -863,20 +1038,21 @@ export class SseTaskService {
    * @param event 事件名
    * @param data 事件数据
    * @param taskUpdate 任务字段更新内容
-   * @returns 返回包含稳定事件ID的 SSE 事件对象
+   * @returns 返回包含稳定事件 ID 的流式事件对象
    * @description 为任务分配递增事件ID，更新任务游标和内容快照，并把事件写入 Redis 缓冲区供恢复重放。
    */
   private async persistEvent(
     taskId: string,
+    streamId: string | null | undefined,
     event: string,
     data: string,
     taskUpdate?: Partial<{
-      status: SseTaskStatus;
+      status: StreamTaskStatus;
       errorMessage: string | null;
       fullContent: string;
     }>,
   ) {
-    const task = await this.prisma.sseTask.update({
+    const task = await this.prisma.streamTask.update({
       where: { id: taskId },
       data: {
         lastEventId: { increment: 1 },
@@ -886,6 +1062,17 @@ export class SseTaskService {
       },
       select: {
         lastEventId: true,
+      },
+    });
+
+    const eventPayload = this.parseEventPayload(data);
+    await this.prisma.streamTaskEvent.create({
+      data: {
+        taskId,
+        streamId,
+        eventId: task.lastEventId,
+        eventName: event,
+        payload: eventPayload,
       },
     });
 
@@ -909,10 +1096,28 @@ export class SseTaskService {
    * 读取缓冲区事件
    * @param taskId 任务ID
    * @param lastEventId 客户端已接收的最后事件ID
-   * @returns 返回指定游标之后的 SSE 事件列表
+   * @returns 返回指定游标之后的流式事件列表
    * @description 从 Redis 缓冲区中读取任务未消费的历史事件，用于断线后的补发与重放。
    */
   private async getBufferedEventsAfter(taskId: string, lastEventId: number) {
+    const persistedEvents = await this.prisma.streamTaskEvent.findMany({
+      where: {
+        taskId,
+        eventId: {
+          gt: lastEventId,
+        },
+      },
+      orderBy: { eventId: 'asc' },
+    });
+
+    if (persistedEvents.length > 0) {
+      return persistedEvents.map((event) => ({
+        id: String(event.eventId),
+        event: event.eventName,
+        data: JSON.stringify(event.payload),
+      }));
+    }
+
     const rawEvents = await this.redis.zrangebyscore(
       this.bufferKey(taskId),
       lastEventId + 1,
@@ -937,9 +1142,9 @@ export class SseTaskService {
    * @description 将指定任务更新为 EXPIRED 状态，表示其恢复窗口已失效。
    */
   private async expireTask(taskId: string) {
-    await this.prisma.sseTask.update({
+    await this.prisma.streamTask.update({
       where: { id: taskId },
-      data: { status: SseTaskStatus.EXPIRED },
+      data: { status: StreamTaskStatus.EXPIRED },
     });
   }
 
@@ -951,16 +1156,16 @@ export class SseTaskService {
    * @description 查询指定任务并校验其归属；若任务不存在或不属于当前用户，则抛出异常。
    */
   private async loadTask(taskId: string, userId: string) {
-    const task = await this.prisma.sseTask.findUnique({
+    const task = await this.prisma.streamTask.findUnique({
       where: { id: taskId },
     });
 
     if (!task) {
-      throw new NotFoundException('SSE 任务不存在');
+      throw new NotFoundException('流式任务不存在');
     }
 
     if (task.userId !== userId) {
-      throw new ForbiddenException('无权访问该 SSE 任务');
+      throw new ForbiddenException('无权访问该 流式任务');
     }
 
     return task;
@@ -972,12 +1177,12 @@ export class SseTaskService {
    * @returns 返回布尔值，true 表示任务已结束
    * @description 用于统一判断任务是否已经进入 completed、error、expired 或 canceled 等终止状态。
    */
-  private isTerminalStatus(status: SseTaskStatus) {
+  private isTerminalStatus(status: StreamTaskStatus) {
     return (
-      status === SseTaskStatus.COMPLETED ||
-      status === SseTaskStatus.ERROR ||
-      status === SseTaskStatus.EXPIRED ||
-      status === SseTaskStatus.CANCELED
+      status === StreamTaskStatus.COMPLETED ||
+      status === StreamTaskStatus.ERROR ||
+      status === StreamTaskStatus.EXPIRED ||
+      status === StreamTaskStatus.CANCELED
     );
   }
 
@@ -1002,12 +1207,12 @@ export class SseTaskService {
       return false;
     }
 
-    const task = await this.prisma.sseTask.findUnique({
+    const task = await this.prisma.streamTask.findUnique({
       where: { id: taskId },
       select: { status: true },
     });
 
-    return task?.status === SseTaskStatus.CANCELED;
+    return task?.status === StreamTaskStatus.CANCELED;
   }
 
   /**
@@ -1045,9 +1250,17 @@ export class SseTaskService {
    * @description 为任务相关事件统一输出固定数据结构，避免不同事件的 payload 形状漂移。
    */
   private serializeTaskEventData<TPayload>(
-    eventData: SseTaskEventData<TPayload>,
+    eventData: StreamTaskEventData<TPayload>,
   ) {
     return JSON.stringify(eventData);
+  }
+
+  private parseEventPayload(data: string): Prisma.InputJsonValue {
+    try {
+      return JSON.parse(data) as Prisma.InputJsonValue;
+    } catch {
+      return { raw: data };
+    }
   }
 
   private formatTaskLog(event: string, payload: Record<string, unknown>) {
@@ -1095,17 +1308,17 @@ export class SseTaskService {
   }
 
   /**
-   * 构建任务 SSE 事件对象
+   * 构建任务流式事件对象
    * @param eventId 事件ID
-   * @param eventName SSE 事件名称
+   * @param eventName 流式事件名称
    * @param eventData 任务事件业务数据
-   * @returns 返回包含标准 data JSON 的 SSE 事件对象
+   * @returns 返回包含标准 data JSON 的流式事件对象
    * @description 用于生成首包事件或单次事件流中的任务事件，确保 event 名和业务 type 字段保持一致。
    */
   private buildTaskSseEvent<TPayload>(
     eventId: string,
     eventName: string,
-    eventData: Omit<SseTaskEventData<TPayload>, 'type'>,
+    eventData: Omit<StreamTaskEventData<TPayload>, 'type'>,
   ): SseEvent {
     return {
       id: eventId,
@@ -1127,11 +1340,27 @@ export class SseTaskService {
     return `${this.bufferKeyPrefix}:${taskId}`;
   }
 
+  private requireConversationId(task: { conversationId: string | null }) {
+    if (!task.conversationId) {
+      throw new Error('Agent task is not bound to a conversation');
+    }
+
+    return task.conversationId;
+  }
+
+  private requireMessageId(task: { messageId: string | null }) {
+    if (!task.messageId) {
+      throw new Error('Agent task is not bound to a message');
+    }
+
+    return task.messageId;
+  }
+
   /**
    * 包装单事件异步流
-   * @param event SSE 事件对象
+   * @param event 流式事件对象
    * @returns 返回只会产出单个事件的异步流
-   * @description 用于过期等场景，将单个事件包装成符合 SSE 输出约定的异步迭代器。
+   * @description 用于过期等场景，将单个事件包装成符合流式输出约定的异步迭代器。
    */
   private singleEventStream(event: SseEvent): AsyncGenerator<SseEvent> {
     return (async function* () {
@@ -1142,9 +1371,9 @@ export class SseTaskService {
 
   /**
    * 在事件流前插入单个事件
-   * @param initialEvent 首个需要插入的 SSE 事件
+   * @param initialEvent 首个需要插入的流式事件
    * @param stream 原始事件流
-   * @returns 返回新的 SSE 事件流
+   * @returns 返回新的流式事件流
    * @description 用于在首轮聊天建链时先向客户端发送 task.created 事件，再继续产出任务自身的流式事件。
    */
   private async *prependEvent(
