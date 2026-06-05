@@ -9,10 +9,11 @@
 /**
  * 任务类型
  */
-export type SseTaskStatusDtoType = typeof SseTaskStatusDtoType[keyof typeof SseTaskStatusDtoType];
+export type StreamTaskStatusDtoType = typeof StreamTaskStatusDtoType[keyof typeof StreamTaskStatusDtoType];
 
 
-export const SseTaskStatusDtoType = {
+export const StreamTaskStatusDtoType = {
   chat_completion: 'chat_completion',
   voice_completion: 'voice_completion',
+  agent_workflow: 'agent_workflow',
 } as const;

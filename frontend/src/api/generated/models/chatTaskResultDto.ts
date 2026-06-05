@@ -8,8 +8,10 @@
 import type { ChatTaskResultDtoStatus } from './chatTaskResultDtoStatus';
 
 export interface ChatTaskResultDto {
-  /** SSE 任务 ID */
+  /** 流式任务 ID */
   taskId: string;
+  /** 当前执行流片段 ID */
+  streamId: string;
   /** 本次 assistant 占位消息 ID */
   messageId: string;
   /** 会话 ID */

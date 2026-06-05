@@ -5,13 +5,15 @@
  * Litter Bear 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { SseTaskEventPayloadDtoPayload } from './sseTaskEventPayloadDtoPayload';
+import type { StreamTaskEventPayloadDtoPayload } from './streamTaskEventPayloadDtoPayload';
 
-export interface SseTaskEventPayloadDto {
+export interface StreamTaskEventPayloadDto {
   /** 事件类型 */
   type: string;
-  /** SSE 任务 ID */
+  /** 流式任务 ID */
   taskId: string;
+  /** 事件所属执行流片段 ID */
+  streamId?: string;
   /** 会话 ID */
   conversationId: string;
   /** assistant 消息 ID */
@@ -19,7 +21,7 @@ export interface SseTaskEventPayloadDto {
   /** 任务状态 */
   status: string;
   /** 事件业务载荷，结构随事件类型变化 */
-  payload?: SseTaskEventPayloadDtoPayload;
+  payload?: StreamTaskEventPayloadDtoPayload;
   /** 错误事件中的错误信息 */
   errorMessage?: string;
 }

@@ -9,13 +9,14 @@
 /**
  * 任务状态
  */
-export type SseTaskStatusDtoStatus = typeof SseTaskStatusDtoStatus[keyof typeof SseTaskStatusDtoStatus];
+export type StreamTaskStatusDtoStatus = typeof StreamTaskStatusDtoStatus[keyof typeof StreamTaskStatusDtoStatus];
 
 
-export const SseTaskStatusDtoStatus = {
+export const StreamTaskStatusDtoStatus = {
   pending: 'pending',
   streaming: 'streaming',
   paused: 'paused',
+  waiting_human: 'waiting_human',
   completed: 'completed',
   error: 'error',
   expired: 'expired',

@@ -7,6 +7,7 @@
  */
 
 /**
- * 事件业务载荷，结构随事件类型变化
+ * 任务过期时间戳（毫秒）
+ * @nullable
  */
-export type SseTaskEventPayloadDtoPayload = { [key: string]: unknown };
+export type StreamTaskStatusDtoExpiresAt = { [key: string]: unknown } | null;

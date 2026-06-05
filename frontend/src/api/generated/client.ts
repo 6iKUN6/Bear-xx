@@ -7,7 +7,7 @@
  */
 import type {
   AccountLoginDto,
-  CancelSseTaskResultDto,
+  CancelStreamTaskResultDto,
   ChatCompletionsDto,
   ChatTaskResultDto,
   ConversationDto,
@@ -19,10 +19,10 @@ import type {
   LoginResultDto,
   PhoneLoginDto,
   RefreshTokenDto,
-  ResumeSseDto,
+  ResumeStreamTaskDto,
   SendCodeDto,
-  SseTaskControllerStreamTaskParams,
-  SseTaskStatusDto,
+  StreamTaskControllerStreamTaskParams,
+  StreamTaskStatusDto,
   UpdateProfileDto,
   UserProfileDto,
   VoiceCompletionsFormDataDto,
@@ -337,7 +337,7 @@ export const getVoiceCompletionsUrl = () => {
 }
 
 /**
- * 上传音频文件，Whisper 转文字后创建可恢复的 SSE 任务；若未传 conversationId，则自动创建新会话
+ * 上传音频文件，Whisper 转文字后创建可恢复的流式任务；若未传 conversationId，则自动创建新会话
  * @summary 发送语音消息
  */
 export const voiceCompletions = async (voiceCompletionsFormDataDto: VoiceCompletionsFormDataDto, options?: RequestInit): Promise<ChatTaskResultDto> => {
@@ -404,20 +404,20 @@ export const chatControllerImageGenerations = async (imageGenerationDto: ImageGe
 
 
 
-export const getSseTaskControllerGetTaskUrl = (taskId: string,) => {
+export const getStreamTaskControllerGetTaskUrl = (taskId: string,) => {
 
 
 
 
-  return `/api/sse-tasks/${taskId}`
+  return `/api/stream-tasks/${taskId}`
 }
 
 /**
- * @summary 查询 SSE 任务状态
+ * @summary 查询流式任务状态
  */
-export const sseTaskControllerGetTask = async (taskId: string, options?: RequestInit): Promise<SseTaskStatusDto> => {
+export const streamTaskControllerGetTask = async (taskId: string, options?: RequestInit): Promise<StreamTaskStatusDto> => {
 
-  return taroRequest<SseTaskStatusDto>(getSseTaskControllerGetTaskUrl(taskId),
+  return taroRequest<StreamTaskStatusDto>(getStreamTaskControllerGetTaskUrl(taskId),
   {
     ...options,
     method: 'GET'
@@ -428,8 +428,8 @@ export const sseTaskControllerGetTask = async (taskId: string, options?: Request
 
 
 
-export const getSseTaskControllerStreamTaskUrl = (taskId: string,
-    params: SseTaskControllerStreamTaskParams,) => {
+export const getStreamTaskControllerStreamTaskUrl = (taskId: string,
+    params: StreamTaskControllerStreamTaskParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -441,16 +441,16 @@ export const getSseTaskControllerStreamTaskUrl = (taskId: string,
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/sse-tasks/${taskId}/stream?${stringifiedParams}` : `/api/sse-tasks/${taskId}/stream`
+  return stringifiedParams.length > 0 ? `/api/stream-tasks/${taskId}/stream?${stringifiedParams}` : `/api/stream-tasks/${taskId}/stream`
 }
 
 /**
- * @summary 浏览器 SSE 建链/恢复
+ * @summary 浏览器流式任务建链/恢复
  */
-export const sseTaskControllerStreamTask = async (taskId: string,
-    params: SseTaskControllerStreamTaskParams, options?: RequestInit): Promise<string> => {
+export const streamTaskControllerStreamTask = async (taskId: string,
+    params: StreamTaskControllerStreamTaskParams, options?: RequestInit): Promise<string> => {
 
-  return taroRequest<string>(getSseTaskControllerStreamTaskUrl(taskId,params),
+  return taroRequest<string>(getStreamTaskControllerStreamTaskUrl(taskId,params),
   {
     ...options,
     method: 'GET'
@@ -461,45 +461,45 @@ export const sseTaskControllerStreamTask = async (taskId: string,
 
 
 
-export const getSseTaskControllerResumeTaskUrl = (taskId: string,) => {
+export const getStreamTaskControllerResumeTaskUrl = (taskId: string,) => {
 
 
 
 
-  return `/api/sse-tasks/${taskId}/resume`
+  return `/api/stream-tasks/${taskId}/resume`
 }
 
 /**
- * @summary 微信小程序/通用客户端恢复 SSE
+ * @summary 微信小程序/通用客户端恢复流式任务
  */
-export const sseTaskControllerResumeTask = async (taskId: string,
-    resumeSseDto: ResumeSseDto, options?: RequestInit): Promise<string> => {
+export const streamTaskControllerResumeTask = async (taskId: string,
+    resumeStreamTaskDto: ResumeStreamTaskDto, options?: RequestInit): Promise<string> => {
 
-  return taroRequest<string>(getSseTaskControllerResumeTaskUrl(taskId),
+  return taroRequest<string>(getStreamTaskControllerResumeTaskUrl(taskId),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(resumeSseDto)
+    body: JSON.stringify(resumeStreamTaskDto)
   }
 );}
 
 
 
-export const getSseTaskControllerCancelTaskUrl = (taskId: string,) => {
+export const getStreamTaskControllerCancelTaskUrl = (taskId: string,) => {
 
 
 
 
-  return `/api/sse-tasks/${taskId}/cancel`
+  return `/api/stream-tasks/${taskId}/cancel`
 }
 
 /**
- * @summary 取消 SSE 任务
+ * @summary 取消流式任务
  */
-export const sseTaskControllerCancelTask = async (taskId: string, options?: RequestInit): Promise<CancelSseTaskResultDto> => {
+export const streamTaskControllerCancelTask = async (taskId: string, options?: RequestInit): Promise<CancelStreamTaskResultDto> => {
 
-  return taroRequest<CancelSseTaskResultDto>(getSseTaskControllerCancelTaskUrl(taskId),
+  return taroRequest<CancelStreamTaskResultDto>(getStreamTaskControllerCancelTaskUrl(taskId),
   {
     ...options,
     method: 'POST'

@@ -16,6 +16,7 @@ export const ChatTaskResultDtoStatus = {
   pending: 'pending',
   streaming: 'streaming',
   paused: 'paused',
+  waiting_human: 'waiting_human',
   completed: 'completed',
   error: 'error',
   expired: 'expired',

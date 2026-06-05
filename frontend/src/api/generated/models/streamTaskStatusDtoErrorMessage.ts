@@ -10,4 +10,4 @@
  * 任务错误信息
  * @nullable
  */
-export type SseTaskStatusDtoErrorMessage = { [key: string]: unknown } | null;
+export type StreamTaskStatusDtoErrorMessage = { [key: string]: unknown } | null;

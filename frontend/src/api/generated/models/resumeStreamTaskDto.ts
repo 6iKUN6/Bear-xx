@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0
  */
 
-export type SseTaskControllerStreamTaskParams = {
-cursor: number;
-};
+export interface ResumeStreamTaskDto {
+  /** 客户端已收到的最后一个事件 ID */
+  lastEventId?: number;
+}

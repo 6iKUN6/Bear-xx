@@ -9,13 +9,14 @@
 /**
  * 取消后的任务状态
  */
-export type CancelSseTaskResultDtoStatus = typeof CancelSseTaskResultDtoStatus[keyof typeof CancelSseTaskResultDtoStatus];
+export type CancelStreamTaskResultDtoStatus = typeof CancelStreamTaskResultDtoStatus[keyof typeof CancelStreamTaskResultDtoStatus];
 
 
-export const CancelSseTaskResultDtoStatus = {
+export const CancelStreamTaskResultDtoStatus = {
   pending: 'pending',
   streaming: 'streaming',
   paused: 'paused',
+  waiting_human: 'waiting_human',
   completed: 'completed',
   error: 'error',
   expired: 'expired',

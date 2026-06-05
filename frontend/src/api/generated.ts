@@ -10,10 +10,10 @@ import {
   conversationControllerDelete,
   conversationControllerFindAll,
   healthControllerCheck,
-  sseTaskControllerCancelTask,
-  sseTaskControllerGetTask,
-  sseTaskControllerResumeTask,
-  sseTaskControllerStreamTask,
+  streamTaskControllerCancelTask,
+  streamTaskControllerGetTask,
+  streamTaskControllerResumeTask,
+  streamTaskControllerStreamTask,
   userControllerGetProfile,
   userControllerUpdateProfile,
 } from "./generated/client";
@@ -24,9 +24,9 @@ import type {
   ImageGenerationDto,
   PhoneLoginDto,
   RefreshTokenDto,
-  ResumeSseDto,
+  ResumeStreamTaskDto,
   SendCodeDto,
-  SseTaskControllerStreamTaskParams,
+  StreamTaskControllerStreamTaskParams,
   UpdateProfileDto,
   VoiceCompletionsFormDataDto,
   WechatLoginDto,
@@ -42,9 +42,9 @@ export type {
   ImageGenerationDto,
   PhoneLoginDto,
   RefreshTokenDto,
-  ResumeSseDto,
+  ResumeStreamTaskDto,
   SendCodeDto,
-  SseTaskControllerStreamTaskParams,
+  StreamTaskControllerStreamTaskParams,
   UpdateProfileDto,
   VoiceCompletionsFormDataDto,
   WechatLoginDto,
@@ -131,29 +131,29 @@ export class Api extends BaseApiClient {
   }
 
   getTask(args: { taskId: string }): Promise<unknown> {
-    return sseTaskControllerGetTask(args.taskId) as Promise<unknown>;
+    return streamTaskControllerGetTask(args.taskId) as Promise<unknown>;
   }
 
   streamTask(args: {
     taskId: string;
     cursor?: number;
   }): Promise<unknown> {
-    const params: SseTaskControllerStreamTaskParams = {
+    const params: StreamTaskControllerStreamTaskParams = {
       cursor: args.cursor ?? 0,
     };
 
-    return sseTaskControllerStreamTask(args.taskId, params) as Promise<unknown>;
+    return streamTaskControllerStreamTask(args.taskId, params) as Promise<unknown>;
   }
 
   resumeTask(args: {
     taskId: string;
-    body: ResumeSseDto;
+    body: ResumeStreamTaskDto;
   }): Promise<unknown> {
-    return sseTaskControllerResumeTask(args.taskId, args.body) as Promise<unknown>;
+    return streamTaskControllerResumeTask(args.taskId, args.body) as Promise<unknown>;
   }
 
   cancelTask(args: { taskId: string }): Promise<unknown> {
-    return sseTaskControllerCancelTask(args.taskId) as Promise<unknown>;
+    return streamTaskControllerCancelTask(args.taskId) as Promise<unknown>;
   }
 
   check() {

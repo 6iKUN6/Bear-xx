@@ -5,11 +5,11 @@
  * Litter Bear 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { CancelSseTaskResultDtoStatus } from './cancelSseTaskResultDtoStatus';
+import type { CancelStreamTaskResultDtoStatus } from './cancelStreamTaskResultDtoStatus';
 
-export interface CancelSseTaskResultDto {
-  /** SSE 任务 ID */
+export interface CancelStreamTaskResultDto {
+  /** 流式任务 ID */
   taskId: string;
   /** 取消后的任务状态 */
-  status: CancelSseTaskResultDtoStatus;
+  status: CancelStreamTaskResultDtoStatus;
 }

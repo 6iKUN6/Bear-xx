@@ -6,7 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 
-export interface ResumeSseDto {
-  /** 客户端已收到的最后一个事件 ID */
-  lastEventId?: number;
-}
+export type StreamTaskControllerStreamTaskParams = {
+cursor: number;
+};
