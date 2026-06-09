@@ -38,14 +38,12 @@ export const appGradientTextClass =
 
 export const appHeroClass = "px-[1.5rem] pb-[1rem] pt-[1.5rem]";
 
-export const appHeroTitleClass =
-  `${appGradientTextClass} mb-[0.5rem] block text-[2rem] font-bold leading-[1.2]`;
+export const appHeroTitleClass = `${appGradientTextClass} mb-[0.5rem] block text-[2rem] font-bold leading-[1.2]`;
 
 export const appHeroSubtitleClass =
   "block text-[0.9375rem] leading-[1.5] text-[var(--lb-text-secondary)]";
 
-export const appIconTileClass =
-  `${appGradientSurfaceClass} flex items-center justify-center rounded-[1rem] shadow-[0_0.875rem_1.75rem_rgba(124,58,237,0.24)]`;
+export const appIconTileClass = `${appGradientSurfaceClass} flex items-center justify-center rounded-[1rem] shadow-[0_0.875rem_1.75rem_rgba(124,58,237,0.24)]`;
 
 export const appHairlineClass =
   "h-[0.0625rem] bg-gradient-to-r from-transparent via-[rgba(196,181,253,0.46)] to-transparent";

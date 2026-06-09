@@ -1,95 +1,92 @@
-@import "weapp-tailwindcss/theme.css" layer(theme);
-@import "weapp-tailwindcss/utilities.css" layer(utilities) source(none);
+@import "weapp-tailwindcss/theme.css";
+@import "weapp-tailwindcss/utilities.css";
 @source "./**/*.{html,js,ts,jsx,tsx}";
 
-@layer theme, base, components, utilities;
 @config "../tailwind.config.js";
 
-@layer base {
-  :root {
-    --lb-bg-start: #eef2ff;
-    --lb-bg-mid: #f5ecff;
-    --lb-bg-end: #fff0f6;
-    --lb-surface: #ffffff;
-    --lb-surface-strong: #ffffff;
-    --lb-surface-border: rgba(255, 255, 255, 0.8);
-    --lb-line-soft: rgba(196, 181, 253, 0.26);
-    --lb-text-primary: #111827;
-    --lb-text-secondary: #6b7280;
-    --lb-text-muted: #9ca3af;
-    --lb-grad-a: #7c3aed;
-    --lb-grad-b: #ec4899;
-    --lb-grad-c: #4f46e5;
-    --lb-grad-warm-a: #facc15;
-    --lb-grad-warm-b: #fb923c;
-    --lb-danger: #dc2626;
-    --lb-shadow-soft: 0 0.875rem 2.125rem rgba(124, 58, 237, 0.08);
-    --lb-shadow-card: 0 0.5rem 1.5rem rgba(124, 58, 237, 0.06);
-    --lb-shadow-glow: 0 1rem 2.625rem rgba(124, 58, 237, 0.28);
-  }
+:root {
+  --lb-bg-start: #eef2ff;
+  --lb-bg-mid: #f5ecff;
+  --lb-bg-end: #fff0f6;
+  --lb-surface: #ffffff;
+  --lb-surface-strong: #ffffff;
+  --lb-surface-border: rgba(255, 255, 255, 0.8);
+  --lb-line-soft: rgba(196, 181, 253, 0.26);
+  --lb-text-primary: #111827;
+  --lb-text-secondary: #6b7280;
+  --lb-text-muted: #9ca3af;
+  --lb-grad-a: #7c3aed;
+  --lb-grad-b: #ec4899;
+  --lb-grad-c: #4f46e5;
+  --lb-grad-warm-a: #facc15;
+  --lb-grad-warm-b: #fb923c;
+  --lb-danger: #dc2626;
+  --lb-shadow-soft: 0 0.875rem 2.125rem rgba(124, 58, 237, 0.08);
+  --lb-shadow-card: 0 0.5rem 1.5rem rgba(124, 58, 237, 0.06);
+  --lb-shadow-glow: 0 1rem 2.625rem rgba(124, 58, 237, 0.28);
+}
 
-  html,
-  body,
-  #app {
-    height: 100%;
-  }
+html,
+body,
+#app {
+  height: 100%;
+}
 
-  html,
-  body {
-    width: 100%;
-    min-height: 100%;
-  }
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+}
 
-  body {
-    margin: 0;
-    color: var(--lb-text-primary);
-    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
-    font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    overflow-x: hidden;
-  }
+body {
+  margin: 0;
+  color: var(--lb-text-primary);
+  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
 
-  #app {
-    width: 100%;
-    min-height: 100%;
-    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
-    position: relative;
-    overflow: hidden;
-  }
+#app {
+  width: 100%;
+  min-height: 100%;
+  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  position: relative;
+  overflow: hidden;
+}
 
-  #app > div,
-  #app .taro_router,
-  #app .taro_page {
-    width: 100%;
-    height: 100%;
-    min-height: 100%;
-  }
+#app > div,
+#app .taro_router,
+#app .taro_page {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+}
 
-  page {
-    min-height: 100vh;
-    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
-    color: var(--lb-text-primary);
-    font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
-  }
+page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  color: var(--lb-text-primary);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+}
 
-  image,
-  img,
-  svg {
-    user-select: none;
-    -webkit-user-select: none;
-  }
+image,
+img,
+svg {
+  user-select: none;
+  -webkit-user-select: none;
+}
 
-  ::-webkit-scrollbar {
-    display: none;
-  }
+::-webkit-scrollbar {
+  display: none;
+}
 
-  .taro_page {
-    height: 100%;
-    min-height: 100%;
-    width: 100%;
-    background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
-  }
+.taro_page {
+  height: 100%;
+  min-height: 100%;
+  width: 100%;
+  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
 }
