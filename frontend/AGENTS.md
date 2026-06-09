@@ -462,7 +462,28 @@ rg -n ":has\(|cmdk|data-sidebar|group-has|peer-data" dist/weapp/app-origin.wxss
 
 涉及 UI 尺寸的新增样式优先使用项目现有的 rem/Tailwind 写法，由构建链路负责在小程序端转为 rpx。
 
-### 4. 改完 CSS 构建配置必须双端验证
+### 4. H5 端不要把 Tailwind 工具类放进 CSS layer
+
+Taro React 编译到 H5 时，`View` 等组件会生成带默认样式的自定义标签。Tailwind CSS 4 如果通过 `@import "...css" layer(...)`、`@layer base` 或 `@layer utilities` 输出工具类，H5 端可能出现 Tailwind 工具类优先级低于 Taro 默认样式的问题，典型表现是 `flex`、`grid`、间距等类名看起来没有生效。
+
+`src/app.css` 中 Tailwind 入口应避免使用 layer 包裹，例如保持：
+
+```css
+@import "weapp-tailwindcss/theme.css";
+@import "weapp-tailwindcss/utilities.css";
+```
+
+不要改回：
+
+```css
+@import "weapp-tailwindcss/theme.css" layer(theme);
+@import "weapp-tailwindcss/utilities.css" layer(utilities) source(none);
+@layer base { ... }
+```
+
+这个问题可参考 `weapp-tailwindcss` 的 issue #630。若 H5 再次出现 `View` 默认 `display: block` 覆盖 Tailwind `flex` 的现象，优先检查 `src/app.css` 是否重新引入了 `layer`。
+
+### 5. 改完 CSS 构建配置必须双端验证
 
 涉及 `src/app.css`、`tailwind.config.js`、`config/index.ts`、`weapp-tailwindcss` 配置的改动，至少执行：
 
