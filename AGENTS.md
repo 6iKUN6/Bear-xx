@@ -13,6 +13,7 @@
 
 - 前端开发明细：[frontend/AGENTS.md](frontend/AGENTS.md)
 - 后端开发明细：[backend/AGENTS.md](backend/AGENTS.md)
+- 提交指南：[ContributionGuide.md](ContributionGuide.md)
 
 ## 通用开发条款
 
@@ -21,3 +22,4 @@
 - 只有在当前结构无法满足需求，或者新增抽象能够明显降低复杂度、重复代码或维护成本时，才引入新的层级、模式或通用封装。
 - 修改应尽量保持范围可控，优先完成可验证、可回滚、对现有行为影响清晰的变更。
 - 修改或开发完一个功能后，在用户没有特别说明需要提交的情况下，不要直接执行 `git commit`；应先保留在工作区，等待用户 review 或明确指令。
+- 当用户输入 `commit` 或明确要求进行提交操作时，必须先阅读并遵循 [ContributionGuide.md](ContributionGuide.md)，按照其中的 commitlint 格式、scope 约定、分类提交原则和提交前检查流程执行。
