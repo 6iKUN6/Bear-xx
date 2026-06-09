@@ -1,6 +1,17 @@
 import { View, Text } from "@tarojs/components";
 import TabBar from "../../components/TabBar";
 import TabPageTopInset from "../../components/TabPageTopInset";
+import {
+  appGlassCardClass,
+  appGlassCardStrongClass,
+  appGradientSurfaceClass,
+  appGradientSurfaceWarmClass,
+  appHeroClass,
+  appHeroSubtitleClass,
+  appHeroTitleClass,
+  appPageClass,
+  appScreenClass,
+} from "../../utils/style";
 
 const quickPrompts = [
   { icon: "🎨", text: "水彩画风格", gradient: "from-[#ff2f92] to-[#ff5178]" },
@@ -11,21 +22,21 @@ const quickPrompts = [
 
 export default function ImagePage() {
   return (
-    <View className='app-page'>
+    <View className={appPageClass}>
       <TabPageTopInset />
-      <View className='app-screen'>
-        <View className='app-hero pt-[0.875rem]'>
-          <Text className='app-hero-title'>AI 画图</Text>
-          <Text className='app-hero-subtitle'>用文字描述，让 AI 为你创作</Text>
+      <View className={appScreenClass}>
+        <View className={`${appHeroClass} pt-[0.875rem]`}>
+          <Text className={appHeroTitleClass}>AI 画图</Text>
+          <Text className={appHeroSubtitleClass}>用文字描述，让 AI 为你创作</Text>
         </View>
 
         <View className='px-[1rem] pt-[0.75rem]'>
-          <View className='app-glass-card-strong px-[1.75rem] py-[1.5rem] text-center'>
-            <View className='app-float relative mx-auto mb-[1.75rem] h-[8rem] w-[8rem]'>
-              <View className='app-gradient-surface flex h-[7.25rem] w-[7.25rem] items-center justify-center rounded-[1.75rem] text-[3.375rem] shadow-[0_1.125rem_2.625rem_rgba(236,72,153,0.3)]'>
+          <View className={`${appGlassCardStrongClass} px-[1.75rem] py-[1.5rem] text-center`}>
+            <View className='relative mx-auto mb-[1.75rem] h-[8rem] w-[8rem] animate-app-float'>
+              <View className={`${appGradientSurfaceClass} flex h-[7.25rem] w-[7.25rem] items-center justify-center rounded-[1.75rem] text-[3.375rem] shadow-[0_1.125rem_2.625rem_rgba(236,72,153,0.3)]`}>
                 <Text className='leading-none'>✧</Text>
               </View>
-              <View className='app-gradient-surface-warm absolute bottom-[0.375rem] right-[0rem] flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-full text-[1.125rem] shadow-[0_0.625rem_1.375rem_rgba(251,146,60,0.3)]'>
+              <View className={`${appGradientSurfaceWarmClass} absolute bottom-[0.375rem] right-[0rem] flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-full text-[1.125rem] shadow-[0_0.625rem_1.375rem_rgba(251,146,60,0.3)]`}>
                 <Text className='leading-none'>⋮</Text>
               </View>
             </View>
@@ -55,7 +66,7 @@ export default function ImagePage() {
           </Text>
           <View className='grid grid-cols-2 gap-[0.75rem]'>
             {quickPrompts.map((prompt) => (
-              <View key={prompt.text} className='app-glass-card px-[1.125rem] py-[1.125rem]'>
+              <View key={prompt.text} className={`${appGlassCardClass} px-[1.125rem] py-[1.125rem]`}>
                 <View className={`mb-[0.75rem] flex h-[2.625rem] w-[2.625rem] items-center justify-center rounded-[0.875rem] bg-gradient-to-br ${prompt.gradient} text-[1.125rem] text-white shadow-[0_0.625rem_1.25rem_rgba(124,58,237,0.16)]`}>
                   <Text className='leading-none'>{prompt.icon}</Text>
                 </View>

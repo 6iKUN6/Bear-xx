@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View, Text, Textarea } from "@tarojs/components";
 import IconButton from "../IconButton";
 import VoiceButton from "../VoiceButton";
-import { safeAreaBottom } from "../../utils/style";
+import { appSoftInputClass, safeAreaBottom } from "../../utils/style";
 
 interface ChatInputProps {
   onSend: (content: string) => void;
@@ -102,7 +102,7 @@ export default function ChatInput({
         <View className='flex-1 min-w-0'>
           {inputMode === "text" ? (
             <Textarea
-              className='app-soft-input w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[1rem] px-[1rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]'
+              className={`${appSoftInputClass} w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[1rem] px-[1rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]`}
               value={value}
               onInput={(e) => setValue(e.detail.value)}
               placeholder='发消息或按住说话...'

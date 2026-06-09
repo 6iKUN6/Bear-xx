@@ -146,7 +146,9 @@ export default defineConfig<"vite">(async (merge) => {
                 }
               : false,
           disabled:
-            process.env.TARO_ENV === "harmony" || process.env.TARO_ENV === "rn",
+            process.env.TARO_ENV === "h5" ||
+            process.env.TARO_ENV === "harmony" ||
+            process.env.TARO_ENV === "rn",
           injectAdditionalCssVarScope: true,
         }),
       ],

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { useNavBarMetrics } from "../../hooks/useNavBarMetrics";
+import { appSolidNavClass } from "../../utils/style";
 
 export interface NavBarProps {
   title?: ReactNode | string;
@@ -96,17 +97,21 @@ export default function NavBar({
       right
     ) : shouldRenderCapsule ? (
       <View
-        className={shouldShowCapsuleVisual ? "app-nav-capsule" : "opacity-0"}
+        className={
+          shouldShowCapsuleVisual
+            ? "flex items-center justify-center rounded-full border border-[rgba(255,255,255,0.4)] bg-white/70 shadow-[0_0.5rem_1.5rem_rgba(124,58,237,0.1)] backdrop-blur-[1.25rem]"
+            : "opacity-0"
+        }
         style={{
           width: metrics.capsuleWidth,
           height: metrics.capsuleHeight,
         }}
       >
-        <View className='app-nav-capsule__inner'>
-          <View className='app-nav-capsule__dot' />
-          <View className='app-nav-capsule__dot' />
-          <View className='app-nav-capsule__line' />
-          <View className='app-nav-capsule__dot' />
+        <View className='flex items-center gap-[0.375rem] text-[rgba(107,114,128,0.9)]'>
+          <View className='h-[0.25rem] w-[0.25rem] rounded-full bg-current' />
+          <View className='h-[0.25rem] w-[0.25rem] rounded-full bg-current' />
+          <View className='h-[0.75rem] w-[0.0625rem] rounded-full bg-current opacity-35' />
+          <View className='h-[0.25rem] w-[0.25rem] rounded-full bg-current' />
         </View>
       </View>
     ) : null;
@@ -114,7 +119,7 @@ export default function NavBar({
   const barVariantClass =
     variant === "ghost"
       ? "bg-transparent shadow-none border-transparent backdrop-blur-[0rem]"
-      : "app-solid-nav bg-white";
+      : `${appSolidNavClass} bg-white`;
 
   return (
     <View

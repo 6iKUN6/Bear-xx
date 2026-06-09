@@ -1,5 +1,6 @@
 import { View, Text } from "@tarojs/components";
 import useRecord, { RecordStatus } from "../../hooks/useRecord";
+import { appSoftInputClass } from "../../utils/style";
 
 interface VoiceButtonProps {
   onRecordComplete: (tempFilePath: string) => void;
@@ -30,7 +31,7 @@ export default function VoiceButton({
 
   return (
     <View
-      className={`app-soft-input flex min-h-[2.625rem] flex-1 items-center justify-center rounded-[1rem] box-border ${isRecording ? "border-[#f9b5c8] bg-[#fff1f7]" : ""}`}
+      className={`${appSoftInputClass} flex min-h-[2.625rem] flex-1 items-center justify-center rounded-[1rem] box-border ${isRecording ? "border-[#f9b5c8] bg-[#fff1f7]" : ""}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >

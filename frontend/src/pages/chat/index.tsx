@@ -6,6 +6,11 @@ import ChatInput from "../../components/ChatInput";
 import NavBar from "../../components/NavBar";
 import { useChatStore } from "../../store/chatStore";
 import { sendMessage } from "../../api/chat";
+import {
+  appLoadingDotClass,
+  appPageClass,
+  appSolidNavClass,
+} from "../../utils/style";
 
 let idCounter = Date.now();
 function genMsgId(): string {
@@ -102,12 +107,12 @@ export default function ChatPage() {
 
   const messages = currentConversation?.messages || [];
   return (
-    <View className='app-page'>
+    <View className={appPageClass}>
       <NavBar
         title='AI 助手'
         showBack
         capsule='hidden'
-        className='app-solid-nav'
+        className={appSolidNavClass}
         barClassName='px-[0.5rem]'
       />
 
@@ -118,9 +123,9 @@ export default function ChatPage() {
       {isStreaming && (
         <View className='pointer-events-none px-[1rem] pb-[0.5rem]'>
           <View className='inline-flex items-center gap-[0.5rem] rounded-full bg-white/80 px-[0.875rem] py-[0.5rem] shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.08)] backdrop-blur-[1.125rem]'>
-            <View className='app-loading-dot bg-gradient-to-r from-[#7c3aed] to-[#ec4899]' />
-            <View className='app-loading-dot bg-gradient-to-r from-[#ec4899] to-[#4f46e5]' />
-            <View className='app-loading-dot bg-gradient-to-r from-[#4f46e5] to-[#7c3aed]' />
+            <View className={`${appLoadingDotClass} bg-gradient-to-r from-[#7c3aed] to-[#ec4899]`} />
+            <View className={`${appLoadingDotClass} [animation-delay:0.15s] bg-gradient-to-r from-[#ec4899] to-[#4f46e5]`} />
+            <View className={`${appLoadingDotClass} [animation-delay:0.3s] bg-gradient-to-r from-[#4f46e5] to-[#7c3aed]`} />
           </View>
         </View>
       )}

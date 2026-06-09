@@ -96,6 +96,12 @@ module.exports = {
         'fade-in': 'fade-in .3s ease both',
         'fade-in-up': 'fade-in-up .35s ease both',
         'scale-in': 'scale-in .25s ease both',
+        'app-fab-pulse': 'app-fab-pulse 3s ease-in-out infinite',
+        'app-float': 'app-float 4s ease-in-out infinite',
+        'app-float-delayed': 'app-float 5s ease-in-out infinite 0.6s',
+        'app-twinkle': 'app-twinkle 2s ease-in-out infinite',
+        'app-spin-slow': 'app-spin-slow 8s linear infinite',
+        'app-loading-bounce': 'app-loading-bounce 0.9s ease-in-out infinite',
         blink: 'blink 1s step-start infinite',
       },
       keyframes: {
@@ -110,6 +116,34 @@ module.exports = {
         'scale-in': {
           from: { opacity: '0', transform: 'scale(0.8)' },
           to: { opacity: '1', transform: 'scale(1)' },
+        },
+        'app-fab-pulse': {
+          '0%, 100%': {
+            boxShadow: '0 1.25rem 3.75rem -0.9375rem rgba(124, 58, 237, 0.45)',
+          },
+          '33%': {
+            boxShadow: '0 1.25rem 3.75rem -0.9375rem rgba(236, 72, 153, 0.42)',
+          },
+          '66%': {
+            boxShadow: '0 1.25rem 3.75rem -0.9375rem rgba(79, 70, 229, 0.42)',
+          },
+        },
+        'app-float': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-0.625rem)' },
+        },
+        'app-twinkle': {
+          '0%, 100%': { transform: 'rotate(0deg) scale(1)' },
+          '35%': { transform: 'rotate(12deg) scale(1.06)' },
+          '70%': { transform: 'rotate(-12deg) scale(0.96)' },
+        },
+        'app-spin-slow': {
+          from: { transform: 'rotate(0deg)' },
+          to: { transform: 'rotate(360deg)' },
+        },
+        'app-loading-bounce': {
+          '0%, 100%': { transform: 'scale(0.85)', opacity: '0.45' },
+          '50%': { transform: 'scale(1.15)', opacity: '1' },
         },
         blink: {
           '0%, 50%': { opacity: '1' },

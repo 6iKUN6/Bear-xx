@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { View } from "@tarojs/components";
+import { appGradientSurfaceClass } from "../../utils/style";
 
 interface IconButtonProps {
   icon: ReactNode;
@@ -21,7 +22,7 @@ export default function IconButton({
     variant === "default"
       ? "bg-white text-[var(--lb-grad-a)] shadow-[0_0.375rem_1.125rem_rgba(124,58,237,0.06)]"
       : variant === "primary"
-        ? "app-gradient-surface text-white shadow-[0_0.75rem_1.5rem_rgba(124,58,237,0.24)]"
+        ? `${appGradientSurfaceClass} shadow-[0_0.75rem_1.5rem_rgba(124,58,237,0.24)]`
         : "bg-white text-[var(--lb-text-secondary)] shadow-[0_0.375rem_1.125rem_rgba(124,58,237,0.06)] border border-[rgba(196,181,253,0.18)]";
 
   return (

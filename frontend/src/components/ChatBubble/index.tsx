@@ -1,4 +1,5 @@
 import { View, Text } from "@tarojs/components";
+import { appIconTileClass } from "../../utils/style";
 
 interface ChatBubbleProps {
   message: Message;
@@ -20,7 +21,7 @@ export default function ChatBubble({ message }: ChatBubbleProps) {
     >
       <View className={`max-w-[82%] ${isUser ? "items-end" : "items-start"}`}>
         {!isUser && (
-          <View className='app-icon-tile mb-[0.5rem] h-[2.375rem] w-[2.375rem] rounded-[0.75rem] text-[1.125rem] shadow-[0_0.75rem_1.5rem_rgba(236,72,153,0.22)]'>
+          <View className={`${appIconTileClass} mb-[0.5rem] h-[2.375rem] w-[2.375rem] rounded-[0.75rem] text-[1.125rem] shadow-[0_0.75rem_1.5rem_rgba(236,72,153,0.22)]`}>
             <Text className='leading-none'>🐻</Text>
           </View>
         )}
