@@ -6,10 +6,8 @@ import type {
   LlmTextRequest,
   ResolvedLlmTextRequest,
 } from '../../../llm/llm.types';
-import {
-  CommonChatAgentService,
-  type CommonChatAgentStreamEvent,
-} from './common-chat-agent.service';
+import { CommonChatAgentService } from './common-chat-agent.service';
+import type { CommonChatAgentStreamEvent } from './common-chat-agent.types';
 
 export interface CommonChatConversationAgentRequest {
   conversationId: string;
@@ -55,15 +53,15 @@ export class CommonChatAgentRunnerService {
   ): Promise<PreparedCommonChatAgentRun> {
     const contextMessages = await this.buildContextMessages(request);
     const systemPrompt = this.resolveSystemPrompt();
-    const messages = this.buildAgentMessages(contextMessages, systemPrompt);
     const tools = this.buildTools(request);
 
     return {
-      messages,
+      messages: contextMessages,
       systemPrompt,
       tools,
       events: this.commonChatAgentService.streamEvents({
-        messages,
+        messages: contextMessages,
+        systemPrompt,
         llm: request.llm,
         tools,
         abortSignal: request.abortSignal,
@@ -78,23 +76,6 @@ export class CommonChatAgentRunnerService {
       request.conversationId,
       request.pendingMessageId,
     );
-  }
-
-  private buildAgentMessages(
-    contextMessages: LlmMessage[],
-    systemPrompt: string | undefined,
-  ): LlmMessage[] {
-    if (!systemPrompt) {
-      return contextMessages;
-    }
-
-    return [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
-      ...contextMessages,
-    ];
   }
 
   private resolveSystemPrompt() {
