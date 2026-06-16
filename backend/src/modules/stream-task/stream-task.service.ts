@@ -18,13 +18,15 @@ import type { SseEvent } from '../../common/sse';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AiService } from '../ai/ai.service';
-import {
-  CommonChatAgentRunnerService,
-  type CommonChatAgentStreamEvent,
-} from '../ai/agents';
+import { CommonChatAgentRunnerService } from '../ai/agents';
+import type { AgentLoopStreamEvent } from '../ai/agent-loop';
 import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
 import { ConversationService } from '../conversation/conversation.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
+import {
+  STREAM_TASK_TERMINAL_EVENT_TYPES,
+  StreamTaskEventType,
+} from './stream-task-event.types';
 import { StreamTaskRegistry } from './stream-task.registry';
 
 interface ChatTaskPayload {
@@ -41,7 +43,7 @@ interface CreatedTaskResult {
 }
 
 interface StreamTaskEventData<TPayload = undefined> {
-  type: string;
+  type: StreamTaskEventType;
   taskId: string;
   streamId?: string;
   conversationId: string;
@@ -58,13 +60,6 @@ export interface TaskStreamResult {
 const TASK_CANCELED_REASON = 'task_canceled';
 const EMPTY_ASSISTANT_CONTENT =
   '模型本次没有返回有效文本。请检查模型名称、中转站响应格式或流式输出配置。';
-
-const TERMINAL_EVENTS = new Set([
-  'task.completed',
-  'task.error',
-  'task.expired',
-  'task.canceled',
-]);
 
 const INITIAL_STREAM_TRIGGER = 'initial';
 
@@ -147,7 +142,7 @@ export class StreamTaskService {
 
     return {
       stream: this.prependEvent(
-        this.buildTaskSseEvent('0', 'task.created', {
+        this.buildTaskSseEvent('0', StreamTaskEventType.TaskCreated, {
           taskId: task.taskId,
           streamId: task.streamId,
           conversationId: task.conversationId,
@@ -382,9 +377,9 @@ export class StreamTaskService {
     const event = await this.persistEvent(
       taskId,
       task.currentRunId,
-      'task.canceled',
+      StreamTaskEventType.TaskCanceled,
       this.serializeTaskEventData({
-        type: 'task.canceled',
+        type: StreamTaskEventType.TaskCanceled,
         taskId,
         streamId: task.currentRunId ?? undefined,
         conversationId,
@@ -466,13 +461,17 @@ export class StreamTaskService {
       await this.expireTask(task.id);
       return {
         stream: this.singleEventStream(
-          this.buildTaskSseEvent(String(lastEventId + 1), 'task.expired', {
-            taskId,
-            streamId: task.currentRunId ?? undefined,
-            conversationId: this.requireConversationId(task),
-            messageId: this.requireMessageId(task),
-            status: StreamTaskStatus.EXPIRED.toLowerCase(),
-          }),
+          this.buildTaskSseEvent(
+            String(lastEventId + 1),
+            StreamTaskEventType.TaskExpired,
+            {
+              taskId,
+              streamId: task.currentRunId ?? undefined,
+              conversationId: this.requireConversationId(task),
+              messageId: this.requireMessageId(task),
+              status: StreamTaskStatus.EXPIRED.toLowerCase(),
+            },
+          ),
         ),
       };
     }
@@ -501,7 +500,7 @@ export class StreamTaskService {
     for (const event of replayed) {
       lastSeenEventId = Math.max(lastSeenEventId, Number(event.id));
       yield event;
-      if (TERMINAL_EVENTS.has(event.event)) {
+      if (this.isTerminalEvent(event.event)) {
         return;
       }
     }
@@ -517,7 +516,7 @@ export class StreamTaskService {
       lastSeenEventId = Math.max(lastSeenEventId, numericId);
       yield event;
 
-      if (TERMINAL_EVENTS.has(event.event)) {
+      if (this.isTerminalEvent(event.event)) {
         return;
       }
     }
@@ -606,9 +605,9 @@ export class StreamTaskService {
       const startedEvent = await this.persistEvent(
         taskId,
         stream.id,
-        'task.started',
+        StreamTaskEventType.TaskStarted,
         this.serializeTaskEventData({
-          type: 'task.started',
+          type: StreamTaskEventType.TaskStarted,
           taskId,
           streamId: stream.id,
           conversationId,
@@ -742,8 +741,13 @@ export class StreamTaskService {
     });
 
     for await (const event of agentRun.events) {
-      if (event.type === 'tool.call.delta') {
+      if (event.type === StreamTaskEventType.ToolCallDelta) {
         await this.handleToolCallDeltaEvent(task, event);
+        continue;
+      }
+
+      if (event.type !== StreamTaskEventType.MessageDelta) {
+        await this.handleAgentLoopStatusEvent(task, event);
         continue;
       }
 
@@ -757,9 +761,9 @@ export class StreamTaskService {
       const deltaEvent = await this.persistEvent(
         task.id,
         task.streamId,
-        'message.delta',
+        StreamTaskEventType.MessageDelta,
         this.serializeTaskEventData({
-          type: 'message.delta',
+          type: StreamTaskEventType.MessageDelta,
           taskId: task.id,
           streamId: task.streamId,
           conversationId: task.conversationId,
@@ -812,9 +816,9 @@ export class StreamTaskService {
     const doneEvent = await this.persistEvent(
       task.id,
       task.streamId,
-      'message.done',
+      StreamTaskEventType.MessageDone,
       this.serializeTaskEventData({
-        type: 'message.done',
+        type: StreamTaskEventType.MessageDone,
         taskId: task.id,
         streamId: task.streamId,
         conversationId: task.conversationId,
@@ -866,9 +870,9 @@ export class StreamTaskService {
     const completedEvent = await this.persistEvent(
       task.id,
       task.streamId,
-      'task.completed',
+      StreamTaskEventType.TaskCompleted,
       this.serializeTaskEventData({
-        type: 'task.completed',
+        type: StreamTaskEventType.TaskCompleted,
         taskId: task.id,
         streamId: task.streamId,
         conversationId: task.conversationId,
@@ -914,14 +918,17 @@ export class StreamTaskService {
       conversationId: string;
       messageId: string;
     },
-    event: Extract<CommonChatAgentStreamEvent, { type: 'tool.call.delta' }>,
+    event: Extract<
+      AgentLoopStreamEvent,
+      { type: StreamTaskEventType.ToolCallDelta }
+    >,
   ) {
     const toolEvent = await this.persistEvent(
       task.id,
       task.streamId,
-      'tool.call.delta',
+      StreamTaskEventType.ToolCallDelta,
       this.serializeTaskEventData({
-        type: 'tool.call.delta',
+        type: StreamTaskEventType.ToolCallDelta,
         taskId: task.id,
         streamId: task.streamId,
         conversationId: task.conversationId,
@@ -939,6 +946,46 @@ export class StreamTaskService {
       },
     );
     this.registry.publish(task.id, toolEvent);
+  }
+
+  /**
+   * 处理 agent loop 状态事件
+   * @param task 聊天任务上下文
+   * @param event agent loop 状态事件
+   * @returns 无返回值
+   * @description 将策略选择、工作流步骤、模型调用等非文本事件转发为 SSE 事件，供前端展示当前 loop 正在做的事情。
+   */
+  private async handleAgentLoopStatusEvent(
+    task: {
+      id: string;
+      streamId: string;
+      conversationId: string;
+      messageId: string;
+    },
+    event: Exclude<
+      AgentLoopStreamEvent,
+      | { type: StreamTaskEventType.MessageDelta }
+      | { type: StreamTaskEventType.ToolCallDelta }
+    >,
+  ) {
+    const statusEvent = await this.persistEvent(
+      task.id,
+      task.streamId,
+      event.type,
+      this.serializeTaskEventData({
+        type: event.type,
+        taskId: task.id,
+        streamId: task.streamId,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        status: StreamTaskStatus.STREAMING.toLowerCase(),
+        payload: event.payload,
+      }),
+      {
+        status: StreamTaskStatus.STREAMING,
+      },
+    );
+    this.registry.publish(task.id, statusEvent);
   }
 
   /**
@@ -979,9 +1026,9 @@ export class StreamTaskService {
     const errorEvent = await this.persistEvent(
       taskId,
       task.currentRunId,
-      'task.error',
+      StreamTaskEventType.TaskError,
       this.serializeTaskEventData({
-        type: 'task.error',
+        type: StreamTaskEventType.TaskError,
         taskId,
         streamId: task.currentRunId ?? undefined,
         conversationId,
@@ -1044,7 +1091,7 @@ export class StreamTaskService {
   private async persistEvent(
     taskId: string,
     streamId: string | null | undefined,
-    event: string,
+    event: StreamTaskEventType,
     data: string,
     taskUpdate?: Partial<{
       status: StreamTaskStatus;
@@ -1187,6 +1234,16 @@ export class StreamTaskService {
   }
 
   /**
+   * 判断事件是否为任务终态事件
+   * @param event 事件名称
+   * @returns 返回布尔值，true 表示该事件会结束当前 SSE 流
+   * @description 仅 StreamTask 协议枚举中的终态事件会结束恢复流；未知字符串事件不会被当成终态处理。
+   */
+  private isTerminalEvent(event: string) {
+    return STREAM_TASK_TERMINAL_EVENT_TYPES.has(event as StreamTaskEventType);
+  }
+
+  /**
    * 判断是否应忽略中断错误
    * @param taskId 任务ID
    * @param error 执行异常
@@ -1317,7 +1374,7 @@ export class StreamTaskService {
    */
   private buildTaskSseEvent<TPayload>(
     eventId: string,
-    eventName: string,
+    eventName: StreamTaskEventType,
     eventData: Omit<StreamTaskEventData<TPayload>, 'type'>,
   ): SseEvent {
     return {

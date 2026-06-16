@@ -12,6 +12,7 @@ import {
   type CommonChatAgentStreamEvent,
 } from './common-chat-agent.types';
 import { CommonChatAgentFactory } from './common-chat-agent.factory';
+import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
 
 @Injectable()
 export class CommonChatAgentLoopService {
@@ -52,7 +53,7 @@ export class CommonChatAgentLoopService {
         }
 
         yield {
-          type: 'message.delta',
+          type: StreamTaskEventType.MessageDelta,
           delta,
         };
       }
@@ -60,7 +61,7 @@ export class CommonChatAgentLoopService {
 
     for await (const toolCall of run.toolCalls) {
       yield {
-        type: 'tool.call.delta',
+        type: StreamTaskEventType.ToolCallDelta,
         toolCallId: this.readOptionalString(toolCall.callId),
         name: this.readOptionalString(toolCall.name),
         args: this.stringifyOptionalValue(toolCall.input),

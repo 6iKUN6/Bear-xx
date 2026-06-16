@@ -1307,13 +1307,42 @@
           "revisedPrompt"
         ]
       },
+      "StreamTaskEventType": {
+        "type": "string",
+        "enum": [
+          "agent.loop.start",
+          "strategy.selected",
+          "skill.selected",
+          "workflow.step.start",
+          "workflow.step.done",
+          "model.call.start",
+          "model.call.done",
+          "tool.call.start",
+          "tool.call.delta",
+          "tool.call.done",
+          "tool.call.error",
+          "message.delta",
+          "message.done",
+          "task.created",
+          "task.started",
+          "task.completed",
+          "task.error",
+          "task.expired",
+          "task.canceled"
+        ],
+        "description": "事件类型"
+      },
       "StreamTaskEventPayloadDto": {
         "type": "object",
         "properties": {
           "type": {
-            "type": "string",
             "description": "事件类型",
-            "example": "message.delta"
+            "example": "message.delta",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StreamTaskEventType"
+              }
+            ]
           },
           "taskId": {
             "type": "string",

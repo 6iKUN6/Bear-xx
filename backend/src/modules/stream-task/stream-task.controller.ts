@@ -31,6 +31,7 @@ import {
   StreamTaskEventPayloadDto,
   StreamTaskStatusDto,
 } from './dto/stream-task-response.dto';
+import { StreamTaskEventType } from './stream-task-event.types';
 import { StreamTaskService } from './stream-task.service';
 
 @ApiTags('流式任务')
@@ -63,8 +64,7 @@ export class StreamTaskController {
       'text/event-stream': {
         schema: {
           type: 'string',
-          example:
-            'id: 1\nevent: message.delta\ndata: {"type":"message.delta","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n',
+          example: `id: 1\nevent: ${StreamTaskEventType.MessageDelta}\ndata: {"type":"${StreamTaskEventType.MessageDelta}","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n`,
         },
       },
     },
@@ -98,8 +98,7 @@ export class StreamTaskController {
       'text/event-stream': {
         schema: {
           type: 'string',
-          example:
-            'id: 1\nevent: message.delta\ndata: {"type":"message.delta","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n',
+          example: `id: 1\nevent: ${StreamTaskEventType.MessageDelta}\ndata: {"type":"${StreamTaskEventType.MessageDelta}","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n`,
         },
       },
     },

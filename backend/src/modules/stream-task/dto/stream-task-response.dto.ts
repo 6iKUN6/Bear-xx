@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { StreamTaskEventType } from '../stream-task-event.types';
 
 export class StreamTaskStatusDto {
   @ApiProperty({ description: '流式任务 ID', example: 'cmf_task_123' })
@@ -95,8 +96,13 @@ export class CancelStreamTaskResultDto {
 }
 
 export class StreamTaskEventPayloadDto {
-  @ApiProperty({ description: '事件类型', example: 'message.delta' })
-  type: string;
+  @ApiProperty({
+    description: '事件类型',
+    enum: StreamTaskEventType,
+    enumName: 'StreamTaskEventType',
+    example: StreamTaskEventType.MessageDelta,
+  })
+  type: StreamTaskEventType;
 
   @ApiProperty({ description: '流式任务 ID', example: 'cmf_task_123' })
   taskId: string;

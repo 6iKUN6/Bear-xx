@@ -7,6 +7,15 @@ import {
   CommonChatAgentRunnerService,
   CommonChatAgentService,
 } from './agents/common-chat-agent';
+import {
+  AgentLoopRunnerService,
+  CommonReactGraph,
+  DirectAnswerGraph,
+  HybridPlanReactGraph,
+  PlanExecuteGraph,
+  StrategyRegistryService,
+  StrategyRouterService,
+} from './agent-loop';
 import { AiService } from './ai.service';
 
 @Module({
@@ -17,6 +26,13 @@ import { AiService } from './ai.service';
     CommonChatAgentLoopService,
     CommonChatAgentService,
     CommonChatAgentRunnerService,
+    AgentLoopRunnerService,
+    StrategyRouterService,
+    StrategyRegistryService,
+    DirectAnswerGraph,
+    CommonReactGraph,
+    PlanExecuteGraph,
+    HybridPlanReactGraph,
   ],
   exports: [
     AiService,
@@ -24,6 +40,9 @@ import { AiService } from './ai.service';
     CommonChatAgentLoopService,
     CommonChatAgentService,
     CommonChatAgentRunnerService,
+    AgentLoopRunnerService,
+    StrategyRouterService,
+    StrategyRegistryService,
   ],
 })
 export class AiModule {}

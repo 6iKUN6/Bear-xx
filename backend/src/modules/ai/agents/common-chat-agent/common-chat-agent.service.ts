@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LlmService } from '../../../llm/llm.service';
+import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
 import type {
   LlmGenerationConfig,
   LlmMessage,
@@ -39,7 +40,7 @@ export class CommonChatAgentService {
     request: CommonChatAgentRequest,
   ): AsyncGenerator<string, void, unknown> {
     for await (const event of this.streamEvents(request)) {
-      if (event.type === 'message.delta') {
+      if (event.type === StreamTaskEventType.MessageDelta) {
         yield event.delta;
       }
     }

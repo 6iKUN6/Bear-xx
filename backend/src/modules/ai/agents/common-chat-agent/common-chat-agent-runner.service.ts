@@ -6,8 +6,9 @@ import type {
   LlmTextRequest,
   ResolvedLlmTextRequest,
 } from '../../../llm/llm.types';
+import { AgentLoopRunnerService } from '../../agent-loop/agent-loop-runner.service';
+import type { AgentLoopStreamEvent } from '../../agent-loop/agent-loop.types';
 import { CommonChatAgentService } from './common-chat-agent.service';
-import type { CommonChatAgentStreamEvent } from './common-chat-agent.types';
 
 export interface CommonChatConversationAgentRequest {
   conversationId: string;
@@ -20,7 +21,7 @@ export interface PreparedCommonChatAgentRun {
   messages: LlmMessage[];
   systemPrompt?: string;
   tools: unknown[];
-  events: AsyncGenerator<CommonChatAgentStreamEvent, void, unknown>;
+  events: AsyncGenerator<AgentLoopStreamEvent, void, unknown>;
 }
 
 @Injectable()
@@ -28,6 +29,7 @@ export class CommonChatAgentRunnerService {
   constructor(
     private readonly chatContextService: ChatContextService,
     private readonly commonChatAgentService: CommonChatAgentService,
+    private readonly agentLoopRunnerService: AgentLoopRunnerService,
   ) {}
 
   /**
@@ -54,15 +56,16 @@ export class CommonChatAgentRunnerService {
     const contextMessages = await this.buildContextMessages(request);
     const systemPrompt = this.resolveSystemPrompt();
     const tools = this.buildTools(request);
+    const llm = this.resolveTextRequest(request.llm);
 
     return {
       messages: contextMessages,
       systemPrompt,
       tools,
-      events: this.commonChatAgentService.streamEvents({
+      events: this.agentLoopRunnerService.stream({
         messages: contextMessages,
         systemPrompt,
-        llm: request.llm,
+        llm,
         tools,
         abortSignal: request.abortSignal,
       }),

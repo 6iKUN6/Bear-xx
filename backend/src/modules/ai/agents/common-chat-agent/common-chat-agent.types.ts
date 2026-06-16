@@ -1,4 +1,5 @@
 import type { LlmMessage } from '../../../llm/llm.types';
+import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
 
 export interface CommonChatAgentLoopRequest {
   messages: LlmMessage[];
@@ -9,11 +10,11 @@ export interface CommonChatAgentLoopRequest {
 
 export type CommonChatAgentStreamEvent =
   | {
-      type: 'message.delta';
+      type: StreamTaskEventType.MessageDelta;
       delta: string;
     }
   | {
-      type: 'tool.call.delta';
+      type: StreamTaskEventType.ToolCallDelta;
       toolCallId?: string;
       name?: string;
       args?: string;
