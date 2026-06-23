@@ -25,8 +25,8 @@ export function useNavBarMetrics(): NavBarMetrics {
     };
   }
 
-  const systemInfo = Taro.getSystemInfoSync();
-  const statusBarHeight = systemInfo.statusBarHeight ?? 0;
+  const windowInfo = Taro.getWindowInfo();
+  const statusBarHeight = windowInfo.statusBarHeight ?? 0;
 
   if (typeof Taro.getMenuButtonBoundingClientRect !== "function") {
     return {
@@ -43,7 +43,7 @@ export function useNavBarMetrics(): NavBarMetrics {
 
   const menuButtonRect = Taro.getMenuButtonBoundingClientRect();
   const verticalGap = Math.max(menuButtonRect.top - statusBarHeight, 6);
-  const horizontalInset = Math.max(systemInfo.windowWidth - menuButtonRect.right, 12);
+  const horizontalInset = Math.max(windowInfo.windowWidth - menuButtonRect.right, 12);
   const contentHeight = Math.max(menuButtonRect.height + verticalGap * 2, 44);
   const sideWidth = Math.max(menuButtonRect.width, 44);
   const capsuleWidth = Math.max(menuButtonRect.width, 88);

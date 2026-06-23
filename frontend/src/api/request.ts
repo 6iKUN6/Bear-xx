@@ -194,10 +194,24 @@ export class BaseApiClient {
     let requestTask:
       | ReturnType<typeof Taro.request>
       | null = null;
+    let abortFetchStream: (() => void) | null = null;
 
     void this.applyRequestInterceptor(options)
       .then((resolvedOptions) => {
         if (state.aborted) {
+          return;
+        }
+
+        if (this.shouldUseFetchStream()) {
+          const controller = new AbortController();
+          abortFetchStream = () => controller.abort();
+          void this.consumeFetchStream(
+            state,
+            resolvedOptions,
+            options,
+            handlers,
+            controller,
+          );
           return;
         }
 
@@ -217,10 +231,7 @@ export class BaseApiClient {
           ),
           success: () => {
             this.flushSseBuffer(state, options, handlers);
-            if (!state.finished) {
-              state.finished = true;
-              handlers.onDone?.();
-            }
+            this.finishStream(state, handlers);
           },
           fail: (error) => {
             if (state.aborted) {
@@ -253,8 +264,88 @@ export class BaseApiClient {
       abort: () => {
         state.aborted = true;
         requestTask?.abort();
+        abortFetchStream?.();
       },
     };
+  }
+
+  private shouldUseFetchStream() {
+    return Taro.getEnv() === Taro.ENV_TYPE.WEB && typeof fetch === "function";
+  }
+
+  private async consumeFetchStream<TData, TBody>(
+    state: { buffer: string; finished: boolean; aborted: boolean },
+    resolvedOptions: ApiRequestOptions<TBody>,
+    options: ApiStreamOptions<TData, TBody>,
+    handlers: StreamHandlers<TData>,
+    controller: AbortController,
+  ) {
+    try {
+      handlers.onOpen?.();
+
+      const response = await fetch(
+        this.buildUrl(
+          resolvedOptions.url,
+          resolvedOptions.pathParams,
+          resolvedOptions.query,
+        ),
+        {
+          method: resolvedOptions.method || "GET",
+          body:
+            resolvedOptions.data === undefined
+              ? undefined
+              : JSON.stringify(resolvedOptions.data),
+          headers: this.buildHeaders(
+            resolvedOptions.header,
+            resolvedOptions.skipAuth,
+            { Accept: "text/event-stream" },
+          ),
+          signal: controller.signal,
+        },
+      );
+
+      if (response.status === 401) {
+        this.handleUnauthorized();
+        throw new Error("未授权，请重新登录");
+      }
+
+      if (!response.ok) {
+        throw new Error(await this.getFetchErrorMessage(response));
+      }
+
+      if (!response.body) {
+        state.buffer += (await response.text()).replace(/\r\n/g, "\n");
+        this.flushSseBuffer(state, options, handlers);
+        this.finishStream(state, handlers);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      while (!state.aborted) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          state.buffer += this.uint8ArrayToString(value).replace(/\r\n/g, "\n");
+          this.consumeSseBuffer(state, options, handlers);
+        }
+      }
+
+      if (!state.aborted) {
+        this.flushSseBuffer(state, options, handlers);
+        this.finishStream(state, handlers);
+      }
+    } catch (error) {
+      if (state.aborted || this.isAbortError(error)) {
+        return;
+      }
+
+      handlers.onError?.(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 
   private async applyRequestInterceptor<TData>(
@@ -320,7 +411,15 @@ export class BaseApiClient {
   ) {
     const resolvedPath = this.interpolatePath(url, pathParams);
     const queryString = this.stringifyQuery(query);
-    return `${API_BASE_URL}${resolvedPath}${queryString}`;
+    return `${this.withBaseUrl(resolvedPath)}${queryString}`;
+  }
+
+  private withBaseUrl(url: string) {
+    if (/^https?:\/\//i.test(url) || !API_BASE_URL) {
+      return url;
+    }
+
+    return `${API_BASE_URL}${url.startsWith("/") ? url : `/${url}`}`;
   }
 
   private interpolatePath(
@@ -414,6 +513,18 @@ export class BaseApiClient {
     state.buffer = "";
   }
 
+  private finishStream(
+    state: { finished: boolean },
+    handlers: StreamHandlers<unknown>,
+  ) {
+    if (state.finished) {
+      return;
+    }
+
+    state.finished = true;
+    handlers.onDone?.();
+  }
+
   private parseSseEvent<TData>(
     rawBlock: string,
     parseEventData?: (rawData: string, rawEvent: StreamEvent<string>) => TData,
@@ -482,11 +593,14 @@ export class BaseApiClient {
   }
 
   private arrayBufferToString(buffer: ArrayBuffer) {
+    return this.uint8ArrayToString(new Uint8Array(buffer));
+  }
+
+  private uint8ArrayToString(uint8Array: Uint8Array) {
     if (typeof TextDecoder !== "undefined") {
-      return new TextDecoder("utf-8").decode(buffer);
+      return new TextDecoder("utf-8").decode(uint8Array);
     }
 
-    const uint8Array = new Uint8Array(buffer);
     let result = "";
     for (let index = 0; index < uint8Array.length; index++) {
       result += String.fromCharCode(uint8Array[index]);
@@ -497,6 +611,19 @@ export class BaseApiClient {
     } catch {
       return result;
     }
+  }
+
+  private async getFetchErrorMessage(response: Response) {
+    try {
+      const data = (await response.json()) as Partial<ApiResponseEnvelope<unknown>>;
+      return data.message || "流式请求失败";
+    } catch {
+      return "流式请求失败";
+    }
+  }
+
+  private isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === "AbortError";
   }
 }
 

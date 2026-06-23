@@ -6,5 +6,6 @@ interface User {
 
 interface LoginResult {
   token: string;
+  refreshToken: string;
   user: User;
 }

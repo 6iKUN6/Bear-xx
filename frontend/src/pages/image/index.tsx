@@ -5,7 +5,6 @@ import {
   appGlassCardClass,
   appGlassCardStrongClass,
   appGradientSurfaceClass,
-  appGradientSurfaceWarmClass,
   appHeroClass,
   appHeroSubtitleClass,
   appHeroTitleClass,
@@ -13,11 +12,19 @@ import {
   appScreenClass,
 } from "../../utils/style";
 
-const quickPrompts = [
-  { icon: "🎨", text: "水彩画风格", gradient: "from-[#ff2f92] to-[#ff5178]" },
-  { icon: "🪄", text: "赛博朋克", gradient: "from-[#7c3aed] to-[#5b5cf6]" },
-  { icon: "🖼", text: "梦幻插画", gradient: "from-[#1d9bf0] to-[#1483ff]" },
-  { icon: "✦", text: "抽象艺术", gradient: "from-[#ff8a00] to-[#ffb200]" },
+const styleOptions = [
+  { icon: "🎨", text: "水彩", active: true },
+  { icon: "🪄", text: "赛博朋克" },
+  { icon: "🖼", text: "插画" },
+  { icon: "✦", text: "抽象" },
+];
+
+const ratioOptions = ["1:1", "3:4", "16:9"];
+
+const promptIdeas = [
+  "一只在月光下读书的小熊，柔和水彩风",
+  "未来城市里的雨夜咖啡店，霓虹灯反射",
+  "适合头像的可爱小熊机器人，干净背景",
 ];
 
 export default function ImagePage() {
@@ -31,47 +38,69 @@ export default function ImagePage() {
         </View>
 
         <View className='px-[1rem] pt-[0.75rem]'>
-          <View className={`${appGlassCardStrongClass} px-[1.75rem] py-[1.5rem] text-center`}>
-            <View className='relative mx-auto mb-[1.75rem] h-[8rem] w-[8rem] animate-app-float'>
-              <View className={`${appGradientSurfaceClass} flex h-[7.25rem] w-[7.25rem] items-center justify-center rounded-[1.75rem] text-[3.375rem] shadow-[0_1.125rem_2.625rem_rgba(236,72,153,0.3)]`}>
-                <Text className='leading-none'>✧</Text>
-              </View>
-              <View className={`${appGradientSurfaceWarmClass} absolute bottom-[0.375rem] right-[0rem] flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-full text-[1.125rem] shadow-[0_0.625rem_1.375rem_rgba(251,146,60,0.3)]`}>
-                <Text className='leading-none'>⋮</Text>
+          <View className={`${appGlassCardStrongClass} px-[1.25rem] py-[1.25rem]`}>
+            <Text className='block text-[1.0625rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
+              描述你想看的画面
+            </Text>
+            <View className='mt-[0.875rem] min-h-[7rem] rounded-[1.25rem] border border-[rgba(196,181,253,0.28)] bg-white/85 px-[1rem] py-[0.875rem] box-border'>
+              <Text className='block text-[0.9375rem] leading-[1.65] text-[var(--lb-text-secondary)]'>
+                例如：一只穿雨衣的小熊走在黄昏街道，手里拿着热可可，温暖电影感
+              </Text>
+            </View>
+
+            <View className='mt-[1rem]'>
+              <Text className='mb-[0.625rem] block text-[0.8125rem] font-semibold leading-none text-[var(--lb-text-muted)]'>
+                风格
+              </Text>
+              <View className='grid grid-cols-4 gap-[0.5rem]'>
+                {styleOptions.map((item) => (
+                  <View
+                    key={item.text}
+                    className={`flex flex-col items-center justify-center rounded-[0.875rem] px-[0.5rem] py-[0.625rem] ${item.active ? `${appGradientSurfaceClass} shadow-[0_0.625rem_1.25rem_rgba(124,58,237,0.18)]` : "border border-[rgba(196,181,253,0.2)] bg-white/80"}`}
+                  >
+                    <Text className='text-[1.125rem] leading-none'>{item.icon}</Text>
+                    <Text className={`mt-[0.375rem] text-[0.6875rem] font-medium leading-none ${item.active ? "text-white" : "text-[var(--lb-text-secondary)]"}`}>
+                      {item.text}
+                    </Text>
+                  </View>
+                ))}
               </View>
             </View>
 
-            <Text className='mb-[0.625rem] block text-[1.375rem] font-bold leading-[1.2] text-[var(--lb-text-primary)]'>
-              AI 绘画工作室
-            </Text>
-            <Text className='block text-[0.9375rem] leading-[1.7] text-[var(--lb-text-secondary)]'>
-              功能正在全力开发中
-            </Text>
-            <Text className='mb-[1.5rem] block text-[0.9375rem] leading-[1.7] text-[var(--lb-text-secondary)]'>
-              即将为你带来惊艳的 AI 绘画体验
-            </Text>
-
-            <View className='mb-[0.5rem] mx-[0.5rem] h-[0.375rem] overflow-hidden rounded-full bg-[#f1f1f7]'>
-              <View className='h-full rounded-full bg-gradient-to-r from-[#9333ea] via-[#ec4899] to-[#6366f1]' style={{ width: "75%" }} />
+            <View className='mt-[1rem] flex items-center justify-between gap-[0.75rem]'>
+              <View className='min-w-0 flex-1'>
+                <Text className='mb-[0.625rem] block text-[0.8125rem] font-semibold leading-none text-[var(--lb-text-muted)]'>
+                  比例
+                </Text>
+                <View className='flex gap-[0.5rem]'>
+                  {ratioOptions.map((ratio, index) => (
+                    <View
+                      key={ratio}
+                      className={`rounded-full px-[0.75rem] py-[0.375rem] ${index === 0 ? "bg-[rgba(124,58,237,0.1)] text-[var(--lb-grad-a)]" : "bg-white/80 text-[var(--lb-text-secondary)]"}`}
+                    >
+                      <Text className='text-[0.75rem] font-semibold leading-none'>{ratio}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+              <View className='rounded-[1rem] bg-[rgba(156,163,175,0.14)] px-[1rem] py-[0.75rem]'>
+                <Text className='block text-[0.8125rem] font-semibold leading-none text-[var(--lb-text-muted)]'>
+                  即将开放
+                </Text>
+              </View>
             </View>
-            <Text className='text-[0.8125rem] leading-none text-[var(--lb-text-muted)]'>
-              开发进度 75%
-            </Text>
           </View>
         </View>
 
         <View className='px-[1rem] pt-[1.375rem]'>
           <Text className='mb-[0.875rem] block px-[0.5rem] text-[1rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]'>
-            即将支持的风格
+            灵感模板
           </Text>
-          <View className='grid grid-cols-2 gap-[0.75rem]'>
-            {quickPrompts.map((prompt) => (
-              <View key={prompt.text} className={`${appGlassCardClass} px-[1.125rem] py-[1.125rem]`}>
-                <View className={`mb-[0.75rem] flex h-[2.625rem] w-[2.625rem] items-center justify-center rounded-[0.875rem] bg-gradient-to-br ${prompt.gradient} text-[1.125rem] text-white shadow-[0_0.625rem_1.25rem_rgba(124,58,237,0.16)]`}>
-                  <Text className='leading-none'>{prompt.icon}</Text>
-                </View>
-                <Text className='block text-[0.9375rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
-                  {prompt.text}
+          <View className='flex flex-col gap-[0.625rem]'>
+            {promptIdeas.map((idea) => (
+              <View key={idea} className={`${appGlassCardClass} px-[1rem] py-[0.875rem]`}>
+                <Text className='block text-[0.875rem] leading-[1.5] text-[var(--lb-text-primary)]'>
+                  {idea}
                 </Text>
               </View>
             ))}

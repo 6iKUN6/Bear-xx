@@ -29,7 +29,7 @@ function normalizeHeaders(headers: HeadersInit | undefined) {
     return undefined;
   }
 
-  if (headers instanceof Headers) {
+  if (isHeadersInstance(headers)) {
     const result: Record<string, string> = {};
     headers.forEach((value, key) => {
       result[key] = value;
@@ -45,4 +45,8 @@ function normalizeHeaders(headers: HeadersInit | undefined) {
   }
 
   return headers;
+}
+
+function isHeadersInstance(headers: HeadersInit): headers is Headers {
+  return typeof Headers !== "undefined" && headers instanceof Headers;
 }

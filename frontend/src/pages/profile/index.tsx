@@ -17,11 +17,9 @@ import {
   appScreenClass,
 } from "../../utils/style";
 
-const settingCards = [
-  { icon: "⚙️", label: "通用设置", gradient: "from-[#3b82f6] to-[#06b6d4]" },
-  { icon: "🌙", label: "外观主题", gradient: "from-[#4f46e5] to-[#7c3aed]" },
-  { icon: "🔔", label: "通知设置", gradient: "from-[#7c3aed] to-[#ec4899]" },
-  { icon: "❓", label: "帮助中心", gradient: "from-[#ec4899] to-[#f43f5e]" },
+const accountCards = [
+  { label: "会话记录", value: "本机保存", icon: "◷" },
+  { label: "生成偏好", value: "默认模式", icon: "✦" },
 ];
 
 export default function ProfilePage() {
@@ -104,16 +102,19 @@ export default function ProfilePage() {
         {isLoggedIn && (
           <View className='px-[1rem] pb-[0.5rem] pt-[0.625rem]'>
             <Text className='mb-[0.875rem] block px-[0.5rem] text-[1rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]'>
-              快捷设置
+              使用概览
             </Text>
             <View className='grid grid-cols-2 gap-[0.75rem]'>
-              {settingCards.map((item) => (
+              {accountCards.map((item) => (
                 <View key={item.label} className={`${appGlassCardClass} px-[1rem] py-[1rem]`}>
-                  <View className={`mb-[0.75rem] flex h-[2.625rem] w-[2.625rem] items-center justify-center rounded-[0.875rem] bg-gradient-to-br ${item.gradient} text-[1.125rem] text-white shadow-[0_0.625rem_1.25rem_rgba(124,58,237,0.16)]`}>
+                  <View className='mb-[0.75rem] flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.875rem] bg-[rgba(124,58,237,0.1)] text-[1.125rem] text-[var(--lb-grad-a)]'>
                     <Text className='leading-none'>{item.icon}</Text>
                   </View>
                   <Text className='block text-[0.875rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
                     {item.label}
+                  </Text>
+                  <Text className='mt-[0.25rem] block text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]'>
+                    {item.value}
                   </Text>
                 </View>
               ))}
@@ -138,6 +139,22 @@ export default function ProfilePage() {
                     </Text>
                   </View>
                   <Text className='at-icon at-icon-chevron-right text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
+                </View>
+                <View className={`${appHairlineClass} mx-[1.25rem]`} />
+                <View className='flex items-center justify-between px-[1.25rem] py-[1rem]'>
+                  <View className='flex items-center gap-[0.875rem]'>
+                    <View className='flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] bg-gradient-to-br from-[#eef2ff] to-[#f5ecff] text-[1.125rem]'>
+                      <Text className='leading-none'>◌</Text>
+                    </View>
+                    <View>
+                      <Text className='block text-[1rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]'>
+                        隐私与数据
+                      </Text>
+                      <Text className='mt-[0.125rem] block text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]'>
+                        Token 与会话仅保存在本机
+                      </Text>
+                    </View>
+                  </View>
                 </View>
                 <View className={`${appHairlineClass} mx-[1.25rem]`} />
               </>

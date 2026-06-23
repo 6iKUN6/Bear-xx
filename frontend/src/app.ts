@@ -17,7 +17,15 @@ import "./app.css";
  * @returns
  */
 function ensureSystemInfoCompat() {
-  const info = Taro.getSystemInfoSync();
+  const info =
+    Taro.getEnv() === Taro.ENV_TYPE.WEAPP
+      ? {
+          windowInfo: Taro.getWindowInfo(),
+          deviceInfo: Taro.getDeviceInfo(),
+          appBaseInfo: Taro.getAppBaseInfo(),
+          systemSetting: Taro.getSystemSetting(),
+        }
+      : Taro.getSystemInfoSync();
 
   console.log(
     "%c System Info %c",

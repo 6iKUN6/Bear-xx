@@ -95,7 +95,11 @@ export default defineConfig<"vite">(async (merge) => {
     sourceRoot: "src",
     outputRoot: resolveOutputRoot(taroEnv),
     plugins: ["@tarojs/plugin-generator"],
-    defineConstants: {},
+    defineConstants: {
+      __API_BASE_URL__: JSON.stringify(
+        process.env.TARO_APP_API_BASE_URL || "",
+      ),
+    },
     postcss: {
       autoprefixer: {
         enable: true,

@@ -5,12 +5,14 @@ import MessageList from "../../components/MessageList";
 import ChatInput from "../../components/ChatInput";
 import NavBar from "../../components/NavBar";
 import { useChatStore } from "../../store/chatStore";
-import { sendMessage } from "../../api/chat";
+import { useChatStream } from "../../hooks/useChatStream";
 import {
   appLoadingDotClass,
   appPageClass,
   appSolidNavClass,
 } from "../../utils/style";
+import { toMessageStreamFeedback } from "../../utils/streamFeedback";
+import type { StreamTaskEvent } from "../../services/stream";
 
 let idCounter = Date.now();
 function genMsgId(): string {
@@ -20,6 +22,7 @@ function genMsgId(): string {
 export default function ChatPage() {
   const router = useRouter();
   const conversationId = router.params.conversationId || "";
+  const { abort, cancel, sendMessage } = useChatStream();
 
   const {
     currentConversation,
@@ -29,10 +32,11 @@ export default function ChatPage() {
     addMessage,
     updateMessageContent,
     updateMessageStatus,
+    updateMessageStreamEvent,
     persistConversations,
   } = useChatStore();
 
-  const abortRef = useRef<{ abort: () => void } | null>(null);
+  const activeAssistantMessageIdRef = useRef<string | null>(null);
   const isStreaming = currentConversation?.messages.some(
     (m) => m.status === "streaming"
   );
@@ -49,10 +53,14 @@ export default function ChatPage() {
 
   useEffect(() => {
     return () => {
-      abortRef.current?.abort();
+      abort();
+      if (activeAssistantMessageIdRef.current) {
+        updateMessageStatus(activeAssistantMessageIdRef.current, "done");
+        activeAssistantMessageIdRef.current = null;
+      }
       persistConversations();
     };
-  }, [persistConversations]);
+  }, [abort, persistConversations, updateMessageStatus]);
 
   const handleSend = (content: string) => {
     const localConversationId =
@@ -78,31 +86,62 @@ export default function ChatPage() {
       createdAt: Date.now(),
     };
     addMessage(aiMsg);
+    activeAssistantMessageIdRef.current = aiMsgId;
 
-    const task = sendMessage(
-      requestConversationId,
-      content,
-      ({ conversationId: realConversationId }) => {
-        if (localConversationId.startsWith("draft_")) {
-          replaceConversationId(localConversationId, realConversationId);
-        }
-      },
-      (chunk) => {
-        updateMessageContent(aiMsgId, chunk);
-      },
-      () => {
-        updateMessageStatus(aiMsgId, "done");
-        abortRef.current = null;
-        persistConversations();
-      },
-      () => {
-        updateMessageStatus(aiMsgId, "error");
-        abortRef.current = null;
-        persistConversations();
+    const recordStreamEvent = (event: StreamTaskEvent) => {
+      const feedback = toMessageStreamFeedback(event);
+      if (feedback) {
+        updateMessageStreamEvent(aiMsgId, feedback);
       }
-    );
+    };
 
-    abortRef.current = task;
+    sendMessage(
+      { conversationId: requestConversationId, content },
+      {
+        onTaskCreated: ({ conversationId: realConversationId }, event) => {
+          recordStreamEvent(event);
+          if (localConversationId.startsWith("draft_")) {
+            replaceConversationId(localConversationId, realConversationId);
+          }
+        },
+        onStatus: recordStreamEvent,
+        onToolCall: recordStreamEvent,
+        onChunk: (chunk) => {
+          updateMessageContent(aiMsgId, chunk);
+        },
+        onCompleted: (event) => {
+          if (event) {
+            recordStreamEvent(event);
+          }
+          updateMessageStatus(aiMsgId, "done");
+          activeAssistantMessageIdRef.current = null;
+          persistConversations();
+        },
+        onMessageDone: (_content, event) => {
+          recordStreamEvent(event);
+          updateMessageStatus(aiMsgId, "done");
+          activeAssistantMessageIdRef.current = null;
+          persistConversations();
+        },
+        onError: (error, event) => {
+          console.error("Chat stream failed:", error);
+          if (event) {
+            recordStreamEvent(event);
+          }
+          updateMessageStatus(aiMsgId, "error");
+          activeAssistantMessageIdRef.current = null;
+          persistConversations();
+        },
+        onCanceled: (event) => {
+          if (event) {
+            recordStreamEvent(event);
+          }
+          updateMessageStatus(aiMsgId, "done");
+          activeAssistantMessageIdRef.current = null;
+          persistConversations();
+        },
+      },
+    );
   };
 
   const messages = currentConversation?.messages || [];
@@ -117,7 +156,7 @@ export default function ChatPage() {
       />
 
       <View className='flex min-h-0 flex-1 flex-col'>
-        <MessageList messages={messages} />
+        <MessageList messages={messages} isStreaming={!!isStreaming} />
       </View>
 
       {isStreaming && (
@@ -132,7 +171,16 @@ export default function ChatPage() {
 
       <ChatInput
         onSend={handleSend}
-        onStop={() => abortRef.current?.abort()}
+        onStop={() => {
+          if (activeAssistantMessageIdRef.current) {
+            updateMessageStatus(activeAssistantMessageIdRef.current, "done");
+            activeAssistantMessageIdRef.current = null;
+            persistConversations();
+          }
+          void cancel().catch((error) => {
+            console.error("Cancel chat stream failed:", error);
+          });
+        }}
         isStreaming={!!isStreaming}
       />
     </View>

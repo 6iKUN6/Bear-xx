@@ -503,6 +503,14 @@ pnpm typecheck
 
 `src/api/generated*` 相关文件原则上视为生成产物，不要直接手工修改。
 
+`backend/docs/openapi.json` 也视为接口生成链路的快照产物，不要主动手工修改或单独编辑该文件。需要更新 OpenAPI 快照或前端 API 类型时，统一在 `frontend/` 目录执行：
+
+```bash
+pnpm generate:api:local
+```
+
+该命令会先调用后端脚本导出 OpenAPI，再通过 Orval 生成前端 API。
+
 接口字段、返回结构或类型不符合预期时，应优先检查：
 
 - 后端 DTO

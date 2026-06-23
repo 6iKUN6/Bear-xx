@@ -6,10 +6,11 @@
  * OpenAPI spec version: 1.0
  */
 import type { StreamTaskEventPayloadDtoPayload } from './streamTaskEventPayloadDtoPayload';
+import type { StreamTaskEventType } from './streamTaskEventType';
 
 export interface StreamTaskEventPayloadDto {
   /** 事件类型 */
-  type: string;
+  type: StreamTaskEventType;
   /** 流式任务 ID */
   taskId: string;
   /** 事件所属执行流片段 ID */

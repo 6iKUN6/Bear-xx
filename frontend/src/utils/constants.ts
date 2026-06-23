@@ -4,6 +4,8 @@ export const STORAGE_KEYS = {
   CONVERSATIONS: "litter_bear_conversations",
 } as const;
 
-export const API_BASE_URL = ""; // 后端就绪后填入
+const apiBaseUrl = __API_BASE_URL__ || "";
 
-export const USE_MOCK = true; // mock 开关
+export const API_BASE_URL = apiBaseUrl.replace(/\/+$/, "");
+
+export const USE_MOCK = false; // mock 开关

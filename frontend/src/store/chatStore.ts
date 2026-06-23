@@ -17,6 +17,10 @@ interface ChatState {
   addMessage: (msg: Message) => void;
   updateMessageContent: (msgId: string, content: string) => void;
   updateMessageStatus: (msgId: string, status: MessageStatus) => void;
+  updateMessageStreamEvent: (
+    msgId: string,
+    event: MessageStreamEventFeedback,
+  ) => void;
 
   persistConversations: () => void;
   hydrateConversations: () => void;
@@ -150,6 +154,28 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
       const messages = state.currentConversation.messages.map((m) =>
         m.id === msgId ? { ...m, status } : m
+      );
+
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
+
+      const conversations = state.conversations.map((c) =>
+        c.id === updatedConv.id ? updatedConv : c
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
+  updateMessageStreamEvent(msgId: string, event: MessageStreamEventFeedback) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((m) =>
+        m.id === msgId ? { ...m, currentStreamEvent: event } : m
       );
 
       const updatedConv: Conversation = {

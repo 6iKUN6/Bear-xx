@@ -26,6 +26,7 @@ import type {
   UpdateProfileDto,
   UserProfileDto,
   VoiceCompletionsFormDataDto,
+  WechatBindDto,
   WechatLoginDto
 } from './models';
 
@@ -39,7 +40,7 @@ export const getAuthControllerWechatLoginUrl = () => {
 }
 
 /**
- * 使用微信 code 换取 JWT Token
+ * 使用已绑定账号的微信 code 换取 JWT Token；未绑定时需先使用手机号登录并绑定微信
  * @summary 微信登录
  */
 export const authControllerWechatLogin = async (wechatLoginDto: WechatLoginDto, options?: RequestInit): Promise<LoginResultDto> => {
@@ -50,6 +51,31 @@ export const authControllerWechatLogin = async (wechatLoginDto: WechatLoginDto, 
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(wechatLoginDto)
+  }
+);}
+
+
+
+export const getAuthControllerBindWechatUrl = () => {
+
+
+
+
+  return `/api/auth/wechat/bind`
+}
+
+/**
+ * 将微信 code 对应的微信身份绑定到当前已登录账号
+ * @summary 绑定微信账号
+ */
+export const authControllerBindWechat = async (wechatBindDto: WechatBindDto, options?: RequestInit): Promise<LoginResultDto> => {
+
+  return taroRequest<LoginResultDto>(getAuthControllerBindWechatUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(wechatBindDto)
   }
 );}
 
@@ -114,8 +140,8 @@ export const getAuthControllerPhoneLoginUrl = () => {
 }
 
 /**
- * 使用手机号 + 验证码登录，自动注册新用户
- * @summary 手机号登录
+ * 使用手机号和密码登录；若手机号不存在，则自动注册后返回登录态
+ * @summary 手机号密码登录或自动注册
  */
 export const authControllerPhoneLogin = async (phoneLoginDto: PhoneLoginDto, options?: RequestInit): Promise<LoginResultDto> => {
 

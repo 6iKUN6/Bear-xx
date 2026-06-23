@@ -6,9 +6,7 @@
  * OpenAPI spec version: 1.0
  */
 
-export interface PhoneLoginDto {
-  /** 手机号码 */
-  phone: string;
-  /** 登录密码，至少8位 */
-  password: string;
+export interface WechatBindDto {
+  /** 微信登录临时凭证 code */
+  code: string;
 }
