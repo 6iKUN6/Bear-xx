@@ -30,7 +30,7 @@ export class AccountLoginDto {
   password: string;
 
   @ApiPropertyOptional({
-    description: '首次自动注册时使用的昵称，不传则默认使用账号名',
+    description: '首次自动注册时使用的昵称，不传则默认生成“用户+随机字符”',
     example: 'Sparkle',
   })
   @IsOptional()

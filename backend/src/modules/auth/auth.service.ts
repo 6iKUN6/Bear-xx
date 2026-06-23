@@ -2,7 +2,7 @@ import {
   Injectable,
   Logger,
   UnauthorizedException,
-  BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -59,7 +59,68 @@ export class AuthService {
    */
   async wechatLogin(code: string): Promise<LoginResult> {
     const { openid, unionid } = await this.code2Session(code);
-    const user = await this.userService.findOrCreateByOpenId(openid, unionid);
+    const user =
+      (await this.userService.findByOpenId(openid)) ??
+      (unionid ? await this.userService.findByUnionId(unionid) : null);
+
+    if (!user) {
+      throw new UnauthorizedException('微信未绑定账号，请先使用手机号登录');
+    }
+
+    return this.buildLoginResult(user);
+  }
+
+  /**
+   * 绑定微信身份到当前登录用户
+   * @param userId 当前登录用户ID
+   * @param code 微信登录 code
+   * @returns 返回登录结果，包含 access token、refresh token 和用户信息
+   * @description 将微信 code 换取的 OpenID/UnionID 绑定到当前用户；如果微信身份已绑定其他账号，则拒绝绑定。
+   */
+  async bindWechat(userId: string, code: string): Promise<LoginResult> {
+    const { openid, unionid } = await this.code2Session(code);
+    const currentUser = await this.userService.findById(userId);
+
+    if (!currentUser) {
+      throw new UnauthorizedException('用户不存在');
+    }
+
+    if (currentUser.wechatOpenId && currentUser.wechatOpenId !== openid) {
+      throw new ConflictException('当前账号已绑定其他微信');
+    }
+
+    if (
+      unionid &&
+      currentUser.wechatUnionId &&
+      currentUser.wechatUnionId !== unionid
+    ) {
+      throw new ConflictException('当前账号已绑定其他微信');
+    }
+
+    const userByOpenId = await this.userService.findByOpenId(openid);
+    if (userByOpenId && userByOpenId.id !== userId) {
+      throw new ConflictException('该微信已绑定其他账号');
+    }
+
+    if (unionid) {
+      const userByUnionId = await this.userService.findByUnionId(unionid);
+      if (userByUnionId && userByUnionId.id !== userId) {
+        throw new ConflictException('该微信已绑定其他账号');
+      }
+    }
+
+    if (
+      currentUser.wechatOpenId === openid &&
+      (!unionid || currentUser.wechatUnionId === unionid)
+    ) {
+      return this.buildLoginResult(currentUser);
+    }
+
+    const user = await this.userService.bindWechatIdentity(
+      userId,
+      openid,
+      unionid,
+    );
     return this.buildLoginResult(user);
   }
 
@@ -143,20 +204,41 @@ export class AuthService {
   }
 
   /**
-   * 使用手机号验证码完成登录
+   * 使用手机号密码登录或自动注册
    * @param phone 手机号
-   * @param code 验证码
+   * @param password 登录密码
    * @returns 返回登录结果，包含 access token、refresh token 和用户信息
-   * @description 校验短信验证码，通过后查询或创建用户，并签发系统登录态。
+   * @description 若手机号已存在则校验密码并登录；若手机号不存在，则使用当前密码自动注册新用户后直接登录。
    */
-  async phoneLogin(phone: string, code: string): Promise<LoginResult> {
-    const valid = await this.smsService.verifyCode(phone, code);
-    if (!valid) {
-      throw new BadRequestException('验证码错误或已过期');
+  async phonePasswordLogin(
+    phone: string,
+    password: string,
+  ): Promise<LoginResult> {
+    const normalizedPhone = phone.trim();
+    const existingUser = await this.userService.findByPhone(normalizedPhone);
+
+    if (!existingUser) {
+      const passwordHash = await this.hashPassword(password);
+      const createdUser = await this.userService.createWithPhonePassword({
+        phone: normalizedPhone,
+        passwordHash,
+      });
+      return this.buildLoginResult(createdUser);
     }
 
-    const user = await this.userService.findOrCreateByPhone(phone);
-    return this.buildLoginResult(user);
+    if (!existingUser.passwordHash) {
+      throw new UnauthorizedException('该手机号暂不支持密码登录');
+    }
+
+    const passwordMatched = await this.verifyPassword(
+      password,
+      existingUser.passwordHash,
+    );
+    if (!passwordMatched) {
+      throw new UnauthorizedException('手机号或密码错误');
+    }
+
+    return this.buildLoginResult(existingUser);
   }
 
   /**

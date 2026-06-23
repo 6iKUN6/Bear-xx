@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, Matches, Length } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class SendCodeDto {
@@ -16,9 +22,10 @@ export class PhoneLoginDto {
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
   phone: string;
 
-  @ApiProperty({ description: '6位短信验证码', example: '123456' })
+  @ApiProperty({ description: '登录密码，至少8位', example: '12345678' })
   @IsString()
   @IsNotEmpty()
-  @Length(6, 6, { message: '验证码为6位数字' })
-  code: string;
+  @MinLength(8, { message: '密码长度至少为8位' })
+  @MaxLength(64, { message: '密码长度不能超过64位' })
+  password: string;
 }

@@ -3,7 +3,7 @@
   "paths": {
     "/api/auth/wechat-login": {
       "post": {
-        "description": "使用微信 code 换取 JWT Token",
+        "description": "使用已绑定账号的微信 code 换取 JWT Token；未绑定时需先使用手机号登录并绑定微信",
         "operationId": "AuthController_wechatLogin",
         "parameters": [],
         "requestBody": {
@@ -29,6 +29,44 @@
           }
         },
         "summary": "微信登录",
+        "tags": [
+          "认证"
+        ]
+      }
+    },
+    "/api/auth/wechat/bind": {
+      "post": {
+        "description": "将微信 code 对应的微信身份绑定到当前已登录账号",
+        "operationId": "AuthController_bindWechat",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WechatBindDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "绑定成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "绑定微信账号",
         "tags": [
           "认证"
         ]
@@ -102,7 +140,7 @@
     },
     "/api/auth/phone/login": {
       "post": {
-        "description": "使用手机号 + 验证码登录，自动注册新用户",
+        "description": "使用手机号和密码登录；若手机号不存在，则自动注册后返回登录态",
         "operationId": "AuthController_phoneLogin",
         "parameters": [],
         "requestBody": {
@@ -127,7 +165,7 @@
             }
           }
         },
-        "summary": "手机号登录",
+        "summary": "手机号密码登录或自动注册",
         "tags": [
           "认证"
         ]
@@ -892,6 +930,19 @@
           "user"
         ]
       },
+      "WechatBindDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "微信登录临时凭证 code",
+            "example": "0a1B2c3D4e5F6g"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
       "SendCodeDto": {
         "type": "object",
         "properties": {
@@ -950,15 +1001,15 @@
             "description": "手机号码",
             "example": "13812345678"
           },
-          "code": {
+          "password": {
             "type": "string",
-            "description": "6位短信验证码",
-            "example": "123456"
+            "description": "登录密码，至少8位",
+            "example": "12345678"
           }
         },
         "required": [
           "phone",
-          "code"
+          "password"
         ]
       },
       "RefreshTokenDto": {

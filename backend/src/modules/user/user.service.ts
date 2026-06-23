@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { User } from '@prisma/client';
 
+const DEFAULT_NICKNAME_PREFIX = '用户';
+const DEFAULT_NICKNAME_RANDOM_LENGTH = 6;
+
 @Injectable()
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
@@ -24,6 +27,16 @@ export class UserService {
    */
   async findByOpenId(wechatOpenId: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { wechatOpenId } });
+  }
+
+  /**
+   * 根据微信UnionID查询用户
+   * @param wechatUnionId 微信UnionID
+   * @returns 返回用户记录；若不存在则返回 null
+   * @description 当微信返回 unionid 时，用于判断该微信身份是否已经绑定到其他本地用户。
+   */
+  async findByUnionId(wechatUnionId: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { wechatUnionId } });
   }
 
   /**
@@ -61,7 +74,11 @@ export class UserService {
     if (existing) return existing;
 
     return this.prisma.user.create({
-      data: { wechatOpenId, wechatUnionId },
+      data: {
+        wechatOpenId,
+        wechatUnionId,
+        nickname: this.generateDefaultNickname(),
+      },
     });
   }
 
@@ -76,7 +93,10 @@ export class UserService {
     if (existing) return existing;
 
     return this.prisma.user.create({
-      data: { phone },
+      data: {
+        phone,
+        nickname: this.generateDefaultNickname(),
+      },
     });
   }
 
@@ -96,9 +116,41 @@ export class UserService {
         username: data.username,
         passwordHash: data.passwordHash,
         passwordUpdatedAt: new Date(),
-        nickname: data.nickname ?? data.username,
+        nickname: data.nickname?.trim() || this.generateDefaultNickname(),
       },
     });
+  }
+
+  /**
+   * 创建手机号密码用户
+   * @param data 手机号密码用户创建数据
+   * @returns 返回新创建的用户记录
+   * @description 使用手机号和密码哈希创建本地用户，供手机号密码登录入口在首登时自动注册。
+   */
+  async createWithPhonePassword(data: {
+    phone: string;
+    passwordHash: string;
+  }): Promise<User> {
+    return this.prisma.user.create({
+      data: {
+        phone: data.phone,
+        passwordHash: data.passwordHash,
+        passwordUpdatedAt: new Date(),
+        nickname: this.generateDefaultNickname(),
+      },
+    });
+  }
+
+  /**
+   * 生成默认用户昵称
+   * @returns 返回形如“用户a1b2c3”的默认昵称
+   * @description 用于自动注册场景，避免新账号都显示同一个“用户”或暴露手机号、账号名。
+   */
+  private generateDefaultNickname() {
+    const randomText = Math.random()
+      .toString(36)
+      .slice(2, 2 + DEFAULT_NICKNAME_RANDOM_LENGTH);
+    return `${DEFAULT_NICKNAME_PREFIX}${randomText}`;
   }
 
   /**
@@ -114,6 +166,28 @@ export class UserService {
       data: {
         passwordHash,
         passwordUpdatedAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * 绑定微信身份到指定用户
+   * @param userId 用户ID
+   * @param wechatOpenId 微信OpenID
+   * @param wechatUnionId 微信UnionID
+   * @returns 返回更新后的用户记录
+   * @description 将微信 OpenID 和可选 UnionID 写入当前用户，用于手机号账号和微信身份打通。
+   */
+  async bindWechatIdentity(
+    userId: string,
+    wechatOpenId: string,
+    wechatUnionId?: string,
+  ): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        wechatOpenId,
+        wechatUnionId,
       },
     });
   }

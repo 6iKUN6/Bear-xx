@@ -15,6 +15,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { AccountLoginDto } from './dto/account-login.dto';
+import { WechatBindDto } from './dto/wechat-bind.dto';
 import { WechatLoginDto } from './dto/wechat-login.dto';
 import { SendCodeDto, PhoneLoginDto } from './dto/phone-login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -32,11 +33,28 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '微信登录',
-    description: '使用微信 code 换取 JWT Token',
+    description:
+      '使用已绑定账号的微信 code 换取 JWT Token；未绑定时需先使用手机号登录并绑定微信',
   })
   @ApiOkResponse({ description: '登录成功', type: LoginResultDto })
   async wechatLogin(@Body() dto: WechatLoginDto) {
     return this.authService.wechatLogin(dto.code);
+  }
+
+  @Post('wechat/bind')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '绑定微信账号',
+    description: '将微信 code 对应的微信身份绑定到当前已登录账号',
+  })
+  @ApiOkResponse({ description: '绑定成功', type: LoginResultDto })
+  async bindWechat(
+    @Body() dto: WechatBindDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.authService.bindWechat(userId, dto.code);
   }
 
   @Post('phone/send-code')
@@ -74,12 +92,12 @@ export class AuthController {
   @Post('phone/login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '手机号登录',
-    description: '使用手机号 + 验证码登录，自动注册新用户',
+    summary: '手机号密码登录或自动注册',
+    description: '使用手机号和密码登录；若手机号不存在，则自动注册后返回登录态',
   })
   @ApiOkResponse({ description: '登录成功', type: LoginResultDto })
   async phoneLogin(@Body() dto: PhoneLoginDto) {
-    return this.authService.phoneLogin(dto.phone, dto.code);
+    return this.authService.phonePasswordLogin(dto.phone, dto.password);
   }
 
   @Post('refresh')
