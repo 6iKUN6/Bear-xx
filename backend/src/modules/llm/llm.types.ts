@@ -52,3 +52,7 @@ export interface ResolvedLlmTextRequest {
 export interface LlmStreamOptions {
   abortSignal?: AbortSignal;
 }
+
+export interface LlmGenerateOptions {
+  abortSignal?: AbortSignal;
+}

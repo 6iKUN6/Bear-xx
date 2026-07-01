@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { chatAgentCommonPrompt } from '../../../../prompts';
-import { ChatContextService } from '../../../memory/chat-context.service';
+import {
+  ChatContextService,
+  type ChatContextBundle,
+} from '../../../memory/chat-context.service';
 import type {
   LlmMessage,
   LlmTextRequest,
@@ -21,6 +24,7 @@ export interface PreparedCommonChatAgentRun {
   messages: LlmMessage[];
   systemPrompt?: string;
   tools: unknown[];
+  context: ChatContextBundle;
   events: AsyncGenerator<AgentLoopStreamEvent, void, unknown>;
 }
 
@@ -53,7 +57,8 @@ export class CommonChatAgentRunnerService {
   async prepareConversationRun(
     request: CommonChatConversationAgentRequest,
   ): Promise<PreparedCommonChatAgentRun> {
-    const contextMessages = await this.buildContextMessages(request);
+    const context = await this.buildContextBundle(request);
+    const contextMessages = context.messages;
     const systemPrompt = this.resolveSystemPrompt();
     const tools = this.buildTools(request);
     const llm = this.resolveTextRequest(request.llm);
@@ -62,6 +67,7 @@ export class CommonChatAgentRunnerService {
       messages: contextMessages,
       systemPrompt,
       tools,
+      context,
       events: this.agentLoopRunnerService.stream({
         messages: contextMessages,
         systemPrompt,
@@ -72,10 +78,10 @@ export class CommonChatAgentRunnerService {
     };
   }
 
-  private buildContextMessages(
+  private buildContextBundle(
     request: CommonChatConversationAgentRequest,
-  ): Promise<LlmMessage[]> {
-    return this.chatContextService.buildChatMessages(
+  ): Promise<ChatContextBundle> {
+    return this.chatContextService.buildContextBundle(
       request.conversationId,
       request.pendingMessageId,
     );

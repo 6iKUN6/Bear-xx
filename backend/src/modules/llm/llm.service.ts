@@ -11,6 +11,7 @@ import type {
   LlmMessage,
   LlmTextRequest,
   LlmStreamOptions,
+  LlmGenerateOptions,
   ResolvedLlmTextRequest,
 } from './llm.types';
 
@@ -112,6 +113,65 @@ export class LlmService {
           parsedChunkCount,
           skippedChunkCount,
           totalParsedLength,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * 非流式生成聊天文本
+   * @param messages 聊天消息列表
+   * @param request 文本生成请求配置
+   * @param options 非流式运行时附加参数
+   * @returns 返回完整文本内容
+   * @description 适用于摘要、工具内部生成等不需要 SSE 增量输出的后台任务，避免调用方为了拼接完整结果而消费流式接口。
+   */
+  async generateChatText(
+    messages: LlmMessage[],
+    request?: LlmTextRequest | ResolvedLlmTextRequest,
+    options?: LlmGenerateOptions,
+  ): Promise<string> {
+    const resolvedRequest = this.modelRegistry.resolveTextRequest(request);
+    const chatModel = this.createChatModel(resolvedRequest);
+    const langChainMessages = this.toLangChainMessages(messages);
+    const startedAt = Date.now();
+
+    this.debugLog('llm.generate.request', {
+      model: this.toSafeModelLog(resolvedRequest),
+      messageCount: messages.length,
+      generation: resolvedRequest.generation,
+      hasAbortSignal: Boolean(options?.abortSignal),
+    });
+
+    try {
+      const response = await chatModel.invoke(langChainMessages, {
+        signal: options?.abortSignal,
+      });
+      const content = this.readChunkText(response.content).trim();
+
+      if (!content) {
+        this.logger.warn(
+          this.formatLog('llm.generate.empty', {
+            model: this.toSafeModelLog(resolvedRequest),
+            durationMs: Date.now() - startedAt,
+          }),
+        );
+      }
+
+      this.debugLog('llm.generate.completed', {
+        model: this.toSafeModelLog(resolvedRequest),
+        contentLength: content.length,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return content;
+    } catch (error) {
+      this.logger.error(
+        this.formatLog('llm.generate.failed', {
+          model: this.toSafeModelLog(resolvedRequest),
           durationMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error),
         }),

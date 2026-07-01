@@ -2,7 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { MessageRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
-import { CHAT_CONTEXT_RECENT_MESSAGE_LIMIT } from './memory.constants';
+import {
+  conversationSummaryFullPrompt,
+  conversationSummaryIncrementalPrompt,
+} from '../../prompts';
+import {
+  CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
+  CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
+  CONVERSATION_SUMMARY_MAX_SOURCE_MESSAGE_COUNT,
+  CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT,
+  CONVERSATION_SUMMARY_TEMPERATURE,
+} from './memory.constants';
 
 @Injectable()
 export class ConversationSummaryService {
@@ -45,7 +55,10 @@ export class ConversationSummaryService {
       Math.max(0, history.length - CHAT_CONTEXT_RECENT_MESSAGE_LIMIT),
     );
 
-    if (summarySourceMessages.length === 0) {
+    if (
+      summarySourceMessages.length <
+      CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT
+    ) {
       await this.prisma.conversationSummary.deleteMany({
         where: { conversationId },
       });
@@ -66,8 +79,11 @@ export class ConversationSummaryService {
 
     const summary = await this.generateSummaryContent(
       existingSummary?.summary,
-      summarySourceMessages.slice(existingSummary?.messageCount ?? 0),
-      summarySourceMessages,
+      this.readIncrementalMessages(
+        summarySourceMessages,
+        existingSummary?.messageCount,
+      ),
+      this.limitSummarySourceMessages(summarySourceMessages),
     );
 
     return this.prisma.conversationSummary.upsert({
@@ -130,8 +146,7 @@ export class ConversationSummaryService {
     return this.generateText([
       {
         role: 'system',
-        content:
-          '你是会话摘要助手。请用简洁中文总结对话历史，只保留后续对话真正需要的内容，包括用户目标、关键事实、约束条件、偏好、已完成结论、待跟进事项。不要输出寒暄，不要编造信息，控制在 200 字以内。',
+        content: conversationSummaryFullPrompt,
       },
       {
         role: 'user',
@@ -157,8 +172,7 @@ export class ConversationSummaryService {
     return this.generateText([
       {
         role: 'system',
-        content:
-          '你是会话摘要助手。请根据已有摘要和新增消息更新摘要，只保留对后续对话有价值的信息，包括目标、事实、偏好、约束、结论和待办事项。不要编造信息，控制在 200 字以内。',
+        content: conversationSummaryIncrementalPrompt,
       },
       {
         role: 'user',
@@ -171,7 +185,7 @@ export class ConversationSummaryService {
    * 调用模型生成文本
    * @param messages 用于模型生成的消息列表
    * @returns 返回完整文本内容
-   * @description 通过统一的 LLM 服务流式收集文本，供摘要生成等非实时输出场景复用。
+   * @description 通过统一的 LLM 服务非流式生成完整文本，供摘要生成等非实时输出场景复用。
    */
   private async generateText(
     messages: Array<{
@@ -179,18 +193,44 @@ export class ConversationSummaryService {
       content: string;
     }>,
   ): Promise<string> {
-    let fullContent = '';
-
-    for await (const chunk of this.llmService.streamChatText(messages, {
+    return this.llmService.generateChatText(messages, {
       generation: {
-        temperature: 0.2,
-        maxOutputTokens: 300,
+        temperature: CONVERSATION_SUMMARY_TEMPERATURE,
+        maxOutputTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
       },
-    })) {
-      fullContent += chunk;
-    }
+    });
+  }
 
-    return fullContent.trim();
+  /**
+   * 读取需要增量合并的消息
+   * @param messages 当前摘要来源消息列表
+   * @param summarizedMessageCount 已经被旧摘要覆盖的消息数量
+   * @returns 返回尚未合并进摘要的新增历史消息
+   * @description 只把旧摘要之后的新历史消息交给增量摘要提示词，避免重复压缩已经覆盖的内容。
+   */
+  private readIncrementalMessages(
+    messages: Array<{
+      role: MessageRole;
+      content: string;
+    }>,
+    summarizedMessageCount: number | undefined,
+  ) {
+    return messages.slice(summarizedMessageCount ?? 0);
+  }
+
+  /**
+   * 限制摘要来源消息数量
+   * @param messages 当前摘要来源消息列表
+   * @returns 返回用于全量摘要生成的消息窗口
+   * @description 第一版保留较早历史中的最近一段摘要来源，避免极长会话触发过大的后台摘要请求。
+   */
+  private limitSummarySourceMessages(
+    messages: Array<{
+      role: MessageRole;
+      content: string;
+    }>,
+  ) {
+    return messages.slice(-CONVERSATION_SUMMARY_MAX_SOURCE_MESSAGE_COUNT);
   }
 
   /**

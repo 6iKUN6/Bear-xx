@@ -5,6 +5,19 @@ import type { LlmMessage } from '../llm/llm.types';
 import { ConversationSummaryService } from './conversation-summary.service';
 import { CHAT_CONTEXT_RECENT_MESSAGE_LIMIT } from './memory.constants';
 
+export interface ChatContextBundle {
+  messages: LlmMessage[];
+  summary?: {
+    content: string;
+    latestMessageId?: string;
+    messageCount: number;
+  };
+  recentWindow: {
+    limit: number;
+    messageCount: number;
+  };
+}
+
 @Injectable()
 export class ChatContextService {
   constructor(
@@ -23,6 +36,24 @@ export class ChatContextService {
     conversationId: string,
     pendingMessageId: string,
   ): Promise<LlmMessage[]> {
+    const bundle = await this.buildContextBundle(
+      conversationId,
+      pendingMessageId,
+    );
+    return bundle.messages;
+  }
+
+  /**
+   * 构建聊天上下文包
+   * @param conversationId 会话ID
+   * @param pendingMessageId 当前待生成的 assistant 消息ID
+   * @returns 返回包含 LLM 消息、摘要信息和最近窗口信息的上下文包
+   * @description 第一版上下文管理以“较早历史摘要 + 最近消息窗口”为核心，集中记录上下文来源，便于后续加入 token 预算和长期记忆。
+   */
+  async buildContextBundle(
+    conversationId: string,
+    pendingMessageId: string,
+  ): Promise<ChatContextBundle> {
     const summary =
       await this.conversationSummaryService.getConversationSummary(
         conversationId,
@@ -45,16 +76,31 @@ export class ChatContextService {
     if (summary?.summary) {
       contextMessages.push({
         role: 'system',
-        content: `以下是该会话较早历史的摘要，请在后续回答中延续这些上下文信息：\n${summary.summary}`,
+        content: this.formatSummaryContextMessage(summary.summary),
       });
     }
 
-    return contextMessages.concat(
+    const messages = contextMessages.concat(
       recentMessages.reverse().map((message) => ({
         role: this.toLlmMessageRole(message.role),
         content: message.content,
       })),
     );
+
+    return {
+      messages,
+      summary: summary?.summary
+        ? {
+            content: summary.summary,
+            latestMessageId: summary.latestMessageId ?? undefined,
+            messageCount: summary.messageCount,
+          }
+        : undefined,
+      recentWindow: {
+        limit: CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
+        messageCount: recentMessages.length,
+      },
+    };
   }
 
   /**
@@ -65,5 +111,20 @@ export class ChatContextService {
    */
   private toLlmMessageRole(role: MessageRole): 'user' | 'assistant' {
     return role === MessageRole.USER ? 'user' : 'assistant';
+  }
+
+  /**
+   * 格式化摘要上下文消息
+   * @param summary 会话较早历史摘要
+   * @returns 返回注入 LLM 的 system 上下文消息
+   * @description 明确摘要只用于延续上下文，并要求最近消息优先于摘要，降低旧摘要和最新对话冲突时的误用风险。
+   */
+  private formatSummaryContextMessage(summary: string) {
+    return [
+      '以下是当前会话较早历史的压缩摘要，只用于延续上下文，不要向用户暴露摘要本身。',
+      '如果摘要与最近消息冲突，优先相信最近消息。',
+      '',
+      summary,
+    ].join('\n');
   }
 }

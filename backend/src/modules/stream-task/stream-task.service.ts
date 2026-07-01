@@ -738,6 +738,10 @@ export class StreamTaskService {
       generation: payload.llm?.generation,
       hasSystemPrompt: Boolean(agentRun.systemPrompt),
       toolCount: agentRun.tools.length,
+      hasSummary: Boolean(agentRun.context.summary),
+      summaryMessageCount: agentRun.context.summary?.messageCount,
+      recentMessageCount: agentRun.context.recentWindow.messageCount,
+      recentMessageLimit: agentRun.context.recentWindow.limit,
     });
 
     for await (const event of agentRun.events) {
