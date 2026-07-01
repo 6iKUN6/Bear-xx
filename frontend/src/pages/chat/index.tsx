@@ -33,6 +33,7 @@ export default function ChatPage() {
     updateMessageContent,
     updateMessageStatus,
     updateMessageStreamEvent,
+    toggleMessageStreamFeedback,
     persistConversations,
   } = useChatStore();
 
@@ -156,7 +157,11 @@ export default function ChatPage() {
       />
 
       <View className='flex min-h-0 flex-1 flex-col'>
-        <MessageList messages={messages} isStreaming={!!isStreaming} />
+        <MessageList
+          messages={messages}
+          isStreaming={!!isStreaming}
+          onToggleStreamFeedback={toggleMessageStreamFeedback}
+        />
       </View>
 
       {isStreaming && (

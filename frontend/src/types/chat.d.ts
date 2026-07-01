@@ -13,12 +13,19 @@ interface MessageStreamEventFeedback {
   updatedAt: number;
 }
 
+interface MessageStreamFeedbackState {
+  current?: MessageStreamEventFeedback;
+  events: MessageStreamEventFeedback[];
+  expanded: boolean;
+}
+
 interface Message {
   id: string;
   role: MessageRole;
   content: string;
   status: MessageStatus;
   createdAt: number;
+  streamFeedback?: MessageStreamFeedbackState;
   currentStreamEvent?: MessageStreamEventFeedback;
 }
 

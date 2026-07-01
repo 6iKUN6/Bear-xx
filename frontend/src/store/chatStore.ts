@@ -21,6 +21,7 @@ interface ChatState {
     msgId: string,
     event: MessageStreamEventFeedback,
   ) => void;
+  toggleMessageStreamFeedback: (msgId: string) => void;
 
   persistConversations: () => void;
   hydrateConversations: () => void;
@@ -175,8 +176,41 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
       if (!state.currentConversation) return state;
 
       const messages = state.currentConversation.messages.map((m) =>
-        m.id === msgId ? { ...m, currentStreamEvent: event } : m
+        m.id === msgId ? applyStreamFeedbackEvent(m, event) : m
       );
+
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
+
+      const conversations = state.conversations.map((c) =>
+        c.id === updatedConv.id ? updatedConv : c
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
+  toggleMessageStreamFeedback(msgId: string) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((m) => {
+        if (m.id !== msgId) {
+          return m;
+        }
+
+        const streamFeedback = normalizeStreamFeedback(m);
+        return {
+          ...m,
+          streamFeedback: {
+            ...streamFeedback,
+            expanded: !streamFeedback.expanded,
+          },
+        };
+      });
 
       const updatedConv: Conversation = {
         ...state.currentConversation,
@@ -203,3 +237,63 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
     set({ conversations });
   },
 }));
+
+function applyStreamFeedbackEvent(
+  message: Message,
+  event: MessageStreamEventFeedback,
+): Message {
+  const streamFeedback = normalizeStreamFeedback(message);
+  const events = upsertStreamFeedbackEvent(streamFeedback.events, event);
+
+  return {
+    ...message,
+    currentStreamEvent: event,
+    streamFeedback: {
+      ...streamFeedback,
+      current: event,
+      events,
+    },
+  };
+}
+
+function normalizeStreamFeedback(message: Message): MessageStreamFeedbackState {
+  if (message.streamFeedback) {
+    return message.streamFeedback;
+  }
+
+  const event = message.currentStreamEvent;
+  return {
+    current: event,
+    events: event ? [event] : [],
+    expanded: false,
+  };
+}
+
+function upsertStreamFeedbackEvent(
+  events: MessageStreamEventFeedback[],
+  nextEvent: MessageStreamEventFeedback,
+) {
+  const matchedIndex = events.findIndex((event) =>
+    isSameStreamFeedbackStep(event, nextEvent),
+  );
+
+  if (matchedIndex < 0) {
+    return [...events, nextEvent];
+  }
+
+  return events.map((event, index) =>
+    index === matchedIndex ? { ...event, ...nextEvent } : event,
+  );
+}
+
+function isSameStreamFeedbackStep(
+  event: MessageStreamEventFeedback,
+  nextEvent: MessageStreamEventFeedback,
+) {
+  return (
+    event.id === nextEvent.id ||
+    (event.type === nextEvent.type &&
+      event.title === nextEvent.title &&
+      event.detail === nextEvent.detail)
+  );
+}

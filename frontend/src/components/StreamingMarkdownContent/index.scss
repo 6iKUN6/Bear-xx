@@ -1,0 +1,55 @@
+.streaming-markdown-content {
+  position: relative;
+  min-width: 0;
+}
+
+.streaming-markdown-tail {
+  position: absolute;
+  right: 0;
+  bottom: -0.0625rem;
+  max-width: 72%;
+  overflow: hidden;
+  border-radius: 0.375rem;
+  background: linear-gradient(
+    90deg,
+    rgba(124, 58, 237, 0),
+    rgba(124, 58, 237, 0.12),
+    rgba(236, 72, 153, 0)
+  );
+  background-size: 220% 100%;
+  color: transparent;
+  pointer-events: none;
+  white-space: nowrap;
+  animation:
+    streaming-text-reveal 420ms ease-out both,
+    streaming-text-glow 920ms ease-out both;
+}
+
+@keyframes streaming-text-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(0.125rem);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes streaming-text-glow {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streaming-markdown-tail {
+    display: none;
+    animation: none;
+  }
+}
