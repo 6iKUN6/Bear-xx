@@ -34,7 +34,8 @@ export default function NavBar({
   capsule = "auto",
 }: NavBarProps) {
   const metrics = useNavBarMetrics();
-  const reservedSideWidth = sideWidth ?? Math.max(metrics.sideWidth, metrics.capsuleWidth);
+  const reservedSideWidth =
+    sideWidth ?? Math.max(metrics.sideWidth, metrics.capsuleWidth);
   const shouldRenderCapsule = capsule !== "hidden" && right === undefined;
   const shouldShowCapsuleVisual =
     capsule === "visible" || (capsule === "auto" && !metrics.isWeapp);
@@ -85,10 +86,10 @@ export default function NavBar({
       left
     ) : showBack ? (
       <View
-        className='flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] bg-white/70 text-[1.125rem] text-[var(--lb-text-primary)] shadow-[0_0.5rem_1.5rem_rgba(124,58,237,0.12)] backdrop-blur-[1rem]'
+        className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] bg-white/70 text-[1.125rem] text-[var(--lb-text-primary)] shadow-[0_0.5rem_1.5rem_rgba(124,58,237,0.12)] backdrop-blur-[1rem]"
         onClick={handleBack}
       >
-        <Text className='at-icon at-icon-chevron-left leading-none [&::before]:block' />
+        <Text className="at-icon at-icon-chevron-left leading-none [&::before]:block" />
       </View>
     ) : null;
 
@@ -107,11 +108,11 @@ export default function NavBar({
           height: metrics.capsuleHeight,
         }}
       >
-        <View className='flex items-center gap-[0.375rem] text-[rgba(107,114,128,0.9)]'>
-          <View className='h-[0.25rem] w-[0.25rem] rounded-full bg-current' />
-          <View className='h-[0.25rem] w-[0.25rem] rounded-full bg-current' />
-          <View className='h-[0.75rem] w-[0.0625rem] rounded-full bg-current opacity-35' />
-          <View className='h-[0.25rem] w-[0.25rem] rounded-full bg-current' />
+        <View className="flex items-center gap-[0.375rem] text-[rgba(107,114,128,0.9)]">
+          <View className="h-[0.25rem] w-[0.25rem] rounded-full bg-current" />
+          <View className="h-[0.25rem] w-[0.25rem] rounded-full bg-current" />
+          <View className="h-[0.75rem] w-[0.0625rem] rounded-full bg-current opacity-35" />
+          <View className="h-[0.25rem] w-[0.25rem] rounded-full bg-current" />
         </View>
       </View>
     ) : null;
@@ -135,23 +136,23 @@ export default function NavBar({
         style={{ height: metrics.contentHeight }}
       >
         <View
-          className='flex shrink-0 items-center justify-start'
+          className="flex shrink-0 items-center justify-start"
           style={{ width: reservedSideWidth }}
         >
           {leftContent}
         </View>
 
-        <View className='min-w-0 flex-1 px-[0.625rem] text-center'>
+        <View className="min-w-0 flex-1 px-[0.625rem] text-center">
           {renderTitle()}
           {subtitle ? (
-            <Text className='mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.2] text-[var(--lb-text-secondary)]'>
+            <Text className="mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.2] text-[var(--lb-text-secondary)]">
               {subtitle}
             </Text>
           ) : null}
         </View>
 
         <View
-          className='flex shrink-0 items-center justify-end'
+          className="flex shrink-0 items-center justify-end"
           style={{ width: reservedSideWidth }}
         >
           {rightContent}
