@@ -37,7 +37,7 @@ function StreamFeedback({
           />
         </View>
         <View className='min-w-0 flex-1 overflow-hidden'>
-          <CurrentTicker event={current} streaming={streaming} />
+          <CurrentStatus event={current} streaming={streaming} />
         </View>
         <Text
           className={`at-icon at-icon-chevron-down stream-feedback-chevron ${expanded ? "stream-feedback-chevron-expanded" : ""}`}
@@ -59,7 +59,7 @@ function StreamFeedback({
   );
 }
 
-function CurrentTicker({
+function CurrentStatus({
   event,
   streaming,
 }: {
@@ -67,15 +67,18 @@ function CurrentTicker({
   streaming: boolean;
 }) {
   const text = event.detail ? `${event.title} · ${event.detail}` : event.title;
-  const shouldAnimate = streaming && text.length > 10;
 
   return (
-    <View className='stream-feedback-ticker-viewport'>
-      <Text
-        className={`stream-feedback-ticker-text ${shouldAnimate ? "stream-feedback-ticker-text-live" : ""}`}
-      >
-        {text}
-      </Text>
+    <View
+      className={`stream-feedback-current ${streaming ? "stream-feedback-current-live" : ""}`}
+    >
+      {streaming && (
+        <View className='stream-feedback-skeleton' aria-hidden>
+          <View className='stream-feedback-skeleton-flow' />
+        </View>
+      )}
+      <Text className='stream-feedback-current-text'>{text}</Text>
+      <View className='stream-feedback-current-fade' aria-hidden />
     </View>
   );
 }

@@ -49,39 +49,79 @@
   transform: rotate(180deg);
 }
 
-.stream-feedback-ticker-viewport {
+.stream-feedback-current {
   position: relative;
+  display: flex;
+  min-height: 1.25rem;
   min-width: 0;
+  align-items: center;
   overflow: hidden;
   white-space: nowrap;
 }
 
-.stream-feedback-ticker-viewport::after {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 1.75rem;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.92));
-  content: "";
-  pointer-events: none;
+.stream-feedback-current-live {
+  border-radius: 999px;
 }
 
-.stream-feedback-ticker-text {
-  display: inline-block;
+.stream-feedback-current-text {
+  position: relative;
+  z-index: 2;
+  display: block;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.35;
-  vertical-align: middle;
 }
 
-.stream-feedback-ticker-text-live {
-  max-width: none;
-  padding-right: 2rem;
-  animation: stream-feedback-marquee 5.2s linear infinite;
+.stream-feedback-current-fade {
+  position: absolute;
+  top: 0;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  width: 1.75rem;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.94)
+  );
+  pointer-events: none;
+}
+
+.stream-feedback-skeleton {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(124, 58, 237, 0.06),
+    rgba(236, 72, 153, 0.08),
+    rgba(124, 58, 237, 0.06)
+  );
+  pointer-events: none;
+}
+
+.stream-feedback-skeleton-flow {
+  height: 100%;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.72),
+    rgba(255, 255, 255, 0)
+  );
+  transform: translateX(-140%);
+  animation: stream-feedback-shimmer 1.45s cubic-bezier(0.22, 1, 0.36, 1)
+    infinite;
 }
 
 .stream-feedback-history-item {
@@ -116,15 +156,9 @@
   color: #dc2626;
 }
 
-@keyframes stream-feedback-marquee {
-  0%,
-  18% {
-    transform: translateX(0);
-  }
-
-  82%,
+@keyframes stream-feedback-shimmer {
   100% {
-    transform: translateX(-4rem);
+    transform: translateX(260%);
   }
 }
 
@@ -150,7 +184,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .stream-feedback-dot-live,
-  .stream-feedback-ticker-text-live {
+  .stream-feedback-skeleton-flow {
     animation: none;
   }
 

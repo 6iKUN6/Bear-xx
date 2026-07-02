@@ -6,11 +6,7 @@ import ChatInput from "../../components/ChatInput";
 import NavBar from "../../components/NavBar";
 import { useChatStore } from "../../store/chatStore";
 import { useChatStream } from "../../hooks/useChatStream";
-import {
-  appLoadingDotClass,
-  appPageClass,
-  appSolidNavClass,
-} from "../../utils/style";
+import { appPageClass, appSolidNavClass } from "../../utils/style";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import type { StreamTaskEvent } from "../../services/stream";
 
@@ -39,7 +35,7 @@ export default function ChatPage() {
 
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const isStreaming = currentConversation?.messages.some(
-    (m) => m.status === "streaming"
+    (m) => m.status === "streaming",
   );
 
   useEffect(() => {
@@ -66,8 +62,9 @@ export default function ChatPage() {
   const handleSend = (content: string) => {
     const localConversationId =
       currentConversation?.id || ensureDraftConversation();
-    const requestConversationId =
-      localConversationId.startsWith("draft_") ? undefined : localConversationId;
+    const requestConversationId = localConversationId.startsWith("draft_")
+      ? undefined
+      : localConversationId;
 
     const userMsg: Message = {
       id: genMsgId(),
@@ -149,30 +146,20 @@ export default function ChatPage() {
   return (
     <View className={appPageClass}>
       <NavBar
-        title='AI 助手'
+        title="AI 助手"
         showBack
-        capsule='hidden'
+        capsule="hidden"
         className={appSolidNavClass}
-        barClassName='px-[0.5rem]'
+        barClassName="px-[0.5rem]"
       />
 
-      <View className='flex min-h-0 flex-1 flex-col'>
+      <View className="flex min-h-0 flex-1 flex-col">
         <MessageList
           messages={messages}
           isStreaming={!!isStreaming}
           onToggleStreamFeedback={toggleMessageStreamFeedback}
         />
       </View>
-
-      {isStreaming && (
-        <View className='pointer-events-none px-[1rem] pb-[0.5rem]'>
-          <View className='inline-flex items-center gap-[0.5rem] rounded-full bg-white/80 px-[0.875rem] py-[0.5rem] shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.08)] backdrop-blur-[1.125rem]'>
-            <View className={`${appLoadingDotClass} bg-gradient-to-r from-[#7c3aed] to-[#ec4899]`} />
-            <View className={`${appLoadingDotClass} [animation-delay:0.15s] bg-gradient-to-r from-[#ec4899] to-[#4f46e5]`} />
-            <View className={`${appLoadingDotClass} [animation-delay:0.3s] bg-gradient-to-r from-[#4f46e5] to-[#7c3aed]`} />
-          </View>
-        </View>
-      )}
 
       <ChatInput
         onSend={handleSend}
