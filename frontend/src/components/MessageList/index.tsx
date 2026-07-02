@@ -37,6 +37,7 @@ export default function MessageList({
     handleScroll,
     handleScrollToLower,
     handleUserScrollEnd,
+    handleUserScrollMove,
     handleUserScrollStart,
     restoreAutoScroll,
     scrollIntoView,
@@ -59,7 +60,7 @@ export default function MessageList({
         onScroll={handleScroll}
         onScrollToLower={handleScrollToLower}
         onTouchStart={handleUserScrollStart}
-        onTouchMove={handleUserScrollStart}
+        onTouchMove={handleUserScrollMove}
         onTouchEnd={handleUserScrollEnd}
         onTouchCancel={handleUserScrollEnd}
         onDragStart={handleUserScrollStart}
@@ -124,17 +125,23 @@ export default function MessageList({
         <View id={bottomAnchorBId} className="h-0 w-full" />
       </ScrollView>
 
-      {showScrollToBottom && (
-        <View className="pointer-events-none absolute bottom-[0.875rem] left-0 right-0 z-20 flex justify-center">
-          <View
-            className="pointer-events-auto flex items-center gap-[0.375rem] rounded-full border border-[rgba(124,58,237,0.12)] bg-white/95 px-[0.75rem] py-[0.5rem] text-[0.8125rem] font-semibold leading-none text-[var(--lb-grad-a)] shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.12)] backdrop-blur-[1rem] active:scale-95"
-            onClick={restoreAutoScroll}
-          >
-            <Text className="at-icon at-icon-chevron-down text-[0.9375rem] leading-none" />
-            <Text className="leading-none">回到底部</Text>
-          </View>
+      {/* 回到底部 */}
+      <View
+        className="pointer-events-none absolute bottom-[0.875rem] left-0 right-0 z-20 flex justify-center transition-opacity"
+        style={{
+          opacity: showScrollToBottom ? 1 : 0,
+        }}
+      >
+        <View
+          className="pointer-events-auto flex items-center gap-[0.375rem] rounded-full border border-[rgba(124,58,237,0.12)] bg-white/95 px-[0.75rem] py-[0.5rem] text-[0.8125rem] font-semibold leading-none text-[var(--lb-grad-a)] shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.12)] backdrop-blur-[1rem] active:scale-95"
+          onClick={() => {
+            showScrollToBottom && restoreAutoScroll();
+          }}
+        >
+          <Text className="at-icon at-icon-chevron-down text-[0.9375rem] leading-none" />
+          <Text className="leading-none">回到底部</Text>
         </View>
-      )}
+      </View>
     </View>
   );
 }
