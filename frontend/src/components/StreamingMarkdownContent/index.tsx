@@ -20,14 +20,14 @@ export default function StreamingMarkdownContent({
   const tail = streaming ? readStreamTail(content, tailLength) : "";
 
   return (
-    <View className='streaming-markdown-content'>
+    <View className="streaming-markdown-content">
       <MarkdownContent
         content={content}
         emptyText={emptyText}
         className={className}
       />
       {tail && (
-        <View className='streaming-markdown-tail' aria-hidden>
+        <View className="streaming-markdown-tail" aria-hidden>
           {tail}
         </View>
       )}

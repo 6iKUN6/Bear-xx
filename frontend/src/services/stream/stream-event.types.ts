@@ -63,6 +63,7 @@ export interface MessageDeltaPayload {
 export interface MessageDonePayload {
   content?: string;
   warning?: string;
+  metrics?: MessageRunMetrics;
 }
 
 export interface ChatTaskMeta {

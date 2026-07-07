@@ -27,6 +27,7 @@ export default function ChatPage() {
     replaceConversationId,
     addMessage,
     updateMessageContent,
+    updateMessageMetrics,
     updateMessageStatus,
     updateMessageStreamEvent,
     toggleMessageStreamFeedback,
@@ -117,6 +118,7 @@ export default function ChatPage() {
         },
         onMessageDone: (_content, event) => {
           recordStreamEvent(event);
+          updateMessageMetrics(aiMsgId, event.data.payload?.metrics);
           updateMessageStatus(aiMsgId, "done");
           activeAssistantMessageIdRef.current = null;
           persistConversations();

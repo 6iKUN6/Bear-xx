@@ -63,6 +63,49 @@ export function toMessageStreamFeedback(
   };
 }
 
+export function buildStreamFeedbackFromTrace(
+  trace?: MessageTraceItem[],
+): MessageStreamFeedbackState | undefined {
+  const events = trace
+    ?.slice()
+    .sort((a, b) => a.sequence - b.sequence)
+    .map(toMessageStreamFeedbackFromTrace)
+    .filter((event): event is MessageStreamEventFeedback => Boolean(event));
+
+  if (!events?.length) {
+    return undefined;
+  }
+
+  const current = findLastInfoEvent(events) || events[events.length - 1];
+
+  return {
+    current,
+    events,
+    expanded: false,
+  };
+}
+
+export function toMessageStreamFeedbackFromTrace(
+  traceItem: MessageTraceItem,
+): MessageStreamEventFeedback | null {
+  if (!traceItem.title?.trim()) {
+    return null;
+  }
+
+  return {
+    id: traceItem.id,
+    type: traceItem.type,
+    title: traceItem.title,
+    detail: joinParts([
+      traceItem.summary || undefined,
+      formatTraceDuration(traceItem.durationMs),
+    ]),
+    tone: traceStatusTone(traceItem.status),
+    display: traceItem.type === "MESSAGE_FINALIZE" ? "text" : "panel",
+    updatedAt: Date.now(),
+  };
+}
+
 function isTerminalTextEvent(type: StreamTaskEventType) {
   return (
     type === StreamTaskEventType.TaskCompleted ||
@@ -127,4 +170,44 @@ function joinParts(parts: Array<string | undefined | false>) {
 
 function readString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function findLastInfoEvent(events: MessageStreamEventFeedback[]) {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event?.tone === "info") {
+      return event;
+    }
+  }
+
+  return undefined;
+}
+
+function traceStatusTone(status: string): MessageStreamEventTone {
+  const normalizedStatus = status.toUpperCase();
+  if (normalizedStatus === "SUCCESS") {
+    return "success";
+  }
+
+  if (normalizedStatus === "ERROR") {
+    return "error";
+  }
+
+  if (normalizedStatus === "SKIPPED" || normalizedStatus === "CANCELED") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+function formatTraceDuration(durationMs?: number | null) {
+  if (!durationMs || durationMs <= 0) {
+    return undefined;
+  }
+
+  if (durationMs >= 1000) {
+    return `耗时 ${(durationMs / 1000).toFixed(1)}s`;
+  }
+
+  return `耗时 ${durationMs}ms`;
 }
