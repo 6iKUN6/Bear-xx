@@ -28,6 +28,8 @@ export class CommonReactGraph implements AgentStrategyGraph {
     yield {
       type: StreamTaskEventType.AgentLoopStart,
       payload: {
+        nodeKey: 'common_chat_react',
+        traceKey: 'agent-loop:common_chat_react',
         agent: 'common-chat-agent',
         strategy: this.mode,
         publicStatus: '正在分析并准备调用工具',

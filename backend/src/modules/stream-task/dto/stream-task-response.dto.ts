@@ -41,7 +41,11 @@ export class StreamTaskStatusDto {
   @ApiProperty({ description: 'assistant 消息 ID', example: 'cmf_msg_123' })
   messageId: string;
 
-  @ApiProperty({ description: '服务端已持久化的最后事件 ID', example: 12 })
+  @ApiProperty({
+    description:
+      '服务端已持久化的最后语义事件 ID；流式恢复请使用 SSE id / lastEventId 字符串游标',
+    example: 12,
+  })
   lastEventId: number;
 
   @ApiProperty({

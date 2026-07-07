@@ -20,14 +20,23 @@ import { RedisService } from '../../redis/redis.service';
 import { AiService } from '../ai/ai.service';
 import { CommonChatAgentRunnerService } from '../ai/agents';
 import type { AgentLoopStreamEvent } from '../ai/agent-loop';
-import type { LlmTextRequest, ResolvedLlmTextRequest } from '../llm/llm.types';
+import type {
+  LlmMessage,
+  LlmRunMetrics,
+  LlmTextRequest,
+  ResolvedLlmTextRequest,
+} from '../llm/llm.types';
+import { LlmService } from '../llm/llm.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { ConversationTraceService } from '../conversation-trace';
+import type { ChatContextBundle } from '../memory/chat-context.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
 import {
   STREAM_TASK_TERMINAL_EVENT_TYPES,
   StreamTaskEventType,
 } from './stream-task-event.types';
 import { StreamTaskRegistry } from './stream-task.registry';
+import { StreamTaskSnapshotService } from './stream-task-snapshot.service';
 
 interface ChatTaskPayload {
   content: string;
@@ -53,6 +62,11 @@ interface StreamTaskEventData<TPayload = undefined> {
   errorMessage?: string;
 }
 
+interface PersistedSemanticEvent {
+  eventId: number;
+  sseEvent: SseEvent;
+}
+
 export interface TaskStreamResult {
   stream: AsyncGenerator<SseEvent>;
 }
@@ -62,12 +76,13 @@ const EMPTY_ASSISTANT_CONTENT =
   '模型本次没有返回有效文本。请检查模型名称、中转站响应格式或流式输出配置。';
 
 const INITIAL_STREAM_TRIGGER = 'initial';
+const FULL_CONTENT_FLUSH_INTERVAL_MS = 1000;
+const FULL_CONTENT_FLUSH_CHARS = 2048;
 
 @Injectable()
 export class StreamTaskService {
   private readonly logger = new Logger(StreamTaskService.name);
   private readonly bufferTtl: number;
-  private readonly bufferKeyPrefix: string;
   private readonly lockKeyPrefix = 'stream-task:lock';
 
   constructor(
@@ -75,15 +90,17 @@ export class StreamTaskService {
     private readonly redis: RedisService,
     private readonly aiService: AiService,
     private readonly commonChatAgentRunnerService: CommonChatAgentRunnerService,
+    private readonly llmService: LlmService,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
+    private readonly conversationTraceService: ConversationTraceService,
     private readonly conversationSummaryService: ConversationSummaryService,
     private readonly registry: StreamTaskRegistry,
+    private readonly snapshotService: StreamTaskSnapshotService,
   ) {
     this.bufferTtl =
       this.configService.get<number>('STREAM_TASK_BUFFER_TTL') ??
       this.configService.get<number>('SSE_BUFFER_TTL', 300);
-    this.bufferKeyPrefix = 'stream-task:buffer';
   }
 
   /**
@@ -136,7 +153,7 @@ export class StreamTaskService {
     const taskStream = await this.openTaskStream(
       task.taskId,
       userId,
-      0,
+      '0',
       signal,
     );
 
@@ -418,7 +435,7 @@ export class StreamTaskService {
                 status: StreamTaskRunStatus.CANCELED,
                 endedAt: new Date(),
                 closeReason: 'task_canceled',
-                endEventId: task.lastEventId + 1,
+                endEventId: event.eventId,
               },
             }),
           ]
@@ -432,7 +449,8 @@ export class StreamTaskService {
       }),
     ]);
 
-    this.registry.publish(taskId, event);
+    await this.snapshotService.markCompleted(taskId);
+    this.registry.publish(taskId, event.sseEvent);
     return { taskId, status: 'canceled' };
   }
 
@@ -448,7 +466,7 @@ export class StreamTaskService {
   async openTaskStream(
     taskId: string,
     userId: string,
-    lastEventId: number,
+    lastEventId: string,
     signal?: AbortSignal,
   ): Promise<TaskStreamResult> {
     const task = await this.loadTask(taskId, userId);
@@ -462,7 +480,7 @@ export class StreamTaskService {
       return {
         stream: this.singleEventStream(
           this.buildTaskSseEvent(
-            String(lastEventId + 1),
+            this.nextSyntheticFrameId(lastEventId),
             StreamTaskEventType.TaskExpired,
             {
               taskId,
@@ -490,30 +508,38 @@ export class StreamTaskService {
    */
   private async *createTaskStream(
     taskId: string,
-    lastEventId: number,
+    lastEventId: string,
     signal?: AbortSignal,
   ): AsyncGenerator<SseEvent> {
-    const liveStream = this.registry.subscribe(taskId, signal);
-    let lastSeenEventId = lastEventId;
+    let lastSeenFrameId = this.normalizeFrameId(lastEventId);
 
-    const replayed = await this.getBufferedEventsAfter(taskId, lastEventId);
+    const replayed = await this.snapshotService.readBufferedFramesAfter(
+      taskId,
+      lastSeenFrameId,
+    );
     for (const event of replayed) {
-      lastSeenEventId = Math.max(lastSeenEventId, Number(event.id));
+      lastSeenFrameId = event.id;
       yield event;
       if (this.isTerminalEvent(event.event)) {
         return;
       }
     }
 
+    const currentTask = await this.prisma.streamTask.findUnique({
+      where: { id: taskId },
+    });
+    if (currentTask && this.isTerminalStatus(currentTask.status)) {
+      yield* this.buildTerminalFallbackStream(currentTask, lastSeenFrameId);
+      return;
+    }
+
     await this.ensureTaskExecution(taskId);
 
-    for await (const event of liveStream) {
-      const numericId = Number(event.id);
-      if (Number.isFinite(numericId) && numericId <= lastSeenEventId) {
-        continue;
-      }
-
-      lastSeenEventId = Math.max(lastSeenEventId, numericId);
+    for await (const event of this.snapshotService.readFramesAfter(
+      taskId,
+      lastSeenFrameId,
+      signal,
+    )) {
       yield event;
 
       if (this.isTerminalEvent(event.event)) {
@@ -615,7 +641,15 @@ export class StreamTaskService {
           status: StreamTaskStatus.STREAMING.toLowerCase(),
         }),
       );
-      this.registry.publish(taskId, startedEvent);
+      await this.recordConversationTraceEvent({
+        userId: task.userId,
+        taskId,
+        streamId: stream.id,
+        conversationId,
+        messageId,
+        eventName: StreamTaskEventType.TaskStarted,
+      });
+      this.registry.publish(taskId, startedEvent.sseEvent);
 
       if (
         task.type === StreamTaskType.CHAT_COMPLETION ||
@@ -624,6 +658,7 @@ export class StreamTaskService {
         await this.runChatTask(
           {
             id: task.id,
+            userId: task.userId,
             streamId: stream.id,
             conversationId,
             messageId,
@@ -703,6 +738,7 @@ export class StreamTaskService {
   private async runChatTask(
     task: {
       id: string;
+      userId: string;
       streamId: string;
       conversationId: string;
       messageId: string;
@@ -727,6 +763,8 @@ export class StreamTaskService {
     let fullContent = '';
     let deltaCount = 0;
     let emptyDeltaCount = 0;
+    let lastFullContentFlushAt = Date.now();
+    let lastFlushedFullContentLength = 0;
     const startedAt = Date.now();
 
     this.debugTaskLog('stream_task.chat.agent_start', {
@@ -762,9 +800,8 @@ export class StreamTaskService {
 
       deltaCount++;
       fullContent += event.delta;
-      const deltaEvent = await this.persistEvent(
+      const deltaEvent = await this.publishFrame(
         task.id,
-        task.streamId,
         StreamTaskEventType.MessageDelta,
         this.serializeTaskEventData({
           type: StreamTaskEventType.MessageDelta,
@@ -777,11 +814,15 @@ export class StreamTaskService {
             delta: event.delta,
           },
         }),
-        {
-          fullContent,
-          status: StreamTaskStatus.STREAMING,
-        },
       );
+      const flushResult = await this.maybeFlushFullContent({
+        taskId: task.id,
+        fullContent,
+        lastFlushAt: lastFullContentFlushAt,
+        lastFlushedLength: lastFlushedFullContentLength,
+      });
+      lastFullContentFlushAt = flushResult.lastFlushAt;
+      lastFlushedFullContentLength = flushResult.lastFlushedLength;
       this.registry.publish(task.id, deltaEvent);
     }
 
@@ -792,6 +833,12 @@ export class StreamTaskService {
     const completionWarning =
       fullContent.trim().length === 0 ? EMPTY_ASSISTANT_CONTENT : undefined;
     const finalContent = completionWarning ?? fullContent;
+    const runMetrics = this.buildChatRunMetrics(
+      agentRun.messages,
+      finalContent,
+      agentRun.context,
+      Date.now() - startedAt,
+    );
 
     if (completionWarning) {
       this.logger.warn(
@@ -831,6 +878,7 @@ export class StreamTaskService {
         payload: {
           content: finalContent,
           warning: completionWarning,
+          metrics: runMetrics,
         },
       }),
       {
@@ -838,6 +886,19 @@ export class StreamTaskService {
         status: StreamTaskStatus.COMPLETED,
       },
     );
+    await this.recordConversationTraceEvent({
+      taskId: task.id,
+      userId: task.userId,
+      streamId: task.streamId,
+      conversationId: task.conversationId,
+      messageId: task.messageId,
+      eventName: StreamTaskEventType.MessageDone,
+      payload: {
+        content: finalContent,
+        warning: completionWarning,
+        metrics: runMetrics,
+      },
+    });
 
     await this.prisma.$transaction([
       this.prisma.message.update({
@@ -862,6 +923,7 @@ export class StreamTaskService {
             JSON.stringify({
               content: finalContent,
               warning: completionWarning,
+              metrics: runMetrics,
             }),
           ) as Prisma.JsonObject,
           currentStep: 'completed',
@@ -869,7 +931,7 @@ export class StreamTaskService {
       }),
     ]);
 
-    this.registry.publish(task.id, doneEvent);
+    this.registry.publish(task.id, doneEvent.sseEvent);
 
     const completedEvent = await this.persistEvent(
       task.id,
@@ -893,7 +955,21 @@ export class StreamTaskService {
         status: StreamTaskStatus.COMPLETED,
       },
     );
-    this.registry.publish(task.id, completedEvent);
+    await this.recordConversationTraceEvent({
+      taskId: task.id,
+      userId: task.userId,
+      streamId: task.streamId,
+      conversationId: task.conversationId,
+      messageId: task.messageId,
+      eventName: StreamTaskEventType.TaskCompleted,
+      payload: {
+        warning: completionWarning,
+        deltaCount,
+        fullContentLength: finalContent.length,
+      },
+    });
+    this.registry.publish(task.id, completedEvent.sseEvent);
+    await this.snapshotService.markCompleted(task.id);
 
     await this.prisma.streamTaskRun.update({
       where: { id: task.streamId },
@@ -901,7 +977,7 @@ export class StreamTaskService {
         status: StreamTaskRunStatus.COMPLETED,
         endedAt: new Date(),
         closeReason: 'task_completed',
-        endEventId: Number(completedEvent.id),
+        endEventId: completedEvent.eventId,
       },
     });
 
@@ -918,6 +994,7 @@ export class StreamTaskService {
   private async handleToolCallDeltaEvent(
     task: {
       id: string;
+      userId: string;
       streamId: string;
       conversationId: string;
       messageId: string;
@@ -927,9 +1004,8 @@ export class StreamTaskService {
       { type: StreamTaskEventType.ToolCallDelta }
     >,
   ) {
-    const toolEvent = await this.persistEvent(
+    const toolEvent = await this.publishFrame(
       task.id,
-      task.streamId,
       StreamTaskEventType.ToolCallDelta,
       this.serializeTaskEventData({
         type: StreamTaskEventType.ToolCallDelta,
@@ -945,10 +1021,21 @@ export class StreamTaskService {
           index: event.index,
         },
       }),
-      {
-        status: StreamTaskStatus.STREAMING,
-      },
     );
+    await this.recordConversationTraceEvent({
+      taskId: task.id,
+      userId: task.userId,
+      streamId: task.streamId,
+      conversationId: task.conversationId,
+      messageId: task.messageId,
+      eventName: StreamTaskEventType.ToolCallDelta,
+      payload: {
+        toolCallId: event.toolCallId,
+        name: event.name,
+        args: event.args,
+        index: event.index,
+      },
+    });
     this.registry.publish(task.id, toolEvent);
   }
 
@@ -962,6 +1049,7 @@ export class StreamTaskService {
   private async handleAgentLoopStatusEvent(
     task: {
       id: string;
+      userId: string;
       streamId: string;
       conversationId: string;
       messageId: string;
@@ -989,7 +1077,16 @@ export class StreamTaskService {
         status: StreamTaskStatus.STREAMING,
       },
     );
-    this.registry.publish(task.id, statusEvent);
+    await this.recordConversationTraceEvent({
+      taskId: task.id,
+      userId: task.userId,
+      streamId: task.streamId,
+      conversationId: task.conversationId,
+      messageId: task.messageId,
+      eventName: event.type,
+      payload: event.payload,
+    });
+    this.registry.publish(task.id, statusEvent.sseEvent);
   }
 
   /**
@@ -1008,6 +1105,44 @@ export class StreamTaskService {
         `Refresh conversation summary failed: ${(error as Error).message}`,
       );
     }
+  }
+
+  /**
+   * 构建单轮聊天运行指标
+   * @param messages 模型输入消息
+   * @param finalContent 最终回复内容
+   * @param context 会话上下文包
+   * @param durationMs 本轮生成耗时
+   * @returns 返回 token 和缓存命中指标
+   * @description 当前流式 provider usage 尚未稳定透出时，先记录估算 token 与 memory summary 命中，供 trace 入库和前端展示。
+   */
+  private buildChatRunMetrics(
+    messages: LlmMessage[],
+    finalContent: string,
+    context: ChatContextBundle,
+    durationMs: number,
+  ): LlmRunMetrics {
+    const memorySummaryHit = Boolean(context.summary);
+    const cachedInputTokens = memorySummaryHit
+      ? this.llmService.estimateTextTokenCount(context.summary?.content ?? '')
+      : 0;
+
+    return {
+      tokenUsage: this.llmService.buildEstimatedTokenUsage(
+        messages,
+        finalContent,
+        cachedInputTokens,
+      ),
+      cache: {
+        memorySummaryHit,
+        contextCacheHit: memorySummaryHit,
+        cachedInputTokens,
+      },
+      durationMs,
+      messageCount: messages.length,
+      summaryMessageCount: context.summary?.messageCount,
+      recentMessageCount: context.recentWindow.messageCount,
+    };
   }
 
   /**
@@ -1046,6 +1181,15 @@ export class StreamTaskService {
         fullContent: task.fullContent,
       },
     );
+    await this.recordConversationTraceEvent({
+      userId: task.userId,
+      taskId,
+      streamId: task.currentRunId,
+      conversationId,
+      messageId,
+      eventName: StreamTaskEventType.TaskError,
+      errorMessage: message,
+    });
 
     await this.prisma.$transaction([
       this.prisma.streamTask.update({
@@ -1066,7 +1210,7 @@ export class StreamTaskService {
                 status: StreamTaskRunStatus.ERROR,
                 endedAt: new Date(),
                 closeReason: 'task_error',
-                endEventId: Number(errorEvent.id),
+                endEventId: errorEvent.eventId,
               },
             }),
           ]
@@ -1080,7 +1224,8 @@ export class StreamTaskService {
       }),
     ]);
 
-    this.registry.publish(taskId, errorEvent);
+    await this.snapshotService.markCompleted(taskId);
+    this.registry.publish(taskId, errorEvent.sseEvent);
   }
 
   /**
@@ -1089,8 +1234,8 @@ export class StreamTaskService {
    * @param event 事件名
    * @param data 事件数据
    * @param taskUpdate 任务字段更新内容
-   * @returns 返回包含稳定事件 ID 的流式事件对象
-   * @description 为任务分配递增事件ID，更新任务游标和内容快照，并把事件写入 Redis 缓冲区供恢复重放。
+   * @returns 返回数据库语义事件 ID 和 Redis Stream 帧
+   * @description 仅用于低频语义事件：为任务分配递增事件 ID、写入事件表，并同步写入 Redis Stream 供 SSE 恢复重放。高频 message.delta 不应调用此方法。
    */
   private async persistEvent(
     taskId: string,
@@ -1102,7 +1247,7 @@ export class StreamTaskService {
       errorMessage: string | null;
       fullContent: string;
     }>,
-  ) {
+  ): Promise<PersistedSemanticEvent> {
     const task = await this.prisma.streamTask.update({
       where: { id: taskId },
       data: {
@@ -1127,63 +1272,177 @@ export class StreamTaskService {
       },
     });
 
-    const sseEvent: SseEvent = {
-      id: String(task.lastEventId),
-      event,
-      data,
+    const sseEvent = await this.publishFrame(taskId, event, data);
+
+    return {
+      eventId: task.lastEventId,
+      sseEvent,
     };
-
-    await this.redis.zadd(
-      this.bufferKey(taskId),
-      Number(sseEvent.id),
-      JSON.stringify(sseEvent),
-    );
-    await this.redis.expire(this.bufferKey(taskId), this.bufferTtl);
-
-    return sseEvent;
   }
 
   /**
-   * 读取缓冲区事件
-   * @param taskId 任务ID
-   * @param lastEventId 客户端已接收的最后事件ID
-   * @returns 返回指定游标之后的流式事件列表
-   * @description 从 Redis 缓冲区中读取任务未消费的历史事件，用于断线后的补发与重放。
+   * 发布一帧可恢复 SSE 事件。
+   * 高频内容帧只写入 Redis Stream，避免把 token 级快照写入数据库。
    */
-  private async getBufferedEventsAfter(taskId: string, lastEventId: number) {
-    const persistedEvents = await this.prisma.streamTaskEvent.findMany({
-      where: {
-        taskId,
-        eventId: {
-          gt: lastEventId,
-        },
+  private async publishFrame(
+    taskId: string,
+    event: StreamTaskEventType,
+    data: string,
+  ): Promise<SseEvent> {
+    return this.snapshotService.appendFrame(taskId, event, data);
+  }
+
+  /**
+   * 按时间或内容长度阈值刷新任务累计文本。
+   * 运行时仍在内存中拼接 fullContent，但数据库不再每个 token 都更新。
+   */
+  private async maybeFlushFullContent(input: {
+    taskId: string;
+    fullContent: string;
+    lastFlushAt: number;
+    lastFlushedLength: number;
+  }) {
+    const now = Date.now();
+    const contentGrowth = input.fullContent.length - input.lastFlushedLength;
+    const shouldFlush =
+      contentGrowth >= FULL_CONTENT_FLUSH_CHARS ||
+      now - input.lastFlushAt >= FULL_CONTENT_FLUSH_INTERVAL_MS;
+
+    if (!shouldFlush) {
+      return {
+        lastFlushAt: input.lastFlushAt,
+        lastFlushedLength: input.lastFlushedLength,
+      };
+    }
+
+    await this.prisma.streamTask.update({
+      where: { id: input.taskId },
+      data: {
+        fullContent: input.fullContent,
+        status: StreamTaskStatus.STREAMING,
+        lastHeartbeatAt: new Date(),
+        expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
       },
-      orderBy: { eventId: 'asc' },
     });
 
-    if (persistedEvents.length > 0) {
-      return persistedEvents.map((event) => ({
-        id: String(event.eventId),
-        event: event.eventName,
-        data: JSON.stringify(event.payload),
-      }));
+    return {
+      lastFlushAt: now,
+      lastFlushedLength: input.fullContent.length,
+    };
+  }
+
+  /**
+   * 写入单轮对话轨迹
+   * @param input 任务事件和上下文
+   * @returns 无返回值
+   * @description 将关键 StreamTask 事件交给 ConversationTraceService 归约为历史可回显的执行轨迹；失败不影响主流式链路。
+   */
+  private async recordConversationTraceEvent(input: {
+    userId?: string;
+    taskId: string;
+    streamId?: string | null;
+    conversationId: string;
+    messageId: string;
+    eventName: StreamTaskEventType;
+    payload?: Record<string, unknown>;
+    errorMessage?: string;
+  }) {
+    const userId = input.userId ?? (await this.resolveTaskUserId(input.taskId));
+    await this.conversationTraceService.recordStreamEvent({
+      userId,
+      taskId: input.taskId,
+      runId: input.streamId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      eventName: input.eventName,
+      payload: input.payload,
+      errorMessage: input.errorMessage,
+    });
+  }
+
+  /**
+   * 查询任务所属用户
+   * @param taskId 任务ID
+   * @returns 返回用户ID；任务不存在时返回 undefined
+   * @description trace 写入需要 userId 作为归属字段，部分内部调用只有 taskId，因此在写入前懒查询一次。
+   */
+  private async resolveTaskUserId(taskId: string) {
+    const task = await this.prisma.streamTask.findUnique({
+      where: { id: taskId },
+      select: { userId: true },
+    });
+    return task?.userId;
+  }
+
+  /**
+   * 终态任务恢复兜底流。
+   * Redis 帧缓存过期后，不再尝试还原完整增量帧，只返回最终正文和终态，避免客户端恢复请求长期挂起。
+   */
+  private *buildTerminalFallbackStream(
+    task: {
+      id: string;
+      status: StreamTaskStatus;
+      currentRunId: string | null;
+      conversationId: string | null;
+      messageId: string | null;
+      fullContent: string;
+      errorMessage: string | null;
+      resultPayload: Prisma.JsonValue | null;
+    },
+    frameId: string,
+  ): Generator<SseEvent> {
+    const conversationId = this.requireConversationId(task);
+    const messageId = this.requireMessageId(task);
+    const eventId = this.normalizeFrameId(frameId);
+
+    if (task.status === StreamTaskStatus.COMPLETED) {
+      const resultPayload = this.toRecord(task.resultPayload);
+      const content =
+        typeof resultPayload.content === 'string'
+          ? resultPayload.content
+          : task.fullContent;
+
+      yield this.buildTaskSseEvent(eventId, StreamTaskEventType.MessageDone, {
+        taskId: task.id,
+        streamId: task.currentRunId ?? undefined,
+        conversationId,
+        messageId,
+        status: task.status.toLowerCase(),
+        payload: {
+          content,
+          warning:
+            typeof resultPayload.warning === 'string'
+              ? resultPayload.warning
+              : undefined,
+          metrics: this.toRecord(resultPayload.metrics),
+        },
+      });
+
+      yield this.buildTaskSseEvent(eventId, StreamTaskEventType.TaskCompleted, {
+        taskId: task.id,
+        streamId: task.currentRunId ?? undefined,
+        conversationId,
+        messageId,
+        status: task.status.toLowerCase(),
+      });
+      return;
     }
 
-    const rawEvents = await this.redis.zrangebyscore(
-      this.bufferKey(taskId),
-      lastEventId + 1,
-      '+inf',
-    );
+    const terminalEvent =
+      task.status === StreamTaskStatus.CANCELED
+        ? StreamTaskEventType.TaskCanceled
+        : task.status === StreamTaskStatus.EXPIRED
+          ? StreamTaskEventType.TaskExpired
+          : StreamTaskEventType.TaskError;
 
-    const events: SseEvent[] = [];
-    for (const raw of rawEvents) {
-      try {
-        events.push(JSON.parse(raw) as SseEvent);
-      } catch {
-        continue;
-      }
-    }
-    return events;
+    yield this.buildTaskSseEvent(eventId, terminalEvent, {
+      taskId: task.id,
+      streamId: task.currentRunId ?? undefined,
+      conversationId,
+      messageId,
+      status: task.status.toLowerCase(),
+      errorMessage: task.errorMessage ?? undefined,
+    });
   }
 
   /**
@@ -1324,6 +1583,23 @@ export class StreamTaskService {
     }
   }
 
+  private normalizeFrameId(frameId: string | undefined) {
+    const trimmed = frameId?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : '0';
+  }
+
+  private nextSyntheticFrameId(frameId: string | undefined) {
+    return this.normalizeFrameId(frameId);
+  }
+
+  private toRecord(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+
+    return value as Record<string, unknown>;
+  }
+
   private formatTaskLog(event: string, payload: Record<string, unknown>) {
     return JSON.stringify({ event, ...payload });
   }
@@ -1389,16 +1665,6 @@ export class StreamTaskService {
         ...eventData,
       }),
     };
-  }
-
-  /**
-   * 生成任务缓冲区 Key
-   * @param taskId 任务ID
-   * @returns 返回任务事件缓冲区对应的 Redis Key
-   * @description 按统一命名规则生成指定任务的 Redis 缓冲区 Key。
-   */
-  private bufferKey(taskId: string) {
-    return `${this.bufferKeyPrefix}:${taskId}`;
   }
 
   private requireConversationId(task: { conversationId: string | null }) {

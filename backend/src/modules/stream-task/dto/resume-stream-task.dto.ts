@@ -1,13 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 
 export class ResumeStreamTaskDto {
   @ApiPropertyOptional({
-    description: '客户端已收到的最后一个事件 ID',
-    example: 12,
+    description:
+      '客户端已收到的最后一个 Redis Stream 帧 ID，用于断线后从该帧之后继续恢复',
+    example: '1751450000000-0',
   })
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  lastEventId?: number;
+  @IsString()
+  lastEventId?: string;
 }

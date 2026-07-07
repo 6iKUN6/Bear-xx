@@ -13,6 +13,7 @@ import type {
   LlmStreamOptions,
   LlmGenerateOptions,
   ResolvedLlmTextRequest,
+  LlmTokenUsageMetrics,
 } from './llm.types';
 
 @Injectable()
@@ -199,6 +200,60 @@ export class LlmService {
    */
   listAvailableModels() {
     return this.modelRegistry.listAvailableModels();
+  }
+
+  /**
+   * 估算聊天消息的 token 数
+   * @param messages 聊天消息列表
+   * @returns 返回估算 token 数
+   * @description 当前 provider 流式响应未稳定返回 usage 时，使用字符长度进行保守估算，并在 metrics 中标记 estimated。
+   */
+  estimateMessagesTokenCount(messages: LlmMessage[]) {
+    return this.estimateTextTokenCount(
+      messages.map((message) => message.content).join('\n'),
+    );
+  }
+
+  /**
+   * 估算文本 token 数
+   * @param text 文本内容
+   * @returns 返回估算 token 数
+   * @description 使用中英混合场景的粗略估算：中文字符按 1 token 左右，英文按约 4 字符 1 token；用于 UI 反馈而非计费。
+   */
+  estimateTextTokenCount(text: string) {
+    if (!text) {
+      return 0;
+    }
+
+    const cjkCount = (text.match(/[\u3400-\u9fff]/g) ?? []).length;
+    const nonWhitespaceCount = text.replace(/\s/g, '').length;
+    const nonCjkCount = Math.max(0, nonWhitespaceCount - cjkCount);
+    return Math.max(1, Math.ceil(cjkCount + nonCjkCount / 4));
+  }
+
+  /**
+   * 构建估算 token 用量
+   * @param inputMessages 输入消息列表
+   * @param outputText 输出文本
+   * @param cachedInputTokens 命中的输入缓存 token 数
+   * @returns 返回统一 token 用量指标
+   * @description 在模型 provider 没有返回真实 usage 时，为单轮 trace 和前端反馈提供稳定的估算指标。
+   */
+  buildEstimatedTokenUsage(
+    inputMessages: LlmMessage[],
+    outputText: string,
+    cachedInputTokens = 0,
+  ): LlmTokenUsageMetrics {
+    const inputTokens = this.estimateMessagesTokenCount(inputMessages);
+    const outputTokens = this.estimateTextTokenCount(outputText);
+
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      cachedInputTokens,
+      estimated: true,
+    };
   }
 
   /**

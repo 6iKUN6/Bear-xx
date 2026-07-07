@@ -26,6 +26,8 @@ export class DirectAnswerGraph implements AgentStrategyGraph {
     yield {
       type: StreamTaskEventType.ModelCallStart,
       payload: {
+        nodeKey: 'direct_answer_model',
+        traceKey: 'model:direct_answer',
         model: input.llm?.model.model,
         provider: input.llm?.model.provider,
         publicStatus: '正在生成回复',
@@ -47,6 +49,8 @@ export class DirectAnswerGraph implements AgentStrategyGraph {
       yield {
         type: StreamTaskEventType.ModelCallDone,
         payload: {
+          nodeKey: 'direct_answer_model',
+          traceKey: 'model:direct_answer',
           model: input.llm?.model.model,
           provider: input.llm?.model.provider,
         },
@@ -55,6 +59,8 @@ export class DirectAnswerGraph implements AgentStrategyGraph {
       yield {
         type: StreamTaskEventType.ModelCallDone,
         payload: {
+          nodeKey: 'direct_answer_model',
+          traceKey: 'model:direct_answer',
           model: input.llm?.model.model,
           provider: input.llm?.model.provider,
           error: error instanceof Error ? error.message : String(error),

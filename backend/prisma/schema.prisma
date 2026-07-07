@@ -8,35 +8,37 @@ datasource db {
 }
 
 model User {
-  id                String         @id @default(cuid())
-  nickname          String         @default("用户")
-  avatarUrl         String         @default("")
-  username          String?        @unique
-  passwordHash      String?        @map("password_hash")
-  passwordUpdatedAt DateTime?      @map("password_updated_at")
-  phone             String?        @unique
-  wechatOpenId      String?        @unique @map("wechat_open_id")
-  wechatUnionId     String?        @unique @map("wechat_union_id")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
+  id                String                      @id @default(cuid())
+  nickname          String                      @default("用户")
+  avatarUrl         String                      @default("")
+  username          String?                     @unique
+  passwordHash      String?                     @map("password_hash")
+  passwordUpdatedAt DateTime?                   @map("password_updated_at")
+  phone             String?                     @unique
+  wechatOpenId      String?                     @unique @map("wechat_open_id")
+  wechatUnionId     String?                     @unique @map("wechat_union_id")
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  updatedAt         DateTime                    @updatedAt @map("updated_at")
   conversations     Conversation[]
   sseTasks          SseTask[]
   streamTasks       StreamTask[]
+  turnTraceItems    ConversationTurnTraceItem[]
 
   @@map("users")
 }
 
 model Conversation {
-  id          String               @id @default(cuid())
-  title       String               @default("新对话")
-  userId      String               @map("user_id")
-  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages    Message[]
-  summary     ConversationSummary?
-  sseTasks    SseTask[]
-  streamTasks StreamTask[]
-  createdAt   DateTime             @default(now()) @map("created_at")
-  updatedAt   DateTime             @updatedAt @map("updated_at")
+  id             String                      @id @default(cuid())
+  title          String                      @default("新对话")
+  userId         String                      @map("user_id")
+  user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages       Message[]
+  summary        ConversationSummary?
+  sseTasks       SseTask[]
+  streamTasks    StreamTask[]
+  turnTraceItems ConversationTurnTraceItem[]
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
 
   @@index([userId])
   @@map("conversations")
@@ -56,16 +58,17 @@ model ConversationSummary {
 }
 
 model Message {
-  id             String        @id @default(cuid())
+  id             String                      @id @default(cuid())
   role           MessageRole
-  content        String        @db.Text
-  imageUrl       String?       @map("image_url")
-  status         MessageStatus @default(DONE)
-  conversationId String        @map("conversation_id")
-  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime      @default(now()) @map("created_at")
+  content        String                      @db.Text
+  imageUrl       String?                     @map("image_url")
+  status         MessageStatus               @default(DONE)
+  conversationId String                      @map("conversation_id")
+  conversation   Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime                    @default(now()) @map("created_at")
   sseTasks       SseTask[]
   streamTasks    StreamTask[]
+  turnTraceItems ConversationTurnTraceItem[]
 
   @@index([conversationId])
   @@map("messages")
@@ -99,33 +102,34 @@ model SseTask {
 }
 
 model StreamTask {
-  id              String            @id @default(cuid())
+  id              String                      @id @default(cuid())
   type            StreamTaskType
-  status          StreamTaskStatus  @default(PENDING)
-  userId          String            @map("user_id")
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversationId  String?           @map("conversation_id")
-  conversation    Conversation?     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  messageId       String?           @map("message_id")
-  message         Message?          @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  requestPayload  Json              @map("request_payload")
-  executionState  Json?             @map("execution_state")
-  resultPayload   Json?             @map("result_payload")
-  currentAgent    String?           @map("current_agent")
-  currentStep     String?           @map("current_step")
-  currentRunId    String?           @map("current_run_id")
-  lastEventId     Int               @default(0) @map("last_event_id")
-  fullContent     String            @default("") @map("full_content") @db.Text
-  errorMessage    String?           @map("error_message") @db.Text
-  startedAt       DateTime?         @map("started_at")
-  pausedAt        DateTime?         @map("paused_at")
-  lastHeartbeatAt DateTime?         @map("last_heartbeat_at")
-  completedAt     DateTime?         @map("completed_at")
-  expiresAt       DateTime?         @map("expires_at")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  runs            StreamTaskRun[]   @relation("StreamTaskRuns")
+  status          StreamTaskStatus            @default(PENDING)
+  userId          String                      @map("user_id")
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId  String?                     @map("conversation_id")
+  conversation    Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId       String?                     @map("message_id")
+  message         Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  requestPayload  Json                        @map("request_payload")
+  executionState  Json?                       @map("execution_state")
+  resultPayload   Json?                       @map("result_payload")
+  currentAgent    String?                     @map("current_agent")
+  currentStep     String?                     @map("current_step")
+  currentRunId    String?                     @map("current_run_id")
+  lastEventId     Int                         @default(0) @map("last_event_id")
+  fullContent     String                      @default("") @map("full_content") @db.Text
+  errorMessage    String?                     @map("error_message") @db.Text
+  startedAt       DateTime?                   @map("started_at")
+  pausedAt        DateTime?                   @map("paused_at")
+  lastHeartbeatAt DateTime?                   @map("last_heartbeat_at")
+  completedAt     DateTime?                   @map("completed_at")
+  expiresAt       DateTime?                   @map("expires_at")
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
+  runs            StreamTaskRun[]             @relation("StreamTaskRuns")
   events          StreamTaskEvent[]
+  turnTraceItems  ConversationTurnTraceItem[]
 
   @@index([userId, status])
   @@index([conversationId])
@@ -135,20 +139,21 @@ model StreamTask {
 }
 
 model StreamTaskRun {
-  id           String              @id @default(cuid())
-  taskId       String              @map("task_id")
-  task         StreamTask          @relation("StreamTaskRuns", fields: [taskId], references: [id], onDelete: Cascade)
-  sequence     Int
-  status       StreamTaskRunStatus @default(PENDING)
-  trigger      String?
-  startEventId Int                 @default(0) @map("start_event_id")
-  endEventId   Int?                @map("end_event_id")
-  closeReason  String?             @map("close_reason")
-  startedAt    DateTime?           @map("started_at")
-  endedAt      DateTime?           @map("ended_at")
-  createdAt    DateTime            @default(now()) @map("created_at")
-  updatedAt    DateTime            @updatedAt @map("updated_at")
-  events       StreamTaskEvent[]
+  id             String                      @id @default(cuid())
+  taskId         String                      @map("task_id")
+  task           StreamTask                  @relation("StreamTaskRuns", fields: [taskId], references: [id], onDelete: Cascade)
+  sequence       Int
+  status         StreamTaskRunStatus         @default(PENDING)
+  trigger        String?
+  startEventId   Int                         @default(0) @map("start_event_id")
+  endEventId     Int?                        @map("end_event_id")
+  closeReason    String?                     @map("close_reason")
+  startedAt      DateTime?                   @map("started_at")
+  endedAt        DateTime?                   @map("ended_at")
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
+  events         StreamTaskEvent[]
+  turnTraceItems ConversationTurnTraceItem[]
 
   @@unique([taskId, sequence])
   @@index([taskId, status])
@@ -172,6 +177,59 @@ model StreamTaskEvent {
   @@map("stream_task_events")
 }
 
+/// 单轮对话执行轨迹项，用于历史消息回显“这轮回复走过哪些决策、节点和工具调用”。
+/// 它不是 token 级流式快照；message.delta/tool.call.delta 这类高频事件应只用于实时展示或短期恢复。
+model ConversationTurnTraceItem {
+  id             String                      @id @default(cuid())
+  userId         String                      @map("user_id")
+  conversationId String                      @map("conversation_id")
+  messageId      String                      @map("message_id")
+  taskId         String?                     @map("task_id")
+  runId          String?                     @map("run_id")
+  parentId       String?                     @map("parent_id")
+  traceKey       String?                     @map("trace_key")
+  sequence       Int
+  depth          Int                         @default(0)
+  type           ConversationTraceItemType
+  status         ConversationTraceItemStatus @default(RUNNING)
+  title          String
+  summary        String?                     @db.Text
+  detail         String?                     @db.Text
+  strategy       String?
+  skill          String?
+  graph          String?
+  nodeKey        String?                     @map("node_key")
+  toolName       String?                     @map("tool_name")
+  mcpServer      String?                     @map("mcp_server")
+  mcpTool        String?                     @map("mcp_tool")
+  inputSummary   Json?                       @map("input_summary")
+  outputSummary  Json?                       @map("output_summary")
+  error          Json?
+  metrics        Json?
+  metadata       Json?
+  startedAt      DateTime?                   @map("started_at")
+  endedAt        DateTime?                   @map("ended_at")
+  durationMs     Int?                        @map("duration_ms")
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
+
+  user         User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message                     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  task         StreamTask?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  run          StreamTaskRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
+  parent       ConversationTurnTraceItem?  @relation("TraceItemChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children     ConversationTurnTraceItem[] @relation("TraceItemChildren")
+
+  @@index([taskId, traceKey])
+  @@index([conversationId, messageId, sequence])
+  @@index([taskId, sequence])
+  @@index([runId])
+  @@index([parentId])
+  @@index([type])
+  @@map("conversation_turn_trace_items")
+}
+
 enum MessageRole {
   USER
   ASSISTANT
@@ -181,6 +239,30 @@ enum MessageStatus {
   STREAMING
   DONE
   ERROR
+}
+
+enum ConversationTraceItemType {
+  STRATEGY_DECISION
+  SKILL_SELECTION
+  WORKFLOW_STEP
+  REACT_NODE
+  HYBRID_NODE
+  PLAN_NODE
+  MODEL_CALL
+  TOOL_CALL
+  MCP_CALL
+  MEMORY_READ
+  MEMORY_WRITE
+  MESSAGE_FINALIZE
+  ERROR
+}
+
+enum ConversationTraceItemStatus {
+  RUNNING
+  SUCCESS
+  ERROR
+  SKIPPED
+  CANCELED
 }
 
 enum SseTaskType {

@@ -40,6 +40,8 @@ export class HybridPlanReactGraph implements AgentStrategyGraph {
       payload: {
         strategy: this.mode,
         step,
+        nodeKey: step,
+        traceKey: `workflow:${this.mode}:${step}`,
         publicStatus,
       },
     };
@@ -51,6 +53,8 @@ export class HybridPlanReactGraph implements AgentStrategyGraph {
       payload: {
         strategy: this.mode,
         step,
+        nodeKey: step,
+        traceKey: `workflow:${this.mode}:${step}`,
         publicStatus,
       },
     };

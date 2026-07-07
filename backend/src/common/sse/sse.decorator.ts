@@ -17,19 +17,15 @@ export function Sse(options?: SseOptions): MethodDecorator {
 
 /**
  * Extracts `Last-Event-ID` header from the request.
- * Returns the numeric value or undefined if not present.
+ * Returns the raw cursor value or undefined if not present.
  */
 export const SseLastEventId = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): number | undefined => {
+  (_data: unknown, ctx: ExecutionContext): string | undefined => {
     const request = ctx
       .switchToHttp()
       .getRequest<{ headers: Record<string, string | undefined> }>();
     const lastEventId = request.headers['last-event-id'];
-    if (lastEventId) {
-      const parsed = Number(lastEventId);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    }
-    return undefined;
+    return lastEventId?.trim() || undefined;
   },
 );
 

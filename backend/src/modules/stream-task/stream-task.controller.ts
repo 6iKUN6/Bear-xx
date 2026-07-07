@@ -8,7 +8,6 @@ import {
   Req,
   UseGuards,
   UseInterceptors,
-  ParseIntPipe,
   DefaultValuePipe,
   HttpCode,
   HttpStatus,
@@ -64,7 +63,7 @@ export class StreamTaskController {
       'text/event-stream': {
         schema: {
           type: 'string',
-          example: `id: 1\nevent: ${StreamTaskEventType.MessageDelta}\ndata: {"type":"${StreamTaskEventType.MessageDelta}","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n`,
+          example: `id: 1751450000000-0\nevent: ${StreamTaskEventType.MessageDelta}\ndata: {"type":"${StreamTaskEventType.MessageDelta}","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n`,
         },
       },
     },
@@ -72,7 +71,7 @@ export class StreamTaskController {
   async streamTask(
     @Param('taskId') taskId: string,
     @CurrentUser('id') userId: string,
-    @Query('cursor', new DefaultValuePipe('0'), ParseIntPipe) cursor: number,
+    @Query('cursor', new DefaultValuePipe('0')) cursor: string,
     @Req() req: SseRequest,
   ) {
     const lastEventId =
@@ -98,7 +97,7 @@ export class StreamTaskController {
       'text/event-stream': {
         schema: {
           type: 'string',
-          example: `id: 1\nevent: ${StreamTaskEventType.MessageDelta}\ndata: {"type":"${StreamTaskEventType.MessageDelta}","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n`,
+          example: `id: 1751450000000-0\nevent: ${StreamTaskEventType.MessageDelta}\ndata: {"type":"${StreamTaskEventType.MessageDelta}","taskId":"cmf_task_123","streamId":"cmf_stream_123","conversationId":"cmf_conv_123","messageId":"cmf_msg_123","status":"streaming","payload":{"delta":"你好"}}\n\n`,
         },
       },
     },
@@ -109,7 +108,7 @@ export class StreamTaskController {
     @CurrentUser('id') userId: string,
     @Req() req: SseRequest,
   ) {
-    const lastEventId = dto.lastEventId ?? req.__sseLastEventId ?? 0;
+    const lastEventId = dto.lastEventId ?? req.__sseLastEventId ?? '0';
     return this.streamTaskService.openTaskStream(
       taskId,
       userId,

@@ -53,18 +53,14 @@ export class SseInterceptor implements NestInterceptor {
     const lastEventIdQuery = req.query.cursor;
     const lastEventIdBody =
       req.body && typeof req.body === 'object' && 'lastEventId' in req.body
-        ? Number((req.body as Record<string, unknown>).lastEventId)
+        ? (req.body as Record<string, unknown>).lastEventId
         : undefined;
     const lastEventId =
       this.parseEventId(lastEventIdBody) ??
       this.parseEventId(
-        typeof lastEventIdQuery === 'string'
-          ? Number(lastEventIdQuery)
-          : undefined,
+        typeof lastEventIdQuery === 'string' ? lastEventIdQuery : undefined,
       ) ??
-      this.parseEventId(
-        lastEventIdHeader ? Number(lastEventIdHeader) : undefined,
-      );
+      this.parseEventId(lastEventIdHeader);
     req.__sseLastEventId = lastEventId;
 
     return next.handle().pipe(
@@ -148,12 +144,17 @@ export class SseInterceptor implements NestInterceptor {
     }
   }
 
-  private parseEventId(value: number | undefined) {
-    if (value === undefined || Number.isNaN(value) || value < 0) {
+  private parseEventId(value: unknown) {
+    if (value === undefined || value === null) {
       return undefined;
     }
 
-    return Math.trunc(value);
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      return undefined;
+    }
+
+    const eventId = String(value).trim();
+    return eventId.length > 0 ? eventId : undefined;
   }
 
   private isAsyncGenerator(

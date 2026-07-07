@@ -2,7 +2,7 @@ import type { Request } from 'express';
 
 export interface SseRequest extends Request {
   __sseAbortSignal?: AbortSignal;
-  __sseLastEventId?: number;
+  __sseLastEventId?: string;
 }
 
 export interface SseEvent {
@@ -14,9 +14,9 @@ export interface SseEvent {
 export interface SseOptions {
   /** Heartbeat interval in ms (default: from SSE_HEARTBEAT_INTERVAL env, or 15000) */
   heartbeatMs?: number;
-  /** Redis buffer TTL in seconds (default: from SSE_BUFFER_TTL env, or 300) */
+  /** Redis frame cache TTL in seconds (default: from SSE_BUFFER_TTL env, or 300) */
   bufferTtl?: number;
-  /** Redis key prefix for event buffer (default: 'sse:buffer') */
+  /** Redis key prefix for event frame cache. StreamTask uses its own snapshot service. */
   bufferKeyPrefix?: string;
 }
 

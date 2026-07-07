@@ -17,6 +17,11 @@ export class ConversationService {
       include: {
         messages: {
           orderBy: { createdAt: 'asc' },
+          include: {
+            turnTraceItems: {
+              orderBy: { sequence: 'asc' },
+            },
+          },
         },
       },
       orderBy: { updatedAt: 'desc' },
@@ -31,6 +36,17 @@ export class ConversationService {
         content: m.content,
         status: m.status.toLowerCase(),
         createdAt: m.createdAt.getTime(),
+        trace: m.turnTraceItems.map((item) => ({
+          id: item.id,
+          type: item.type,
+          status: item.status,
+          title: item.title,
+          summary: item.summary,
+          durationMs: item.durationMs,
+          depth: item.depth,
+          sequence: item.sequence,
+          metrics: item.metrics,
+        })),
       })),
       createdAt: c.createdAt.getTime(),
       updatedAt: c.updatedAt.getTime(),

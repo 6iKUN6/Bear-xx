@@ -56,3 +56,27 @@ export interface LlmStreamOptions {
 export interface LlmGenerateOptions {
   abortSignal?: AbortSignal;
 }
+
+export interface LlmTokenUsageMetrics {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  estimated?: boolean;
+}
+
+export interface LlmCacheHitMetrics {
+  memorySummaryHit?: boolean;
+  providerPromptCacheHit?: boolean;
+  contextCacheHit?: boolean;
+  cachedInputTokens?: number;
+}
+
+export interface LlmRunMetrics {
+  tokenUsage?: LlmTokenUsageMetrics;
+  cache?: LlmCacheHitMetrics;
+  durationMs?: number;
+  messageCount?: number;
+  summaryMessageCount?: number;
+  recentMessageCount?: number;
+}
