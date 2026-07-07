@@ -42,7 +42,6 @@ const getWeather = tool(
     language?: string;
   }) => {
     try {
-      console.log('getweather', input);
       const query = normalizeQuery(input);
       const location = await searchLocation(query);
       const forecast = await fetchForecast(location, query.days);
