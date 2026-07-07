@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LlmService } from '../../../llm/llm.service';
-import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
 import type {
   LlmGenerationConfig,
   LlmMessage,
@@ -29,22 +28,6 @@ export class CommonChatAgentService {
     private readonly configService: ConfigService,
     private readonly commonChatAgentLoopService: CommonChatAgentLoopService,
   ) {}
-
-  /**
-   * 流式执行通用聊天智能体
-   * @param request 通用聊天智能体请求配置
-   * @returns 返回模型输出的文本分片异步迭代器
-   * @description 兼容旧调用方：将智能体结构化事件中的文本增量重新收敛为纯字符串流。
-   */
-  async *stream(
-    request: CommonChatAgentRequest,
-  ): AsyncGenerator<string, void, unknown> {
-    for await (const event of this.streamEvents(request)) {
-      if (event.type === StreamTaskEventType.MessageDelta) {
-        yield event.delta;
-      }
-    }
-  }
 
   /**
    * 流式执行通用聊天智能体并返回结构化事件

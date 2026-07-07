@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
-import { LlmService } from '../../../llm/llm.service';
+import { CommonChatAgentService } from '../../agents/common-chat-agent/common-chat-agent.service';
 import {
   AgentStrategyMode,
   type AgentLoopInput,
@@ -12,13 +12,15 @@ import {
 export class DirectAnswerGraph implements AgentStrategyGraph {
   readonly mode = AgentStrategyMode.Direct;
 
-  constructor(private readonly llmService: LlmService) {}
+  constructor(
+    private readonly commonChatAgentService: CommonChatAgentService,
+  ) {}
 
   /**
    * 执行直接回答策略
    * @param input agent loop 输入上下文
    * @returns 返回模型直出事件流
-   * @description 不主动调用工具，直接通过 LLM 生成回答，并补充模型调用开始与完成事件供前端展示状态。
+   * @description 复用统一 agent executor（createAgent），不装载任何工具直接生成回答；与 ReAct 共用同一条执行和事件映射链路，避免直答与工具调用两套实现分叉。模型调用开始/完成事件仅作为前端状态书签。
    */
   async *stream(
     input: AgentLoopInput,
@@ -34,53 +36,24 @@ export class DirectAnswerGraph implements AgentStrategyGraph {
       },
     };
 
-    try {
-      for await (const delta of this.llmService.streamChatText(
-        this.withSystemPrompt(input),
-        input.llm,
-        { abortSignal: input.abortSignal },
-      )) {
-        yield {
-          type: StreamTaskEventType.MessageDelta,
-          delta,
-        };
-      }
-
-      yield {
-        type: StreamTaskEventType.ModelCallDone,
-        payload: {
-          nodeKey: 'direct_answer_model',
-          traceKey: 'model:direct_answer',
-          model: input.llm?.model.model,
-          provider: input.llm?.model.provider,
-        },
-      };
-    } catch (error) {
-      yield {
-        type: StreamTaskEventType.ModelCallDone,
-        payload: {
-          nodeKey: 'direct_answer_model',
-          traceKey: 'model:direct_answer',
-          model: input.llm?.model.model,
-          provider: input.llm?.model.provider,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      };
-      throw error;
-    }
-  }
-
-  private withSystemPrompt(input: AgentLoopInput) {
-    if (!input.systemPrompt) {
-      return input.messages;
+    for await (const event of this.commonChatAgentService.streamEvents({
+      messages: input.messages,
+      systemPrompt: input.systemPrompt,
+      llm: input.llm,
+      tools: [],
+      abortSignal: input.abortSignal,
+    })) {
+      yield event;
     }
 
-    return [
-      {
-        role: 'system' as const,
-        content: input.systemPrompt,
+    yield {
+      type: StreamTaskEventType.ModelCallDone,
+      payload: {
+        nodeKey: 'direct_answer_model',
+        traceKey: 'model:direct_answer',
+        model: input.llm?.model.model,
+        provider: input.llm?.model.provider,
       },
-      ...input.messages,
-    ];
+    };
   }
 }
