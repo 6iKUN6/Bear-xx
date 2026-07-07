@@ -11,6 +11,7 @@ import type {
 } from '../../../llm/llm.types';
 import { AgentLoopRunnerService } from '../../agent-loop/agent-loop-runner.service';
 import type { AgentLoopStreamEvent } from '../../agent-loop/agent-loop.types';
+import { getWeather } from '../../tools';
 import { CommonChatAgentService } from './common-chat-agent.service';
 
 export interface CommonChatConversationAgentRequest {
@@ -93,6 +94,6 @@ export class CommonChatAgentRunnerService {
   }
 
   private buildTools(_request: CommonChatConversationAgentRequest): unknown[] {
-    return [];
+    return [getWeather];
   }
 }

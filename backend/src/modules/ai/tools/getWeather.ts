@@ -41,10 +41,15 @@ const getWeather = tool(
     days?: number;
     language?: string;
   }) => {
-    const query = normalizeQuery(input);
-    const location = await searchLocation(query);
-    const forecast = await fetchForecast(location, query.days);
-    return formatWeatherResult(location, forecast, query.days);
+    try {
+      console.log('getweather', input);
+      const query = normalizeQuery(input);
+      const location = await searchLocation(query);
+      const forecast = await fetchForecast(location, query.days);
+      return formatWeatherResult(location, forecast, query.days);
+    } catch (error) {
+      return `天气查询失败：${error instanceof Error ? error.message : String(error)}。请提示用户稍后重试，或让用户补充更明确的城市名称。`;
+    }
   },
   {
     name: 'getWeather',

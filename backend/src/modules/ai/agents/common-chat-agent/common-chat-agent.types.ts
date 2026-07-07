@@ -14,9 +14,21 @@ export type CommonChatAgentStreamEvent =
       delta: string;
     }
   | {
+      type: StreamTaskEventType.ToolCallStart;
+      payload: Record<string, unknown>;
+    }
+  | {
       type: StreamTaskEventType.ToolCallDelta;
       toolCallId?: string;
       name?: string;
       args?: string;
       index?: number;
+    }
+  | {
+      type: StreamTaskEventType.ToolCallDone;
+      payload: Record<string, unknown>;
+    }
+  | {
+      type: StreamTaskEventType.ToolCallError;
+      payload: Record<string, unknown>;
     };

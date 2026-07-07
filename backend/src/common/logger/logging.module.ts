@@ -50,7 +50,7 @@ interface ResponseLogValue {
             },
           },
           transport: createLoggerTransport(configService),
-          autoLogging: true,
+          autoLogging: false,
         },
       }),
     }),

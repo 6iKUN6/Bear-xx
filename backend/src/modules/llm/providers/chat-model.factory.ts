@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAI } from '@langchain/openai';
+import { ChatOpenAICompletions } from '@langchain/openai';
 import type { ResolvedLlmTextRequest } from '../llm.types';
 
 @Injectable()
@@ -32,15 +32,15 @@ export class LlmChatModelFactory {
   /**
    * 创建 OpenAI 兼容聊天模型实例
    * @param request 已解析的文本生成请求配置
-   * @returns 返回 LangChain ChatOpenAI 实例
-   * @description 通过 baseURL 与 apiKey 支持 OpenAI、DeepSeek、Kimi、豆包等 OpenAI 兼容协议平台。
+   * @returns 返回 LangChain ChatOpenAICompletions 实例
+   * @description 通过 baseURL 与 apiKey 支持 OpenAI、DeepSeek、Kimi、豆包等 OpenAI 兼容协议平台；工具调用优先使用 Chat Completions 协议，避免 Responses API 在兼容服务中出现 tool call output 与 call_id 不匹配。
    */
   private createOpenAiCompatibleChatModel(
     request: ResolvedLlmTextRequest,
   ): BaseChatModel {
     const { model, generation } = request;
 
-    return new ChatOpenAI({
+    return new ChatOpenAICompletions({
       model: model.model,
       apiKey: model.apiKey ?? this.configService.get<string>('OPENAI_API_KEY'),
       temperature: generation.temperature,
