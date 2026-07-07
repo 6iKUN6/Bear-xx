@@ -1,5 +1,4 @@
 import { apiClient, type StreamEvent } from "../../api/request";
-import type { ResumeStreamTaskDto } from "../../api/generated";
 import {
   dispatchStreamTaskEvent,
   isTerminalStreamTaskEvent,
@@ -28,11 +27,11 @@ export class StreamTaskService {
 
   resumeTask(
     taskId: string,
-    lastEventId?: number,
+    lastEventId?: string,
     lifecycle: StreamTaskLifecycle = {},
   ): StreamTaskHandle {
-    const body: ResumeStreamTaskDto = {};
-    if (typeof lastEventId === "number") {
+    const body: { lastEventId?: string } = {};
+    if (lastEventId) {
       body.lastEventId = lastEventId;
     }
 

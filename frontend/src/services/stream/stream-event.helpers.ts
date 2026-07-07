@@ -36,8 +36,8 @@ export function dispatchStreamTaskEvent(
 ) {
   lifecycle.onEvent?.(event);
 
-  if (typeof event.id === "number") {
-    lifecycle.onLastEventIdChange?.(event.id);
+  if (event.rawId) {
+    lifecycle.onLastEventIdChange?.(event.rawId);
   }
 
   if (event.type === StreamTaskEventType.TaskCreated) {
@@ -58,7 +58,10 @@ export function dispatchStreamTaskEvent(
 
   if (event.type === StreamTaskEventType.MessageDone) {
     const payload = event.data.payload as MessageDonePayload | undefined;
-    lifecycle.onMessageDone?.(payload?.content, event as StreamTaskEvent<MessageDonePayload>);
+    lifecycle.onMessageDone?.(
+      payload?.content,
+      event as StreamTaskEvent<MessageDonePayload>,
+    );
     return;
   }
 
@@ -89,12 +92,12 @@ export function dispatchStreamTaskEvent(
 }
 
 export function isTerminalStreamTaskEvent(event: StreamTaskEvent) {
-  return TERMINAL_STREAM_TASK_EVENT_TYPES.has(event.type as StreamTaskEventType);
+  return TERMINAL_STREAM_TASK_EVENT_TYPES.has(
+    event.type as StreamTaskEventType,
+  );
 }
 
-export function getChatTaskMeta(
-  event: StreamTaskEvent,
-): ChatTaskMeta | null {
+export function getChatTaskMeta(event: StreamTaskEvent): ChatTaskMeta | null {
   const { taskId, conversationId, messageId, streamId, status } = event.data;
 
   if (!taskId || !conversationId) {

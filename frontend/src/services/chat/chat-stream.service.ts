@@ -11,12 +11,15 @@ export class ChatStreamService {
     input: ChatStreamInput,
     lifecycle: ChatStreamLifecycle = {},
   ): StreamTaskHandle {
-    return streamTaskService.startChatMessage(input, this.normalizeLifecycle(lifecycle));
+    return streamTaskService.startChatMessage(
+      input,
+      this.normalizeLifecycle(lifecycle),
+    );
   }
 
   resumeMessage(
     taskId: string,
-    lastEventId?: number,
+    lastEventId?: string,
     lifecycle: ChatStreamLifecycle = {},
   ): StreamTaskHandle {
     return streamTaskService.resumeTask(

@@ -11,24 +11,21 @@ import type {
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 800;
 
-type StreamStarter = (
-  lifecycle: StreamTaskLifecycle,
-) => StreamTaskHandle;
+type StreamStarter = (lifecycle: StreamTaskLifecycle) => StreamTaskHandle;
 
 const initialSnapshot: StreamTaskSnapshot = {
   status: "idle",
   task: null,
   error: null,
   retryCount: 0,
-  lastEventId: 0,
+  lastEventId: "0",
 };
 
 export function useStreamTask(options: StreamTaskStartOptions = {}) {
-  const [snapshot, setSnapshot] =
-    useState<StreamTaskSnapshot>(initialSnapshot);
+  const [snapshot, setSnapshot] = useState<StreamTaskSnapshot>(initialSnapshot);
   const handleRef = useRef<StreamTaskHandle | null>(null);
   const taskIdRef = useRef<string>("");
-  const lastEventIdRef = useRef(0);
+  const lastEventIdRef = useRef("0");
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleRetryRef = useRef<(fallbackError?: Error) => boolean>(
@@ -215,7 +212,12 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
       clearRetryTimer();
       retryTimerRef.current = setTimeout(() => {
         retryTimerRef.current = null;
-        resume(taskId, lastEventIdRef.current, lifecycleRef.current, "retrying");
+        resume(
+          taskId,
+          lastEventIdRef.current,
+          lifecycleRef.current,
+          "retrying",
+        );
       }, delay);
 
       return true;
@@ -232,7 +234,7 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
   const startChatMessage = useCallback(
     (input: ChatStreamInput, lifecycle: StreamTaskLifecycle = {}) => {
       retryCountRef.current = 0;
-      lastEventIdRef.current = 0;
+      lastEventIdRef.current = "0";
       taskIdRef.current = "";
 
       safeSetSnapshot(() => ({
@@ -240,7 +242,7 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
         task: null,
         error: null,
         retryCount: 0,
-        lastEventId: 0,
+        lastEventId: "0",
       }));
 
       return open(

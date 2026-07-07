@@ -21,7 +21,7 @@ export interface StreamTaskSnapshot {
   task: ChatTaskMeta | null;
   error: Error | null;
   retryCount: number;
-  lastEventId: number;
+  lastEventId: string;
 }
 
 export interface StreamTaskLifecycle {
@@ -39,7 +39,7 @@ export interface StreamTaskLifecycle {
   onCanceled?: (event?: StreamTaskEvent) => void;
   onError?: (error: Error, event?: StreamTaskEvent) => void;
   onDone?: () => void;
-  onLastEventIdChange?: (lastEventId: number) => void;
+  onLastEventIdChange?: (lastEventId: string) => void;
 }
 
 export interface StreamTaskStartOptions {
