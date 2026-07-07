@@ -5,22 +5,26 @@ import {
   type AgentLoopInput,
   type AgentStrategyDecision,
 } from './agent-loop.types';
+import {
+  CapabilityRegistry,
+  DEFAULT_TOOL_GROUP,
+} from './capability/capability.registry';
 
 const DEFAULT_MAX_STEPS = 6;
 
+// 仅保留有真实工具支撑的意图关键词，避免路由承诺出并不存在的能力。
 const TOOL_INTENT_KEYWORDS = [
   '天气',
-  '查询',
-  '搜索',
+  '气温',
+  '温度',
+  '下雨',
+  '降雨',
+  '降水',
+  '气象',
+  '预报',
   '查一下',
-  '调用',
-  '工具',
-  '麦当劳',
-  '点餐',
-  '菜单',
-  '优惠券',
-  '地址',
-  '订单',
+  '查询',
+  '调用工具',
 ];
 
 const PLAN_INTENT_KEYWORDS = [
@@ -47,15 +51,17 @@ const HYBRID_INTENT_KEYWORDS = [
 
 @Injectable()
 export class StrategyRouterService {
+  constructor(private readonly registry: CapabilityRegistry) {}
+
   /**
    * 选择 agent loop 执行策略
    * @param input agent loop 输入上下文
    * @returns 返回本次任务的策略决策
-   * @description 第一版使用保守规则路由，避免新增一次模型路由调用影响当前聊天稳定性；后续可替换为结构化输出模型路由。
+   * @description 第一版使用保守规则路由，避免新增一次模型路由调用影响当前聊天稳定性；后续可替换为结构化输出模型路由。工具可用性以能力注册表为准。
    */
   route(input: AgentLoopInput): AgentStrategyDecision {
     const latestUserText = this.readLatestUserText(input.messages);
-    const hasTools = input.tools.length > 0;
+    const hasTools = this.registry.hasTools();
     const hasToolIntent = this.includesAny(
       latestUserText,
       TOOL_INTENT_KEYWORDS,
@@ -93,7 +99,7 @@ export class StrategyRouterService {
         confidence: 0.74,
         reason: '请求包含需要外部工具协助的意图',
         publicStatus: '正在准备调用工具',
-        toolGroups: ['default'],
+        toolGroups: [DEFAULT_TOOL_GROUP],
       });
     }
 

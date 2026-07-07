@@ -12,3 +12,14 @@ export { DirectAnswerGraph } from './graphs/direct-answer.graph';
 export { CommonReactGraph } from './graphs/common-react.graph';
 export { PlanExecuteGraph } from './graphs/plan-execute.graph';
 export { HybridPlanReactGraph } from './graphs/hybrid-plan-react.graph';
+export {
+  CapabilityRegistry,
+  DEFAULT_TOOL_GROUP,
+} from './capability/capability.registry';
+export { CapabilityResolver } from './capability/capability.resolver';
+export type {
+  CapabilityTool,
+  ResolvedCapabilities,
+  SkillDefinition,
+  SubagentDefinition,
+} from './capability/capability.types';

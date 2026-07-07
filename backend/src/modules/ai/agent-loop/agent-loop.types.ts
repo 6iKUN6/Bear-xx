@@ -13,7 +13,11 @@ export interface AgentLoopInput {
   messages: LlmMessage[];
   systemPrompt?: string;
   llm?: ResolvedLlmTextRequest;
-  tools: unknown[];
+  /**
+   * 本次执行的工具集。
+   * @description 路由后由 CapabilityResolver 依据策略决策装配；调用方无需传入。
+   */
+  tools?: unknown[];
   abortSignal?: AbortSignal;
 }
 

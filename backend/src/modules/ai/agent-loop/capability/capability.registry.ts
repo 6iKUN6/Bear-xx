@@ -1,0 +1,85 @@
+import { Injectable } from '@nestjs/common';
+import { getWeather } from '../../tools';
+import type {
+  CapabilityTool,
+  SkillDefinition,
+  SubagentDefinition,
+} from './capability.types';
+
+/** 默认工具组：无显式能力要求时可用的基础工具集合 */
+export const DEFAULT_TOOL_GROUP = 'default';
+
+/**
+ * 能力注册表
+ * @description 集中登记可用的 tools / skills / subagents，作为路由与能力解析的闭集来源，
+ * 避免决策层声明出并不存在的能力。P2 仅注册基础工具，skills/subagents 预留注册入口。
+ */
+@Injectable()
+export class CapabilityRegistry {
+  private readonly tools = new Map<string, CapabilityTool>();
+  private readonly toolGroups = new Map<string, string[]>();
+  private readonly skills = new Map<string, SkillDefinition>();
+  private readonly subagents = new Map<string, SubagentDefinition>();
+
+  constructor() {
+    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP]);
+  }
+
+  /**
+   * 注册工具并归入若干工具组
+   * @param tool LangChain 工具对象
+   * @param groups 该工具所属的工具组名称
+   */
+  registerTool(tool: CapabilityTool, groups: string[] = []): void {
+    this.tools.set(tool.name, tool);
+    for (const group of groups) {
+      const names = this.toolGroups.get(group) ?? [];
+      if (!names.includes(tool.name)) {
+        names.push(tool.name);
+      }
+      this.toolGroups.set(group, names);
+    }
+  }
+
+  /** 注册技能（预留） */
+  registerSkill(skill: SkillDefinition): void {
+    this.skills.set(skill.name, skill);
+  }
+
+  /** 注册子 agent（预留） */
+  registerSubagent(subagent: SubagentDefinition): void {
+    this.subagents.set(subagent.name, subagent);
+  }
+
+  /** 按名称获取工具 */
+  getTool(name: string): CapabilityTool | undefined {
+    return this.tools.get(name);
+  }
+
+  /** 按工具组获取工具列表 */
+  getToolsByGroup(group: string): CapabilityTool[] {
+    return (this.toolGroups.get(group) ?? [])
+      .map((name) => this.tools.get(name))
+      .filter((tool): tool is CapabilityTool => Boolean(tool));
+  }
+
+  /** 列出全部已注册工具 */
+  listTools(): CapabilityTool[] {
+    return [...this.tools.values()];
+  }
+
+  /** 是否存在任何可用工具 */
+  hasTools(): boolean {
+    return this.tools.size > 0;
+  }
+
+  /** 按名称获取技能 */
+  getSkill(name: string): SkillDefinition | undefined {
+    return this.skills.get(name);
+  }
+
+  /** 列出全部已注册技能名称 */
+  listSkillNames(): string[] {
+    return [...this.skills.keys()];
+  }
+}

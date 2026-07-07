@@ -9,6 +9,8 @@ import {
 } from './agents/common-chat-agent';
 import {
   AgentLoopRunnerService,
+  CapabilityRegistry,
+  CapabilityResolver,
   CommonReactGraph,
   DirectAnswerGraph,
   HybridPlanReactGraph,
@@ -27,6 +29,8 @@ import { AiService } from './ai.service';
     CommonChatAgentService,
     CommonChatAgentRunnerService,
     AgentLoopRunnerService,
+    CapabilityRegistry,
+    CapabilityResolver,
     StrategyRouterService,
     StrategyRegistryService,
     DirectAnswerGraph,

@@ -11,7 +11,7 @@ import type {
 } from '../../../llm/llm.types';
 import { AgentLoopRunnerService } from '../../agent-loop/agent-loop-runner.service';
 import type { AgentLoopStreamEvent } from '../../agent-loop/agent-loop.types';
-import { getWeather } from '../../tools';
+import { CapabilityRegistry } from '../../agent-loop/capability/capability.registry';
 import { CommonChatAgentService } from './common-chat-agent.service';
 
 export interface CommonChatConversationAgentRequest {
@@ -35,6 +35,7 @@ export class CommonChatAgentRunnerService {
     private readonly chatContextService: ChatContextService,
     private readonly commonChatAgentService: CommonChatAgentService,
     private readonly agentLoopRunnerService: AgentLoopRunnerService,
+    private readonly capabilityRegistry: CapabilityRegistry,
   ) {}
 
   /**
@@ -52,8 +53,8 @@ export class CommonChatAgentRunnerService {
   /**
    * 准备会话聊天 agent 运行上下文
    * @param request 会话 agent 请求配置
-   * @returns 返回最终消息、系统提示词、工具和结构化事件流
-   * @description 在同一层完成上下文读取、系统提示词注入、工具选择和 agent 执行请求组装。
+   * @returns 返回最终消息、系统提示词、可用工具集和结构化事件流
+   * @description 完成上下文读取、系统提示词注入与 agent 执行请求组装；本次实际装载的工具在 agent-loop 内按策略决策解析，此处仅返回可用工具集供 trace。
    */
   async prepareConversationRun(
     request: CommonChatConversationAgentRequest,
@@ -61,19 +62,18 @@ export class CommonChatAgentRunnerService {
     const context = await this.buildContextBundle(request);
     const contextMessages = context.messages;
     const systemPrompt = this.resolveSystemPrompt();
-    const tools = this.buildTools(request);
     const llm = this.resolveTextRequest(request.llm);
 
     return {
       messages: contextMessages,
       systemPrompt,
-      tools,
+      // 可用工具集合，仅用于任务 trace；本次实际装载的工具由 agent-loop 依据策略决策解析。
+      tools: this.capabilityRegistry.listTools(),
       context,
       events: this.agentLoopRunnerService.stream({
         messages: contextMessages,
         systemPrompt,
         llm,
-        tools,
         abortSignal: request.abortSignal,
       }),
     };
@@ -91,9 +91,5 @@ export class CommonChatAgentRunnerService {
   private resolveSystemPrompt() {
     const prompt = chatAgentCommonPrompt.trim();
     return prompt ? prompt : undefined;
-  }
-
-  private buildTools(_request: CommonChatConversationAgentRequest): unknown[] {
-    return [getWeather];
   }
 }
