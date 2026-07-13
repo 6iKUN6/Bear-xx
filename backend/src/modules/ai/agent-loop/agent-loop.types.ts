@@ -18,6 +18,11 @@ export interface AgentLoopInput {
    * @description 路由后由 CapabilityResolver 依据策略决策装配；调用方无需传入。
    */
   tools?: unknown[];
+  /**
+   * 本次执行的步数/迭代预算。
+   * @description 路由后由 AgentLoopRunner 从策略决策注入；Plan/Hybrid controller 用作步骤上限。
+   */
+  maxSteps?: number;
   abortSignal?: AbortSignal;
 }
 

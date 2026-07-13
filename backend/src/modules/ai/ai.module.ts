@@ -8,13 +8,17 @@ import {
   CommonChatAgentService,
 } from './agents/common-chat-agent';
 import {
+  AgentLoopController,
   AgentLoopRunnerService,
   CapabilityRegistry,
   CapabilityResolver,
   CommonReactGraph,
   DirectAnswerGraph,
+  HeuristicStepEvaluator,
   HybridPlanReactGraph,
   PlanExecuteGraph,
+  PlannerService,
+  STEP_EVALUATOR,
   StrategyRegistryService,
   StrategyRouterService,
 } from './agent-loop';
@@ -31,6 +35,9 @@ import { AiService } from './ai.service';
     AgentLoopRunnerService,
     CapabilityRegistry,
     CapabilityResolver,
+    PlannerService,
+    AgentLoopController,
+    { provide: STEP_EVALUATOR, useClass: HeuristicStepEvaluator },
     StrategyRouterService,
     StrategyRegistryService,
     DirectAnswerGraph,

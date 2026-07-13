@@ -68,6 +68,16 @@ export class CapabilityRegistry {
     return [...this.tools.values()];
   }
 
+  /** 列出全部工具名 */
+  listToolNames(): string[] {
+    return [...this.tools.keys()];
+  }
+
+  /** 列出全部工具组名 */
+  listToolGroups(): string[] {
+    return [...this.toolGroups.keys()];
+  }
+
   /** 是否存在任何可用工具 */
   hasTools(): boolean {
     return this.tools.size > 0;

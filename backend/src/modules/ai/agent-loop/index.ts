@@ -23,3 +23,15 @@ export type {
   SkillDefinition,
   SubagentDefinition,
 } from './capability/capability.types';
+export { PlannerService } from './execution/planner.service';
+export { AgentLoopController } from './execution/agent-loop-controller.service';
+export {
+  STEP_EVALUATOR,
+  HeuristicStepEvaluator,
+  type StepEvaluator,
+} from './execution/step-evaluator';
+export type {
+  AgentPlan,
+  PlanStep,
+  StepExecutionResult,
+} from './execution/plan.types';

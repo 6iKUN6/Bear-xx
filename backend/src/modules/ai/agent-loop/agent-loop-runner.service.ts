@@ -26,7 +26,7 @@ export class AgentLoopRunnerService {
   async *stream(
     input: AgentLoopInput,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
-    const decision = this.strategyRouter.route(input);
+    const decision = await this.strategyRouter.route(input);
     const capabilities = this.capabilityResolver.resolve(decision);
 
     yield {
@@ -47,6 +47,7 @@ export class AgentLoopRunnerService {
     const executionInput: AgentLoopInput = {
       ...input,
       tools: [...capabilities.tools, ...capabilities.subagentTools],
+      maxSteps: decision.maxSteps,
       systemPrompt: this.mergeSystemPrompt(
         input.systemPrompt,
         capabilities.systemPromptAdditions,
