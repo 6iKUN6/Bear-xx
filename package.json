@@ -3,12 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "description": "Litter Bear - AI 驱动的跨平台小程序（Monorepo）",
+  "packageManager": "pnpm@10.27.0",
   "engines": {
     "node": ">=22.12"
   },
   "scripts": {
     "prepare": "husky",
-    "commit": "cz"
+    "commit": "cz",
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck"
   },
   "config": {
     "commitizen": {
@@ -20,6 +25,7 @@
     "@commitlint/config-conventional": "^20.4.4",
     "commitizen": "^4.3.1",
     "cz-git": "^1.12.0",
-    "husky": "^9.1.7"
+    "husky": "^9.1.7",
+    "turbo": "^2.3.3"
   }
 }

@@ -1,0 +1,16 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 10 默认拦截依赖的 install 脚本；放行两端确实需要原生/构建产物的依赖。
+# 安装后若仍有关键依赖被 "Ignored build scripts" 提示，补进此列表再装。
+onlyBuiltDependencies:
+  - prisma
+  - "@prisma/client"
+  - "@prisma/engines"
+  - esbuild
+  - "@tarojs/binding"
+  - "@swc/core"
+  - unrs-resolver
+  - core-js
+  - "@parcel/watcher"
