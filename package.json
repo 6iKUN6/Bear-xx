@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Litter Bear - AI 驱动的跨平台小程序（Monorepo）",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "prepare": "husky",
     "commit": "cz"
