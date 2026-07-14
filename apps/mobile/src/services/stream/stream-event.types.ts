@@ -1,24 +1,8 @@
-export enum StreamTaskEventType {
-  AgentLoopStart = "agent.loop.start",
-  StrategySelected = "strategy.selected",
-  SkillSelected = "skill.selected",
-  WorkflowStepStart = "workflow.step.start",
-  WorkflowStepDone = "workflow.step.done",
-  ModelCallStart = "model.call.start",
-  ModelCallDone = "model.call.done",
-  ToolCallStart = "tool.call.start",
-  ToolCallDelta = "tool.call.delta",
-  ToolCallDone = "tool.call.done",
-  ToolCallError = "tool.call.error",
-  MessageDelta = "message.delta",
-  MessageDone = "message.done",
-  TaskCreated = "task.created",
-  TaskStarted = "task.started",
-  TaskCompleted = "task.completed",
-  TaskError = "task.error",
-  TaskExpired = "task.expired",
-  TaskCanceled = "task.canceled",
-}
+// 事件类型来自前后端共享包（唯一事实源）；本文件仅保留前端消费侧的分组与结构。
+import { StreamTaskEventType } from "@litter-bear/types/protocol";
+
+export { StreamTaskEventType };
+export type { StreamTaskEventEnvelope } from "@litter-bear/types/protocol";
 
 export const TERMINAL_STREAM_TASK_EVENT_TYPES = new Set<StreamTaskEventType>([
   StreamTaskEventType.TaskCompleted,

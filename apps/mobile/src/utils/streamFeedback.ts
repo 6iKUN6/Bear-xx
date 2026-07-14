@@ -2,28 +2,8 @@ import {
   StreamTaskEventType,
   type StreamTaskEvent,
 } from "../services/stream/stream-event.types";
-
-const EVENT_LABELS: Record<StreamTaskEventType, string> = {
-  [StreamTaskEventType.AgentLoopStart]: "正在分析任务",
-  [StreamTaskEventType.StrategySelected]: "已选择执行策略",
-  [StreamTaskEventType.SkillSelected]: "已选择能力",
-  [StreamTaskEventType.WorkflowStepStart]: "正在执行步骤",
-  [StreamTaskEventType.WorkflowStepDone]: "步骤已完成",
-  [StreamTaskEventType.ModelCallStart]: "正在请求模型",
-  [StreamTaskEventType.ModelCallDone]: "模型响应完成",
-  [StreamTaskEventType.ToolCallStart]: "正在调用工具",
-  [StreamTaskEventType.ToolCallDelta]: "工具调用中",
-  [StreamTaskEventType.ToolCallDone]: "工具调用完成",
-  [StreamTaskEventType.ToolCallError]: "工具调用失败",
-  [StreamTaskEventType.MessageDelta]: "正在生成回复",
-  [StreamTaskEventType.MessageDone]: "回复生成完成",
-  [StreamTaskEventType.TaskCreated]: "任务已创建",
-  [StreamTaskEventType.TaskStarted]: "任务已开始",
-  [StreamTaskEventType.TaskCompleted]: "已完成",
-  [StreamTaskEventType.TaskError]: "任务执行失败",
-  [StreamTaskEventType.TaskExpired]: "任务已过期",
-  [StreamTaskEventType.TaskCanceled]: "任务已取消",
-};
+// 中文文案来自前后端共享包（唯一事实源）
+import { STREAM_TASK_EVENT_LABELS as EVENT_LABELS } from "@litter-bear/types/protocol";
 
 const EVENT_TONES: Partial<
   Record<StreamTaskEventType, MessageStreamEventTone>
