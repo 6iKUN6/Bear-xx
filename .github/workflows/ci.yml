@@ -1,0 +1,38 @@
+# CI 占位模板（monorepo）
+#
+# 现状：项目尚未进入部署阶段。本工作流只支持手动触发（workflow_dispatch），
+# 不监听 push / pull_request —— 因此 merge 到 main 不会触发任何执行，也不会报错。
+#
+# 需要启用真正的 CI 时：
+#   1) 取消下方 push / pull_request 触发器的注释；
+#   2) 取消 build 作业的注释（turbo 会按 workspace 依赖顺序构建
+#      packages/types -> apps/api / apps/mobile）。
+name: CI
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI 尚未启用（占位模板）。进入部署阶段后再开启构建作业。"
+
+  # build:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: pnpm/action-setup@v4
+  #       with:
+  #         version: 10
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 24
+  #         cache: pnpm
+  #     - run: pnpm install --frozen-lockfile
+  #     - run: pnpm build   # turbo: packages/types -> apps/api / apps/mobile
+  #     - run: pnpm --filter ./apps/mobile run build:weapp
