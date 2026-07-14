@@ -12,7 +12,7 @@
   "scripts": {
     "new": "taro new",
     "generate:api": "orval --config ./orval.config.ts",
-    "generate:api:local": "node ../backend/scripts/export-openapi.cjs && orval --config ./orval.config.ts",
+    "generate:api:local": "node ../api/scripts/export-openapi.cjs && orval --config ./orval.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "build:weapp": "taro build --type weapp",
     "build:swan": "taro build --type swan",

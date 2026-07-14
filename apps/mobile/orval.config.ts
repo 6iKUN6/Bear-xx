@@ -1,7 +1,7 @@
 import { defineConfig } from "orval";
 
 const DEFAULT_OPENAPI_URL = "http://localhost:3000/api-docs-json";
-const LOCAL_OPENAPI_PATH = "../backend/docs/openapi.json";
+const LOCAL_OPENAPI_PATH = "../api/docs/openapi.json";
 const openApiTarget = process.env.OPENAPI_URL || [
   DEFAULT_OPENAPI_URL,
   LOCAL_OPENAPI_PATH,

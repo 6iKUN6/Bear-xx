@@ -350,7 +350,7 @@ body 示例：
 - 微信小程序页面没有被胶囊、状态栏、tabbar 遮挡
 - 关键文本在小屏幕下不会溢出容器
 
-涉及 `frontend/UI/h5/` 原型截图中的问题时，应把对应图片作为回归参照。
+涉及 `UI/h5/` 原型截图中的问题时，应把对应图片作为回归参照。
 
 ## UI 交互建议
 
@@ -420,7 +420,7 @@ body 示例：
 
 ### 1. 不要让原型代码进入业务 Tailwind 扫描
 
-`frontend/UI/` 目录用于存放图片、Figma 下载原型代码和参考素材，不是小程序业务源码。
+`UI/` 目录用于存放图片、Figma 下载原型代码和参考素材，不是小程序业务源码。
 
 业务入口 `src/app.css` 必须显式限制 Tailwind 扫描范围：
 
@@ -429,7 +429,7 @@ body 示例：
 @source "./**/*.{html,js,ts,jsx,tsx}";
 ```
 
-不要随意去掉 `source(none)`，也不要把 `frontend/UI/**`、`proto-code/**` 加进业务 Tailwind content/source。原型代码中常见的 shadcn/Radix/CSS4 写法会生成小程序不支持的 WXSS。
+不要随意去掉 `source(none)`，也不要把 `UI/**`、`proto-code/**` 加进业务 Tailwind content/source。原型代码中常见的 shadcn/Radix/CSS4 写法会生成小程序不支持的 WXSS。
 
 ### 2. WXSS 报 token `view` 时优先查非法选择器
 
@@ -454,7 +454,7 @@ body 示例：
 rg -n ":has\(|cmdk|data-sidebar|group-has|peer-data" dist/weapp/app-origin.wxss
 ```
 
-如果能搜到，通常说明 Tailwind 又扫到了 `frontend/UI/proto-code` 一类的原型目录，需要先修正扫描范围，而不是在生成后的 WXSS 里手工删规则。
+如果能搜到，通常说明 Tailwind 又扫到了 `UI/proto-code` 一类的原型目录，需要先修正扫描范围，而不是在生成后的 WXSS 里手工删规则。
 
 ### 3. 单位转换保持跨端一致
 
@@ -503,7 +503,7 @@ pnpm typecheck
 
 `src/api/generated*` 相关文件原则上视为生成产物，不要直接手工修改。
 
-`backend/docs/openapi.json` 也视为接口生成链路的快照产物，不要主动手工修改或单独编辑该文件。需要更新 OpenAPI 快照或前端 API 类型时，统一在 `frontend/` 目录执行：
+`apps/api/docs/openapi.json` 也视为接口生成链路的快照产物，不要主动手工修改或单独编辑该文件。需要更新 OpenAPI 快照或前端 API 类型时，统一在 `apps/mobile/` 目录执行：
 
 ```bash
 pnpm generate:api:local
@@ -515,7 +515,7 @@ pnpm generate:api:local
 
 - 后端 DTO
 - Swagger 装饰器
-- `backend/docs/openapi.json`
+- `apps/api/docs/openapi.json`
 - Orval 配置
 
 确认后重新生成 API，而不是在生成文件里补丁式修改。
