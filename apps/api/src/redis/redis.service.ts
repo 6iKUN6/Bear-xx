@@ -12,14 +12,16 @@ export class RedisService extends Redis implements OnModuleDestroy {
       port: configService.get<number>('REDIS_PORT', 6379),
       password: configService.get('REDIS_PASSWORD') || undefined,
       lazyConnect: true,
+      // 无限退避重连：Redis 抖动/重启后自愈，避免"重试几次后永久放弃 → 之后所有命令报
+      // Connection is closed."。退避上限 5s；每 10 次重连告警一次，避免日志刷屏。
       retryStrategy: (times) => {
-        if (times > 3) {
+        const delay = Math.min(times * 200, 5000);
+        if (times === 1 || times % 10 === 0) {
           this.logger.warn(
-            'Redis connection failed after 3 retries, giving up',
+            `Redis reconnecting (attempt ${times}), retry in ${delay}ms`,
           );
-          return null;
         }
-        return Math.min(times * 500, 2000);
+        return delay;
       },
     });
 
