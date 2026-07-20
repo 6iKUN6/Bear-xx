@@ -65,6 +65,11 @@ export function dispatchStreamTaskEvent(
     return;
   }
 
+  if (event.type === StreamTaskEventType.ApprovalRequired) {
+    lifecycle.onApprovalRequired?.(event);
+    return;
+  }
+
   if (TOOL_STREAM_TASK_EVENT_TYPES.has(event.type as StreamTaskEventType)) {
     lifecycle.onToolCall?.(event);
   }

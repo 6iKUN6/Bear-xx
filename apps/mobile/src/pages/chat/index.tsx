@@ -9,6 +9,10 @@ import { useChatStream } from "../../hooks/useChatStream";
 import { appPageClass, appSolidNavClass } from "../../utils/style";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import type { StreamTaskEvent } from "../../services/stream";
+import type {
+  ApprovalDecision,
+  ApprovalRequiredPayload,
+} from "@litter-bear/types/protocol";
 
 let idCounter = Date.now();
 function genMsgId(): string {
@@ -18,7 +22,7 @@ function genMsgId(): string {
 export default function ChatPage() {
   const router = useRouter();
   const conversationId = router.params.conversationId || "";
-  const { abort, cancel, sendMessage } = useChatStream();
+  const { abort, cancel, sendMessage, submitApproval } = useChatStream();
 
   const {
     currentConversation,
@@ -31,6 +35,7 @@ export default function ChatPage() {
     updateMessageStatus,
     updateMessageStreamEvent,
     toggleMessageStreamFeedback,
+    setMessageApproval,
     persistConversations,
   } = useChatStore();
 
@@ -105,6 +110,13 @@ export default function ChatPage() {
         },
         onStatus: recordStreamEvent,
         onToolCall: recordStreamEvent,
+        onApprovalRequired: (event) => {
+          recordStreamEvent(event);
+          setMessageApproval(
+            aiMsgId,
+            (event.data.payload as ApprovalRequiredPayload | undefined) ?? null,
+          );
+        },
         onChunk: (chunk) => {
           updateMessageContent(aiMsgId, chunk);
         },
@@ -144,6 +156,13 @@ export default function ChatPage() {
     );
   };
 
+  const handleApproval = (msgId: string, decision: ApprovalDecision) => {
+    setMessageApproval(msgId, null);
+    updateMessageStatus(msgId, "streaming");
+    activeAssistantMessageIdRef.current = msgId;
+    submitApproval(decision);
+  };
+
   const messages = currentConversation?.messages || [];
   return (
     <View className={appPageClass}>
@@ -160,6 +179,7 @@ export default function ChatPage() {
           messages={messages}
           isStreaming={!!isStreaming}
           onToggleStreamFeedback={toggleMessageStreamFeedback}
+          onApproval={handleApproval}
         />
       </View>
 

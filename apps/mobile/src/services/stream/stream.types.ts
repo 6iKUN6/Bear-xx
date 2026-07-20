@@ -31,6 +31,7 @@ export interface StreamTaskLifecycle {
   onChunk?: (delta: string, event: StreamTaskEvent) => void;
   onToolCall?: (event: StreamTaskEvent) => void;
   onStatus?: (event: StreamTaskEvent) => void;
+  onApprovalRequired?: (event: StreamTaskEvent) => void;
   onMessageDone?: (
     content: string | undefined,
     event: StreamTaskEvent<MessageDonePayload>,

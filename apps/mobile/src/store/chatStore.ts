@@ -1,3 +1,4 @@
+import type { ApprovalRequiredPayload } from "@litter-bear/types/protocol";
 import * as storage from "../utils/storage";
 import { STORAGE_KEYS } from "../utils/constants";
 import * as chatApi from "../api/chat";
@@ -27,6 +28,10 @@ interface ChatState {
     event: MessageStreamEventFeedback,
   ) => void;
   toggleMessageStreamFeedback: (msgId: string) => void;
+  setMessageApproval: (
+    msgId: string,
+    payload: ApprovalRequiredPayload | null,
+  ) => void;
 
   persistConversations: () => void;
   hydrateConversations: () => void;
@@ -241,6 +246,28 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
           },
         };
       });
+
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
+
+      const conversations = state.conversations.map((c) =>
+        c.id === updatedConv.id ? updatedConv : c,
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
+  setMessageApproval(msgId: string, payload: ApprovalRequiredPayload | null) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((m) =>
+        m.id === msgId ? { ...m, pendingApproval: payload ?? undefined } : m,
+      );
 
       const updatedConv: Conversation = {
         ...state.currentConversation,

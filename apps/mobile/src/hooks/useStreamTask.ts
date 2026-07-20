@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ApprovalDecision } from "@litter-bear/types/protocol";
 import { streamTaskService } from "../services/stream";
 import type {
   ChatStreamInput,
@@ -169,6 +170,35 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
     [open, safeSetSnapshot],
   );
 
+  const submitApproval = useCallback(
+    (decision: ApprovalDecision) => {
+      const taskId = taskIdRef.current;
+      if (!taskId) {
+        const error = new Error("缺少可恢复的聊天任务 ID");
+        safeSetSnapshot((current) => ({
+          ...current,
+          status: "error",
+          error,
+        }));
+        lifecycleRef.current.onError?.(error);
+        return null;
+      }
+
+      return open(
+        (wrappedLifecycle) =>
+          streamTaskService.submitApproval(
+            taskId,
+            decision,
+            lastEventIdRef.current,
+            wrappedLifecycle,
+          ),
+        lifecycleRef.current,
+        "streaming",
+      );
+    },
+    [open, safeSetSnapshot],
+  );
+
   const scheduleRetry = useCallback(
     (fallbackError?: Error) => {
       const taskId = taskIdRef.current;
@@ -286,6 +316,7 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
     ...snapshot,
     startChatMessage,
     resume,
+    submitApproval,
     retry,
     cancel,
     abort,

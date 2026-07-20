@@ -66,6 +66,8 @@ interface Message {
   trace?: MessageTraceItem[];
   streamFeedback?: MessageStreamFeedbackState;
   currentStreamEvent?: MessageStreamEventFeedback;
+  /** HITL：待人工审批的工具调用（approval.required 载荷）；处理后清空 */
+  pendingApproval?: import("@litter-bear/types/protocol").ApprovalRequiredPayload;
 }
 
 interface Conversation {

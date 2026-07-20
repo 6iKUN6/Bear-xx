@@ -1,7 +1,9 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
 import { Image, View, Text } from "@tarojs/components";
+import type { ApprovalDecision } from "@litter-bear/types/protocol";
 import StreamFeedback from "../StreamFeedback";
+import ApprovalCard from "../ApprovalCard";
 import StreamingMarkdownContent from "../StreamingMarkdownContent";
 import { useUserStore } from "../../store/userStore";
 import {
@@ -15,6 +17,7 @@ interface ChatBubbleProps {
   message: Message;
   renderExtra?: (slotProps: ChatBubbleExtraSlotProps) => ReactNode;
   onToggleStreamFeedback?: (messageId: string) => void;
+  onApproval?: (messageId: string, decision: ApprovalDecision) => void;
 }
 
 export interface ChatBubbleExtraSlotProps {
@@ -44,6 +47,7 @@ function ChatBubble({
   message,
   renderExtra,
   onToggleStreamFeedback,
+  onApproval,
 }: ChatBubbleProps) {
   const userInfo = useUserStore((state) => state.userInfo);
   const isUser = message.role === "user";
@@ -88,6 +92,15 @@ function ChatBubble({
             streaming={!isUser && isStreaming}
           />
         </View>
+
+        {!isUser && message.pendingApproval && (
+          <View className="mt-[0.5rem] min-w-0">
+            <ApprovalCard
+              payload={message.pendingApproval}
+              onDecision={(decision) => onApproval?.(message.id, decision)}
+            />
+          </View>
+        )}
 
         {!isUser && <MessageMetricsMeta message={message} />}
 
