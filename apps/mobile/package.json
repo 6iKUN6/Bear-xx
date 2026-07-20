@@ -41,6 +41,7 @@
   "author": "",
   "dependencies": {
     "@babel/runtime": "^7.24.4",
+    "@litter-bear/theme": "workspace:*",
     "@litter-bear/types": "workspace:*",
     "@tarojs/components": "4.1.11",
     "@tarojs/helper": "4.1.11",

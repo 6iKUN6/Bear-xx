@@ -1,0 +1,27 @@
+{
+  "name": "@litter-bear/theme",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Litter Bear 跨端语义主题定义与 CSS 变量映射",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm run build && node --test dist/index.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "typescript": "^5.4.0"
+  }
+}

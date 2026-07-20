@@ -216,6 +216,9 @@ importers:
       '@babel/runtime':
         specifier: ^7.24.4
         version: 7.29.7
+      '@litter-bear/theme':
+        specifier: workspace:*
+        version: link:../../packages/theme
       '@litter-bear/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -370,6 +373,15 @@ importers:
       weapp-tailwindcss:
         specifier: ^4.10.3
         version: 4.12.0(tailwindcss@4.3.2)
+
+  packages/theme:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.7
+        version: 22.20.1
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   packages/types:
     devDependencies:
