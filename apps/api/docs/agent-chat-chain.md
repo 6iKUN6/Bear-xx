@@ -70,6 +70,7 @@ POST /api/chat/message  (@Sse, JWT, 限流 10/min)                 chat.controll
 - `model.call.start|done` — 模型调用书签
 - `tool.call.start|delta|done|error` — 工具调用生命周期
 - `message.delta` / `message.done` — 助手文本
+- `approval.required` — 工具执行前需人工审批（HITL，见下）
 - `task.created|started|completed|error|expired|canceled` — 任务终态
 
 ## 关键设计说明
@@ -85,3 +86,6 @@ POST /api/chat/message  (@Sse, JWT, 限流 10/min)                 chat.controll
 
 ### Planner 的模型选择
 Planner 通过 `{ model: { platform: 'kimi' } }` 选中 Kimi 预设（依赖 `KIMI_API_KEY`）。注意：`kimi-for-coding` 端点仅允许 `temperature=1`，故 planner **不覆盖 temperature**。任何规划失败都回退为"单步=原始请求"，不影响主链路。
+
+### HITL（工具级人工审批）
+ReAct 命中配置了 `requiresApproval` 的工具时，agent 在工具执行前中断，发 `approval.required` 并把任务置 `WAITING_HUMAN`；人工经 `POST /api/stream-tasks/:taskId/approval` 提交 approve/reject/edit 后用 `Command` 从中断处续跑。基于 LangGraph checkpointer（thread_id = taskId）。详见 [hitl.md](./hitl.md)。
