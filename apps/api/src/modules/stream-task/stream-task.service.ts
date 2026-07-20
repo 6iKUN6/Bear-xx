@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ApprovalDecision } from '@litter-bear/types/protocol';
 import {
   StreamTaskStatus,
   StreamTaskRunStatus,
@@ -499,6 +501,72 @@ export class StreamTaskService {
   }
 
   /**
+   * 提交人工审批决定并恢复流式任务（HITL）
+   * @param taskId 任务ID
+   * @param userId 用户ID
+   * @param decision 人工审批决定（approve/reject/edit）
+   * @param lastEventId 客户端已接收的最后事件ID
+   * @param signal 连接中断信号
+   * @returns 返回续跑的 SSE 事件流
+   * @description 仅对处于 WAITING_HUMAN 的任务生效：持久化决定后复用任务执行/流式机制，
+   * 由 runChatTask 检测到决定后走 Command 恢复续跑。
+   */
+  async resumeTaskWithDecision(
+    taskId: string,
+    userId: string,
+    decision: ApprovalDecision,
+    lastEventId: string,
+    signal?: AbortSignal,
+  ): Promise<TaskStreamResult> {
+    const task = await this.loadTask(taskId, userId);
+
+    if (task.status !== StreamTaskStatus.WAITING_HUMAN) {
+      throw new BadRequestException('任务当前不处于待人工审批状态');
+    }
+
+    await this.storePendingApprovalDecision(taskId, decision);
+
+    const stream = this.createTaskStream(task.id, lastEventId, signal);
+    return { stream };
+  }
+
+  /**
+   * 暂存人工审批决定
+   * @description 写入 Redis（TTL 复用缓冲期），供后台恢复执行读取一次后消费。
+   */
+  private async storePendingApprovalDecision(
+    taskId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    await this.redis.set(
+      `hitl:approval:${taskId}`,
+      JSON.stringify(decision),
+      'EX',
+      this.bufferTtl,
+    );
+  }
+
+  /**
+   * 读取并消费待处理的人工审批决定
+   * @returns 存在则返回决定并从 Redis 删除；否则返回 undefined
+   */
+  private async readPendingApprovalDecision(
+    taskId: string,
+  ): Promise<ApprovalDecision | undefined> {
+    const key = `hitl:approval:${taskId}`;
+    const raw = await this.redis.get(key);
+    if (!raw) {
+      return undefined;
+    }
+    await this.redis.del(key);
+    try {
+      return JSON.parse(raw) as ApprovalDecision;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * 创建任务事件流
    * @param taskId 任务ID
    * @param lastEventId 客户端已接收的最后事件ID
@@ -752,17 +820,29 @@ export class StreamTaskService {
       throw new Error('Missing chat task payload');
     }
 
-    const agentRun =
-      await this.commonChatAgentRunnerService.prepareConversationRun({
-        conversationId: task.conversationId,
-        pendingMessageId: task.messageId,
-        llm: payload.llm,
-        abortSignal: executionSignal,
-      });
+    // HITL：存在待处理的人工审批决定 → 走恢复路径（Command 续跑）；否则首轮执行。
+    const approvalDecision = await this.readPendingApprovalDecision(task.id);
+    const agentRun = approvalDecision
+      ? await this.commonChatAgentRunnerService.resumeConversationRun({
+          conversationId: task.conversationId,
+          pendingMessageId: task.messageId,
+          llm: payload.llm,
+          taskId: task.id,
+          decision: approvalDecision,
+          abortSignal: executionSignal,
+        })
+      : await this.commonChatAgentRunnerService.prepareConversationRun({
+          conversationId: task.conversationId,
+          pendingMessageId: task.messageId,
+          llm: payload.llm,
+          taskId: task.id,
+          abortSignal: executionSignal,
+        });
 
     let fullContent = '';
     let deltaCount = 0;
     let emptyDeltaCount = 0;
+    let pendingApproval = false;
     let lastFullContentFlushAt = Date.now();
     let lastFlushedFullContentLength = 0;
     const startedAt = Date.now();
@@ -789,6 +869,9 @@ export class StreamTaskService {
       }
 
       if (event.type !== StreamTaskEventType.MessageDelta) {
+        if (event.type === StreamTaskEventType.ApprovalRequired) {
+          pendingApproval = true;
+        }
         await this.handleAgentLoopStatusEvent(task, event);
         continue;
       }
@@ -828,6 +911,29 @@ export class StreamTaskService {
 
     if (executionSignal.aborted) {
       throw executionSignal.reason;
+    }
+
+    // HITL：agent 在工具执行前中断并已发出 approval.required。任务转入等待人工审批，
+    // 不落 message.done / COMPLETED；由 :taskId/approval 端点带人工决定恢复续跑。
+    if (pendingApproval) {
+      await this.prisma.streamTask.update({
+        where: { id: task.id },
+        data: {
+          status: StreamTaskStatus.WAITING_HUMAN,
+          fullContent,
+          currentStep: 'waiting_human',
+          expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
+        },
+      });
+      this.debugTaskLog('stream_task.chat.waiting_human', {
+        taskId: task.id,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        deltaCount,
+        fullContentLength: fullContent.length,
+        durationMs: Date.now() - startedAt,
+      });
+      return;
     }
 
     const completionWarning =
