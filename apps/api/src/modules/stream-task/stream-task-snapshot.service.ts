@@ -4,7 +4,6 @@ import type { SseEvent } from '../../common/sse';
 import { RedisService } from '../../redis/redis.service';
 
 type RedisStreamEntry = [id: string, fields: string[]];
-type RedisStreamReadResult = Array<[key: string, entries: RedisStreamEntry[]]>;
 
 const DEFAULT_FRAME_MAXLEN = 10000;
 const DEFAULT_FRAME_TTL_SECONDS = 300;
@@ -114,13 +113,13 @@ export class StreamTaskSnapshotService {
 
     try {
       while (!signal?.aborted) {
-        const result = (await reader.xread(
+        const result = await reader.xread(
           'BLOCK',
           this.xreadBlockMs,
           'STREAMS',
           key,
           cursor,
-        )) as RedisStreamReadResult | null;
+        );
 
         if (!result) {
           continue;

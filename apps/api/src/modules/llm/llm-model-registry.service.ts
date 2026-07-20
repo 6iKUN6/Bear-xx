@@ -508,7 +508,7 @@ export class LlmModelRegistryService {
       throw new BadRequestException(`不支持的 LLM Provider: ${provider}`);
     }
 
-    return provider as LlmProviderName;
+    return provider;
   }
 
   /**

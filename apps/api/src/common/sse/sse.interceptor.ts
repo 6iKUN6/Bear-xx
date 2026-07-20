@@ -48,8 +48,7 @@ export class SseInterceptor implements NestInterceptor {
       sseOptions.heartbeatMs ??
       this.configService.get<number>('SSE_HEARTBEAT_INTERVAL', 15000);
     const lastEventIdHeader = req.headers['last-event-id'] as
-      | string
-      | undefined;
+      string | undefined;
     const lastEventIdQuery = req.query.cursor;
     const lastEventIdBody =
       req.body && typeof req.body === 'object' && 'lastEventId' in req.body
@@ -67,8 +66,7 @@ export class SseInterceptor implements NestInterceptor {
       switchMap(
         (
           result:
-            | { stream: AsyncGenerator<SseEvent> }
-            | AsyncGenerator<SseEvent>,
+            { stream: AsyncGenerator<SseEvent> } | AsyncGenerator<SseEvent>,
         ) => {
           const stream = this.isAsyncGenerator(result) ? result : result.stream;
           this.prepareSseResponse(res);
