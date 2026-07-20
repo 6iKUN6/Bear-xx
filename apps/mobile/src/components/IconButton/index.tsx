@@ -17,17 +17,18 @@ export default function IconButton({
   onClick,
   className = "",
 }: IconButtonProps) {
-  const sizeClass = size === "sm" ? "h-[2.5rem] w-[2.5rem]" : "h-[2.5rem] w-[2.5rem]";
+  const sizeClass =
+    size === "sm" ? "h-[2.5rem] w-[2.5rem]" : "h-[2.5rem] w-[2.5rem]";
   const variantClass =
     variant === "default"
-      ? "bg-white text-[var(--lb-grad-a)] shadow-[0_0.375rem_1.125rem_rgba(124,58,237,0.06)]"
+      ? "border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[var(--lb-accent-ink)]"
       : variant === "primary"
-        ? `${appGradientSurfaceClass} shadow-[0_0.75rem_1.5rem_rgba(124,58,237,0.24)]`
-        : "bg-white text-[var(--lb-text-secondary)] shadow-[0_0.375rem_1.125rem_rgba(124,58,237,0.06)] border border-[rgba(196,181,253,0.18)]";
+        ? `${appGradientSurfaceClass} shadow-[var(--lb-shadow-glow)]`
+        : "border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[var(--lb-text-secondary)]";
 
   return (
     <View
-      className={`shrink-0 inline-flex items-center justify-center rounded-[0.75rem] box-border transition-transform duration-150 active:scale-95 ${sizeClass} ${variantClass} ${className}`.trim()}
+      className={`shrink-0 inline-flex items-center justify-center rounded-[var(--lb-radius-md)] box-border transition-transform duration-150 active:scale-95 ${sizeClass} ${variantClass} ${className}`.trim()}
       onClick={onClick}
     >
       {icon}

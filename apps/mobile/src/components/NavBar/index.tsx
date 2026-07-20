@@ -86,7 +86,7 @@ export default function NavBar({
       left
     ) : showBack ? (
       <View
-        className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[0.75rem] bg-white/70 text-[1.125rem] text-[var(--lb-text-primary)] shadow-[0_0.5rem_1.5rem_rgba(124,58,237,0.12)] backdrop-blur-[1rem]"
+        className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[1.125rem] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
         onClick={handleBack}
       >
         <Text className="at-icon at-icon-chevron-left leading-none [&::before]:block" />
@@ -100,7 +100,7 @@ export default function NavBar({
       <View
         className={
           shouldShowCapsuleVisual
-            ? "flex items-center justify-center rounded-full border border-[rgba(255,255,255,0.4)] bg-white/70 shadow-[0_0.5rem_1.5rem_rgba(124,58,237,0.1)] backdrop-blur-[1.25rem]"
+            ? "flex items-center justify-center rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]"
             : "opacity-0"
         }
         style={{
@@ -108,7 +108,7 @@ export default function NavBar({
           height: metrics.capsuleHeight,
         }}
       >
-        <View className="flex items-center gap-[0.375rem] text-[rgba(107,114,128,0.9)]">
+        <View className="flex items-center gap-[0.375rem] text-[var(--lb-text-secondary)]">
           <View className="h-[0.25rem] w-[0.25rem] rounded-full bg-current" />
           <View className="h-[0.25rem] w-[0.25rem] rounded-full bg-current" />
           <View className="h-[0.75rem] w-[0.0625rem] rounded-full bg-current opacity-35" />
@@ -119,8 +119,8 @@ export default function NavBar({
 
   const barVariantClass =
     variant === "ghost"
-      ? "bg-transparent shadow-none border-transparent backdrop-blur-[0rem]"
-      : `${appSolidNavClass} bg-white`;
+      ? "bg-transparent shadow-none border-transparent"
+      : appSolidNavClass;
 
   return (
     <View
@@ -132,7 +132,7 @@ export default function NavBar({
       }}
     >
       <View
-        className={`flex items-center px-[0.75rem] ${variant === "glass" ? "rounded-none" : "rounded-[1.375rem]"} ${barVariantClass} ${barClassName}`.trim()}
+        className={`flex items-center px-[0.75rem] ${barVariantClass} ${barClassName}`.trim()}
         style={{ height: metrics.contentHeight }}
       >
         <View

@@ -12,7 +12,8 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
-const iconClassName = "inline-flex items-center justify-center text-[1.25rem] leading-none [&::before]:block";
+const iconClassName =
+  "inline-flex items-center justify-center text-[1.25rem] leading-none [&::before]:block";
 
 export default function ChatInput({
   onSend,
@@ -25,7 +26,9 @@ export default function ChatInput({
   const [inputMode, setInputMode] = useState<"text" | "voice">("text");
 
   const renderIcon = (name: string, extraClassName = "") => (
-    <Text className={`at-icon at-icon-${name} ${iconClassName} ${extraClassName}`.trim()} />
+    <Text
+      className={`at-icon at-icon-${name} ${iconClassName} ${extraClassName}`.trim()}
+    />
   );
 
   const hasContent = value.trim().length > 0;
@@ -53,8 +56,12 @@ export default function ChatInput({
     if (inputMode === "voice") {
       return (
         <>
-          <IconButton icon={renderIcon("edit")} variant='ghost' onClick={toggleMode} />
-          <IconButton icon={renderIcon("add")} variant='ghost' />
+          <IconButton
+            icon={renderIcon("edit")}
+            variant="ghost"
+            onClick={toggleMode}
+          />
+          <IconButton icon={renderIcon("add")} variant="ghost" />
         </>
       );
     }
@@ -62,10 +69,10 @@ export default function ChatInput({
     if (isStreaming) {
       return (
         <>
-          <IconButton icon={renderIcon("add")} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant="ghost" />
           <IconButton
-            icon={renderIcon("stop", "text-white")}
-            variant='primary'
+            icon={renderIcon("stop", "text-[var(--lb-on-accent)]")}
+            variant="primary"
             onClick={handleStop}
           />
         </>
@@ -75,10 +82,10 @@ export default function ChatInput({
     if (hasContent) {
       return (
         <>
-          <IconButton icon={renderIcon("add")} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant="ghost" />
           <IconButton
-            icon={renderIcon("arrow-up", "text-white")}
-            variant='primary'
+            icon={renderIcon("arrow-up", "text-[var(--lb-on-accent)]")}
+            variant="primary"
             onClick={handleSend}
           />
         </>
@@ -87,30 +94,34 @@ export default function ChatInput({
 
     return (
       <>
-        <IconButton icon={renderIcon("sound")} variant='ghost' onClick={toggleMode} />
-        <IconButton icon={renderIcon("add")} variant='ghost' />
+        <IconButton
+          icon={renderIcon("sound")}
+          variant="ghost"
+          onClick={toggleMode}
+        />
+        <IconButton icon={renderIcon("add")} variant="ghost" />
       </>
     );
   };
 
   return (
     <View
-      className='border-t border-[rgba(17,24,39,0.05)] bg-white px-[0.75rem] pt-[0.625rem] shadow-[0_-0.5rem_1.25rem_rgba(124,58,237,0.05)] box-border'
+      className="border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] pt-[0.5rem] box-border"
       style={{ paddingBottom: safeAreaBottom(16) }}
     >
-      <View className='flex items-end gap-[0.75rem]'>
-        <View className='flex-1 min-w-0'>
+      <View className="flex items-end gap-[0.75rem]">
+        <View className="flex-1 min-w-0">
           {inputMode === "text" ? (
             <Textarea
-              className={`${appSoftInputClass} w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[1rem] px-[1rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]`}
+              className={`${appSoftInputClass} w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[var(--lb-radius-md)] px-[0.875rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]`}
               value={value}
               onInput={(e) => setValue(e.detail.value)}
-              placeholder='发消息或按住说话...'
-              placeholderClass='text-[var(--lb-text-muted)]'
+              placeholder="发消息或按住说话..."
+              placeholderClass="text-[var(--lb-text-muted)]"
               maxlength={2000}
               disabled={disabled || isStreaming}
               autoHeight
-              confirmType='send'
+              confirmType="send"
               onConfirm={handleSend}
             />
           ) : (
@@ -121,7 +132,7 @@ export default function ChatInput({
           )}
         </View>
 
-        <View className='flex items-center gap-[0.5rem]'>
+        <View className="flex items-center gap-[0.5rem]">
           {renderRightButtons()}
         </View>
       </View>

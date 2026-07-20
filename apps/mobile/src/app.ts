@@ -2,6 +2,7 @@ import { PropsWithChildren } from "react";
 import Taro, { useLaunch } from "@tarojs/taro";
 import { useUserStore } from "./store/userStore";
 import { useChatStore } from "./store/chatStore";
+import { useThemeStore } from "./store/themeStore";
 
 import "./app.scss";
 import "./app.css";
@@ -45,6 +46,8 @@ function App({ children }: PropsWithChildren<any>) {
     useUserStore.getState().hydrate();
     // 恢复会话数据
     useChatStore.getState().hydrateConversations();
+    // 恢复界面主题
+    useThemeStore.getState().hydrate();
   });
 
   return children;

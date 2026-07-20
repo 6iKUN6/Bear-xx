@@ -20,15 +20,15 @@ const headingStyle =
 const listStyle = "margin:6px 0 8px 18px;padding:0;line-height:1.65;";
 const listItemStyle = "margin:3px 0;";
 const blockquoteStyle =
-  "margin:8px 0;padding:8px 10px;border:1px solid rgba(124,58,237,0.14);border-radius:10px;background:rgba(248,245,255,0.82);color:#5b5368;";
-const hrStyle = "height:1px;margin:12px 0;background:rgba(124,58,237,0.16);";
+  "margin:8px 0;padding:8px 10px;border:1px solid var(--lb-line-soft);border-radius:var(--lb-radius-md);background:var(--lb-surface-muted);color:var(--lb-text-secondary);";
+const hrStyle = "height:1px;margin:12px 0;background:var(--lb-line-soft);";
 const inlineCodeStyle =
-  "padding:1px 5px;border-radius:5px;background:rgba(17,24,39,0.07);font-family:Menlo,Consolas,monospace;font-size:0.88em;color:#4c1d95;";
+  "padding:1px 5px;border-radius:var(--lb-radius-xs);background:var(--lb-surface-hover);font-family:Menlo,Consolas,monospace;font-size:0.88em;color:var(--lb-accent-ink);";
 const codeBlockStyle =
-  "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:12px;background:#18181b;color:#f8fafc;font-family:Menlo,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;";
+  "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:8px;background:#29231f;color:#faf8f6;font-family:Menlo,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;";
 const mathBlockStyle =
-  "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:12px;background:rgba(248,245,255,0.9);color:#3b0764;text-align:center;overflow-wrap:anywhere;";
-const mathInlineStyle = "color:#3b0764;";
+  "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:var(--lb-radius-md);background:var(--lb-surface-muted);color:var(--lb-accent-ink);text-align:center;overflow-wrap:anywhere;";
+const mathInlineStyle = "color:var(--lb-accent-ink);";
 
 export default function MarkdownContent({
   content,

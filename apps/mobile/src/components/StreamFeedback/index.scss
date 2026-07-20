@@ -6,15 +6,15 @@
   align-items: center;
   gap: 0.5rem;
   overflow: hidden;
-  border: 1px solid rgba(124, 58, 237, 0.12);
-  border-radius: 0.875rem;
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--lb-line-soft);
+  border-radius: var(--lb-radius-md);
+  background: var(--lb-surface);
   padding: 0.5rem 0.625rem;
   color: var(--lb-text-secondary);
 }
 
 .stream-feedback-shell-expanded {
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--lb-surface-muted);
 }
 
 .stream-feedback-dot-wrap {
@@ -83,11 +83,7 @@
   right: 0;
   bottom: 0;
   width: 1.75rem;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0),
-    rgba(255, 255, 255, 0.94)
-  );
+  background: linear-gradient(90deg, transparent, var(--lb-surface));
   pointer-events: none;
 }
 
@@ -100,12 +96,7 @@
   z-index: 1;
   overflow: hidden;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    rgba(124, 58, 237, 0.06),
-    rgba(236, 72, 153, 0.08),
-    rgba(124, 58, 237, 0.06)
-  );
+  background: var(--lb-info-soft);
   pointer-events: none;
 }
 
@@ -115,9 +106,9 @@
   border-radius: inherit;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0),
-    rgba(255, 255, 255, 0.72),
-    rgba(255, 255, 255, 0)
+    transparent,
+    rgba(255, 255, 255, 0.18),
+    transparent
   );
   transform: translateX(-140%);
   animation: stream-feedback-shimmer 1.45s cubic-bezier(0.22, 1, 0.36, 1)
@@ -129,31 +120,31 @@
   display: flex;
   min-width: 0;
   gap: 0.5rem;
-  border: 1px solid rgba(124, 58, 237, 0.1);
-  border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid var(--lb-line-soft);
+  border-radius: var(--lb-radius-md);
+  background: var(--lb-surface);
   padding: 0.5rem 0.625rem;
   color: var(--lb-text-secondary);
 }
 
 .stream-feedback-history-item-active {
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--lb-surface-muted);
 }
 
 .stream-feedback-tone-info {
-  color: #6d4bd0;
+  color: var(--lb-info);
 }
 
 .stream-feedback-tone-success {
-  color: #15803d;
+  color: var(--lb-success);
 }
 
 .stream-feedback-tone-warning {
-  color: #b45309;
+  color: var(--lb-warning);
 }
 
 .stream-feedback-tone-error {
-  color: #dc2626;
+  color: var(--lb-danger);
 }
 
 @keyframes stream-feedback-shimmer {
@@ -170,13 +161,13 @@
   }
 
   70% {
-    box-shadow: 0 0 0 0.375rem rgba(124, 58, 237, 0);
+    box-shadow: 0 0 0 0.375rem transparent;
     opacity: 0.58;
     transform: scale(0.82);
   }
 
   100% {
-    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0);
+    box-shadow: 0 0 0 0 transparent;
     opacity: 0.92;
     transform: scale(1);
   }

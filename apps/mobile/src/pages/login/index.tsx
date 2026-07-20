@@ -3,32 +3,31 @@ import { Button, Input, Text, View } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { bindWechat, loginByPhone, loginByWechat } from "../../api/user";
 import NavBar from "../../components/NavBar";
+import PageShell from "../../components/PageShell";
 import { useUserStore } from "../../store/userStore";
 import {
-  appBlurOrbClass,
   appGlassCardStrongClass,
   appGradientSurfaceClass,
   appGradientSurfaceWarmClass,
   appGradientTextClass,
   appIconTileClass,
-  appPageClass,
 } from "../../utils/style";
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 const inputWrapBaseClass =
-  "flex h-[3.25rem] items-center rounded-[1rem] border bg-[rgba(255,255,255,0.72)] px-[1rem] transition-colors";
-const inputWrapNormalClass = "border-[rgba(255,255,255,0.64)]";
+  "flex h-[3.25rem] items-center rounded-[var(--lb-radius-md)] border bg-[var(--lb-surface)] px-[1rem] transition-colors";
+const inputWrapNormalClass = "border-[var(--lb-line-strong)]";
 const inputWrapErrorClass =
-  "border-[rgba(239,68,68,0.58)] bg-[rgba(254,242,242,0.82)]";
+  "border-[var(--lb-danger)] bg-[var(--lb-danger-soft)]";
 const errorTextClass =
-  "block text-[0.75rem] leading-[1.35] text-[rgba(220,38,38,0.92)]";
+  "block text-[0.75rem] leading-[1.35] text-[var(--lb-danger)]";
 const fieldHintWrapClass = "mt-[0.375rem] min-h-[1.125rem]";
 const loginButtonBaseClass =
-  "flex h-[3.5rem] w-full items-center justify-center gap-[0.625rem] rounded-[1.125rem] border-0 transition-all";
-const loginButtonEnabledClass = `${appGradientSurfaceClass} shadow-[0_1.125rem_2.125rem_rgba(124,58,237,0.28)]`;
+  "flex h-[3.25rem] w-full items-center justify-center gap-[0.625rem] rounded-[var(--lb-radius-md)] border-0 transition-all";
+const loginButtonEnabledClass = `${appGradientSurfaceClass} shadow-[var(--lb-shadow-glow)]`;
 const loginButtonDisabledClass =
-  "bg-[rgba(148,163,184,0.2)] text-[rgba(107,114,128,0.76)] shadow-none";
+  "bg-[var(--lb-surface-hover)] text-[var(--lb-text-muted)] shadow-none";
 
 export default function LoginPage() {
   const login = useUserStore((s) => s.login);
@@ -146,14 +145,7 @@ export default function LoginPage() {
   };
 
   return (
-    <View className={appPageClass}>
-      <View
-        className={`${appBlurOrbClass} left-[16%] top-[6rem] h-[11.25rem] w-[11.25rem] animate-app-float bg-[rgba(196,181,253,0.5)]`}
-      />
-      <View
-        className={`${appBlurOrbClass} bottom-[7.5rem] right-[10%] h-[13.75rem] w-[13.75rem] animate-app-float-delayed bg-[rgba(165,180,252,0.42)]`}
-      />
-
+    <PageShell>
       <NavBar
         title="登录"
         variant="ghost"
@@ -163,17 +155,17 @@ export default function LoginPage() {
 
       <View className="relative z-[10] flex min-h-0 flex-1 items-center justify-center px-[1.5rem] pb-[1.5rem]">
         <View
-          className={`${appGlassCardStrongClass} w-full max-w-[21.25rem] px-[2rem] py-[2.5rem]`}
+          className={`${appGlassCardStrongClass} w-full max-w-[21.25rem] px-[1.5rem] py-[2rem]`}
         >
           <View className="mb-[2rem] flex justify-center">
             <View className="relative">
               <View
-                className={`${appIconTileClass} h-[6rem] w-[6rem] rounded-[1.75rem] text-[3.25rem] shadow-[0_1.125rem_2.625rem_rgba(124,58,237,0.28)]`}
+                className={`${appIconTileClass} h-[4.75rem] w-[4.75rem] text-[2.5rem]`}
               >
                 <Text className="leading-none">🐻</Text>
               </View>
               <View
-                className={`${appGradientSurfaceWarmClass} absolute -right-[0.25rem] -top-[0.25rem] flex h-[2rem] w-[2rem] animate-app-twinkle items-center justify-center rounded-full text-[0.875rem] shadow-[0_0.625rem_1.375rem_rgba(251,146,60,0.28)]`}
+                className={`${appGradientSurfaceWarmClass} absolute -right-[0.25rem] -top-[0.25rem] flex h-[1.75rem] w-[1.75rem] items-center justify-center rounded-[var(--lb-radius-sm)] text-[0.75rem]`}
               >
                 <Text className="leading-none">✦</Text>
               </View>
@@ -181,7 +173,7 @@ export default function LoginPage() {
           </View>
 
           <Text
-            className={`${appGradientTextClass} mb-[0.625rem] block text-center text-[2rem] font-bold leading-[1.2]`}
+            className={`${appGradientTextClass} mb-[0.625rem] block text-center text-[1.75rem] font-bold leading-[1.2]`}
           >
             Litter Bear
           </Text>
@@ -192,7 +184,9 @@ export default function LoginPage() {
           <View className="mb-[0.5rem]">
             <View
               className={`${inputWrapBaseClass} ${
-                shouldShowPhoneError ? inputWrapErrorClass : inputWrapNormalClass
+                shouldShowPhoneError
+                  ? inputWrapErrorClass
+                  : inputWrapNormalClass
               }`}
             >
               <Input
@@ -257,7 +251,9 @@ export default function LoginPage() {
           >
             <Text
               className={`text-[1.0625rem] font-semibold leading-none ${
-                isFormValid ? "text-white" : "text-[rgba(107,114,128,0.78)]"
+                isFormValid
+                  ? "text-[var(--lb-on-accent)]"
+                  : "text-[var(--lb-text-muted)]"
               }`}
             >
               {submitting ? "登录中..." : "手机号密码登录"}
@@ -269,7 +265,7 @@ export default function LoginPage() {
               className={`mt-[0.625rem] block text-center text-[0.75rem] leading-[1.35] ${
                 submitting
                   ? "text-[var(--lb-text-muted)]"
-                  : "text-[rgba(220,38,38,0.86)]"
+                  : "text-[var(--lb-danger)]"
               }`}
             >
               {validationHint}
@@ -277,7 +273,7 @@ export default function LoginPage() {
           ) : null}
 
           <Button
-            className="mt-[0.875rem] flex h-[3rem] w-full items-center justify-center rounded-[1rem] border border-[rgba(124,58,237,0.18)] bg-[rgba(255,255,255,0.58)] text-[0.9375rem] font-semibold text-[var(--lb-text-secondary)]"
+            className="mt-[0.875rem] flex h-[3rem] w-full items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-strong)] bg-[var(--lb-surface)] text-[0.9375rem] font-semibold text-[var(--lb-text-secondary)]"
             hoverClass="opacity-80"
             loading={submitting}
             onClick={handleWechatLogin}
@@ -290,6 +286,6 @@ export default function LoginPage() {
           </Text>
         </View>
       </View>
-    </View>
+    </PageShell>
   );
 }

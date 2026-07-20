@@ -1,6 +1,6 @@
 import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
-import { appGradientSurfaceClass, appShellFixedClass } from "../../utils/style";
+import { appShellFixedClass } from "../../utils/style";
 
 interface TabBarProps {
   current: number;
@@ -26,7 +26,7 @@ export default function TabBar({ current }: TabBarProps) {
 
   return (
     <View
-      className={`${appShellFixedClass} bottom-0 z-50 border-t border-[rgba(17,24,39,0.04)] bg-white/90 px-[0.5rem] pb-[calc(env(safe-area-inset-bottom)+0.375rem)] pt-[0.375rem] shadow-[0_-0.5rem_1.5rem_rgba(124,58,237,0.05)] backdrop-blur-[1.25rem]`}
+      className={`${appShellFixedClass} bottom-0 z-50 border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.5rem] pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-[0.25rem]`}
     >
       <View className="flex w-full flex-row items-center justify-around">
         {tabs.map((tab, index) => {
@@ -38,14 +38,14 @@ export default function TabBar({ current }: TabBarProps) {
               onClick={() => handleClick(index)}
             >
               <View
-                className={`flex h-[2.625rem] w-[2.625rem] items-center justify-center rounded-[0.875rem] transition-all ${isActive ? `${appGradientSurfaceClass} shadow-[0_0.625rem_1.5rem_rgba(236,72,153,0.28)]` : "bg-transparent text-[var(--lb-text-muted)]"}`}
+                className={`flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-sm)] transition-colors ${isActive ? "bg-[var(--lb-accent-soft)] text-[var(--lb-accent-ink)]" : "bg-transparent text-[var(--lb-text-muted)]"}`}
               >
                 <Text
-                  className={`at-icon ${tab.icon} text-[1.375rem] leading-none [&::before]:block ${isActive ? "text-white" : "text-[#9ca3af]"}`}
+                  className={`at-icon ${tab.icon} text-[1.25rem] leading-none [&::before]:block ${isActive ? "text-[var(--lb-accent-ink)]" : "text-[var(--lb-text-muted)]"}`}
                 />
               </View>
               <Text
-                className={`mt-[0.3125rem] text-[0.625rem] leading-none ${isActive ? "font-semibold text-[#ec4899]" : "font-medium text-[#9ca3af]"}`}
+                className={`mt-[0.1875rem] text-[0.625rem] leading-none ${isActive ? "font-semibold text-[var(--lb-accent-ink)]" : "font-medium text-[var(--lb-text-muted)]"}`}
               >
                 {tab.title}
               </Text>

@@ -4,9 +4,9 @@ import { useRouter, useDidHide } from "@tarojs/taro";
 import MessageList from "../../components/MessageList";
 import ChatInput from "../../components/ChatInput";
 import NavBar from "../../components/NavBar";
+import PageShell from "../../components/PageShell";
 import { useChatStore } from "../../store/chatStore";
 import { useChatStream } from "../../hooks/useChatStream";
-import { appPageClass, appSolidNavClass } from "../../utils/style";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import type { StreamTaskEvent } from "../../services/stream";
 import type {
@@ -165,12 +165,11 @@ export default function ChatPage() {
 
   const messages = currentConversation?.messages || [];
   return (
-    <View className={appPageClass}>
+    <PageShell>
       <NavBar
         title="AI 助手"
         showBack
         capsule="hidden"
-        className={appSolidNavClass}
         barClassName="px-[0.5rem]"
       />
 
@@ -197,6 +196,6 @@ export default function ChatPage() {
         }}
         isStreaming={!!isStreaming}
       />
-    </View>
+    </PageShell>
   );
 }

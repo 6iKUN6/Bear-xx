@@ -5,25 +5,46 @@
 @config "../tailwind.config.js";
 
 :root {
-  --lb-bg-start: #eef2ff;
-  --lb-bg-mid: #f5ecff;
-  --lb-bg-end: #fff0f6;
+  /* 启动首帧回退值；完整主题定义以 @litter-bear/theme 为唯一来源。 */
+  --lb-page-background: #f2f3f5;
+  --lb-bg-start: #f2f3f5;
   --lb-surface: #ffffff;
   --lb-surface-strong: #ffffff;
-  --lb-surface-border: rgba(255, 255, 255, 0.8);
-  --lb-line-soft: rgba(196, 181, 253, 0.26);
-  --lb-text-primary: #111827;
-  --lb-text-secondary: #6b7280;
-  --lb-text-muted: #9ca3af;
-  --lb-grad-a: #7c3aed;
-  --lb-grad-b: #ec4899;
-  --lb-grad-c: #4f46e5;
-  --lb-grad-warm-a: #facc15;
-  --lb-grad-warm-b: #fb923c;
-  --lb-danger: #dc2626;
-  --lb-shadow-soft: 0 0.875rem 2.125rem rgba(124, 58, 237, 0.08);
-  --lb-shadow-card: 0 0.5rem 1.5rem rgba(124, 58, 237, 0.06);
-  --lb-shadow-glow: 0 1rem 2.625rem rgba(124, 58, 237, 0.28);
+  --lb-surface-muted: #f8f6f3;
+  --lb-surface-hover: #f0ece7;
+  --lb-line-soft: #e8e3de;
+  --lb-line-strong: #c7beb5;
+  --lb-text-primary: #29231f;
+  --lb-text-secondary: #6d655e;
+  --lb-text-muted: #918981;
+  --lb-accent: #b65f16;
+  --lb-accent-strong: #93490f;
+  --lb-accent-soft: #f7e5d2;
+  --lb-accent-ink: #71370c;
+  --lb-accent-surface: #b65f16;
+  --lb-on-accent: #ffffff;
+  --lb-success: #347747;
+  --lb-success-soft: #e6f3e8;
+  --lb-info: #3f6f9f;
+  --lb-info-soft: #eaf1f8;
+  --lb-warning: #ad7812;
+  --lb-warning-soft: #fbf1d7;
+  --lb-danger: #c23d35;
+  --lb-danger-soft: #fbe9e7;
+  --lb-shadow-card: 0 0.25rem 0.875rem rgba(58, 45, 35, 0.055);
+  --lb-shadow-glow: 0 0.75rem 1.75rem rgba(125, 73, 27, 0.16);
+  --lb-radius-xs: 0.25rem;
+  --lb-radius-sm: 0.375rem;
+  --lb-radius-md: 0.5rem;
+}
+
+.app-theme-root {
+  color: var(--lb-text-primary);
+  background: var(--lb-page-background);
+}
+
+.app-accent-surface {
+  background: var(--lb-accent-surface);
 }
 
 html,
@@ -41,8 +62,9 @@ body {
 body {
   margin: 0;
   color: var(--lb-text-primary);
-  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
-  font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  background: var(--lb-bg-start);
+  font-family:
+    "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
@@ -53,7 +75,7 @@ body {
 #app {
   width: 100%;
   min-height: 100%;
-  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  background: var(--lb-bg-start);
   position: relative;
   overflow: hidden;
 }
@@ -68,9 +90,10 @@ body {
 
 page {
   min-height: 100vh;
-  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  background: var(--lb-bg-start);
   color: var(--lb-text-primary);
-  font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  font-family:
+    "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
 }
 
 image,
@@ -88,5 +111,5 @@ svg {
   height: 100%;
   min-height: 100%;
   width: 100%;
-  background: linear-gradient(135deg, var(--lb-bg-start), var(--lb-bg-mid), var(--lb-bg-end));
+  background: var(--lb-bg-start);
 }

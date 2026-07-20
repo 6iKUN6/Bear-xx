@@ -88,7 +88,7 @@ function ChatBubble({
             emptyText={
               message.status === "streaming" ? "正在组织回复..." : undefined
             }
-            className={isUser ? "text-white" : "text-[var(--lb-text-primary)]"}
+            className="text-[var(--lb-text-primary)]"
             streaming={!isUser && isStreaming}
           />
         </View>
@@ -126,7 +126,7 @@ function BubbleAvatar({
   if (isUser && avatarUrl) {
     return (
       <Image
-        className="h-[2.5rem] w-[2.5rem] shrink-0 rounded-[0.875rem] border border-white/80 box-border shadow-[0_0.75rem_1.5rem_rgba(124,58,237,0.12)]"
+        className="h-[2.5rem] w-[2.5rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] box-border"
         src={avatarUrl}
         mode="aspectFill"
       />
@@ -136,16 +136,18 @@ function BubbleAvatar({
   if (isUser) {
     return (
       <View
-        className={`${appGradientSurfaceClass} flex h-[2.5rem] w-[2.5rem] shrink-0 items-center justify-center rounded-[0.875rem] text-[1rem] font-bold shadow-[0_0.75rem_1.5rem_rgba(236,72,153,0.24)]`}
+        className={`${appGradientSurfaceClass} flex h-[2.5rem] w-[2.5rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-md)] text-[1rem] font-bold`}
       >
-        <Text className="leading-none text-white">{readInitial(name)}</Text>
+        <Text className="leading-none text-[var(--lb-on-accent)]">
+          {readInitial(name)}
+        </Text>
       </View>
     );
   }
 
   return (
     <View
-      className={`${appIconTileClass} h-[2.5rem] w-[2.5rem] shrink-0 rounded-[0.875rem] text-[1.125rem] shadow-[0_0.75rem_1.5rem_rgba(236,72,153,0.2)]`}
+      className={`${appIconTileClass} h-[2.5rem] w-[2.5rem] shrink-0 text-[1.125rem]`}
     >
       <Text className="leading-none">🐻</Text>
     </View>
@@ -157,7 +159,7 @@ function bubbleBodyClass(isUser: boolean) {
     "mt-[0.5rem] box-border min-w-0 overflow-hidden text-[1rem] leading-[1.7]";
 
   if (isUser) {
-    return `${baseClass} rounded-[1.125rem_1.125rem_1.125rem_0.375rem] bg-gradient-to-r from-[#9333ea] via-[#ec4899] to-[#6366f1] px-[1.125rem] py-[0.875rem] text-white shadow-[0_0.625rem_1.5rem_rgba(124,58,237,0.06)]`;
+    return `${baseClass} rounded-[var(--lb-radius-md)] bg-[var(--lb-accent-soft)] px-[1rem] py-[0.75rem] text-[var(--lb-text-primary)]`;
   }
 
   return `${baseClass} px-[0.125rem] py-[0.125rem] text-[var(--lb-text-primary)]`;
@@ -210,7 +212,7 @@ function MessageMetricsMeta({ message }: { message: Message }) {
 function MetricPill({ icon, text }: { icon: string; text: string }) {
   return (
     <View className="flex min-w-0 items-center gap-[0.25rem]">
-      <Text className="flex h-[0.875rem] w-[0.875rem] shrink-0 items-center justify-center rounded-full bg-[rgba(107,114,128,0.12)] text-[0.5625rem] font-semibold leading-none text-[var(--lb-text-muted)]">
+      <Text className="flex h-[0.875rem] w-[0.875rem] shrink-0 items-center justify-center rounded-full bg-[var(--lb-surface-hover)] text-[0.5625rem] font-semibold leading-none text-[var(--lb-text-muted)]">
         {icon}
       </Text>
       <Text className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
@@ -284,12 +286,12 @@ function WaitingStreamFeedback() {
     <View className="chat-bubble-waiting-feedback">
       <View className="chat-bubble-waiting-shimmer" />
       <View className="relative z-[2] flex items-center gap-[0.375rem]">
-        <View className={`${appLoadingDotClass} bg-[var(--lb-grad-a)]`} />
+        <View className={`${appLoadingDotClass} bg-[var(--lb-info)]`} />
         <View
-          className={`${appLoadingDotClass} bg-[var(--lb-grad-b)] [animation-delay:120ms]`}
+          className={`${appLoadingDotClass} bg-[var(--lb-accent)] [animation-delay:120ms]`}
         />
         <View
-          className={`${appLoadingDotClass} bg-[var(--lb-grad-c)] [animation-delay:240ms]`}
+          className={`${appLoadingDotClass} bg-[var(--lb-success)] [animation-delay:240ms]`}
         />
       </View>
       <Text className="relative z-[2] ml-[0.25rem] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]">
