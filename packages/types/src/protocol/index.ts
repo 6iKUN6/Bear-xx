@@ -104,3 +104,39 @@ export const STREAM_TASK_EVENT_LABELS: Record<StreamTaskEventType, string> = {
 export function getStreamTaskEventLabel(type: StreamTaskEventType): string {
   return STREAM_TASK_EVENT_LABELS[type] ?? type;
 }
+
+/** 人工审批决定类型（P5 HITL） */
+export type ApprovalDecisionType = 'approve' | 'reject' | 'edit';
+
+/**
+ * approval.required 事件载荷
+ * @description 工具执行前需要人工确认时下发给前端，用于展示审批卡片。
+ */
+export interface ApprovalRequiredPayload {
+  /** 触发审批的工具调用 id */
+  toolCallId?: string;
+  /** 工具名 */
+  toolName?: string;
+  /** 序列化后的工具入参（供展示，edit 时可改） */
+  args?: string;
+  /** 面向用户的审批说明 */
+  description?: string;
+  /** 允许的决定（approve/reject/edit 的子集） */
+  allowedDecisions: ApprovalDecisionType[];
+  index?: number;
+  nodeKey?: string;
+  traceKey?: string;
+  publicStatus?: string;
+}
+
+/**
+ * 人工审批决定（前端提交、后端恢复时消费）
+ * @description approve 直接执行；reject 跳过并回注拒绝；edit 用 editedArgs 替换入参后执行。
+ */
+export interface ApprovalDecision {
+  decision: ApprovalDecisionType;
+  /** edit 时的新入参 */
+  editedArgs?: Record<string, unknown>;
+  /** reject 时可选的说明 */
+  reason?: string;
+}
