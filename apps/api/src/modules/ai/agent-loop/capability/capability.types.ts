@@ -31,4 +31,6 @@ export interface ResolvedCapabilities {
   tools: CapabilityTool[];
   systemPromptAdditions: string[];
   subagentTools: CapabilityTool[];
+  /** 本次装配的工具中需要人工审批的工具名（用于 HITL 中断） */
+  approvalToolNames: string[];
 }

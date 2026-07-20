@@ -42,10 +42,15 @@ export class CapabilityResolver {
       }
     }
 
+    const approvalToolNames = [...toolMap.keys()].filter((name) =>
+      this.registry.requiresApproval(name),
+    );
+
     return {
       tools: [...toolMap.values()],
       systemPromptAdditions,
       subagentTools: [],
+      approvalToolNames,
     };
   }
 }

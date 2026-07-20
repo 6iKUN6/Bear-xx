@@ -48,6 +48,8 @@ export class AgentLoopRunnerService {
       ...input,
       tools: [...capabilities.tools, ...capabilities.subagentTools],
       maxSteps: decision.maxSteps,
+      threadId: input.threadId,
+      approvalToolNames: capabilities.approvalToolNames,
       systemPrompt: this.mergeSystemPrompt(
         input.systemPrompt,
         capabilities.systemPromptAdditions,

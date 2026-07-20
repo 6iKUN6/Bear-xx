@@ -18,19 +18,29 @@ export const DEFAULT_TOOL_GROUP = 'default';
 export class CapabilityRegistry {
   private readonly tools = new Map<string, CapabilityTool>();
   private readonly toolGroups = new Map<string, string[]>();
+  private readonly approvalTools = new Set<string>();
   private readonly skills = new Map<string, SkillDefinition>();
   private readonly subagents = new Map<string, SubagentDefinition>();
 
   constructor() {
-    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP]);
+    // P5a 演示：给 getWeather 开启人工审批，使"深圳天气"流程即可端到端验证 HITL。
+    // 真实策略应按工具语义配置（只读工具免审批、写类/高风险工具需审批）。
+    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP], {
+      requiresApproval: true,
+    });
   }
 
   /**
    * 注册工具并归入若干工具组
    * @param tool LangChain 工具对象
    * @param groups 该工具所属的工具组名称
+   * @param options 工具策略，如是否需要人工审批
    */
-  registerTool(tool: CapabilityTool, groups: string[] = []): void {
+  registerTool(
+    tool: CapabilityTool,
+    groups: string[] = [],
+    options?: { requiresApproval?: boolean },
+  ): void {
     this.tools.set(tool.name, tool);
     for (const group of groups) {
       const names = this.toolGroups.get(group) ?? [];
@@ -38,6 +48,9 @@ export class CapabilityRegistry {
         names.push(tool.name);
       }
       this.toolGroups.set(group, names);
+    }
+    if (options?.requiresApproval) {
+      this.approvalTools.add(tool.name);
     }
   }
 
@@ -81,6 +94,16 @@ export class CapabilityRegistry {
   /** 是否存在任何可用工具 */
   hasTools(): boolean {
     return this.tools.size > 0;
+  }
+
+  /** 指定工具是否需要人工审批 */
+  requiresApproval(name: string): boolean {
+    return this.approvalTools.has(name);
+  }
+
+  /** 列出需要人工审批的工具名 */
+  listApprovalToolNames(): string[] {
+    return [...this.approvalTools];
   }
 
   /** 按名称获取技能 */

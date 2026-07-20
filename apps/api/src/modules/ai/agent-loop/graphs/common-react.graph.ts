@@ -41,6 +41,8 @@ export class CommonReactGraph implements AgentStrategyGraph {
       systemPrompt: input.systemPrompt,
       llm: input.llm,
       tools: input.tools,
+      threadId: input.threadId,
+      approvalToolNames: input.approvalToolNames,
       abortSignal: input.abortSignal,
     })) {
       yield event;

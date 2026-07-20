@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LlmModule } from '../llm/llm.module';
 import { MemoryModule } from '../memory/memory.module';
 import {
+  AgentCheckpointerService,
   CommonChatAgentFactory,
   CommonChatAgentLoopService,
   CommonChatAgentRunnerService,
@@ -32,6 +33,7 @@ import { AiService } from './ai.service';
     CommonChatAgentLoopService,
     CommonChatAgentService,
     CommonChatAgentRunnerService,
+    AgentCheckpointerService,
     AgentLoopRunnerService,
     CapabilityRegistry,
     CapabilityResolver,

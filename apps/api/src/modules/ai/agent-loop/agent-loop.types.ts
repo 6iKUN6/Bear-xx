@@ -23,6 +23,16 @@ export interface AgentLoopInput {
    * @description 路由后由 AgentLoopRunner 从策略决策注入；Plan/Hybrid controller 用作步骤上限。
    */
   maxSteps?: number;
+  /**
+   * HITL 会话标识（用作 checkpointer 的 thread_id）。
+   * @description 由任务层注入（= taskId）；存在且有需审批工具时才启用中断/恢复。
+   */
+  threadId?: string;
+  /**
+   * 本次装配中需要人工审批的工具名。
+   * @description 路由后由 CapabilityResolver 产出；驱动 HITL 中间件的 interruptOn。
+   */
+  approvalToolNames?: string[];
   abortSignal?: AbortSignal;
 }
 
@@ -63,5 +73,4 @@ export interface AgentLoopWorkflowEvent {
 }
 
 export type AgentLoopStreamEvent =
-  | CommonChatAgentStreamEvent
-  | AgentLoopWorkflowEvent;
+  CommonChatAgentStreamEvent | AgentLoopWorkflowEvent;

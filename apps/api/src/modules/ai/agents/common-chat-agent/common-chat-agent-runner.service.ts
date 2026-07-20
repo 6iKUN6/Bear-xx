@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { ApprovalDecision } from '@litter-bear/types/protocol';
 import { chatAgentCommonPrompt } from '../../../../prompts';
 import {
   ChatContextService,
@@ -18,6 +19,8 @@ export interface CommonChatConversationAgentRequest {
   conversationId: string;
   pendingMessageId: string;
   llm?: LlmTextRequest | ResolvedLlmTextRequest;
+  /** 任务标识；用作 HITL checkpointer 的 thread_id（存在需审批工具时启用中断/恢复） */
+  taskId?: string;
   abortSignal?: AbortSignal;
 }
 
@@ -74,6 +77,43 @@ export class CommonChatAgentRunnerService {
         messages: contextMessages,
         systemPrompt,
         llm,
+        threadId: request.taskId,
+        abortSignal: request.abortSignal,
+      }),
+    };
+  }
+
+  /**
+   * 准备"人工审批恢复"运行上下文
+   * @param request 会话 agent 请求 + 人工决定
+   * @returns 返回续跑事件流（及供 trace/指标的上下文）
+   * @description 恢复不走路由/决策：用同一 thread_id（taskId）与全量工具 + 审批策略重建 agent，
+   * 通过 Command 从中断处续跑。上下文包仅用于完成指标与 trace。
+   */
+  async resumeConversationRun(
+    request: CommonChatConversationAgentRequest & {
+      decision: ApprovalDecision;
+    },
+  ): Promise<PreparedCommonChatAgentRun> {
+    const context = await this.buildContextBundle(request);
+    const systemPrompt = this.resolveSystemPrompt();
+    const llm = this.resolveTextRequest(request.llm);
+    const tools = this.capabilityRegistry.listTools();
+    const approvalToolNames = this.capabilityRegistry.listApprovalToolNames();
+
+    return {
+      messages: context.messages,
+      systemPrompt,
+      tools,
+      context,
+      events: this.commonChatAgentService.resumeEvents({
+        messages: [],
+        systemPrompt,
+        llm,
+        tools,
+        threadId: request.taskId,
+        approvalToolNames,
+        decision: request.decision,
         abortSignal: request.abortSignal,
       }),
     };

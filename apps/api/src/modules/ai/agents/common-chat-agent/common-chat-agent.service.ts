@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { ApprovalDecision } from '@litter-bear/types/protocol';
 import { LlmService } from '../../../llm/llm.service';
 import type {
   LlmGenerationConfig,
@@ -18,6 +19,10 @@ export interface CommonChatAgentRequest {
   systemPrompt?: string;
   generation?: LlmGenerationConfig;
   tools?: unknown[];
+  /** HITL 会话标识（checkpointer thread_id）；= taskId */
+  threadId?: string;
+  /** 需要人工审批的工具名，驱动 HITL 中间件 interruptOn */
+  approvalToolNames?: string[];
   abortSignal?: AbortSignal;
 }
 
@@ -40,13 +45,21 @@ export class CommonChatAgentService {
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const llmRequest = this.buildLlmRequest(request);
 
-    return this.createEventStream(
-      request.messages,
-      llmRequest,
-      request.systemPrompt,
-      request.tools,
-      request.abortSignal,
-    );
+    return this.createEventStream(request, llmRequest);
+  }
+
+  /**
+   * 恢复被人工审批挂起的智能体（HITL）
+   * @param request 通用聊天请求 + 人工审批决定
+   * @returns 返回续跑的结构化事件流
+   * @description 用与首轮一致的模型/工具/thread_id 重建 agent，把人工决定通过 Command 送回中断处续跑。
+   */
+  resumeEvents(
+    request: CommonChatAgentRequest & { decision: ApprovalDecision },
+  ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
+    const llmRequest = this.buildLlmRequest(request);
+
+    return this.createResumeStream(request, llmRequest);
   }
 
   /**
@@ -119,30 +132,58 @@ export class CommonChatAgentService {
    * @description 在 agent 层消费模型原始 chunk，并拆分成文本增量和工具调用增量事件。
    */
   private async *createEventStream(
-    messages: LlmMessage[],
+    request: CommonChatAgentRequest,
     llmRequest: LlmTextRequest | ResolvedLlmTextRequest,
-    systemPrompt?: string,
-    tools?: unknown[],
-    abortSignal?: AbortSignal,
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const resolvedRequest = this.llmService.resolveTextRequest(llmRequest);
     const chatModel = this.llmService.createChatModel(resolvedRequest);
 
     this.debugLog('agent.common_chat.request', {
       model: this.toSafeModelLog(resolvedRequest),
-      messageCount: messages.length,
+      messageCount: request.messages.length,
       generation: resolvedRequest.generation,
-      toolCount: tools?.length ?? 0,
-      hasSystemPrompt: Boolean(systemPrompt),
-      hasAbortSignal: Boolean(abortSignal),
+      toolCount: request.tools?.length ?? 0,
+      hasSystemPrompt: Boolean(request.systemPrompt),
+      hasAbortSignal: Boolean(request.abortSignal),
+      approvalToolCount: request.approvalToolNames?.length ?? 0,
     });
 
     for await (const event of this.commonChatAgentLoopService.stream({
       model: chatModel,
-      messages,
-      systemPrompt,
-      tools,
-      abortSignal,
+      messages: request.messages,
+      systemPrompt: request.systemPrompt,
+      tools: request.tools,
+      threadId: request.threadId,
+      approvalToolNames: request.approvalToolNames,
+      abortSignal: request.abortSignal,
+    })) {
+      yield event;
+    }
+  }
+
+  /**
+   * 创建恢复事件流
+   * @param request 通用聊天请求 + 人工审批决定
+   * @param llmRequest 模型请求配置
+   * @returns 返回续跑的结构化事件异步迭代器
+   * @description 重建模型后委托 loop.resume 用 Command 从中断处续跑。
+   */
+  private async *createResumeStream(
+    request: CommonChatAgentRequest & { decision: ApprovalDecision },
+    llmRequest: LlmTextRequest | ResolvedLlmTextRequest,
+  ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
+    const resolvedRequest = this.llmService.resolveTextRequest(llmRequest);
+    const chatModel = this.llmService.createChatModel(resolvedRequest);
+
+    for await (const event of this.commonChatAgentLoopService.resume({
+      model: chatModel,
+      messages: request.messages,
+      systemPrompt: request.systemPrompt,
+      tools: request.tools,
+      threadId: request.threadId,
+      approvalToolNames: request.approvalToolNames,
+      decision: request.decision,
+      abortSignal: request.abortSignal,
     })) {
       yield event;
     }

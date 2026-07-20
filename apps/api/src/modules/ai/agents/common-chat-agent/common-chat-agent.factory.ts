@@ -9,6 +9,7 @@ import {
 } from 'langchain';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ClientTool, ServerTool } from '@langchain/core/tools';
+import type { BaseCheckpointSaver } from '@langchain/langgraph';
 
 type CommonChatAgent = ReactAgent<
   AgentTypeConfig<
@@ -26,6 +27,8 @@ export interface CreateCommonChatAgentOptions {
   systemPrompt?: string;
   tools?: unknown[];
   middleware?: readonly AnyAgentMiddleware[];
+  /** 检查点存储；HITL 中断/恢复需要它持久化并按 thread_id 取回图状态 */
+  checkpointer?: BaseCheckpointSaver;
 }
 
 @Injectable()
@@ -48,6 +51,7 @@ export class CommonChatAgentFactory {
       systemPrompt: options.systemPrompt,
       tools: this.toAgentTools(options.tools),
       middleware: options.middleware ?? [],
+      checkpointer: options.checkpointer,
       name: 'common-chat-agent',
     });
   }
