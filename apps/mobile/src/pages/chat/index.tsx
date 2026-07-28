@@ -1,18 +1,20 @@
 import { useEffect, useRef } from "react";
 import { View } from "@tarojs/components";
 import { useRouter, useDidHide } from "@tarojs/taro";
-import MessageList from "../../components/MessageList";
-import ChatInput from "../../components/ChatInput";
-import NavBar from "../../components/NavBar";
-import PageShell from "../../components/PageShell";
-import { useChatStore } from "../../store/chatStore";
-import { useChatStream } from "../../hooks/useChatStream";
-import { toMessageStreamFeedback } from "../../utils/streamFeedback";
-import type { StreamTaskEvent } from "../../services/stream";
 import type {
   ApprovalDecision,
   ApprovalRequiredPayload,
 } from "@litter-bear/types/protocol";
+import MessageList from "../../components/MessageList";
+import ChatInput from "../../components/ChatInput";
+import NavBar from "../../components/NavBar";
+import PageShell from "../../components/PageShell";
+import AgentSwitcher from "../../components/AgentSwitcher";
+import { useChatStore } from "../../store/chatStore";
+import { useAgentStore } from "../../store/agentStore";
+import { useChatStream } from "../../hooks/useChatStream";
+import { toMessageStreamFeedback } from "../../utils/streamFeedback";
+import type { StreamTaskEvent } from "../../services/stream";
 
 let idCounter = Date.now();
 function genMsgId(): string {
@@ -100,7 +102,11 @@ export default function ChatPage() {
     };
 
     sendMessage(
-      { conversationId: requestConversationId, content },
+      {
+        conversationId: requestConversationId,
+        content,
+        agentId: useAgentStore.getState().selectedAgentId ?? undefined,
+      },
       {
         onTaskCreated: ({ conversationId: realConversationId }, event) => {
           recordStreamEvent(event);
@@ -167,7 +173,7 @@ export default function ChatPage() {
   return (
     <PageShell>
       <NavBar
-        title="AI 助手"
+        title={<AgentSwitcher />}
         showBack
         capsule="hidden"
         barClassName="px-[0.5rem]"

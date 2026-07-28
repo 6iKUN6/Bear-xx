@@ -3,6 +3,7 @@ import Taro, { useLaunch } from "@tarojs/taro";
 import { useUserStore } from "./store/userStore";
 import { useChatStore } from "./store/chatStore";
 import { useThemeStore } from "./store/themeStore";
+import { useAgentStore } from "./store/agentStore";
 
 import "./app.scss";
 import "./app.css";
@@ -48,6 +49,8 @@ function App({ children }: PropsWithChildren<any>) {
     useChatStore.getState().hydrateConversations();
     // 恢复界面主题
     useThemeStore.getState().hydrate();
+    // 恢复选中的智能体
+    useAgentStore.getState().hydrate();
   });
 
   return children;

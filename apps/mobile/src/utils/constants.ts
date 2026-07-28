@@ -3,6 +3,7 @@ export const STORAGE_KEYS = {
   USER_INFO: "litter_bear_user_info",
   CONVERSATIONS: "litter_bear_conversations",
   THEME: "litter_bear_theme",
+  SELECTED_AGENT_ID: "litter_bear_selected_agent_id",
 } as const;
 
 const apiBaseUrl = __API_BASE_URL__ || "";

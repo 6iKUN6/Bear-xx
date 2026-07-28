@@ -5,7 +5,7 @@ import type {
   StreamTaskEvent,
 } from "./stream-event.types";
 
-export type ChatStreamInput = ChatCompletionsDto;
+export type ChatStreamInput = ChatCompletionsDto & { agentId?: string };
 
 export type StreamTaskStatus =
   | "idle"
