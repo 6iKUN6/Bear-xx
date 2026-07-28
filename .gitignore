@@ -5,6 +5,6 @@ dist
 !.env.example
 coverage
 .DS_Store
-UI
+apps/mobile/UI
 .pnpm-store
 .turbo
