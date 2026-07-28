@@ -14,6 +14,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { HealthModule } from './modules/health/health.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { AgentModule } from './modules/agent/agent.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { StreamTaskModule } from './modules/stream-task/stream-task.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -35,6 +36,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     UserModule,
     LlmModule,
     AgentModule,
+    AdminModule,
     ConversationModule,
     ChatModule,
     StreamTaskModule,

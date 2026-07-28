@@ -17,8 +17,14 @@ import {
   StreamTaskType,
   MessageRole,
   MessageStatus,
+  ConversationTraceItemType,
+  ConversationTraceItemStatus,
   Prisma,
 } from '@prisma/client';
+import {
+  getModelCallCount,
+  runWithModelCallContext,
+} from '../ai/telemetry/model-call-context';
 import { randomUUID } from 'crypto';
 import type { SseEvent } from '../../common/sse';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -284,6 +290,7 @@ export class StreamTaskService {
           type,
           status: StreamTaskStatus.PENDING,
           userId,
+          agentId: agentId ?? null,
           conversationId: targetConversationId,
           messageId: assistantMessage.id,
           requestPayload,
@@ -867,6 +874,7 @@ export class StreamTaskService {
     let pendingApproval = false;
     let lastFullContentFlushAt = Date.now();
     let lastFlushedFullContentLength = 0;
+    let modelCallCount = 0;
     const startedAt = Date.now();
 
     this.debugTaskLog('stream_task.chat.agent_start', {
@@ -884,52 +892,58 @@ export class StreamTaskService {
       recentMessageLimit: agentRun.context.recentWindow.limit,
     });
 
-    for await (const event of agentRun.events) {
-      if (event.type === StreamTaskEventType.ToolCallDelta) {
-        await this.handleToolCallDeltaEvent(task, event);
-        continue;
-      }
-
-      if (event.type !== StreamTaskEventType.MessageDelta) {
-        if (event.type === StreamTaskEventType.ApprovalRequired) {
-          pendingApproval = true;
+    // 在模型调用计数上下文内消费 agent 事件流：ReAct 内部多次模型往返由 chat-model.factory
+    // 挂的回调在此上下文累计，循环结束后读取（trace 无法覆盖折叠在消息流里的往返）。
+    await runWithModelCallContext(task.id, async () => {
+      for await (const event of agentRun.events) {
+        if (event.type === StreamTaskEventType.ToolCallDelta) {
+          await this.handleToolCallDeltaEvent(task, event);
+          continue;
         }
-        await this.handleAgentLoopStatusEvent(task, event);
-        continue;
-      }
 
-      if (!event.delta) {
-        emptyDeltaCount++;
-        continue;
-      }
+        if (event.type !== StreamTaskEventType.MessageDelta) {
+          if (event.type === StreamTaskEventType.ApprovalRequired) {
+            pendingApproval = true;
+          }
+          await this.handleAgentLoopStatusEvent(task, event);
+          continue;
+        }
 
-      deltaCount++;
-      fullContent += event.delta;
-      const deltaEvent = await this.publishFrame(
-        task.id,
-        StreamTaskEventType.MessageDelta,
-        this.serializeTaskEventData({
-          type: StreamTaskEventType.MessageDelta,
+        if (!event.delta) {
+          emptyDeltaCount++;
+          continue;
+        }
+
+        deltaCount++;
+        fullContent += event.delta;
+        const deltaEvent = await this.publishFrame(
+          task.id,
+          StreamTaskEventType.MessageDelta,
+          this.serializeTaskEventData({
+            type: StreamTaskEventType.MessageDelta,
+            taskId: task.id,
+            streamId: task.streamId,
+            conversationId: task.conversationId,
+            messageId: task.messageId,
+            status: StreamTaskStatus.STREAMING.toLowerCase(),
+            payload: {
+              delta: event.delta,
+            },
+          }),
+        );
+        const flushResult = await this.maybeFlushFullContent({
           taskId: task.id,
-          streamId: task.streamId,
-          conversationId: task.conversationId,
-          messageId: task.messageId,
-          status: StreamTaskStatus.STREAMING.toLowerCase(),
-          payload: {
-            delta: event.delta,
-          },
-        }),
-      );
-      const flushResult = await this.maybeFlushFullContent({
-        taskId: task.id,
-        fullContent,
-        lastFlushAt: lastFullContentFlushAt,
-        lastFlushedLength: lastFlushedFullContentLength,
-      });
-      lastFullContentFlushAt = flushResult.lastFlushAt;
-      lastFlushedFullContentLength = flushResult.lastFlushedLength;
-      this.registry.publish(task.id, deltaEvent);
-    }
+          fullContent,
+          lastFlushAt: lastFullContentFlushAt,
+          lastFlushedLength: lastFlushedFullContentLength,
+        });
+        lastFullContentFlushAt = flushResult.lastFlushAt;
+        lastFlushedFullContentLength = flushResult.lastFlushedLength;
+        this.registry.publish(task.id, deltaEvent);
+      }
+
+      modelCallCount = getModelCallCount();
+    });
 
     if (executionSignal.aborted) {
       throw executionSignal.reason;
@@ -961,12 +975,18 @@ export class StreamTaskService {
     const completionWarning =
       fullContent.trim().length === 0 ? EMPTY_ASSISTANT_CONTENT : undefined;
     const finalContent = completionWarning ?? fullContent;
-    const runMetrics = this.buildChatRunMetrics(
-      agentRun.messages,
-      finalContent,
-      agentRun.context,
-      Date.now() - startedAt,
-    );
+    const toolCallCount = await this.countTaskToolCalls(task.id);
+    const runMetrics = {
+      ...this.buildChatRunMetrics(
+        agentRun.messages,
+        finalContent,
+        agentRun.context,
+        Date.now() - startedAt,
+      ),
+      // 单轮调用计数：tool 从 trace 聚合（准确），model 从计数上下文累计（含 ReAct 内部往返）。
+      toolCallCount,
+      modelCallCount,
+    };
 
     if (completionWarning) {
       this.logger.warn(
@@ -1271,6 +1291,22 @@ export class StreamTaskService {
       summaryMessageCount: context.summary?.messageCount,
       recentMessageCount: context.recentWindow.messageCount,
     };
+  }
+
+  /**
+   * 统计单轮任务的工具调用次数
+   * @param taskId 任务ID
+   * @returns 返回已结束（非 RUNNING）的工具调用 trace 数量
+   * @description 从 conversation-trace 聚合，准确覆盖每次 tool.call.done/error；供观测面板展示。
+   */
+  private countTaskToolCalls(taskId: string): Promise<number> {
+    return this.prisma.conversationTurnTraceItem.count({
+      where: {
+        taskId,
+        type: ConversationTraceItemType.TOOL_CALL,
+        status: { not: ConversationTraceItemStatus.RUNNING },
+      },
+    });
   }
 
   /**

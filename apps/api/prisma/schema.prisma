@@ -141,6 +141,7 @@ model StreamTask {
   requestPayload  Json                        @map("request_payload")
   executionState  Json?                       @map("execution_state")
   resultPayload   Json?                       @map("result_payload")
+  agentId         String?                     @map("agent_id")
   currentAgent    String?                     @map("current_agent")
   currentStep     String?                     @map("current_step")
   currentRunId    String?                     @map("current_run_id")
@@ -162,6 +163,7 @@ model StreamTask {
   @@index([conversationId])
   @@index([messageId])
   @@index([currentRunId])
+  @@index([agentId])
   @@map("stream_tasks")
 }
 
