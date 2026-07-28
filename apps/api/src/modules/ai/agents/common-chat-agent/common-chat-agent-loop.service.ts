@@ -25,6 +25,10 @@ import {
 import { CommonChatAgentFactory } from './common-chat-agent.factory';
 import { AgentCheckpointerService } from './agent-checkpointer.service';
 import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
+import {
+  buildToolDoneSummary,
+  buildToolErrorSummary,
+} from '../../agent-loop/trace/trace-summary.builder';
 
 type MessagesModeChunk = [BaseMessageChunk, Record<string, unknown>];
 
@@ -294,6 +298,7 @@ export class CommonChatAgentLoopService {
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const toolIndexById = new Map<string, number>();
     const toolNameById = new Map<string, string>();
+    const toolArgsById = new Map<string, string>();
     let nextToolIndex = 0;
     let lastToolCallId: string | undefined;
 
@@ -305,6 +310,7 @@ export class CommonChatAgentLoopService {
           message as unknown as ToolMessage,
           toolIndexById,
           toolNameById,
+          toolArgsById,
         );
         continue;
       }
@@ -346,11 +352,19 @@ export class CommonChatAgentLoopService {
           };
         }
 
+        const argsChunk = this.readOptionalString(chunk.args);
+        if (argsChunk) {
+          toolArgsById.set(
+            callId,
+            (toolArgsById.get(callId) ?? '') + argsChunk,
+          );
+        }
+
         yield {
           type: StreamTaskEventType.ToolCallDelta,
           toolCallId: callId,
           name: toolNameById.get(callId),
-          args: this.readOptionalString(chunk.args),
+          args: argsChunk,
           index: toolIndexById.get(callId),
         };
       }
@@ -383,10 +397,12 @@ export class CommonChatAgentLoopService {
     message: ToolMessage,
     toolIndexById: Map<string, number>,
     toolNameById: Map<string, string>,
+    toolArgsById: Map<string, string>,
   ): CommonChatAgentStreamEvent {
     const callId = this.readOptionalString(message.tool_call_id);
     const index = callId ? (toolIndexById.get(callId) ?? -1) : -1;
     const name = callId ? toolNameById.get(callId) : undefined;
+    const rawArgs = callId ? toolArgsById.get(callId) : undefined;
     const content = this.readMessageText(message.content);
 
     if (this.readOptionalString(message.status) === 'error') {
@@ -395,17 +411,20 @@ export class CommonChatAgentLoopService {
         type: StreamTaskEventType.ToolCallError,
         payload: this.buildToolPayload(callId, name, index, {
           publicStatus: `工具调用失败${this.formatNameSuffix(name)}`,
+          summary: buildToolErrorSummary(name, { message: errorMessage }),
           message: errorMessage,
           error: { message: errorMessage },
         }),
       };
     }
 
+    const outputSummary = this.toJsonSummary(message.content);
     return {
       type: StreamTaskEventType.ToolCallDone,
       payload: this.buildToolPayload(callId, name, index, {
         publicStatus: `工具调用完成${this.formatNameSuffix(name)}`,
-        outputSummary: this.toJsonSummary(message.content),
+        summary: buildToolDoneSummary(name, rawArgs, outputSummary),
+        outputSummary,
       }),
     };
   }

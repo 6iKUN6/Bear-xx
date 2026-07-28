@@ -9,8 +9,18 @@ import {
 import { PlannerService } from './planner.service';
 import { STEP_EVALUATOR, type StepEvaluator } from './step-evaluator';
 import type { AgentPlan, PlanStep, StepExecutionResult } from './plan.types';
+import {
+  buildPlanReadySummary,
+  buildStepDoneSummary,
+} from '../trace/trace-summary.builder';
 
 const DEFAULT_MAX_STEPS = 6;
+
+/** 固定编排节点的中文展示标题（历史回显用）；计划出的动态步骤用步骤目标作标题 */
+const STEP_TITLES: Record<string, string> = {
+  create_plan: '整理计划',
+  synthesize: '整合结果生成回复',
+};
 
 @Injectable()
 export class AgentLoopController {
@@ -50,6 +60,7 @@ export class AgentLoopController {
     yield this.stepStart(strategy, 'create_plan', '正在拆解任务步骤');
     const plan = await this.planner.plan(input, maxSteps);
     yield this.stepDone(strategy, 'create_plan', '已完成任务拆解', {
+      summary: buildPlanReadySummary(plan.steps.length),
       stepCount: plan.steps.length,
       steps: plan.steps.map((step) => step.goal),
       fromModel: plan.fromModel,
@@ -63,11 +74,19 @@ export class AgentLoopController {
         break;
       }
 
-      yield this.stepStart(strategy, step.id, step.goal);
+      yield this.stepStart(strategy, step.id, step.goal, step.goal);
       const result = yield* this.executeStep(input, plan, step, observations);
       observations.push(result.text);
       stepsDone += 1;
-      yield this.stepDone(strategy, step.id, `已完成：${step.goal}`);
+      yield this.stepDone(
+        strategy,
+        step.id,
+        `已完成：${step.goal}`,
+        {
+          summary: buildStepDoneSummary(stepsDone, step.goal),
+        },
+        step.goal,
+      );
 
       if (
         isDynamic &&
@@ -229,10 +248,11 @@ export class AgentLoopController {
     strategy: AgentStrategyMode,
     step: string,
     publicStatus: string,
+    title?: string,
   ): AgentLoopStreamEvent {
     return {
       type: StreamTaskEventType.WorkflowStepStart,
-      payload: this.buildStepPayload(strategy, step, publicStatus),
+      payload: this.buildStepPayload(strategy, step, publicStatus, title),
     };
   }
 
@@ -241,11 +261,12 @@ export class AgentLoopController {
     step: string,
     publicStatus: string,
     extra: Record<string, unknown> = {},
+    title?: string,
   ): AgentLoopStreamEvent {
     return {
       type: StreamTaskEventType.WorkflowStepDone,
       payload: {
-        ...this.buildStepPayload(strategy, step, publicStatus),
+        ...this.buildStepPayload(strategy, step, publicStatus, title),
         ...extra,
       },
     };
@@ -255,10 +276,12 @@ export class AgentLoopController {
     strategy: AgentStrategyMode,
     step: string,
     publicStatus: string,
+    title?: string,
   ) {
     return {
       strategy,
       step,
+      title: title ?? STEP_TITLES[step],
       nodeKey: step,
       traceKey: `workflow:${strategy}:${step}`,
       publicStatus,

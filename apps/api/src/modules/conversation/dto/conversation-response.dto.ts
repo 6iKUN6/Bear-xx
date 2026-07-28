@@ -48,6 +48,42 @@ export class ConversationMessageTraceItemDto {
   sequence: number;
 
   @ApiProperty({
+    description: '工具名（仅工具调用类节点有值），供前端展示工具图标',
+    example: 'getWeather',
+    required: false,
+    nullable: true,
+  })
+  toolName?: string | null;
+
+  @ApiProperty({
+    description: '父轨迹项 ID，用于层级树展示',
+    example: 'cmf_trace_100',
+    required: false,
+    nullable: true,
+  })
+  parentId?: string | null;
+
+  @ApiProperty({
+    description: '入参摘要，供前端展示「调用了什么」的参数卡片',
+    required: false,
+    nullable: true,
+    type: Object,
+    additionalProperties: true,
+    example: { city: '深圳' },
+  })
+  inputSummary?: Record<string, unknown> | null;
+
+  @ApiProperty({
+    description: '出参摘要，供前端展开查看节点结果详情',
+    required: false,
+    nullable: true,
+    type: Object,
+    additionalProperties: true,
+    example: { temperature: 30, condition: '晴' },
+  })
+  outputSummary?: Record<string, unknown> | null;
+
+  @ApiProperty({
     description: '轨迹指标信息，例如 token 消耗、缓存命中、耗时等',
     required: false,
     nullable: true,
