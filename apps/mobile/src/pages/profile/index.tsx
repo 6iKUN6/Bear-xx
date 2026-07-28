@@ -1,11 +1,12 @@
 import { View, Text, Image } from "@tarojs/components";
 import Taro from "@tarojs/taro";
+import { themes } from "@litter-bear/theme";
 import TabBar from "../../components/TabBar";
 import TabPageTopInset from "../../components/TabPageTopInset";
 import PageShell from "../../components/PageShell";
-import ThemePicker from "../../components/ThemePicker";
 import { useUserStore } from "../../store/userStore";
 import { useChatStore } from "../../store/chatStore";
+import { useThemeStore } from "../../store/themeStore";
 import { STORAGE_KEYS } from "../../utils/constants";
 import * as storage from "../../utils/storage";
 import {
@@ -25,6 +26,13 @@ const accountCards = [
 
 export default function ProfilePage() {
   const { userInfo, isLoggedIn, logout } = useUserStore();
+  const themeId = useThemeStore((state) => state.themeId);
+  const currentThemeName =
+    themes.find((theme) => theme.id === themeId)?.name ?? "默认主题";
+
+  const handleOpenTheme = () => {
+    Taro.navigateTo({ url: "/pages/settings/theme/index" });
+  };
 
   const handleLoginOrLogout = () => {
     if (isLoggedIn) {
@@ -113,9 +121,29 @@ export default function ProfilePage() {
 
         <View className="px-[1rem] pb-[0.5rem] pt-[0.875rem]">
           <Text className="mb-[0.75rem] block px-[0.25rem] text-[1rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
-            界面主题
+            个性化
           </Text>
-          <ThemePicker />
+          <View className={`${appGlassCardClass} overflow-hidden`}>
+            <View
+              className="flex items-center justify-between px-[1.25rem] py-[1rem] active:bg-[var(--lb-surface-hover)]"
+              onClick={handleOpenTheme}
+            >
+              <View className="flex items-center gap-[0.875rem]">
+                <View className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-sm)] bg-[var(--lb-accent-soft)] text-[1.125rem] text-[var(--lb-accent-ink)]">
+                  <Text className="leading-none">◑</Text>
+                </View>
+                <Text className="text-[1rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]">
+                  界面主题
+                </Text>
+              </View>
+              <View className="flex min-w-0 items-center gap-[0.5rem]">
+                <Text className="max-w-[8rem] overflow-hidden text-ellipsis whitespace-nowrap text-[0.875rem] leading-[1.4] text-[var(--lb-text-muted)]">
+                  {currentThemeName}
+                </Text>
+                <Text className="at-icon at-icon-chevron-right shrink-0 text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
+              </View>
+            </View>
+          </View>
         </View>
 
         {isLoggedIn && (

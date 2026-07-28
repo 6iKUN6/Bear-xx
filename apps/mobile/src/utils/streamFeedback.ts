@@ -1,9 +1,19 @@
+// 中文文案来自前后端共享包（唯一事实源）
+import { STREAM_TASK_EVENT_LABELS as EVENT_LABELS } from "@litter-bear/types/protocol";
 import {
   StreamTaskEventType,
   type StreamTaskEvent,
 } from "../services/stream/stream-event.types";
-// 中文文案来自前后端共享包（唯一事实源）
-import { STREAM_TASK_EVENT_LABELS as EVENT_LABELS } from "@litter-bear/types/protocol";
+
+/**
+ * 工具调用生命周期事件：start / done / error 共享同一 traceKey，
+ * 折叠为同一张反馈卡片，随状态原地更新（不为每个阶段新开卡片）。
+ */
+const TOOL_LIFECYCLE_TYPES = new Set<StreamTaskEventType>([
+  StreamTaskEventType.ToolCallStart,
+  StreamTaskEventType.ToolCallDone,
+  StreamTaskEventType.ToolCallError,
+]);
 
 const EVENT_TONES: Partial<
   Record<StreamTaskEventType, MessageStreamEventTone>
@@ -22,7 +32,12 @@ const EVENT_TONES: Partial<
 export function toMessageStreamFeedback(
   event: StreamTaskEvent,
 ): MessageStreamEventFeedback | null {
-  if (event.type === StreamTaskEventType.MessageDelta) {
+  // 文本分片与工具入参分片都是逐 token 的中间态，不各自成卡：
+  // 文本走消息气泡，工具入参由 start→done 的同一张生命周期卡承载。
+  if (
+    event.type === StreamTaskEventType.MessageDelta ||
+    event.type === StreamTaskEventType.ToolCallDelta
+  ) {
     return null;
   }
 
@@ -30,10 +45,15 @@ export function toMessageStreamFeedback(
   const payload = readPayload(event.data.payload);
   const publicStatus = readString(payload.publicStatus);
   const title = publicStatus || EVENT_LABELS[type] || "任务状态更新";
-  const detail = event.data.errorMessage || readEventDetail(type, payload);
+  // 摘要优先：后端在 done/error 的 payload.summary 里给出「已使用 xx，成功查询到…」，
+  // 其次才回退到按事件类型拼装的入参/模型等细节。
+  const detail =
+    event.data.errorMessage ||
+    readString(payload.summary) ||
+    readEventDetail(type, payload);
 
   return {
-    id: `${event.rawId || event.id || Date.now()}-${event.type}`,
+    id: resolveFeedbackId(event, type, payload),
     type: event.type,
     title,
     detail,
@@ -84,6 +104,30 @@ export function toMessageStreamFeedbackFromTrace(
     display: traceItem.type === "MESSAGE_FINALIZE" ? "text" : "panel",
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * 计算反馈卡片 id
+ * @param event 原始流事件
+ * @param type 事件类型
+ * @param payload 事件载荷
+ * @returns 返回用于去重/折叠的稳定 id
+ * @description 工具生命周期事件（start/done/error）用后端下发的 traceKey（按 toolCallId 稳定），
+ * 使同一次工具调用的多个阶段折叠进同一张卡；其余事件保持每条唯一，互不合并。
+ */
+function resolveFeedbackId(
+  event: StreamTaskEvent,
+  type: StreamTaskEventType,
+  payload: Record<string, unknown>,
+): string {
+  if (TOOL_LIFECYCLE_TYPES.has(type)) {
+    const traceKey = readString(payload.traceKey);
+    if (traceKey) {
+      return `tool-${traceKey}`;
+    }
+  }
+
+  return `${event.rawId || event.id || Date.now()}-${event.type}`;
 }
 
 function isTerminalTextEvent(type: StreamTaskEventType) {

@@ -19,8 +19,6 @@ import {
 } from "../../utils/style";
 
 const SWIPE_ACTION_WIDTH = 84;
-const CONVERSATION_CARD_INSET = "1rem";
-const CONVERSATION_CARD_OUTER_PADDING = "1rem";
 
 const swipeOptions = [
   {
@@ -152,58 +150,50 @@ export default function IndexPage() {
             </View>
           </View>
         ) : (
-          <View className="box-border w-full max-w-full overflow-hidden pt-[0.75rem]">
+          <View className="box-border w-full max-w-full overflow-hidden px-[1rem] pt-[0.75rem]">
             {conversations.map((conv, index) => (
               <View
                 key={conv.id}
-                className={`w-full max-w-full overflow-hidden ${
+                className={`w-full max-w-full ${
                   index > 0 ? "mt-[0.75rem]" : ""
                 }`}
               >
                 <AtSwipeAction
-                  className="w-full max-w-full overflow-hidden"
+                  className="lb-swipe-action w-full max-w-full"
                   options={swipeOptions}
                   onOpened={() => {}}
                   onClick={() => handleDelete(conv.id)}
                 >
                   <View
-                    className="box-border w-screen max-w-none overflow-hidden"
+                    className={`${appGlassCardClass} box-border w-full overflow-hidden active:scale-[0.98]`}
                     onClick={() => handleOpen(conv.id)}
                   >
-                    <View
-                      className={`${appGlassCardClass} overflow-hidden active:scale-[0.98]`}
-                      style={{
-                        marginLeft: CONVERSATION_CARD_INSET,
-                        width: `calc(100vw - ${CONVERSATION_CARD_INSET} - ${CONVERSATION_CARD_OUTER_PADDING})`,
-                      }}
-                    >
-                      <View className="box-border flex w-full max-w-full min-w-0 items-start gap-[0.875rem] overflow-hidden px-[1rem] py-[1rem]">
-                        <View
-                          className={`${appIconTileClass} h-[2.625rem] w-[2.625rem] shrink-0 text-[1.0625rem]`}
-                        >
-                          <Text className="leading-none">✧</Text>
-                        </View>
+                    <View className="box-border flex w-full max-w-full min-w-0 items-start gap-[0.875rem] overflow-hidden px-[1rem] py-[1rem]">
+                      <View
+                        className={`${appIconTileClass} h-[2.625rem] w-[2.625rem] shrink-0 text-[1.0625rem]`}
+                      >
+                        <Text className="leading-none">✧</Text>
+                      </View>
 
-                        <View className="min-w-0 flex-1 overflow-hidden">
-                          <View className="mb-[0.375rem] flex min-w-0 max-w-full items-center justify-between gap-[0.625rem] overflow-hidden">
-                            <Text
-                              className={`${appTextTruncateClass} block min-w-0 flex-1 text-[1rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]`}
-                            >
-                              {conv.title || "新对话"}
-                            </Text>
-                            <Text className="block max-w-[3rem] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-right text-[0.8125rem] leading-none text-[var(--lb-text-muted)]">
-                              {formatTime(conv.updatedAt)}
-                            </Text>
-                          </View>
+                      <View className="min-w-0 flex-1 overflow-hidden">
+                        <View className="mb-[0.375rem] flex min-w-0 max-w-full items-center justify-between gap-[0.625rem] overflow-hidden">
                           <Text
-                            className={`${appTextTruncateClass} block w-full max-w-full text-[0.875rem] leading-[1.45] text-[var(--lb-text-secondary)]`}
+                            className={`${appTextTruncateClass} block min-w-0 flex-1 text-[1rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]`}
                           >
-                            {getLastMessage(conv)}
+                            {conv.title || "新对话"}
+                          </Text>
+                          <Text className="block max-w-[3rem] shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-right text-[0.8125rem] leading-none text-[var(--lb-text-muted)]">
+                            {formatTime(conv.updatedAt)}
                           </Text>
                         </View>
-
-                        <Text className="at-icon at-icon-chevron-right mt-[0.625rem] shrink-0 text-[0.875rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
+                        <Text
+                          className={`${appTextTruncateClass} block w-full max-w-full text-[0.875rem] leading-[1.45] text-[var(--lb-text-secondary)]`}
+                        >
+                          {getLastMessage(conv)}
+                        </Text>
                       </View>
+
+                      <Text className="at-icon at-icon-chevron-right mt-[0.625rem] shrink-0 text-[0.875rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
                     </View>
                   </View>
                 </AtSwipeAction>

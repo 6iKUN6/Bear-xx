@@ -5,6 +5,7 @@ export default defineAppConfig({
     "pages/image/index",
     "pages/profile/index",
     "pages/login/index",
+    "pages/settings/theme/index",
   ],
   window: {
     backgroundTextStyle: "light",

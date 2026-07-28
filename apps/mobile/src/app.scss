@@ -1,1 +1,9 @@
 @use 'taro-ui/dist/style/index.scss' as *;
+
+/* AtSwipeAction 默认自带白色背景，在深色/多主题下会从卡片两侧露出与页面背景不一致的色块。
+   统一置为透明并满宽，让内部卡片自身的 --lb-surface 背景成为唯一可见底色。 */
+.lb-swipe-action,
+.lb-swipe-action .at-swipe-action__content {
+  width: 100%;
+  background-color: transparent;
+}

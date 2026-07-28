@@ -43,6 +43,12 @@
   background: var(--lb-page-background);
 }
 
+/* 通用头部栏背景与页面同源，消除头部白条与周围页面的色差。
+   用 background 简写（非 background-color），以支持 purple 主题的渐变页面背景。 */
+.app-solid-nav {
+  background: var(--lb-page-background);
+}
+
 .app-accent-surface {
   background: var(--lb-accent-surface);
 }
