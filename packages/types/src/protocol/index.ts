@@ -105,6 +105,67 @@ export function getStreamTaskEventLabel(type: StreamTaskEventType): string {
   return STREAM_TASK_EVENT_LABELS[type] ?? type;
 }
 
+/**
+ * LLM / 任务失败的错误类别
+ * @description 前后端共享的错误分类，用于前端按类别展示不同文案与是否提供「重试」。
+ * - rate_limit：限流（HTTP 429）
+ * - auth：鉴权/权限失败（401/403）
+ * - timeout：请求超时
+ * - network：网络中断/连接错误
+ * - invalid：请求参数或内容非法（400/422）
+ * - server：服务端错误（5xx）
+ * - unknown：无法归类
+ */
+export type TaskErrorCategory =
+  | 'rate_limit'
+  | 'auth'
+  | 'timeout'
+  | 'network'
+  | 'invalid'
+  | 'server'
+  | 'unknown';
+
+/**
+ * task.error 事件的结构化载荷
+ * @description 在扁平 `errorMessage` 之外，额外下发错误类别与是否可重试，供前端差异化处理。
+ */
+export interface TaskErrorPayload {
+  /** 错误类别 */
+  category: TaskErrorCategory;
+  /** 是否属于可重试类别（限流/超时/网络/5xx 为 true） */
+  retryable: boolean;
+  /** 原始 HTTP 状态码（如有） */
+  status?: number;
+}
+
+/**
+ * 错误类别 → 中文展示文案
+ * @description 用 Record 保证新增类别时必须补文案（编译期穷尽校验）。
+ */
+export const TASK_ERROR_CATEGORY_LABELS: Record<TaskErrorCategory, string> = {
+  rate_limit: '请求太频繁，请稍后重试',
+  auth: '服务鉴权失败，请联系管理员',
+  timeout: '响应超时，请重试',
+  network: '网络异常，请检查连接后重试',
+  invalid: '请求内容无法处理，请调整后再试',
+  server: '服务暂时不可用，请稍后重试',
+  unknown: '生成失败，请重试',
+};
+
+/**
+ * 获取错误类别的中文展示文案
+ * @param category 错误类别
+ * @returns 返回中文文案；未知类别回退为 unknown 文案
+ */
+export function getTaskErrorCategoryLabel(
+  category: TaskErrorCategory | undefined,
+): string {
+  return category
+    ? (TASK_ERROR_CATEGORY_LABELS[category] ??
+        TASK_ERROR_CATEGORY_LABELS.unknown)
+    : TASK_ERROR_CATEGORY_LABELS.unknown;
+}
+
 /** 人工审批决定类型（P5 HITL） */
 export type ApprovalDecisionType = 'approve' | 'reject' | 'edit';
 

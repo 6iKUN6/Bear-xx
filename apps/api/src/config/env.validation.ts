@@ -131,6 +131,14 @@ export class EnvConfig {
 
   @IsOptional()
   @IsString()
+  LLM_MAX_RETRIES?: string;
+
+  @IsOptional()
+  @IsString()
+  LLM_TIMEOUT_MS?: string;
+
+  @IsOptional()
+  @IsString()
   LLM_DEBUG?: string;
 
   @IsOptional()
@@ -148,6 +156,10 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   LLM_DEBUG_PROVIDER?: string;
+
+  @IsOptional()
+  @IsString()
+  TAVILY_API_KEY?: string;
 
   @IsOptional()
   @IsString()

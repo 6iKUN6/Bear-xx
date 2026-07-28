@@ -7,6 +7,7 @@ import {
 } from '@langchain/core/messages';
 import { LlmModelRegistryService } from './llm-model-registry.service';
 import { LlmChatModelFactory } from './providers/chat-model.factory';
+import { classifyLlmError } from './llm-error';
 import type {
   LlmMessage,
   LlmTextRequest,
@@ -115,7 +116,7 @@ export class LlmService {
           skippedChunkCount,
           totalParsedLength,
           durationMs: Date.now() - startedAt,
-          error: error instanceof Error ? error.message : String(error),
+          error: classifyLlmError(error),
         }),
       );
       throw error;
@@ -174,7 +175,7 @@ export class LlmService {
         this.formatLog('llm.generate.failed', {
           model: this.toSafeModelLog(resolvedRequest),
           durationMs: Date.now() - startedAt,
-          error: error instanceof Error ? error.message : String(error),
+          error: classifyLlmError(error),
         }),
       );
       throw error;

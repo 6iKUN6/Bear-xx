@@ -272,7 +272,7 @@ Current event-specific payload conventions:
 - `message.delta`: `payload.delta`
 - `message.done`: `payload.content`
 - `task.completed`: no `payload`
-- `task.error`: top-level `errorMessage`
+- `task.error`: top-level `errorMessage`（面向用户的文案）；`payload` 为结构化错误 `{ category, retryable, status? }`，`category` 取自共享协议 `TaskErrorCategory`（rate_limit / auth / timeout / network / invalid / server / unknown），供前端按类别展示文案与是否提供「重试」。DB 仍只持久化 `errorMessage` 字符串，错误类别只随事件下发，不入 `stream_tasks` 表
 - `task.expired`: no `payload`
 - `task.canceled`: no `payload`
 

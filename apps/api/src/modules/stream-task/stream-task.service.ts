@@ -6,7 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ApprovalDecision } from '@litter-bear/types/protocol';
+import type {
+  ApprovalDecision,
+  TaskErrorPayload,
+} from '@litter-bear/types/protocol';
+import { classifyLlmError } from '../llm/llm-error';
 import {
   StreamTaskStatus,
   StreamTaskRunStatus,
@@ -740,8 +744,15 @@ export class StreamTaskService {
         return;
       }
 
-      this.logger.error(`Stream task failed: ${(error as Error).message}`);
-      await this.failTask(taskId, (error as Error).message);
+      const classified = classifyLlmError(error);
+      this.logger.error(
+        `Stream task failed: ${classified.message} (category=${classified.category}, status=${classified.status ?? 'n/a'})`,
+      );
+      await this.failTask(taskId, classified.message, {
+        category: classified.category,
+        retryable: classified.retryable,
+        status: classified.status,
+      });
     } finally {
       await this.releaseLock(lockKey, lockValue);
     }
@@ -1258,7 +1269,11 @@ export class StreamTaskService {
    * @returns 无返回值
    * @description 将任务和对应消息更新为失败状态，同时写入并发布 task.error 事件。
    */
-  private async failTask(taskId: string, message: string) {
+  private async failTask(
+    taskId: string,
+    message: string,
+    errorInfo?: TaskErrorPayload,
+  ) {
     const task = await this.prisma.streamTask.findUnique({
       where: { id: taskId },
     });
@@ -1272,7 +1287,7 @@ export class StreamTaskService {
       taskId,
       task.currentRunId,
       StreamTaskEventType.TaskError,
-      this.serializeTaskEventData({
+      this.serializeTaskEventData<TaskErrorPayload>({
         type: StreamTaskEventType.TaskError,
         taskId,
         streamId: task.currentRunId ?? undefined,
@@ -1280,6 +1295,7 @@ export class StreamTaskService {
         messageId,
         status: StreamTaskStatus.ERROR.toLowerCase(),
         errorMessage: message,
+        payload: errorInfo,
       }),
       {
         status: StreamTaskStatus.ERROR,
