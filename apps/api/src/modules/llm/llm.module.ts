@@ -5,6 +5,6 @@ import { LlmChatModelFactory } from './providers/chat-model.factory';
 
 @Module({
   providers: [LlmChatModelFactory, LlmModelRegistryService, LlmService],
-  exports: [LlmService],
+  exports: [LlmService, LlmModelRegistryService],
 })
 export class LlmModule {}

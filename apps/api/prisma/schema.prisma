@@ -54,6 +54,30 @@ model Agent {
   @@map("agents")
 }
 
+/// 数据化的模型预设：仅存元数据，apiKey 永不落库（运行时按 platform 从 env 取）。
+/// presetId 为业务标识（如 openai:gpt-5.5），供 Agent.modelPreset 引用与 registry 去重。
+model ModelPreset {
+  id              String   @id @default(cuid())
+  presetId        String   @unique @map("preset_id")
+  name            String
+  description     String   @default("")
+  provider        String
+  platform        String
+  model           String
+  baseURL         String?  @map("base_url")
+  temperature     Float?
+  maxOutputTokens Int?     @map("max_output_tokens")
+  topP            Float?   @map("top_p")
+  enabled         Boolean  @default(true)
+  isDefault       Boolean  @default(false) @map("is_default")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([enabled])
+  @@index([isDefault])
+  @@map("model_presets")
+}
+
 model Conversation {
   id             String                      @id @default(cuid())
   title          String                      @default("新对话")
@@ -142,6 +166,7 @@ model StreamTask {
   executionState  Json?                       @map("execution_state")
   resultPayload   Json?                       @map("result_payload")
   agentId         String?                     @map("agent_id")
+  isTest          Boolean                     @default(false) @map("is_test")
   currentAgent    String?                     @map("current_agent")
   currentStep     String?                     @map("current_step")
   currentRunId    String?                     @map("current_run_id")
@@ -164,6 +189,7 @@ model StreamTask {
   @@index([messageId])
   @@index([currentRunId])
   @@index([agentId])
+  @@index([isTest])
   @@map("stream_tasks")
 }
 

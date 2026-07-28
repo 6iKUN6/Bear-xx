@@ -8,6 +8,8 @@ import { AgentManagePage } from "@/pages/agent-manage";
 import { ToolsPage } from "@/pages/tools";
 import { TasksPage } from "@/pages/tasks";
 import { ErrorsPage } from "@/pages/errors";
+import { AgentTestPage } from "@/pages/agent-test";
+import { ModelsPage } from "@/pages/models";
 
 export function App() {
   return (
@@ -27,6 +29,8 @@ export function App() {
           <Route path="/tools" element={<ToolsPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/errors" element={<ErrorsPage />} />
+          <Route path="/debug" element={<AgentTestPage />} />
+          <Route path="/models" element={<ModelsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -38,7 +38,7 @@ export class AdminObservabilityService {
 
     const grouped = await this.prisma.streamTask.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: since }, isTest: false },
       _count: { _all: true },
     });
 
@@ -56,6 +56,7 @@ export class AdminObservabilityService {
     const durationAgg = await this.prisma.streamTask.aggregate({
       where: {
         createdAt: { gte: since },
+        isTest: false,
         status: StreamTaskStatus.COMPLETED,
         startedAt: { not: null },
         completedAt: { not: null },
@@ -85,7 +86,7 @@ export class AdminObservabilityService {
 
     const grouped = await this.prisma.streamTask.groupBy({
       by: ['agentId', 'status'],
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: since }, isTest: false },
       _count: { _all: true },
     });
 
@@ -197,6 +198,7 @@ export class AdminObservabilityService {
     const tasks = await this.prisma.streamTask.findMany({
       where: {
         createdAt: { gte: since },
+        isTest: false,
         status: StreamTaskStatus.ERROR,
       },
       select: { errorMessage: true },
@@ -227,7 +229,7 @@ export class AdminObservabilityService {
     const take = limit && limit > 0 ? limit : DEFAULT_RECENT_LIMIT;
 
     const rows = await this.prisma.streamTask.findMany({
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: since }, isTest: false },
       orderBy: { createdAt: 'desc' },
       take: take + 1, // 多取一条判断是否还有下一页
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
@@ -369,6 +371,7 @@ export class AdminObservabilityService {
     const rows = await this.prisma.streamTask.findMany({
       where: {
         createdAt: { gte: since },
+        isTest: false,
         status: StreamTaskStatus.COMPLETED,
         startedAt: { not: null },
         completedAt: { not: null },

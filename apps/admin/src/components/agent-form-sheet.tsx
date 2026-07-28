@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAgentMutations } from "@/hooks/queries";
+import { useAgentMutations, useModelPresets } from "@/hooks/queries";
 import { ApiError } from "@/api/client";
 import type { Agent, AgentInput, AgentStrategy } from "@/api/types";
 
@@ -44,6 +44,7 @@ export function AgentFormSheet({
   onClose: () => void;
 }) {
   const { create, update } = useAgentMutations();
+  const { data: modelPresets } = useModelPresets();
   const [form, setForm] = useState<AgentInput>({ name: "" });
   const [toolGroupsText, setToolGroupsText] = useState("");
   const [skillsText, setSkillsText] = useState("");
@@ -133,13 +134,23 @@ export function AgentFormSheet({
             />
           </Field>
           <Field label="模型预设（留空用默认）">
-            <Input
+            <Select
               value={form.modelPreset ?? ""}
-              onChange={(e) =>
-                setForm({ ...form, modelPreset: e.target.value })
+              onValueChange={(v) =>
+                setForm({ ...form, modelPreset: v || null })
               }
-              placeholder="kimi"
-            />
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="用全局默认模型" />
+              </SelectTrigger>
+              <SelectContent>
+                {(modelPresets ?? []).map((m) => (
+                  <SelectItem key={m.id} value={m.presetId}>
+                    {m.name}（{m.presetId}）
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           <Field label="默认策略">
             <Select

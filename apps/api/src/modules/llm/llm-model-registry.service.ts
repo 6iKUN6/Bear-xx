@@ -1,5 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../prisma/prisma.service';
 import { BUILTIN_LLM_MODEL_PRESETS } from './llm.presets';
 import {
   ANTHROPIC_PLATFORM,
@@ -32,11 +38,87 @@ import type {
 } from './llm.types';
 
 @Injectable()
-export class LlmModelRegistryService {
-  private readonly modelPresets: LlmModelPreset[];
+export class LlmModelRegistryService implements OnModuleInit {
+  private readonly logger = new Logger(LlmModelRegistryService.name);
+  /** 静态层：内置 + env 自动 + LLM_MODEL_PRESETS（构造期一次算好，不变） */
+  private readonly environmentPresets: LlmModelPreset[];
+  private readonly configuredPresets: LlmModelPreset[];
+  /** 生效列表 = 静态层 + DB 层，去重后缓存；DB 变更时 invalidate 重建 */
+  private modelPresets: LlmModelPreset[];
 
-  constructor(private readonly configService: ConfigService) {
-    this.modelPresets = this.loadModelPresets();
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
+    this.environmentPresets = this.loadEnvironmentModelPresets();
+    const configuredValue =
+      this.configService.get<string>('LLM_MODEL_PRESETS')?.trim() ?? '';
+    this.configuredPresets = configuredValue
+      ? this.parseConfiguredModelPresets(configuredValue)
+      : [];
+    // 构造期先用静态层（DB 尚未加载）；onModuleInit 再并入 DB 预设。
+    this.modelPresets = this.mergePresets([]);
+  }
+
+  /** 启动时加载 DB 预设并入生效列表 */
+  async onModuleInit(): Promise<void> {
+    await this.invalidate();
+  }
+
+  /**
+   * 重新从 DB 加载模型预设并重建生效列表
+   * @description ModelPreset 写操作后调用。DB 不可用时静默降级为仅静态层。
+   */
+  async invalidate(): Promise<void> {
+    const dbPresets = await this.loadDbModelPresets();
+    this.modelPresets = this.mergePresets(dbPresets);
+  }
+
+  /**
+   * 从 DB 读取模型预设并映射为 LlmModelPreset（apiKey 恒为 undefined，运行时从 env 兜底）
+   */
+  private async loadDbModelPresets(): Promise<LlmModelPreset[]> {
+    try {
+      const rows = await this.prisma.modelPreset.findMany({
+        where: { enabled: true },
+      });
+      return rows.map((row) => ({
+        id: row.presetId,
+        provider: this.ensureSupportedProvider(row.provider),
+        platform: row.platform,
+        model: row.model,
+        // apiKey 永不落库；toResolvedModelConfig 按 platform 从 env 兜底。
+        apiKey: undefined,
+        baseURL: row.baseURL ?? undefined,
+        temperature: row.temperature ?? undefined,
+        maxOutputTokens: row.maxOutputTokens ?? undefined,
+        topP: row.topP ?? undefined,
+        enabled: row.enabled,
+      }));
+    } catch (error) {
+      this.logger.warn(
+        `加载 DB 模型预设失败，降级为静态预设：${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * 合并各层预设为生效列表
+   * @description 优先级低→高：内置 < env 自动 < DB < LLM_MODEL_PRESETS（后者覆盖前者，同 id 去重）。
+   * DB 优先于 env（admin 管理的预设覆盖自动生成），JSON 显式配置仍为最高兜底。
+   */
+  private mergePresets(dbPresets: LlmModelPreset[]): LlmModelPreset[] {
+    const modelPresetMap = new Map<string, LlmModelPreset>();
+    for (const preset of [
+      ...BUILTIN_LLM_MODEL_PRESETS,
+      ...this.environmentPresets,
+      ...dbPresets,
+      ...this.configuredPresets,
+    ]) {
+      modelPresetMap.set(preset.id, preset);
+    }
+    return [...modelPresetMap.values()];
   }
 
   /**
@@ -75,31 +157,6 @@ export class LlmModelRegistryService {
    */
   listAvailableModels(): LlmModelPreset[] {
     return this.modelPresets.filter((item) => item.enabled !== false);
-  }
-
-  /**
-   * 加载模型预设列表
-   * @returns 返回最终生效的模型预设列表
-   * @description 合并内置模型预设与环境变量中的扩展预设；当存在相同 id 时，后者会覆盖前者。
-   */
-  private loadModelPresets(): LlmModelPreset[] {
-    const environmentPresets = this.loadEnvironmentModelPresets();
-    const configuredValue =
-      this.configService.get<string>('LLM_MODEL_PRESETS')?.trim() ?? '';
-    const configuredPresets = configuredValue
-      ? this.parseConfiguredModelPresets(configuredValue)
-      : [];
-
-    const modelPresetMap = new Map<string, LlmModelPreset>();
-    for (const preset of [
-      ...BUILTIN_LLM_MODEL_PRESETS,
-      ...environmentPresets,
-      ...configuredPresets,
-    ]) {
-      modelPresetMap.set(preset.id, preset);
-    }
-
-    return [...modelPresetMap.values()];
   }
 
   /**
@@ -475,8 +532,14 @@ export class LlmModelRegistryService {
       provider: preset.provider,
       platform: preset.platform,
       model: preset.model,
-      apiKey: preset.apiKey,
-      baseURL: preset.baseURL,
+      // DB 预设不带密钥/地址：按 platform 从 env 兜底（密钥永不落库的核心边界）。
+      // env 自动预设已带 apiKey，?? 保留其原值。
+      apiKey:
+        preset.apiKey ??
+        this.resolvePlatformApiKey(preset.platform, preset.provider),
+      baseURL:
+        preset.baseURL ??
+        this.resolvePlatformBaseUrl(preset.platform, preset.provider),
     };
   }
 

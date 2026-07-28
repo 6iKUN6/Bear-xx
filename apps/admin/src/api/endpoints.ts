@@ -5,6 +5,8 @@ import type {
   AgentUsage,
   AuthResponse,
   ErrorCategoryCount,
+  ModelPreset,
+  ModelPresetInput,
   ObservabilityOverview,
   RecentTasks,
   TaskDetail,
@@ -57,3 +59,18 @@ export const updateAgent = (id: string, body: AgentInput) =>
 
 export const deleteAgent = (id: string) =>
   request<{ success: boolean }>(`/agents/${id}`, { method: "DELETE" });
+
+// ---- ModelPreset CRUD ----
+export const listModelPresets = () =>
+  request<ModelPreset[]>("/admin/model-presets");
+
+export const createModelPreset = (body: ModelPresetInput) =>
+  request<ModelPreset>("/admin/model-presets", { method: "POST", body });
+
+export const updateModelPreset = (id: string, body: ModelPresetInput) =>
+  request<ModelPreset>(`/admin/model-presets/${id}`, { method: "PATCH", body });
+
+export const deleteModelPreset = (id: string) =>
+  request<{ success: boolean }>(`/admin/model-presets/${id}`, {
+    method: "DELETE",
+  });

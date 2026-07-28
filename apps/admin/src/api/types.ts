@@ -107,6 +107,40 @@ export interface Agent {
   updatedAt: number;
 }
 
+export interface ModelPreset {
+  id: string;
+  presetId: string;
+  name: string;
+  description: string;
+  provider: string;
+  platform: string;
+  model: string;
+  baseURL: string | null;
+  temperature: number | null;
+  maxOutputTokens: number | null;
+  topP: number | null;
+  enabled: boolean;
+  isDefault: boolean;
+  apiKeyConfigured: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ModelPresetInput {
+  presetId: string;
+  name: string;
+  description?: string;
+  provider: string;
+  platform: string;
+  model: string;
+  baseURL?: string | null;
+  temperature?: number | null;
+  maxOutputTokens?: number | null;
+  topP?: number | null;
+  enabled?: boolean;
+  isDefault?: boolean;
+}
+
 export interface AgentInput {
   name: string;
   description?: string;

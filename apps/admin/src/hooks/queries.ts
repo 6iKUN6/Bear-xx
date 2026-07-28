@@ -5,7 +5,9 @@ import {
 } from "@tanstack/react-query";
 import {
   createAgent,
+  createModelPreset,
   deleteAgent,
+  deleteModelPreset,
   getAgentUsage,
   getErrorBreakdown,
   getOverview,
@@ -13,9 +15,11 @@ import {
   getTaskDetail,
   getToolUsage,
   listAgents,
+  listModelPresets,
   updateAgent,
+  updateModelPreset,
 } from "@/api/endpoints";
-import type { AgentInput } from "@/api/types";
+import type { AgentInput, ModelPresetInput } from "@/api/types";
 
 export const useOverview = (days: number) =>
   useQuery({ queryKey: ["overview", days], queryFn: () => getOverview(days) });
@@ -66,6 +70,31 @@ export function useAgentMutations() {
   });
   const remove = useMutation({
     mutationFn: (id: string) => deleteAgent(id),
+    onSuccess: invalidate,
+  });
+
+  return { create, update, remove };
+}
+
+export const useModelPresets = () =>
+  useQuery({ queryKey: ["modelPresets"], queryFn: listModelPresets });
+
+export function useModelPresetMutations() {
+  const qc = useQueryClient();
+  const invalidate = () =>
+    void qc.invalidateQueries({ queryKey: ["modelPresets"] });
+
+  const create = useMutation({
+    mutationFn: (body: ModelPresetInput) => createModelPreset(body),
+    onSuccess: invalidate,
+  });
+  const update = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ModelPresetInput }) =>
+      updateModelPreset(id, body),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteModelPreset(id),
     onSuccess: invalidate,
   });
 

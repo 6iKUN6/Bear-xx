@@ -131,6 +131,7 @@ export class StreamTaskService {
     userId: string,
     llmRequest?: LlmTextRequest,
     agentId?: string,
+    isTest = false,
   ) {
     return this.createTextTask(
       conversationId,
@@ -139,6 +140,7 @@ export class StreamTaskService {
       StreamTaskType.CHAT_COMPLETION,
       llmRequest,
       agentId,
+      isTest,
     );
   }
 
@@ -159,6 +161,7 @@ export class StreamTaskService {
     llmRequest?: LlmTextRequest,
     signal?: AbortSignal,
     agentId?: string,
+    isTest = false,
   ): Promise<TaskStreamResult> {
     const task = await this.createChatTask(
       conversationId,
@@ -166,6 +169,7 @@ export class StreamTaskService {
       userId,
       llmRequest,
       agentId,
+      isTest,
     );
     const taskStream = await this.openTaskStream(
       task.taskId,
@@ -234,6 +238,7 @@ export class StreamTaskService {
     type: StreamTaskType,
     llmRequest?: LlmTextRequest,
     agentId?: string,
+    isTest = false,
   ) {
     const resolvedLlmRequest =
       this.commonChatAgentRunnerService.resolveTextRequest(llmRequest);
@@ -291,6 +296,7 @@ export class StreamTaskService {
           status: StreamTaskStatus.PENDING,
           userId,
           agentId: agentId ?? null,
+          isTest,
           conversationId: targetConversationId,
           messageId: assistantMessage.id,
           requestPayload,
