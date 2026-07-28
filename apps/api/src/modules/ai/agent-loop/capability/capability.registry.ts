@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { getWeather } from '../../tools';
+import { getWeather, webSearch } from '../../tools';
 import type {
   CapabilityTool,
   SkillDefinition,
@@ -28,6 +28,8 @@ export class CapabilityRegistry {
     this.registerTool(getWeather, [DEFAULT_TOOL_GROUP], {
       requiresApproval: true,
     });
+    // 联网搜索为只读、低风险能力，免审批直接执行。
+    this.registerTool(webSearch, [DEFAULT_TOOL_GROUP]);
   }
 
   /**

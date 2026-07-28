@@ -57,6 +57,28 @@ $ pnpm run test:e2e
 $ pnpm run test:cov
 ```
 
+## 调试脚本
+
+`scripts/` 下的一次性诊断脚本，用于在不启动完整服务的前提下验证外部依赖与链路。均自动加载 `apps/api/.env`。
+
+```bash
+# 联网搜索（Tavily）：用配置的 TAVILY_API_KEY 打一次真实搜索，验证 key 有效与通路正常
+$ node scripts/debug-web-search.cjs                 # 默认查询词
+$ node scripts/debug-web-search.cjs "香港 2026 年公众假期"   # 自定义查询词
+
+# 工具调用往返：复现 ReAct 两轮工具调用，排查代理的 call_id 语义问题
+$ node scripts/debug-tool-call.cjs
+
+# 其它：大模型 / 路由 / 规划 / HITL / agent 链路
+$ node scripts/debug-llm.cjs
+$ node scripts/debug-router.cjs
+$ node scripts/debug-planner.cjs
+$ node scripts/debug-hitl.cjs
+$ node scripts/debug-agent.cjs
+```
+
+`debug-web-search.cjs` 成功时输出 `result: SEARCH_OK`；若返回 `SEARCH_FAILED_OR_EMPTY`，检查 `TAVILY_API_KEY` 是否有效或额度是否用尽。
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
