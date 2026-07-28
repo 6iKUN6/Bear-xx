@@ -72,6 +72,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 - 提交 placeholder、mock 假数据或临时 UI，除非用户明确要求原型。
 - 禁用认证、权限、校验、限流或安全检查来让代码跑通。
 - 把 `.env`、token、cookie、密钥、生产凭据写进仓库；日志输出敏感信息。
+- **手写或编辑 `migration.sql`**：迁移文件只能由 Prisma 从 `schema.prisma` 生成，AI 不得手工创作或改写 SQL。需要迁移数据库时，只改 `schema.prisma`，并在回复中**明确说明需用户本地手动运行迁移命令**（`pnpm --filter ./apps/api run db:migrate`），由用户执行，AI 不代跑。
 
 ## 兼容与兜底
 
