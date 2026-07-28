@@ -63,6 +63,35 @@ export class AgentLoopRunnerService {
   }
 
   /**
+   * 解析 HITL 恢复所需的能力装配
+   * @param input agent loop 输入（可带 agentConfig）
+   * @returns 返回续跑所需的 { tools, approvalToolNames, systemPrompt }
+   * @description 恢复不跑策略图，故用 config 派生 decision（强制或 config-only）经 CapabilityResolver 装配，
+   * 与 stream 路径产出同一套工具/审批集/系统提示词，避免恢复用全量工具、与受限主链路不一致。
+   */
+  resolveResumeCapabilities(input: AgentLoopInput): {
+    tools: unknown[];
+    approvalToolNames: string[];
+    systemPrompt: string | undefined;
+  } {
+    const cfg = input.agentConfig;
+    const decision =
+      cfg && cfg.defaultStrategy !== 'auto'
+        ? this.strategyRouter.buildForcedDecision(cfg)
+        : this.strategyRouter.buildResumeDecision(cfg);
+    const capabilities = this.capabilityResolver.resolve(decision);
+
+    return {
+      tools: [...capabilities.tools, ...capabilities.subagentTools],
+      approvalToolNames: capabilities.approvalToolNames,
+      systemPrompt: this.mergeSystemPrompt(
+        input.systemPrompt,
+        capabilities.systemPromptAdditions,
+      ),
+    };
+  }
+
+  /**
    * 合并系统提示词
    * @param base 基础系统提示词
    * @param additions 技能追加的提示词片段

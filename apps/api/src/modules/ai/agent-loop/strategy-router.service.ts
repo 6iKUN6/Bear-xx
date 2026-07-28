@@ -5,6 +5,7 @@ import { KIMI_PLATFORM } from '../../llm/providers/kimi';
 import type { LlmMessage } from '../../llm/llm.types';
 import {
   AgentStrategyMode,
+  type AgentDefinition,
   type AgentLoopInput,
   type AgentStrategyDecision,
 } from './agent-loop.types';
@@ -78,12 +79,17 @@ export class StrategyRouterService {
    * 关闭开关、模型失败或输出非法时，降级为保守关键词规则路由，保证主链路稳定。
    */
   async route(input: AgentLoopInput): Promise<AgentStrategyDecision> {
+    const cfg = input.agentConfig;
+
+    // agent 强制指定具体策略：跳过 LLM/规则路由，确定性 + 省一次调用。
+    if (cfg && cfg.defaultStrategy !== 'auto') {
+      return this.applyAgentOverrides(this.buildForcedDecision(cfg), cfg);
+    }
+
+    let decision: AgentStrategyDecision | null = null;
     if (this.isModelRouterEnabled()) {
       try {
-        const decision = await this.routeByModel(input);
-        if (decision) {
-          return decision;
-        }
+        decision = await this.routeByModel(input);
       } catch (error) {
         this.logger.warn(
           `LLM 路由失败，降级关键词规则：${(error as Error).message}`,
@@ -91,7 +97,153 @@ export class StrategyRouterService {
       }
     }
 
-    return this.routeByRules(input);
+    decision = decision ?? this.routeByRules(input);
+    return cfg ? this.applyAgentOverrides(decision, cfg) : decision;
+  }
+
+  /**
+   * 构建强制策略决策（agent defaultStrategy 为具体值时）
+   * @param cfg 智能体配置
+   * @returns 返回不经消息路由的决策
+   * @description mode 取配置的具体策略并 clamp 到 allowedStrategies；工具组用 forcedDefaultToolGroups 兜底，
+   * 避免带工具的策略拿不到工具。供 route() 与 resume 复用（故为 public）。
+   */
+  buildForcedDecision(cfg: AgentDefinition): AgentStrategyDecision {
+    const requested =
+      this.strategyToMode(cfg.defaultStrategy) ?? AgentStrategyMode.Direct;
+    const mode = this.clampModeToAllowed(requested, cfg);
+    return {
+      mode,
+      confidence: 1,
+      reason: 'agent 配置强制指定执行策略',
+      skills: [],
+      toolGroups: this.forcedDefaultToolGroups(mode, cfg),
+      maxSteps: DEFAULT_MAX_STEPS,
+      publicStatus: PUBLIC_STATUS_BY_MODE[mode],
+    };
+  }
+
+  /**
+   * 构建 HITL 恢复用决策（config-only，不经消息路由）
+   * @param cfg 智能体配置（可空 = 默认 agent）
+   * @returns 返回仅用于装配能力的决策
+   * @description resume 不跑策略图，只需 toolGroups/skills 供 CapabilityResolver 装配。工具组按配置取，
+   * 空则兜底默认组（恢复本质是执行工具）；对默认 agent 与旧的"全量工具"行为等价（两工具同属默认组）。
+   */
+  buildResumeDecision(cfg?: AgentDefinition): AgentStrategyDecision {
+    return {
+      mode: AgentStrategyMode.ReAct,
+      confidence: 1,
+      reason: 'HITL 恢复：按 agent 配置装配能力',
+      skills: cfg ? this.filterKnownSkills(cfg.skills) : [],
+      toolGroups: this.resumeToolGroups(cfg),
+      maxSteps:
+        cfg && cfg.maxSteps != null
+          ? this.clampMaxSteps(cfg.maxSteps)
+          : DEFAULT_MAX_STEPS,
+      publicStatus: PUBLIC_STATUS_BY_MODE[AgentStrategyMode.ReAct],
+    };
+  }
+
+  /**
+   * 将 agent 配置覆盖叠加到决策上
+   * @param decision 基础决策（路由或强制）
+   * @param cfg 智能体配置
+   * @returns 返回叠加后的决策
+   * @description 语义为"空/null = 不覆盖"：仅非空 toolGroups/skills、非 null maxSteps 才覆盖；
+   * allowedStrategies 非空时把 mode clamp 到允许集合内。
+   */
+  private applyAgentOverrides(
+    decision: AgentStrategyDecision,
+    cfg: AgentDefinition,
+  ): AgentStrategyDecision {
+    const next: AgentStrategyDecision = { ...decision };
+
+    if (cfg.toolGroups.length > 0) {
+      next.toolGroups = this.filterKnownToolGroups(cfg.toolGroups);
+    }
+    if (cfg.skills.length > 0) {
+      next.skills = this.filterKnownSkills(cfg.skills);
+    }
+    if (cfg.maxSteps != null) {
+      next.maxSteps = this.clampMaxSteps(cfg.maxSteps);
+    }
+
+    const clampedMode = this.clampModeToAllowed(next.mode, cfg);
+    if (clampedMode !== next.mode) {
+      next.mode = clampedMode;
+      next.publicStatus = PUBLIC_STATUS_BY_MODE[clampedMode];
+    }
+
+    return next;
+  }
+
+  /** 'auto' → undefined；具体策略 → 对应 mode */
+  private strategyToMode(
+    strategy: AgentDefinition['defaultStrategy'],
+  ): AgentStrategyMode | undefined {
+    return strategy === 'auto' ? undefined : strategy;
+  }
+
+  /**
+   * 将 mode 收敛到 allowedStrategies 内
+   * @description allowed 为空 = 不限制，原样返回；否则命中则保留，未命中回落到
+   * 具体 defaultStrategy（若在 allowed 内）否则 allowed[0] 否则 direct。
+   */
+  private clampModeToAllowed(
+    mode: AgentStrategyMode,
+    cfg: AgentDefinition,
+  ): AgentStrategyMode {
+    if (
+      cfg.allowedStrategies.length === 0 ||
+      cfg.allowedStrategies.includes(mode)
+    ) {
+      return mode;
+    }
+    const concreteDefault = this.strategyToMode(cfg.defaultStrategy);
+    if (concreteDefault && cfg.allowedStrategies.includes(concreteDefault)) {
+      return concreteDefault;
+    }
+    return cfg.allowedStrategies[0] ?? AgentStrategyMode.Direct;
+  }
+
+  /** 过滤到注册表已存在的工具组闭集 */
+  private filterKnownToolGroups(groups: string[]): string[] {
+    const known = new Set(this.registry.listToolGroups());
+    return groups.filter((group) => known.has(group));
+  }
+
+  /**
+   * 强制模式的工具组兜底
+   * @description 显式配置优先；否则非 Direct 且有默认组时兜底默认组，避免带工具模式零工具。
+   */
+  private forcedDefaultToolGroups(
+    mode: AgentStrategyMode,
+    cfg: AgentDefinition,
+  ): string[] {
+    if (cfg.toolGroups.length > 0) {
+      return this.filterKnownToolGroups(cfg.toolGroups);
+    }
+    const known = new Set(this.registry.listToolGroups());
+    if (
+      mode !== AgentStrategyMode.Direct &&
+      this.registry.hasTools() &&
+      known.has(DEFAULT_TOOL_GROUP)
+    ) {
+      return [DEFAULT_TOOL_GROUP];
+    }
+    return [];
+  }
+
+  /** 恢复路径工具组：配置优先，空则兜底默认组（恢复即执行工具） */
+  private resumeToolGroups(cfg?: AgentDefinition): string[] {
+    if (cfg && cfg.toolGroups.length > 0) {
+      return this.filterKnownToolGroups(cfg.toolGroups);
+    }
+    const known = new Set(this.registry.listToolGroups());
+    return this.registry.hasTools() && known.has(DEFAULT_TOOL_GROUP)
+      ? [DEFAULT_TOOL_GROUP]
+      : [];
   }
 
   /**

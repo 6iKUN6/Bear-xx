@@ -11,6 +11,7 @@ model User {
   id                String                      @id @default(cuid())
   nickname          String                      @default("用户")
   avatarUrl         String                      @default("")
+  role              UserRole                    @default(USER)
   username          String?                     @unique
   passwordHash      String?                     @map("password_hash")
   passwordUpdatedAt DateTime?                   @map("password_updated_at")
@@ -23,8 +24,34 @@ model User {
   sseTasks          SseTask[]
   streamTasks       StreamTask[]
   turnTraceItems    ConversationTurnTraceItem[]
+  createdAgents     Agent[]
 
   @@map("users")
+}
+
+/// 数据化的智能体定义：把原本写死的 system prompt / 工具组 / 执行策略变成可管理的一等实体。
+/// 空/AUTO 字段表示"不覆盖"（沿用消息驱动的默认行为），而非"空集"。
+model Agent {
+  id                String          @id @default(cuid())
+  name              String
+  description       String          @default("")
+  systemPrompt      String?         @map("system_prompt") @db.Text
+  modelPreset       String?         @map("model_preset")
+  defaultStrategy   AgentStrategy   @default(AUTO) @map("default_strategy")
+  allowedStrategies AgentStrategy[] @default([]) @map("allowed_strategies")
+  toolGroups        String[]        @default([]) @map("tool_groups")
+  skills            String[]        @default([])
+  maxSteps          Int?            @map("max_steps")
+  enabled           Boolean         @default(true)
+  isDefault         Boolean         @default(false) @map("is_default")
+  createdById       String?         @map("created_by_id")
+  createdBy         User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  @@index([enabled])
+  @@index([isDefault])
+  @@map("agents")
 }
 
 model Conversation {
@@ -239,6 +266,19 @@ enum MessageStatus {
   STREAMING
   DONE
   ERROR
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AgentStrategy {
+  AUTO
+  DIRECT
+  REACT
+  PLAN_EXECUTE
+  HYBRID
 }
 
 enum ConversationTraceItemType {

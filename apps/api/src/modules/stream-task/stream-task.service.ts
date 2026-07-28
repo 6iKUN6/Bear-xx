@@ -47,6 +47,7 @@ import { StreamTaskSnapshotService } from './stream-task-snapshot.service';
 interface ChatTaskPayload {
   content: string;
   llm?: ResolvedLlmTextRequest;
+  agentId?: string;
 }
 
 interface CreatedTaskResult {
@@ -123,6 +124,7 @@ export class StreamTaskService {
     content: string,
     userId: string,
     llmRequest?: LlmTextRequest,
+    agentId?: string,
   ) {
     return this.createTextTask(
       conversationId,
@@ -130,6 +132,7 @@ export class StreamTaskService {
       userId,
       StreamTaskType.CHAT_COMPLETION,
       llmRequest,
+      agentId,
     );
   }
 
@@ -149,12 +152,14 @@ export class StreamTaskService {
     userId: string,
     llmRequest?: LlmTextRequest,
     signal?: AbortSignal,
+    agentId?: string,
   ): Promise<TaskStreamResult> {
     const task = await this.createChatTask(
       conversationId,
       content,
       userId,
       llmRequest,
+      agentId,
     );
     const taskStream = await this.openTaskStream(
       task.taskId,
@@ -193,6 +198,7 @@ export class StreamTaskService {
     filename: string,
     userId: string,
     llmRequest?: LlmTextRequest,
+    agentId?: string,
   ) {
     const content = await this.aiService.transcribeAudio(audioBuffer, filename);
     return this.createTextTask(
@@ -201,6 +207,7 @@ export class StreamTaskService {
       userId,
       StreamTaskType.VOICE_COMPLETION,
       llmRequest,
+      agentId,
     );
   }
 
@@ -220,6 +227,7 @@ export class StreamTaskService {
     userId: string,
     type: StreamTaskType,
     llmRequest?: LlmTextRequest,
+    agentId?: string,
   ) {
     const resolvedLlmRequest =
       this.commonChatAgentRunnerService.resolveTextRequest(llmRequest);
@@ -227,6 +235,7 @@ export class StreamTaskService {
       JSON.stringify({
         content,
         llm: resolvedLlmRequest,
+        agentId,
       }),
     ) as Prisma.JsonObject;
 
@@ -838,6 +847,7 @@ export class StreamTaskService {
           conversationId: task.conversationId,
           pendingMessageId: task.messageId,
           llm: payload.llm,
+          agentId: payload.agentId,
           taskId: task.id,
           decision: approvalDecision,
           abortSignal: executionSignal,
@@ -846,6 +856,7 @@ export class StreamTaskService {
           conversationId: task.conversationId,
           pendingMessageId: task.messageId,
           llm: payload.llm,
+          agentId: payload.agentId,
           taskId: task.id,
           abortSignal: executionSignal,
         });

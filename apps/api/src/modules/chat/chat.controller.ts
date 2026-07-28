@@ -76,6 +76,7 @@ export class ChatController {
       this.requireUserId(userId),
       this.buildLlmTextRequest(dto),
       req.__sseAbortSignal,
+      dto.agentId,
     );
   }
 
@@ -159,6 +160,7 @@ export class ChatController {
       dto.content,
       this.requireUserId(userId),
       this.buildLlmTextRequest(dto),
+      dto.agentId,
     );
   }
 
@@ -185,6 +187,7 @@ export class ChatController {
       audio.originalname,
       this.requireUserId(userId),
       this.buildLlmTextRequest(dto),
+      dto.agentId,
     );
   }
 

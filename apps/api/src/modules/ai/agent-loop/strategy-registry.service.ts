@@ -35,4 +35,14 @@ export class StrategyRegistryService {
   resolve(mode: AgentStrategyMode): AgentStrategyGraph {
     return this.strategyRegistry[mode];
   }
+
+  /**
+   * 列出已安装的策略模式
+   * @returns 返回注册表中已实现并可执行的策略模式列表
+   * @description 作为"已安装策略闭集"的单一事实源，供 agent 配置校验 allowedStrategies/defaultStrategy。
+   * ToT/LATS 等未来策略图注册进来后自动出现在此列表。
+   */
+  listInstalledStrategies(): AgentStrategyMode[] {
+    return Object.keys(this.strategyRegistry) as AgentStrategyMode[];
+  }
 }

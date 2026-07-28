@@ -10,4 +10,12 @@ export class VoiceCompletionsDto extends LlmRequestFieldsDto {
   @IsOptional()
   @IsString()
   conversationId?: string;
+
+  @ApiPropertyOptional({
+    description: '指定使用的智能体 id；不传则用默认智能体',
+    example: 'agent_abc123',
+  })
+  @IsOptional()
+  @IsString()
+  agentId?: string;
 }

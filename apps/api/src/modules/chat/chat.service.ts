@@ -32,12 +32,14 @@ export class ChatService {
     content: string,
     userId: string,
     llmRequest?: LlmTextRequest,
+    agentId?: string,
   ) {
     return this.streamTaskService.createChatTask(
       conversationId,
       content,
       userId,
       llmRequest,
+      agentId,
     );
   }
 
@@ -57,6 +59,7 @@ export class ChatService {
     userId: string,
     llmRequest?: LlmTextRequest,
     signal?: AbortSignal,
+    agentId?: string,
   ): Promise<TaskStreamResult> {
     return this.streamTaskService.streamChatTask(
       conversationId,
@@ -64,6 +67,7 @@ export class ChatService {
       userId,
       llmRequest,
       signal,
+      agentId,
     );
   }
 
@@ -83,6 +87,7 @@ export class ChatService {
     filename: string,
     userId: string,
     llmRequest?: LlmTextRequest,
+    agentId?: string,
   ) {
     return this.streamTaskService.createVoiceTask(
       conversationId,
@@ -90,6 +95,7 @@ export class ChatService {
       filename,
       userId,
       llmRequest,
+      agentId,
     );
   }
 
