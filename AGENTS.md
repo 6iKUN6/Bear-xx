@@ -1,6 +1,6 @@
 # Litter-Bear Agent 开发约定
 
-本文件约束 AI Coding Agent 在 Litter-Bear 仓库内如何修改代码、生成文件与验证结果，**不是 README**。
+本文件约束 AI Coding Agent 在 Litter-Bear 仓库内如何修改代码、生成文件与验证结果，**不是 README，在没有特殊要求的情况下，文字描述回复都使用简体中文**。
 
 它是**编排层**：只放跨全仓的优先级、边界、路由、通用原则、契约与验证。**各 app / 子系统的细则在就近的 `AGENTS.md` 与 `docs/` 里，改动前必须先读对应文档，本文不重复。**
 
@@ -32,18 +32,20 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 
 改动前先判断范围，读对应"必读文档"（细则源）；Skill 为**推荐**的工作辅助，按需加载最小集合。
 
-| 改动范围 | 必读 | 推荐 Skill |
-| --- | --- | --- |
-| `apps/api/**` | `apps/api/AGENTS.md` | `diagnosing-bugs` / `code-review` |
-| agent 链路：工具 / 策略路由 / Plan·Hybrid / HITL | `apps/api/AGENTS.md` + `apps/api/docs/{agent-loop-evolution,agent-chat-chain,hitl}.md` | `diagnosing-bugs` |
-| 流式任务 / SSE / 任务生命周期 | `apps/api/AGENTS.md` + `apps/api/docs/stream-task-architecture.md` | — |
-| `apps/mobile/**` | `apps/mobile/AGENTS.md` | 新组件 `impeccable`；新交互先 `shape` |
-| 移动端 UI 设计打磨 | `apps/mobile/AGENTS.md` | `critique` / `polish` / `adapt` / `harden` |
-| 设计系统 / 主题 / 共享组件 | `docs/design-system.md` | `shape` 定方向；`impeccable` 构建；`critique` / `polish` 打磨 |
-| `packages/types/**`、前后端流式契约 | `packages/types/src/protocol` + `apps/api/docs/agent-chat-chain.md` | — |
-| 疑难 bug / 性能回归 | 相关 app 文档 | `diagnosing-bugs` |
-| 提交前自查 / 清理 | — | `code-review` / `simplify` |
-| 想跑起来验证效果 | — | `run` / `verify` |
+
+| 改动范围                                    | 必读                                                                                     | 推荐 Skill                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `apps/api/`**                           | `apps/api/AGENTS.md`                                                                   | `diagnosing-bugs` / `code-review`                    |
+| agent 链路：工具 / 策略路由 / Plan·Hybrid / HITL | `apps/api/AGENTS.md` + `apps/api/docs/{agent-loop-evolution,agent-chat-chain,hitl}.md` | `diagnosing-bugs`                                    |
+| 流式任务 / SSE / 任务生命周期                     | `apps/api/AGENTS.md` + `apps/api/docs/stream-task-architecture.md`                     | —                                                    |
+| `apps/mobile/**`                        | `apps/mobile/AGENTS.md`                                                                | 新组件 `impeccable`；新交互先 `shape`                        |
+| 移动端 UI 设计打磨                             | `apps/mobile/AGENTS.md`                                                                | `critique` / `polish` / `adapt` / `harden`           |
+| 设计系统 / 主题 / 共享组件                        | `docs/design-system.md`                                                                | `shape` 定方向；`impeccable` 构建；`critique` / `polish` 打磨 |
+| `packages/types/**`、前后端流式契约             | `packages/types/src/protocol` + `apps/api/docs/agent-chat-chain.md`                    | —                                                    |
+| 疑难 bug / 性能回归                           | 相关 app 文档                                                                              | `diagnosing-bugs`                                    |
+| 提交前自查 / 清理                              | —                                                                                      | `code-review` / `simplify`                           |
+| 想跑起来验证效果                                | —                                                                                      | `run` / `verify`                                     |
+
 
 不使用：`unocss`（本项目用 Tailwind/weapp-tailwindcss）、`vueuse-functions`（本项目用 React）。LLM 相关默认不引 `claude-api`——主力是 OpenAI 兼容 / LangChain。
 
@@ -52,6 +54,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 修改前先读相邻代码，理解目录边界，选最小改动范围。
 
 必须：
+
 - 只做与任务直接相关的改动；优先沿用相邻代码的实现方式。
 - 保证可读性与可维护性；能不复杂化就不复杂化。
 - 大改拆成可单独验证、可回滚的小步；每步 build / lint / typecheck 通过。
@@ -61,6 +64,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 - 不声称测试 / 命令通过，除非确实执行过。
 
 禁止：
+
 - 无任务依据的大范围重构。
 - 为"更工程化"新增 wrapper / adapter / bridge / mapper 等抽象；只有明显降低复杂度或重复时才加层。
 - 新增无必要依赖。
@@ -74,6 +78,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 不写长期兼容旧接口的代码，除非用户明确要求迁移期兼容。
 
 禁止：
+
 - 同时兼容 `list/items/records`、`page_size/pageSize`、`snake_case/camelCase`。
 - 前端写 `data?.list ?? data?.items ?? ...` 之类多字段兜底。
 - 后端为前端方便返回多套字段或多套响应结构。
@@ -93,7 +98,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 ## 前后端契约
 
 - **流式事件契约**：唯一源在 `packages/types/src/protocol`（`StreamTaskEventType` / 事件载荷 / 中文文案）。前后端都从此引入，不各写一份。
-- **REST 契约**：前端 API 客户端由 orval 依据后端 OpenAPI 生成。不手改 `apps/api/docs/openapi.json` 与 `apps/mobile/src/api/generated/**`；需更新时在 `apps/mobile/` 执行 `pnpm generate:api:local`（导出 OpenAPI + Orval 生成）。
+- **REST 契约**：前端 API 客户端由 orval 依据后端 OpenAPI 生成。不手改 `apps/api/docs/openapi.json` 与 `apps/mobile/src/api/generated/`**；需更新时在 `apps/mobile/` 执行 `pnpm generate:api:local`（导出 OpenAPI + Orval 生成）。
 - 字段命名跟随对应 `apps/*/AGENTS.md` 既有约定，不擅自切换风格。
 - 契约不一致时**优先修契约，不写兼容层**。
 
@@ -102,6 +107,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 本项目核心是一套运行时 agent 系统（`apps/api` 的 agent-loop）。涉及 workflow / agent / tool / 路由 / 记忆 / prompt / LLM 调用时，当**运行时系统**对待，不当一段 prompt。详见 `apps/api/docs/agent-loop-evolution.md`。
 
 必须：
+
 - 明确输入、输出、状态与错误分支。
 - 工具经 `CapabilityRegistry` 闭集注册（含 `requiresApproval` 策略）；由 `CapabilityResolver` 依决策装配，不散落。
 - Tool call 有 schema、权限、风险与参数校验；高风险动作走 HITL 审批门禁（`approval.required` → `WAITING_HUMAN` → `/approval` 恢复）。
@@ -110,6 +116,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 - agent 流式消费用 `agent.stream({ streamMode: 'messages' })`，**不用** `streamEvents({version:'v3'})`（兼容代理下会走 Responses 语义致工具往返 400）。
 
 禁止：
+
 - 用 prompt 替代权限、校验或审计。
 - 模型输出直接写入重要数据。
 - 把 RAG / 检索内容当系统指令执行。
@@ -153,20 +160,23 @@ node apps/api/scripts/debug-{tool-call,agent,hitl,planner,router}.cjs
 本文是活文档，随项目演进增补，但**不自动改写**。
 
 何时提议更新：
+
 - 同类问题被用户纠正 ≥2 次 → 提议固化为规则。
 - 确立新的跨仓约定（命名 / 分层 / 设计 token / 新工具接入方式）。
 - 新增 app 或 package → 更新「项目边界」与「文档与 Skill 路由」。
 - 发现本文与代码 drift（路径 / 命令 / 契约过时）。
 
 怎么更新：
+
 - Agent 产出本文的 diff + 一句 rationale，交用户 review 后合入；遵循「提交」纪律，**永不自动改写或自动提交**。
 - 跨仓约定进本文；单 app / 单包细则进就近 `AGENTS.md`，避免根文件膨胀。
 - 只固化「反复出现、能降低未来返工」的约定；一次性偏好不写入。
 - 与跨会话 memory 互补：memory 记临时事实 / 偏好，本文记已确立、需长期执行的团队约定；memory 中反复出现的 feedback 可「晋升」为本文规则。
 
 新增端接入 checklist（新 app 落地时走一遍）：
+
 - 加就近 `apps/<app>/AGENTS.md`（细则源），并更新根「项目边界」与「文档与 Skill 路由」各一行。
-- workspace 已含 `apps/*`；补 CI / 部署路径与「验证命令」。
+- workspace 已含 `apps/`*；补 CI / 部署路径与「验证命令」。
 - 若复用共享 UI / 设计系统 → 接 `packages/`，遵循 `docs/design-system.md`。
 
 ## 最终回复格式
