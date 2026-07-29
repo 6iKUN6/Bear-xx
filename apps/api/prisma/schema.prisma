@@ -82,6 +82,8 @@ model Conversation {
   id             String                      @id @default(cuid())
   title          String                      @default("新对话")
   userId         String                      @map("user_id")
+  /// admin 测试会话标记：端侧会话列表过滤掉，仅 admin 测试工作台可见（与 StreamTask.isTest 对称）
+  isTest         Boolean                     @default(false) @map("is_test")
   user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages       Message[]
   summary        ConversationSummary?
@@ -92,6 +94,7 @@ model Conversation {
   updatedAt      DateTime                    @updatedAt @map("updated_at")
 
   @@index([userId])
+  @@index([userId, isTest])
   @@map("conversations")
 }
 

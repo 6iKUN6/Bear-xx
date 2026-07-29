@@ -81,6 +81,32 @@ export interface TaskDetail extends TaskSummary {
   trace: TaskTraceItem[];
 }
 
+// ---- Admin 测试会话 ----
+
+export interface TestSession {
+  id: string;
+  title: string;
+  lastMessage: string;
+  messageCount: number;
+  updatedAt: number;
+}
+
+export interface TestSessionMessage {
+  id: string;
+  role: string;
+  content: string;
+  status: string;
+  createdAt: number;
+  trace: TaskTraceItem[];
+}
+
+export interface TestSessionDetail {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: TestSessionMessage[];
+}
+
 // ---- Agent CRUD ----
 
 export type AgentStrategy =

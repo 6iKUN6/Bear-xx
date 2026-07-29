@@ -7,6 +7,8 @@ const API_BASE_URL = (
 
 export interface AgentTestBody {
   content: string;
+  /** 传入则续接该测试会话（多轮记忆）；不传新建 */
+  conversationId?: string;
   agentId?: string;
   modelPreset?: string;
 }

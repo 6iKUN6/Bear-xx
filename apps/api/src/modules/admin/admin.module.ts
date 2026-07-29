@@ -5,6 +5,7 @@ import { AdminController } from './admin.controller';
 import { AdminAgentTestController } from './admin-agent-test.controller';
 import { AdminModelPresetController } from './admin-model-preset.controller';
 import { AdminObservabilityService } from './admin-observability.service';
+import { AgentTestSessionService } from './agent-test-session.service';
 import { ModelPresetService } from './model-preset.service';
 
 @Module({
@@ -14,6 +15,10 @@ import { ModelPresetService } from './model-preset.service';
     AdminAgentTestController,
     AdminModelPresetController,
   ],
-  providers: [AdminObservabilityService, ModelPresetService],
+  providers: [
+    AdminObservabilityService,
+    AgentTestSessionService,
+    ModelPresetService,
+  ],
 })
 export class AdminModule {}

@@ -10,6 +10,8 @@ import type {
   ObservabilityOverview,
   RecentTasks,
   TaskDetail,
+  TestSession,
+  TestSessionDetail,
   ToolUsage,
 } from "./types";
 
@@ -59,6 +61,18 @@ export const updateAgent = (id: string, body: AgentInput) =>
 
 export const deleteAgent = (id: string) =>
   request<{ success: boolean }>(`/agents/${id}`, { method: "DELETE" });
+
+// ---- Admin 测试会话 ----
+export const listTestSessions = () =>
+  request<TestSession[]>("/admin/agent-tests/sessions");
+
+export const getTestSession = (id: string) =>
+  request<TestSessionDetail>(`/admin/agent-tests/sessions/${id}`);
+
+export const deleteTestSession = (id: string) =>
+  request<{ success: boolean }>(`/admin/agent-tests/sessions/${id}`, {
+    method: "DELETE",
+  });
 
 // ---- ModelPreset CRUD ----
 export const listModelPresets = () =>

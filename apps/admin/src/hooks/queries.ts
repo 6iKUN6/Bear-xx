@@ -8,14 +8,17 @@ import {
   createModelPreset,
   deleteAgent,
   deleteModelPreset,
+  deleteTestSession,
   getAgentUsage,
   getErrorBreakdown,
   getOverview,
   getRecentTasks,
   getTaskDetail,
+  getTestSession,
   getToolUsage,
   listAgents,
   listModelPresets,
+  listTestSessions,
   updateAgent,
   updateModelPreset,
 } from "@/api/endpoints";
@@ -74,6 +77,26 @@ export function useAgentMutations() {
   });
 
   return { create, update, remove };
+}
+
+export const useTestSessions = () =>
+  useQuery({ queryKey: ["testSessions"], queryFn: listTestSessions });
+
+export const useTestSession = (id: string | null) =>
+  useQuery({
+    queryKey: ["testSession", id],
+    queryFn: () => getTestSession(id as string),
+    enabled: Boolean(id),
+  });
+
+export function useDeleteTestSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteTestSession(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["testSessions"] });
+    },
+  });
 }
 
 export const useModelPresets = () =>

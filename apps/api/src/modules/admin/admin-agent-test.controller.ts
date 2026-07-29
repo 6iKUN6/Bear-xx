@@ -1,6 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
   Post,
   Req,
   UnauthorizedException,
@@ -16,7 +21,13 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { StreamTaskService } from '../stream-task/stream-task.service';
-import { AgentTestDto } from './dto/agent-test.dto';
+import { AgentTestSessionService } from './agent-test-session.service';
+import {
+  AgentTestDto,
+  TestSessionDetailDto,
+  TestSessionDto,
+} from './dto/agent-test.dto';
+import { EmptyResultDto } from '../../common/dto/empty-result.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -35,7 +46,36 @@ import type { LlmTextRequest } from '../llm/llm.types';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class AdminAgentTestController {
-  constructor(private readonly streamTaskService: StreamTaskService) {}
+  constructor(
+    private readonly streamTaskService: StreamTaskService,
+    private readonly sessionService: AgentTestSessionService,
+  ) {}
+
+  @Get('sessions')
+  @ApiOperation({ summary: '测试会话列表（管理员，按 userId 隔离）' })
+  @ApiOkResponse({ type: TestSessionDto, isArray: true })
+  listSessions(@CurrentUser('id') userId: string) {
+    return this.sessionService.list(userId);
+  }
+
+  @Get('sessions/:id')
+  @ApiOperation({ summary: '测试会话详情：消息 + 执行轨迹（管理员）' })
+  @ApiOkResponse({ type: TestSessionDetailDto })
+  sessionDetail(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.sessionService.detail(userId, id);
+  }
+
+  @Delete('sessions/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '删除测试会话（管理员）' })
+  @ApiOkResponse({ type: EmptyResultDto })
+  async deleteSession(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+  ) {
+    await this.sessionService.remove(userId, id);
+    return { success: true };
+  }
 
   @Post()
   @Throttle({ default: { limit: 20, ttl: 60000 } })
@@ -65,7 +105,7 @@ export class AdminAgentTestController {
       : undefined;
 
     return this.streamTaskService.streamChatTask(
-      undefined, // 每次测试新建会话，不复用历史
+      dto.conversationId, // 传入则续接测试会话（多轮记忆），不传新建
       dto.content,
       userId,
       llmRequest,

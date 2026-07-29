@@ -255,6 +255,7 @@ export class StreamTaskService {
         tx,
         conversationId,
         userId,
+        isTest,
       );
 
       //消息入库
@@ -347,12 +348,14 @@ export class StreamTaskService {
     tx: Prisma.TransactionClient,
     conversationId: string | undefined,
     userId: string,
+    isTest = false,
   ): Promise<string> {
     if (!conversationId) {
       const conversation = await tx.conversation.create({
         data: {
           userId,
           title: '新对话',
+          isTest,
         },
       });
 
@@ -366,11 +369,21 @@ export class StreamTaskService {
       },
       select: {
         id: true,
+        isTest: true,
       },
     });
 
     if (!conversation) {
       throw new NotFoundException('会话不存在');
+    }
+
+    // 双向防串：测试任务只能续接测试会话，真实任务只能续接真实会话。
+    if (conversation.isTest !== isTest) {
+      throw new BadRequestException(
+        isTest
+          ? '测试模式不能续接真实会话'
+          : '该会话为测试会话，不能在正常聊天中使用',
+      );
     }
 
     return conversation.id;

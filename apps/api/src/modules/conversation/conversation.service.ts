@@ -13,7 +13,8 @@ export class ConversationService {
    */
   async findAllByUser(userId: string) {
     const conversations = await this.prisma.conversation.findMany({
-      where: { userId },
+      // 过滤掉 admin 测试会话：测试记录只在 admin 测试工作台可见，不进端侧列表。
+      where: { userId, isTest: false },
       include: {
         messages: {
           orderBy: { createdAt: 'asc' },

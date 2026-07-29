@@ -1,14 +1,15 @@
-import { useRef, useState } from "react";
-import { Send, Square } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { MessageSquarePlus, PanelRightClose, PanelRightOpen, Send, Square, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   StreamTaskEventType,
   getStreamTaskEventLabel,
   type StreamTaskEventEnvelope,
 } from "@litter-bear/types/protocol";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -16,16 +17,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { EmptyState } from "@/components/kpi-card";
-import { useAgents, useModelPresets } from "@/hooks/queries";
+import {
+  useAgents,
+  useDeleteTestSession,
+  useModelPresets,
+  useTestSession,
+  useTestSessions,
+} from "@/hooks/queries";
 import { streamAgentTest } from "@/api/stream";
+import type { TaskTraceItem, TestSessionMessage } from "@/api/types";
+import { cn } from "@/lib/utils";
+import { formatTime, statusBadgeVariant } from "@/lib/format";
 
 interface TimelineItem {
   key: string;
-  eventName: string;
   label: string;
   detail?: string;
   tone: "info" | "success" | "warning" | "destructive";
+}
+
+/** 本地流式中的消息（完成后由会话详情 refetch 取代） */
+interface PendingMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 const NON_TIMELINE = new Set<string>([
@@ -36,45 +50,80 @@ const NON_TIMELINE = new Set<string>([
 export function AgentTestPage() {
   const { data: agents } = useAgents();
   const { data: models } = useModelPresets();
-  const [agentId, setAgentId] = useState<string>("");
-  const [modelPreset, setModelPreset] = useState<string>("");
-  const [content, setContent] = useState("");
+  const { data: sessions, isLoading: sessionsLoading } = useTestSessions();
+  const deleteSession = useDeleteTestSession();
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const { data: detail, isLoading: detailLoading, refetch } =
+    useTestSession(activeId);
+
+  const [agentId, setAgentId] = useState("");
+  const [modelPreset, setModelPreset] = useState("");
+  const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
-  const [reply, setReply] = useState("");
-  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  const [liveEvents, setLiveEvents] = useState<TimelineItem[]>([]);
+  const [eventsOpen, setEventsOpen] = useState(true);
+  /** 右面板显示历史消息 trace 时的来源消息 id；null = 显示 live 事件 */
+  const [traceMessageId, setTraceMessageId] = useState<string | null>(null);
+
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const seqRef = useRef(0);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  const push = (item: Omit<TimelineItem, "key">) => {
+  const messages = detail?.messages ?? [];
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, pending]);
+
+  const pushEvent = (item: Omit<TimelineItem, "key">) => {
     seqRef.current += 1;
-    setTimeline((prev) => [...prev, { ...item, key: `${seqRef.current}` }]);
+    setLiveEvents((prev) => [...prev, { ...item, key: `${seqRef.current}` }]);
   };
 
-  const start = () => {
-    if (!content.trim() || running) return;
-    setReply("");
-    setTimeline([]);
-    seqRef.current = 0;
+  const selectSession = (id: string | null) => {
+    if (running) return;
+    setActiveId(id);
+    setPending([]);
+    setLiveEvents([]);
+    setTraceMessageId(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("确定删除该测试会话？")) return;
+    await deleteSession.mutateAsync(id);
+    if (activeId === id) selectSession(null);
+    toast.success("已删除");
+  };
+
+  const send = () => {
+    const content = input.trim();
+    if (!content || running) return;
+    setInput("");
     setRunning(true);
+    setTraceMessageId(null);
+    setLiveEvents([]);
+    seqRef.current = 0;
+    setPending([
+      { role: "user", content },
+      { role: "assistant", content: "" },
+    ]);
 
     handleRef.current = streamAgentTest(
       {
-        content: content.trim(),
+        content,
+        conversationId: activeId ?? undefined,
         agentId: agentId || undefined,
         modelPreset: modelPreset || undefined,
       },
       {
         onEvent: (eventName, data) => handleEvent(eventName, data),
         onError: (err) => {
-          push({
-            eventName: "error",
-            label: "错误",
-            detail: err.message,
-            tone: "destructive",
-          });
-          setRunning(false);
+          pushEvent({ label: "错误", detail: err.message, tone: "destructive" });
+          toast.error(err.message);
+          finishRun();
         },
-        onDone: () => setRunning(false),
+        onDone: () => finishRun(),
       },
     );
   };
@@ -82,9 +131,22 @@ export function AgentTestPage() {
   const handleEvent = (eventName: string, data: StreamTaskEventEnvelope) => {
     const payload = (data.payload ?? {}) as Record<string, unknown>;
 
+    if (eventName === StreamTaskEventType.TaskCreated && data.conversationId) {
+      // 新会话首轮：记住会话 id，续接与侧边栏都靠它
+      setActiveId((prev) => prev ?? data.conversationId ?? null);
+      return;
+    }
     if (eventName === StreamTaskEventType.MessageDelta) {
       const delta = (payload.delta as string) ?? "";
-      if (delta) setReply((r) => r + delta);
+      if (delta) {
+        setPending((prev) =>
+          prev.map((m, i) =>
+            i === prev.length - 1 && m.role === "assistant"
+              ? { ...m, content: m.content + delta }
+              : m,
+          ),
+        );
+      }
       return;
     }
     if (NON_TIMELINE.has(eventName)) return;
@@ -97,32 +159,101 @@ export function AgentTestPage() {
             eventName === StreamTaskEventType.MessageDone
           ? "success"
           : "info";
-
-    push({
-      eventName,
+    pushEvent({
       label:
         getStreamTaskEventLabel(eventName as StreamTaskEventType) || eventName,
-      detail: describe(eventName, payload, data),
+      detail: describeEvent(eventName, payload),
       tone,
     });
   };
 
-  const stop = () => {
-    handleRef.current?.abort();
+  const finishRun = () => {
     setRunning(false);
+    // 刷新会话详情与侧边栏；refetch 完成后再清本地 pending，避免消息闪断
+    void Promise.all([refetch()]).then(() => setPending([]));
   };
 
+  const stop = () => {
+    handleRef.current?.abort();
+    finishRun();
+  };
+
+  /** 右面板内容：历史消息 trace 或 live 事件 */
+  const traceMessage = traceMessageId
+    ? messages.find((m) => m.id === traceMessageId)
+    : null;
+  const panelItems: TimelineItem[] = traceMessage
+    ? traceMessage.trace.map((t) => traceToTimeline(t))
+    : liveEvents;
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>测试输入</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>智能体</Label>
+    <div className="flex h-[calc(100vh-8.5rem)] gap-4">
+      {/* 左·会话侧边栏 */}
+      <aside className="flex w-60 shrink-0 flex-col rounded-lg border border-border bg-card">
+        <div className="border-b border-border p-3">
+          <Button
+            className="w-full"
+            variant={activeId === null ? "default" : "outline"}
+            size="sm"
+            onClick={() => selectSession(null)}
+            disabled={running}
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+            新测试会话
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {sessionsLoading ? (
+            <div className="space-y-2 p-1">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : (sessions ?? []).length === 0 ? (
+            <p className="p-3 text-center text-xs text-muted-foreground">
+              暂无测试会话
+            </p>
+          ) : (
+            (sessions ?? []).map((s) => (
+              <div
+                key={s.id}
+                className={cn(
+                  "group mb-1 cursor-pointer rounded-md border border-transparent px-3 py-2 transition-colors hover:bg-muted",
+                  activeId === s.id && "border-border bg-accent",
+                )}
+                onClick={() => selectSession(s.id)}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <p className="truncate text-sm font-medium text-foreground">
+                    {s.title}
+                  </p>
+                  <button
+                    className="hidden shrink-0 text-muted-foreground hover:text-[var(--lb-danger)] group-hover:block"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDelete(s.id);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {s.lastMessage || "（空会话）"}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {s.messageCount} 条 · {formatTime(s.updatedAt)}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+
+      {/* 中·聊天区 */}
+      <section className="flex min-w-0 flex-1 flex-col rounded-lg border border-border bg-card">
+        <div className="flex items-center gap-2 border-b border-border p-3">
+          <div className="w-44">
             <Select value={agentId} onValueChange={setAgentId}>
-              <SelectTrigger>
+              <SelectTrigger className="h-8">
                 <SelectValue placeholder="默认智能体" />
               </SelectTrigger>
               <SelectContent>
@@ -134,93 +265,231 @@ export function AgentTestPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>模型预设（可选，覆盖 agent）</Label>
+          <div className="w-52">
             <Select value={modelPreset} onValueChange={setModelPreset}>
-              <SelectTrigger>
-                <SelectValue placeholder="用 agent 配置" />
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="用 agent 配置的模型" />
               </SelectTrigger>
               <SelectContent>
                 {(models ?? []).map((m) => (
                   <SelectItem key={m.id} value={m.presetId}>
-                    {m.name}（{m.presetId}）
+                    {m.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>输入内容</Label>
-            <Textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={4}
-              placeholder="深圳今天天气怎么样"
-            />
-          </div>
-          <div className="flex gap-2">
-            {running ? (
-              <Button variant="outline" onClick={stop}>
-                <Square className="h-4 w-4" />
-                停止
-              </Button>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {activeId ? detail?.title : "新会话（发送后自动创建）"}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setEventsOpen((o) => !o)}
+            title={eventsOpen ? "收起事件面板" : "展开事件面板"}
+          >
+            {eventsOpen ? (
+              <PanelRightClose className="h-4 w-4" />
             ) : (
-              <Button onClick={start} disabled={!content.trim()}>
-                <Send className="h-4 w-4" />
-                发送测试
+              <PanelRightOpen className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+          {detailLoading && activeId ? (
+            <div className="space-y-3">
+              <Skeleton className="ml-auto h-10 w-1/2" />
+              <Skeleton className="h-16 w-2/3" />
+            </div>
+          ) : messages.length === 0 && pending.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              选择智能体，输入消息开始测试；同一会话内多轮对话带记忆
+            </div>
+          ) : (
+            <>
+              {messages.map((m) => (
+                <MessageBubble
+                  key={m.id}
+                  message={m}
+                  selected={traceMessageId === m.id}
+                  onShowTrace={
+                    m.role === "assistant" && m.trace.length > 0
+                      ? () => {
+                          setTraceMessageId(m.id);
+                          setEventsOpen(true);
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+              {pending.map((m, i) => (
+                <PendingBubble key={`p${i}`} message={m} running={running} />
+              ))}
+            </>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <div className="flex items-end gap-2 border-t border-border p-3">
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            rows={2}
+            placeholder="输入测试消息，Enter 发送 / Shift+Enter 换行"
+            className="min-h-[3rem] flex-1 resize-none"
+          />
+          {running ? (
+            <Button variant="outline" onClick={stop}>
+              <Square className="h-4 w-4" />
+              停止
+            </Button>
+          ) : (
+            <Button onClick={send} disabled={!input.trim()}>
+              <Send className="h-4 w-4" />
+              发送
+            </Button>
+          )}
+        </div>
+      </section>
+
+      {/* 右·事件面板 */}
+      {eventsOpen ? (
+        <aside className="flex w-80 shrink-0 flex-col rounded-lg border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <Label className="text-sm">
+              {traceMessage ? "消息执行轨迹" : "实时执行事件"}
+            </Label>
+            {traceMessage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTraceMessageId(null)}
+              >
+                返回实时
               </Button>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            {panelItems.length > 0 ? (
+              <ol className="relative space-y-3 border-l border-border pl-4">
+                {panelItems.map((item) => (
+                  <li key={item.key} className="relative">
+                    <span className="absolute -left-[1.3rem] top-1 h-2 w-2 rounded-full bg-primary" />
+                    <Badge variant={item.tone}>{item.label}</Badge>
+                    {item.detail ? (
+                      <p className="mt-1 text-xs text-foreground/80">
+                        {item.detail}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="pt-8 text-center text-xs text-muted-foreground">
+                {running ? "等待事件…" : "发送消息后实时展示执行过程"}
+              </p>
             )}
           </div>
-
-          {reply ? (
-            <div className="rounded-md border border-border bg-muted p-3">
-              <p className="mb-1 text-xs text-muted-foreground">助手回复</p>
-              <p className="whitespace-pre-wrap text-sm text-foreground">
-                {reply}
-              </p>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>执行事件</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {timeline.length > 0 ? (
-            <ol className="relative space-y-3 border-l border-border pl-4">
-              {timeline.map((item) => (
-                <li key={item.key} className="relative">
-                  <span className="absolute -left-[1.3rem] top-1 h-2 w-2 rounded-full bg-primary" />
-                  <div className="flex items-center gap-2">
-                    <Badge variant={item.tone}>{item.label}</Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {item.eventName}
-                    </span>
-                  </div>
-                  {item.detail ? (
-                    <p className="mt-1 text-xs text-foreground/80">
-                      {item.detail}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <EmptyState text={running ? "等待事件…" : "发送测试后在此实时展示"} />
-          )}
-        </CardContent>
-      </Card>
+        </aside>
+      ) : null}
     </div>
   );
 }
 
+function MessageBubble({
+  message,
+  selected,
+  onShowTrace,
+}: {
+  message: TestSessionMessage;
+  selected: boolean;
+  onShowTrace?: () => void;
+}) {
+  const isUser = message.role === "user";
+  return (
+    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+      <div
+        className={cn(
+          "max-w-[75%] rounded-lg px-4 py-2.5 text-sm",
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : "border border-border bg-background text-foreground",
+          onShowTrace && "cursor-pointer hover:border-[var(--lb-accent)]",
+          selected && "border-[var(--lb-accent)]",
+        )}
+        onClick={onShowTrace}
+      >
+        <p className="whitespace-pre-wrap break-words">
+          {message.content || "（空回复）"}
+        </p>
+        {!isUser && message.trace.length > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+            <Badge variant={statusBadgeVariant(message.status)}>
+              {message.status}
+            </Badge>
+            <span className="text-[10px] text-muted-foreground">
+              {message.trace.length} 个节点 · 点击查看轨迹
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PendingBubble({
+  message,
+  running,
+}: {
+  message: PendingMessage;
+  running: boolean;
+}) {
+  const isUser = message.role === "user";
+  return (
+    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+      <div
+        className={cn(
+          "max-w-[75%] rounded-lg px-4 py-2.5 text-sm",
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : "border border-border bg-background text-foreground",
+        )}
+      >
+        <p className="whitespace-pre-wrap break-words">
+          {message.content || (running && !isUser ? "思考中…" : "")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** 历史 trace 项 → 时间线项 */
+function traceToTimeline(item: TaskTraceItem): TimelineItem {
+  const tone =
+    item.status === "SUCCESS"
+      ? "success"
+      : item.status === "ERROR"
+        ? "destructive"
+        : "info";
+  return {
+    key: item.id,
+    label: item.title,
+    detail: item.summary ?? undefined,
+    tone,
+  };
+}
+
 /** 从事件 payload 提炼一行中文详情 */
-function describe(
+function describeEvent(
   eventName: string,
   payload: Record<string, unknown>,
-  data: StreamTaskEventEnvelope,
 ): string | undefined {
   const parts: string[] = [];
   const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
@@ -254,7 +523,7 @@ function describe(
         parts.push(`模型 ${metrics.modelCallCount as number} 次`);
     }
   } else if (eventName === StreamTaskEventType.TaskError) {
-    parts.push(s(data.payload && (payload.message as string)) || "任务失败");
+    parts.push(s(payload.message) || "任务失败");
   }
 
   return parts.length ? parts.join(" · ") : undefined;
