@@ -1,0 +1,68 @@
+/* 像素主题专属表现层（仅 admin，仅 .theme-pixel 作用域生效）。
+   颜色/圆角/阴影已由 --lb-* token 提供；这里补 token 表达不了的维度：
+   像素字体、粗描边、以及 CRT/街机的扫描线 HUD 装饰。 */
+
+.theme-pixel {
+  /* 标题/数字用像素字，正文中文用点阵字兜底（体积可控；后续可换 Zpix） */
+  --pixel-font-display: "Press Start 2P", "DotGothic16", monospace;
+  --pixel-font-body: "DotGothic16", "PingFang SC", monospace;
+  font-family: var(--pixel-font-body);
+  image-rendering: pixelated;
+}
+
+/* 标题、KPI 数字、表头 → 像素显示字体 */
+.theme-pixel h1,
+.theme-pixel h2,
+.theme-pixel h3,
+.theme-pixel th,
+.theme-pixel .pixel-display {
+  font-family: var(--pixel-font-display);
+  letter-spacing: 0.5px;
+}
+
+/* 卡片/表格/输入/弹层：粗描边 + 硬投影（token 的 --lb-shadow-card 已是硬投影） */
+.theme-pixel [class*="rounded"],
+.theme-pixel table,
+.theme-pixel input,
+.theme-pixel textarea,
+.theme-pixel button {
+  border-radius: 0 !important;
+}
+
+.theme-pixel .border,
+.theme-pixel [class*="border-"] {
+  border-width: 2px;
+}
+
+/* CRT 终端：扫描线 + 荧光文字微辉光 */
+.theme-pixel[data-pixel="pixel-crt"] {
+  text-shadow: 0 0 4px rgba(51, 255, 102, 0.4);
+  position: relative;
+}
+.theme-pixel[data-pixel="pixel-crt"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0 2px,
+    rgba(0, 0, 0, 0.18) 3px,
+    rgba(0, 0, 0, 0) 4px
+  );
+}
+
+/* 街机：微扫描线（比 CRT 更淡，不糊数据） */
+.theme-pixel[data-pixel="pixel-arcade"]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0 3px,
+    rgba(0, 0, 0, 0.1) 4px
+  );
+}

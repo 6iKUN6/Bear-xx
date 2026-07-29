@@ -1,6 +1,12 @@
 export type ThemeId =
   "warm-workbench" | "mono-tool" | "soft-companion" | "purple-gradient";
 
+/** 像素风主题 id（独立于 ThemeId：仅 admin 消费，不进 mobile 的 themes 列表） */
+export type PixelThemeId =
+  "pixel-neo" | "pixel-gb" | "pixel-crt" | "pixel-arcade";
+
+export type AnyThemeId = ThemeId | PixelThemeId;
+
 export type ThemeColorScheme = "light" | "dark";
 
 export interface ThemeTokens {
@@ -37,7 +43,7 @@ export interface ThemeTokens {
 }
 
 export interface ThemeDefinition {
-  id: ThemeId;
+  id: AnyThemeId;
   name: string;
   shortName: string;
   description: string;

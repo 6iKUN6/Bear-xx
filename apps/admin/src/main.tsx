@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { App } from "./App";
 import { useThemeStore } from "./stores/theme-store";
 import "./index.css";
+import "./pixel.css";
 
 // 首帧应用主题（读 localStorage）
 useThemeStore.getState().hydrate();

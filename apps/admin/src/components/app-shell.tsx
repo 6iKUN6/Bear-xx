@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { LogOut } from "lucide-react";
-import { themes } from "@litter-bear/theme";
+import { themes, pixelThemes, type AnyThemeId } from "@litter-bear/theme";
 import {
   Select,
   SelectContent,
@@ -78,12 +78,26 @@ export function AppShell() {
               </SelectContent>
             </Select>
 
-            <Select value={themeId} onValueChange={(v) => setTheme(v as never)}>
-              <SelectTrigger className="h-8 w-[8rem]">
+            <Select
+              value={themeId}
+              onValueChange={(v) => setTheme(v as AnyThemeId)}
+            >
+              <SelectTrigger className="h-8 w-[9rem]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  常规
+                </div>
                 {themes.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+                <div className="mt-1 px-2 py-1 text-xs text-muted-foreground">
+                  像素
+                </div>
+                {pixelThemes.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {t.name}
                   </SelectItem>

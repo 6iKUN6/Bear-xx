@@ -49,7 +49,7 @@ export function AgentsPage() {
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="任务数" fill={colors[0]} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="任务数" fill={colors[0]} radius={0} />
               </BarChart>
             </ResponsiveContainer>
           ) : (

@@ -49,7 +49,7 @@ export function ToolsPage() {
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Bar dataKey="调用次数" fill={colors[1]} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="调用次数" fill={colors[1]} radius={0} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
