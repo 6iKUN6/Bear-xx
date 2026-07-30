@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Litter Bear Admin · 像素风设计 Demo</title>
+    <!-- 英文/数字像素字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=DotGothic16&family=Silkscreen:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ============================================================
+         三种像素风并排 demo（静态，仅预览，不接真实数据/逻辑）
+         每套风格用一个 .theme-* 作用域，切 tab 只切换根 class。
+         布局取自 admin 仪表盘：顶栏 + KPI 卡 + 图表占位 + 表格。
+         ============================================================ */
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        background: #0b0b0f;
+        color: #eee;
+        font-family: "DotGothic16", "PingFang SC", sans-serif;
+        padding: 24px;
+      }
+
+      /* ---- tab 切换条 ---- */
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .tab-btn {
+        font-family: "Press Start 2P", monospace;
+        font-size: 11px;
+        padding: 12px 16px;
+        background: #1a1a22;
+        color: #9aa;
+        border: 2px solid #333;
+        cursor: pointer;
+        transition: none;
+      }
+      .tab-btn.active { background: #2a2a3a; color: #fff; border-color: #7cf; }
+
+      .stage { display: none; }
+      .stage.active { display: block; }
+
+      .stage-caption {
+        text-align: center;
+        color: #778;
+        font-size: 13px;
+        margin-bottom: 16px;
+        font-family: "PingFang SC", sans-serif;
+      }
+
+      /* ============================================================
+         A · 现代像素 / 新拟态 (neo-brutalist pixel)
+         高饱和彩色 + 零圆角 + 3px 实黑边 + 6px 硬投影
+         像素字体只用于标题/KPI 数字，正文用普通字保可读
+         ============================================================ */
+      .theme-neo {
+        --bg: #f4f1e8;
+        --surface: #ffffff;
+        --ink: #1a1a2e;
+        --muted: #6b6b7b;
+        --line: #1a1a2e;
+        --accent: #ff5277;
+        --accent2: #4d9de0;
+        --ok: #3bb273;
+        --warn: #e1a730;
+        --shadow: 6px 6px 0 #1a1a2e;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 24px;
+        font-family: "DotGothic16", "PingFang SC", sans-serif;
+      }
+      .theme-neo .pixel-title {
+        font-family: "Press Start 2P", monospace;
+      }
+      .theme-neo .topbar {
+        display: flex; align-items: center; gap: 16px;
+        background: var(--surface);
+        border: 3px solid var(--line);
+        box-shadow: var(--shadow);
+        padding: 16px 20px;
+        margin-bottom: 24px;
+      }
+      .theme-neo .logo {
+        font-family: "Press Start 2P", monospace;
+        font-size: 13px; color: var(--accent);
+      }
+      .theme-neo .nav { display: flex; gap: 6px; margin-left: 12px; }
+      .theme-neo .nav span {
+        font-size: 13px; padding: 6px 10px; border: 2px solid transparent;
+      }
+      .theme-neo .nav span.on {
+        background: var(--accent); color: #fff; border-color: var(--line);
+      }
+      .theme-neo .spacer { flex: 1; }
+      .theme-neo .chip {
+        font-size: 12px; padding: 6px 10px;
+        border: 2px solid var(--line); background: var(--surface);
+      }
+      .theme-neo .kpis {
+        display: grid; grid-template-columns: repeat(4, 1fr);
+        gap: 16px; margin-bottom: 24px;
+      }
+      .theme-neo .kpi {
+        background: var(--surface); border: 3px solid var(--line);
+        box-shadow: var(--shadow); padding: 16px;
+      }
+      .theme-neo .kpi .label { font-size: 12px; color: var(--muted); }
+      .theme-neo .kpi .value {
+        font-family: "Press Start 2P", monospace;
+        font-size: 22px; margin-top: 10px; color: var(--ink);
+      }
+      .theme-neo .kpi.a .value { color: var(--accent); }
+      .theme-neo .kpi.b .value { color: var(--accent2); }
+      .theme-neo .kpi.c .value { color: var(--ok); }
+      .theme-neo .grid2 {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;
+      }
+      .theme-neo .card {
+        background: var(--surface); border: 3px solid var(--line);
+        box-shadow: var(--shadow); padding: 16px;
+      }
+      .theme-neo .card h3 {
+        font-family: "Press Start 2P", monospace; font-size: 11px;
+        margin-bottom: 16px;
+      }
+      /* 像素柱状图（纯 div 方块） */
+      .theme-neo .bars { display: flex; align-items: flex-end; gap: 12px; height: 140px; }
+      .theme-neo .bar {
+        flex: 1; border: 3px solid var(--line); background: var(--accent2);
+        image-rendering: pixelated;
+      }
+      .theme-neo .bar:nth-child(2) { background: var(--accent); }
+      .theme-neo .bar:nth-child(3) { background: var(--ok); }
+      .theme-neo .bar:nth-child(4) { background: var(--warn); }
+      /* 像素进度条 */
+      .theme-neo .prow { margin-bottom: 12px; }
+      .theme-neo .prow .t { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+      .theme-neo .ptrack { height: 16px; border: 2px solid var(--line); background: var(--bg); }
+      .theme-neo .pfill { height: 100%; background: var(--accent); }
+      .theme-neo table { width: 100%; border-collapse: collapse; background: var(--surface); border: 3px solid var(--line); box-shadow: var(--shadow); }
+      .theme-neo th, .theme-neo td { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--line); font-size: 13px; }
+      .theme-neo th { font-family: "Press Start 2P", monospace; font-size: 9px; background: var(--bg); }
+      .theme-neo .badge { font-size: 11px; padding: 3px 8px; border: 2px solid var(--line); }
+      .theme-neo .badge.ok { background: var(--ok); color: #fff; }
+      .theme-neo .badge.err { background: var(--accent); color: #fff; }
+
+      /* ============================================================
+         B · 复古游戏机 (GameBoy 四阶墨绿)
+         ============================================================ */
+      .theme-gb {
+        --bg: #0f380f;
+        --surface: #306230;
+        --ink: #9bbc0f;
+        --ink2: #8bac0f;
+        --line: #0f380f;
+        --hi: #e0f8d0;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 24px;
+        font-family: "Press Start 2P", monospace;
+        font-size: 11px;
+        line-height: 1.8;
+      }
+      .theme-gb .topbar {
+        display: flex; align-items: center; gap: 16px;
+        background: var(--surface);
+        border: 4px solid var(--hi);
+        padding: 16px;
+        margin-bottom: 20px;
+        box-shadow: 4px 4px 0 #000;
+      }
+      .theme-gb .logo { color: var(--hi); font-size: 12px; }
+      .theme-gb .nav { display: flex; gap: 4px; margin-left: 8px; flex-wrap: wrap; }
+      .theme-gb .nav span { font-size: 9px; padding: 4px 6px; }
+      .theme-gb .nav span.on { background: var(--hi); color: var(--bg); }
+      .theme-gb .spacer { flex: 1; }
+      .theme-gb .chip { font-size: 9px; padding: 4px 6px; border: 2px solid var(--hi); }
+      .theme-gb .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+      .theme-gb .kpi { background: var(--surface); border: 4px solid var(--hi); padding: 12px; box-shadow: 4px 4px 0 #000; }
+      .theme-gb .kpi .label { font-size: 8px; color: var(--ink2); }
+      .theme-gb .kpi .value { font-size: 18px; color: var(--hi); margin-top: 8px; }
+      .theme-gb .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+      .theme-gb .card { background: var(--surface); border: 4px solid var(--hi); padding: 14px; box-shadow: 4px 4px 0 #000; }
+      .theme-gb .card h3 { font-size: 10px; color: var(--hi); margin-bottom: 14px; }
+      .theme-gb .bars { display: flex; align-items: flex-end; gap: 10px; height: 130px; }
+      .theme-gb .bar { flex: 1; background: var(--hi); border: 3px solid var(--bg); }
+      .theme-gb .bar:nth-child(even) { background: var(--ink2); }
+      .theme-gb .prow { margin-bottom: 10px; }
+      .theme-gb .prow .t { display: flex; justify-content: space-between; font-size: 8px; margin-bottom: 4px; }
+      .theme-gb .ptrack { height: 14px; border: 2px solid var(--hi); }
+      .theme-gb .pfill { height: 100%; background: var(--hi); }
+      .theme-gb table { width: 100%; border-collapse: collapse; background: var(--surface); border: 4px solid var(--hi); box-shadow: 4px 4px 0 #000; }
+      .theme-gb th, .theme-gb td { text-align: left; padding: 8px; font-size: 9px; border-bottom: 2px solid var(--hi); }
+      .theme-gb .badge { font-size: 8px; padding: 2px 6px; border: 2px solid var(--hi); }
+      .theme-gb .badge.ok { background: var(--hi); color: var(--bg); }
+
+      /* ============================================================
+         C · CRT 终端 (绿荧光 + 扫描线)
+         ============================================================ */
+      .theme-crt {
+        --bg: #050a05;
+        --surface: #0a140a;
+        --ink: #33ff66;
+        --dim: #1f9944;
+        --line: #1f7a33;
+        --amber: #ffb000;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 24px;
+        font-family: "VT323", monospace;
+        font-size: 18px;
+        position: relative;
+        text-shadow: 0 0 4px rgba(51, 255, 102, 0.5);
+      }
+      /* 扫描线叠加 */
+      .theme-crt::after {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: repeating-linear-gradient(
+          to bottom, rgba(0,0,0,0) 0, rgba(0,0,0,0) 2px, rgba(0,0,0,0.25) 3px, rgba(0,0,0,0) 4px
+        );
+      }
+      .theme-crt .topbar {
+        display: flex; align-items: center; gap: 16px;
+        border: 2px solid var(--line); padding: 12px 16px; margin-bottom: 20px;
+      }
+      .theme-crt .logo { color: var(--amber); }
+      .theme-crt .nav { display: flex; gap: 4px; margin-left: 12px; }
+      .theme-crt .nav span { padding: 2px 8px; }
+      .theme-crt .nav span.on { background: var(--ink); color: var(--bg); text-shadow: none; }
+      .theme-crt .spacer { flex: 1; }
+      .theme-crt .chip { padding: 2px 8px; border: 1px solid var(--line); }
+      .theme-crt .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+      .theme-crt .kpi { border: 2px solid var(--line); padding: 12px; }
+      .theme-crt .kpi .label { color: var(--dim); font-size: 15px; }
+      .theme-crt .kpi .value { font-size: 34px; margin-top: 4px; }
+      .theme-crt .kpi.amber .value { color: var(--amber); text-shadow: 0 0 4px rgba(255,176,0,0.5); }
+      .theme-crt .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+      .theme-crt .card { border: 2px solid var(--line); padding: 14px; }
+      .theme-crt .card h3 { margin-bottom: 12px; color: var(--amber); }
+      .theme-crt .card h3::before { content: "> "; }
+      /* ASCII 风柱状图 */
+      .theme-crt .bars { display: flex; align-items: flex-end; gap: 10px; height: 130px; }
+      .theme-crt .bar { flex: 1; background: repeating-linear-gradient(to top, var(--ink) 0 4px, var(--bg) 4px 6px); border: 1px solid var(--line); }
+      .theme-crt .prow { margin-bottom: 8px; }
+      .theme-crt .prow .t { display: flex; justify-content: space-between; font-size: 15px; }
+      .theme-crt .ptrack { height: 16px; border: 1px solid var(--line); }
+      .theme-crt .pfill { height: 100%; background: repeating-linear-gradient(to right, var(--ink) 0 6px, var(--bg) 6px 8px); }
+      .theme-crt table { width: 100%; border-collapse: collapse; border: 2px solid var(--line); }
+      .theme-crt th, .theme-crt td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+      .theme-crt th { color: var(--amber); }
+      .theme-crt .badge { padding: 0 6px; border: 1px solid var(--line); }
+      .theme-crt .badge.ok { color: var(--ink); }
+      .theme-crt .badge.err { color: var(--amber); }
+
+      /* ============================================================
+         D · 街机电玩 (arcade / FC 霓虹)
+         深色街机柜底 + 高饱和霓虹色板(青/品红/黄/绿) + 硬投影粗边 + HUD 细节
+         Press Start 2P 用于标题/数字，正文用点阵中文回退保可读
+         ============================================================ */
+      .theme-arcade {
+        --bg: #14122b;          /* 街机柜底：近黑靛蓝 */
+        --surface: #1e1b3a;     /* 卡面：深靛 */
+        --surface2: #100e22;    /* 更深的凹格 */
+        --ink: #f5f3ff;         /* 主文字：近白 */
+        --muted: #8b86c0;       /* 次要文字：淡紫灰 */
+        --line: #3a3468;        /* 常规描边 */
+        --cyan: #22d3ee;
+        --magenta: #ff4fa3;
+        --yellow: #ffd23f;
+        --green: #6ee752;
+        --shadow: 5px 5px 0 #000;
+        background: var(--bg);
+        color: var(--ink);
+        padding: 24px;
+        font-family: "DotGothic16", "PingFang SC", sans-serif;
+        position: relative;
+        image-rendering: pixelated;
+      }
+      /* 微扫描线，压得很淡，不影响读数 */
+      .theme-arcade::after {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: repeating-linear-gradient(
+          to bottom, rgba(0,0,0,0) 0 3px, rgba(0,0,0,0.12) 4px
+        );
+      }
+      .theme-arcade .pixel-title { font-family: "Press Start 2P", monospace; }
+
+      .theme-arcade .topbar {
+        display: flex; align-items: center; gap: 14px;
+        background: var(--surface);
+        border: 3px solid var(--cyan);
+        box-shadow: var(--shadow);
+        padding: 14px 18px; margin-bottom: 22px;
+      }
+      .theme-arcade .logo {
+        font-family: "Press Start 2P", monospace; font-size: 12px;
+        color: var(--yellow);
+        text-shadow: 2px 2px 0 var(--magenta);
+      }
+      .theme-arcade .nav { display: flex; gap: 6px; margin-left: 10px; flex-wrap: wrap; }
+      .theme-arcade .nav span {
+        font-family: "Silkscreen", monospace; font-size: 12px;
+        padding: 5px 9px; border: 2px solid transparent; color: var(--muted);
+      }
+      .theme-arcade .nav span.on {
+        background: var(--magenta); color: #fff; border-color: #000;
+        box-shadow: 2px 2px 0 #000;
+      }
+      .theme-arcade .spacer { flex: 1; }
+      .theme-arcade .chip {
+        font-family: "Silkscreen", monospace; font-size: 11px; padding: 5px 9px;
+        border: 2px solid var(--line); background: var(--surface2); color: var(--cyan);
+      }
+
+      .theme-arcade .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 22px; }
+      .theme-arcade .kpi {
+        background: var(--surface); border: 3px solid var(--line);
+        box-shadow: var(--shadow); padding: 14px; position: relative;
+      }
+      .theme-arcade .kpi .label {
+        font-family: "Silkscreen", monospace; font-size: 11px; color: var(--muted);
+        letter-spacing: 1px;
+      }
+      .theme-arcade .kpi .value {
+        font-family: "Press Start 2P", monospace; font-size: 22px; margin-top: 12px;
+      }
+      .theme-arcade .kpi.a { border-color: var(--cyan); }
+      .theme-arcade .kpi.a .value { color: var(--cyan); }
+      .theme-arcade .kpi.b { border-color: var(--green); }
+      .theme-arcade .kpi.b .value { color: var(--green); }
+      .theme-arcade .kpi.c { border-color: var(--yellow); }
+      .theme-arcade .kpi.c .value { color: var(--yellow); }
+      .theme-arcade .kpi.d { border-color: var(--magenta); }
+      .theme-arcade .kpi.d .value { color: var(--magenta); }
+
+      .theme-arcade .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 22px; }
+      .theme-arcade .card {
+        background: var(--surface); border: 3px solid var(--line);
+        box-shadow: var(--shadow); padding: 16px;
+      }
+      .theme-arcade .card h3 {
+        font-family: "Press Start 2P", monospace; font-size: 11px;
+        color: var(--cyan); margin-bottom: 16px;
+      }
+      .theme-arcade .card h3::before { content: "★ "; color: var(--yellow); }
+      /* 霓虹方块柱状图，顶部高光 */
+      .theme-arcade .bars { display: flex; align-items: flex-end; gap: 12px; height: 140px; }
+      .theme-arcade .bar { flex: 1; border: 3px solid #000; background: var(--cyan); box-shadow: inset 0 6px 0 rgba(255,255,255,0.35); }
+      .theme-arcade .bar:nth-child(2) { background: var(--magenta); }
+      .theme-arcade .bar:nth-child(3) { background: var(--green); }
+      .theme-arcade .bar:nth-child(4) { background: var(--yellow); }
+      /* 分段式"血条"进度 */
+      .theme-arcade .prow { margin-bottom: 14px; }
+      .theme-arcade .prow .t { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; color: var(--muted); }
+      .theme-arcade .prow .t b { color: var(--ink); font-family: "Silkscreen", monospace; }
+      .theme-arcade .ptrack {
+        height: 16px; border: 2px solid #000; background: var(--surface2);
+        background-image: repeating-linear-gradient(to right, transparent 0 8px, rgba(0,0,0,0.35) 8px 10px);
+      }
+      .theme-arcade .pfill { height: 100%; background: var(--magenta); }
+      .theme-arcade .prow:nth-child(2) .pfill { background: var(--cyan); }
+      .theme-arcade .prow:nth-child(3) .pfill { background: var(--green); }
+
+      .theme-arcade table {
+        width: 100%; border-collapse: collapse;
+        background: var(--surface); border: 3px solid var(--line); box-shadow: var(--shadow);
+      }
+      .theme-arcade th, .theme-arcade td { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--line); font-size: 13px; }
+      .theme-arcade th { font-family: "Silkscreen", monospace; font-size: 12px; color: var(--yellow); background: var(--surface2); letter-spacing: 1px; }
+      .theme-arcade .badge { font-family: "Silkscreen", monospace; font-size: 11px; padding: 3px 8px; border: 2px solid #000; box-shadow: 2px 2px 0 #000; }
+      .theme-arcade .badge.ok { background: var(--green); color: #000; }
+      .theme-arcade .badge.err { background: var(--magenta); color: #fff; }
+      /* 闪烁光标（HUD 细节） */
+      .theme-arcade .blink { animation: arcade-blink 1s steps(1) infinite; color: var(--yellow); }
+      @keyframes arcade-blink { 50% { opacity: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="tabs">
+      <button class="tab-btn active" data-stage="neo">A · 现代像素/新拟态</button>
+      <button class="tab-btn" data-stage="gb">B · 复古游戏机 GB</button>
+      <button class="tab-btn" data-stage="crt">C · CRT 终端</button>
+      <button class="tab-btn" data-stage="arcade">D · 街机电玩</button>
+    </div>
+
+    <!-- ============ A 现代像素 ============ -->
+    <div class="stage active" data-stage="neo">
+      <p class="stage-caption">高饱和彩色 · 零圆角 · 3px 实黑边 · 6px 硬投影 · 像素字仅用于标题/KPI</p>
+      <div class="theme-neo">
+        <div class="topbar">
+          <span class="logo">LITTER BEAR</span>
+          <span class="nav"><span class="on">概览</span><span>智能体</span><span>模型</span><span>任务</span><span>调试</span></span>
+          <span class="spacer"></span>
+          <span class="chip">近 7 天</span>
+          <span class="chip">admin</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi a"><div class="label">总任务</div><div class="value">128</div></div>
+          <div class="kpi c"><div class="label">成功率</div><div class="value">86%</div></div>
+          <div class="kpi b"><div class="label">平均时长</div><div class="value">3.2s</div></div>
+          <div class="kpi"><div class="label">失败数</div><div class="value">12</div></div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>AGENT USAGE</h3>
+            <div class="bars"><div class="bar" style="height:60%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:70%"></div></div>
+          </div>
+          <div class="card">
+            <h3>TOP TOOLS</h3>
+            <div class="prow"><div class="t"><span>webSearch</span><span>54</span></div><div class="ptrack"><div class="pfill" style="width:100%"></div></div></div>
+            <div class="prow"><div class="t"><span>getWeather</span><span>18</span></div><div class="ptrack"><div class="pfill" style="width:33%"></div></div></div>
+            <div class="prow"><div class="t"><span>imageGen</span><span>7</span></div><div class="ptrack"><div class="pfill" style="width:13%"></div></div></div>
+          </div>
+        </div>
+        <table>
+          <tr><th>智能体</th><th>状态</th><th>时长</th><th>Token</th><th>工具/模型</th></tr>
+          <tr><td>通用助手</td><td><span class="badge ok">完成</span></td><td>3.2s</td><td>1,500</td><td>2 / 3</td></tr>
+          <tr><td>搜索专家</td><td><span class="badge ok">完成</span></td><td>5.1s</td><td>2,100</td><td>4 / 5</td></tr>
+          <tr><td>天气助手</td><td><span class="badge err">失败</span></td><td>—</td><td>320</td><td>1 / 1</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ B GameBoy ============ -->
+    <div class="stage" data-stage="gb">
+      <p class="stage-caption">GameBoy 四阶墨绿 · Press Start 2P 全局 · 粗描边 · 最强游戏感（信息密度页可读性偏弱）</p>
+      <div class="theme-gb">
+        <div class="topbar">
+          <span class="logo">LB-ADMIN</span>
+          <span class="nav"><span class="on">概览</span><span>智能体</span><span>模型</span><span>任务</span></span>
+          <span class="spacer"></span>
+          <span class="chip">7D</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">TASKS</div><div class="value">128</div></div>
+          <div class="kpi"><div class="label">OK%</div><div class="value">86</div></div>
+          <div class="kpi"><div class="label">AVG</div><div class="value">3.2</div></div>
+          <div class="kpi"><div class="label">ERR</div><div class="value">12</div></div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>USAGE</h3>
+            <div class="bars"><div class="bar" style="height:60%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:70%"></div></div>
+          </div>
+          <div class="card">
+            <h3>TOOLS</h3>
+            <div class="prow"><div class="t"><span>SEARCH</span><span>54</span></div><div class="ptrack"><div class="pfill" style="width:100%"></div></div></div>
+            <div class="prow"><div class="t"><span>WEATHER</span><span>18</span></div><div class="ptrack"><div class="pfill" style="width:33%"></div></div></div>
+          </div>
+        </div>
+        <table>
+          <tr><th>AGENT</th><th>STATE</th><th>TIME</th><th>TOK</th></tr>
+          <tr><td>GENERAL</td><td><span class="badge ok">OK</span></td><td>3.2</td><td>1500</td></tr>
+          <tr><td>SEARCH</td><td><span class="badge ok">OK</span></td><td>5.1</td><td>2100</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ C CRT 终端 ============ -->
+    <div class="stage" data-stage="crt">
+      <p class="stage-caption">绿荧光 + 扫描线 · VT323 等宽 · 深色数据密集友好 · 黑客终端气质（与深色主题 mono-tool 呼应）</p>
+      <div class="theme-crt">
+        <div class="topbar">
+          <span class="logo">◆ LITTER-BEAR::ADMIN</span>
+          <span class="nav"><span class="on">OVERVIEW</span><span>AGENTS</span><span>MODELS</span><span>TASKS</span><span>DEBUG</span></span>
+          <span class="spacer"></span>
+          <span class="chip">RANGE:7D</span>
+          <span class="chip">USER:admin</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="label">TOTAL_TASKS</div><div class="value">128</div></div>
+          <div class="kpi"><div class="label">SUCCESS_RATE</div><div class="value">86%</div></div>
+          <div class="kpi amber"><div class="label">AVG_DURATION</div><div class="value">3.2s</div></div>
+          <div class="kpi"><div class="label">ERRORS</div><div class="value">12</div></div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>AGENT_USAGE</h3>
+            <div class="bars"><div class="bar" style="height:60%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:70%"></div></div>
+          </div>
+          <div class="card">
+            <h3>TOP_TOOLS</h3>
+            <div class="prow"><div class="t"><span>webSearch</span><span>54</span></div><div class="ptrack"><div class="pfill" style="width:100%"></div></div></div>
+            <div class="prow"><div class="t"><span>getWeather</span><span>18</span></div><div class="ptrack"><div class="pfill" style="width:33%"></div></div></div>
+            <div class="prow"><div class="t"><span>imageGen</span><span>7</span></div><div class="ptrack"><div class="pfill" style="width:13%"></div></div></div>
+          </div>
+        </div>
+        <table>
+          <tr><th>AGENT</th><th>STATUS</th><th>DURATION</th><th>TOKEN</th><th>TOOL/MODEL</th></tr>
+          <tr><td>通用助手</td><td><span class="badge ok">[DONE]</span></td><td>3.2s</td><td>1500</td><td>2/3</td></tr>
+          <tr><td>搜索专家</td><td><span class="badge ok">[DONE]</span></td><td>5.1s</td><td>2100</td><td>4/5</td></tr>
+          <tr><td>天气助手</td><td><span class="badge err">[FAIL]</span></td><td>—</td><td>320</td><td>1/1</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ D 街机电玩 ============ -->
+    <div class="stage" data-stage="arcade">
+      <p class="stage-caption">深色街机柜底 + 霓虹青/品红/黄/绿 · Press Start 2P 标题数字 + 点阵中文正文 · 硬投影粗边 · 街机 HUD（★ 分段血条 闪烁光标）· 古早电玩感且保可读</p>
+      <div class="theme-arcade">
+        <div class="topbar">
+          <span class="logo">LITTER BEAR</span>
+          <span class="nav"><span class="on">概览</span><span>智能体</span><span>模型</span><span>任务</span><span>调试</span></span>
+          <span class="spacer"></span>
+          <span class="chip">RANGE 7D</span>
+          <span class="chip">P1 admin</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi a"><div class="label">TOTAL TASKS</div><div class="value">128</div></div>
+          <div class="kpi b"><div class="label">SUCCESS</div><div class="value">86%</div></div>
+          <div class="kpi c"><div class="label">AVG TIME</div><div class="value">3.2s</div></div>
+          <div class="kpi d"><div class="label">ERRORS</div><div class="value">12</div></div>
+        </div>
+        <div class="grid2">
+          <div class="card">
+            <h3>AGENT USAGE</h3>
+            <div class="bars"><div class="bar" style="height:60%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:70%"></div></div>
+          </div>
+          <div class="card">
+            <h3>TOP TOOLS</h3>
+            <div class="prow"><div class="t"><span>webSearch</span><b>54</b></div><div class="ptrack"><div class="pfill" style="width:100%"></div></div></div>
+            <div class="prow"><div class="t"><span>getWeather</span><b>18</b></div><div class="ptrack"><div class="pfill" style="width:33%"></div></div></div>
+            <div class="prow"><div class="t"><span>imageGen</span><b>7</b></div><div class="ptrack"><div class="pfill" style="width:13%"></div></div></div>
+          </div>
+        </div>
+        <table>
+          <tr><th>AGENT</th><th>STATUS</th><th>TIME</th><th>TOKEN</th><th>TOOL/MODEL</th></tr>
+          <tr><td>通用助手</td><td><span class="badge ok">DONE</span></td><td>3.2s</td><td>1,500</td><td>2 / 3</td></tr>
+          <tr><td>搜索专家</td><td><span class="badge ok">DONE</span></td><td>5.1s</td><td>2,100</td><td>4 / 5</td></tr>
+          <tr><td>天气助手</td><td><span class="badge err">FAIL</span></td><td>—</td><td>320</td><td>1 / 1</td></tr>
+        </table>
+        <p style="margin-top:18px;font-family:'Silkscreen',monospace;font-size:12px;color:#8b86c0">
+          INSERT COIN <span class="blink">▮</span>
+        </p>
+      </div>
+    </div>
+
+    <script>
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const s = btn.dataset.stage;
+          document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+          document.querySelectorAll(".stage").forEach((st) => st.classList.toggle("active", st.dataset.stage === s));
+        });
+      });
+    </script>
+  </body>
+</html>
