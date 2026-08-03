@@ -121,6 +121,20 @@ export class ConversationMessageDto {
   content: string;
 
   @ApiProperty({
+    description: '发言智能体 id；null = 用户消息或默认助手',
+    nullable: true,
+    required: false,
+  })
+  agentId?: string | null;
+
+  @ApiProperty({
+    description: '发言智能体名称（群聊展示用）',
+    nullable: true,
+    required: false,
+  })
+  agentName?: string | null;
+
+  @ApiProperty({
     description: '消息状态',
     enum: ['streaming', 'done', 'error'],
     example: 'done',
@@ -148,6 +162,13 @@ export class ConversationDto {
 
   @ApiProperty({ description: '会话标题', example: '新对话' })
   title: string;
+
+  @ApiProperty({
+    description: '群成员：会话中出现过的智能体 id 列表；空 = 单助手会话',
+    type: [String],
+    required: false,
+  })
+  agentIds?: string[];
 
   @ApiProperty({
     description: '会话消息列表',

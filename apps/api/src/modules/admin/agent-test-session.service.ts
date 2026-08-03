@@ -65,6 +65,7 @@ export class AgentTestSessionService {
         id: m.id,
         role: m.role.toLowerCase(),
         content: m.content,
+        agentId: m.agentId,
         status: m.status.toLowerCase(),
         createdAt: m.createdAt.getTime(),
         trace: m.turnTraceItems.map((item) => ({

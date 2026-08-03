@@ -35,10 +35,12 @@ export class ChatContextService {
   async buildChatMessages(
     conversationId: string,
     pendingMessageId: string,
+    answeringAgentId?: string | null,
   ): Promise<LlmMessage[]> {
     const bundle = await this.buildContextBundle(
       conversationId,
       pendingMessageId,
+      answeringAgentId,
     );
     return bundle.messages;
   }
@@ -47,12 +49,16 @@ export class ChatContextService {
    * 构建聊天上下文包
    * @param conversationId 会话ID
    * @param pendingMessageId 当前待生成的 assistant 消息ID
+   * @param answeringAgentId 本轮回答者智能体 id；null/undefined = 默认助手
    * @returns 返回包含 LLM 消息、摘要信息和最近窗口信息的上下文包
-   * @description 第一版上下文管理以“较早历史摘要 + 最近消息窗口”为核心，集中记录上下文来源，便于后续加入 token 预算和长期记忆。
+   * @description 以“较早历史摘要 + 最近消息窗口”为核心。群聊会话（历史中存在其它智能体的发言）时做身份感知转写：
+   * 回答者自己的消息保持 assistant 角色，其它智能体的消息转写为带署名的 user 侧记录，
+   * 避免模型把别的助手说过的话当成自己说的。单助手会话路径与原实现完全一致。
    */
   async buildContextBundle(
     conversationId: string,
     pendingMessageId: string,
+    answeringAgentId?: string | null,
   ): Promise<ChatContextBundle> {
     const summary =
       await this.conversationSummaryService.getConversationSummary(
@@ -66,12 +72,38 @@ export class ChatContextService {
       select: {
         role: true,
         content: true,
+        agentId: true,
       },
       orderBy: { createdAt: 'desc' },
       take: CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
     });
 
+    const orderedMessages = recentMessages.reverse();
+    const currentAgentId = answeringAgentId ?? null;
+
+    // 群语境判定：历史 assistant 消息中存在与本轮回答者不同的发言者（null 视为默认助手，同一身份）。
+    const foreignAgentIds = new Set(
+      orderedMessages
+        .filter(
+          (m) =>
+            m.role === MessageRole.ASSISTANT &&
+            (m.agentId ?? null) !== currentAgentId,
+        )
+        .map((m) => m.agentId ?? null),
+    );
+    const isGroupContext = foreignAgentIds.size > 0;
+    const agentNameById = isGroupContext
+      ? await this.loadAgentNames(foreignAgentIds)
+      : new Map<string | null, string>();
+
     const contextMessages: LlmMessage[] = [];
+
+    if (isGroupContext) {
+      contextMessages.push({
+        role: 'system',
+        content: this.formatGroupContextMessage(),
+      });
+    }
 
     if (summary?.summary) {
       contextMessages.push({
@@ -81,10 +113,24 @@ export class ChatContextService {
     }
 
     const messages = contextMessages.concat(
-      recentMessages.reverse().map((message) => ({
-        role: this.toLlmMessageRole(message.role),
-        content: message.content,
-      })),
+      orderedMessages.map((message) => {
+        if (
+          isGroupContext &&
+          message.role === MessageRole.ASSISTANT &&
+          (message.agentId ?? null) !== currentAgentId
+        ) {
+          // 其它智能体的发言：转写为带署名的 user 侧记录，让模型知道这是群里别人说的。
+          const name = agentNameById.get(message.agentId ?? null) ?? '助手';
+          return {
+            role: 'user' as const,
+            content: `[助手·${name}]: ${message.content}`,
+          };
+        }
+        return {
+          role: this.toLlmMessageRole(message.role),
+          content: message.content,
+        };
+      }),
     );
 
     return {
@@ -101,6 +147,51 @@ export class ChatContextService {
         messageCount: recentMessages.length,
       },
     };
+  }
+
+  /**
+   * 批量加载智能体显示名
+   * @param agentIds 其它发言者 id 集合（可含 null=默认助手）
+   * @returns 返回 id → 名称映射；null 键映射到默认智能体名（查不到则“默认助手”）
+   */
+  private async loadAgentNames(
+    agentIds: Set<string | null>,
+  ): Promise<Map<string | null, string>> {
+    const nameById = new Map<string | null, string>();
+    const concreteIds = [...agentIds].filter((id): id is string => id !== null);
+
+    if (concreteIds.length > 0) {
+      const agents = await this.prisma.agent.findMany({
+        where: { id: { in: concreteIds } },
+        select: { id: true, name: true },
+      });
+      for (const agent of agents) {
+        nameById.set(agent.id, agent.name);
+      }
+    }
+
+    if (agentIds.has(null)) {
+      const defaultAgent = await this.prisma.agent.findFirst({
+        where: { isDefault: true },
+        select: { name: true },
+      });
+      nameById.set(null, defaultAgent?.name ?? '默认助手');
+    }
+
+    return nameById;
+  }
+
+  /**
+   * 群聊语境说明
+   * @returns 返回注入 LLM 的 system 消息内容
+   * @description 告知模型处于多助手协作对话，历史中带署名的记录来自其它助手，只需以自己的身份回答。
+   */
+  private formatGroupContextMessage() {
+    return [
+      '当前是一个多助手协作对话：用户可以点名不同的智能助手回答。',
+      '历史消息中形如「[助手·某某]: 内容」的记录是其它助手的发言，不是你说的，也不是用户说的。',
+      '请以你自己的身份直接回答用户，不要模仿该署名格式，也不要替其它助手发言。',
+    ].join('\n');
   }
 
   /**

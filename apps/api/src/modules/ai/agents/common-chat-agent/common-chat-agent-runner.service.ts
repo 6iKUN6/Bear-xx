@@ -147,6 +147,7 @@ export class CommonChatAgentRunnerService {
     return this.chatContextService.buildContextBundle(
       request.conversationId,
       request.pendingMessageId,
+      request.agentId,
     );
   }
 

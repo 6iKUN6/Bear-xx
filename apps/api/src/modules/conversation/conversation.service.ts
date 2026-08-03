@@ -28,13 +28,35 @@ export class ConversationService {
       orderBy: { updatedAt: 'desc' },
     });
 
+    // 批量映射发言者名字（群聊消息归属展示；agent 被删后回退 id 兜底）
+    const agentIds = [
+      ...new Set(
+        conversations
+          .flatMap((c) => c.messages.map((m) => m.agentId))
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const agentNameById = new Map(
+      agentIds.length > 0
+        ? (
+            await this.prisma.agent.findMany({
+              where: { id: { in: agentIds } },
+              select: { id: true, name: true },
+            })
+          ).map((a) => [a.id, a.name])
+        : [],
+    );
+
     return conversations.map((c) => ({
       id: c.id,
       title: c.title,
+      agentIds: c.agentIds,
       messages: c.messages.map((m) => ({
         id: m.id,
         role: m.role.toLowerCase(),
         content: m.content,
+        agentId: m.agentId,
+        agentName: m.agentId ? (agentNameById.get(m.agentId) ?? null) : null,
         status: m.status.toLowerCase(),
         createdAt: m.createdAt.getTime(),
         trace: m.turnTraceItems.map((item) => ({

@@ -47,6 +47,11 @@ export class TestSessionMessageDto {
   @ApiProperty() id: string;
   @ApiProperty({ enum: ['user', 'assistant'] }) role: string;
   @ApiProperty() content: string;
+  @ApiProperty({
+    description: '发言智能体 id；null=用户/默认助手',
+    nullable: true,
+  })
+  agentId: string | null;
   @ApiProperty({ enum: ['streaming', 'done', 'error'] }) status: string;
   @ApiProperty({ example: 1735689600000 }) createdAt: number;
   @ApiProperty({ type: TaskTraceItemDto, isArray: true })

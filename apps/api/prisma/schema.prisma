@@ -84,6 +84,8 @@ model Conversation {
   userId         String                      @map("user_id")
   /// admin 测试会话标记：端侧会话列表过滤掉，仅 admin 测试工作台可见（与 StreamTask.isTest 对称）
   isTest         Boolean                     @default(false) @map("is_test")
+  /// 群聊成员：本会话中出现过的智能体 id 列表（首次被 @ 自动加入）；空 = 单助手会话
+  agentIds       String[]                    @default([]) @map("agent_ids")
   user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages       Message[]
   summary        ConversationSummary?
@@ -115,6 +117,8 @@ model Message {
   id             String                      @id @default(cuid())
   role           MessageRole
   content        String                      @db.Text
+  /// 发言者：assistant 消息记录由哪个智能体生成；null = 默认助手/历史数据
+  agentId        String?                     @map("agent_id")
   imageUrl       String?                     @map("image_url")
   status         MessageStatus               @default(DONE)
   conversationId String                      @map("conversation_id")

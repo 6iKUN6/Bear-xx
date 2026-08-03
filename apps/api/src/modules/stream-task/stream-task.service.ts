@@ -186,6 +186,8 @@ export class StreamTaskService {
           conversationId: task.conversationId,
           messageId: task.messageId,
           status: task.status,
+          // 群聊：告知前端本轮由哪个智能体回答（重连/回显归属）
+          payload: agentId ? { agentId } : undefined,
         }),
         taskStream.stream,
       ),
@@ -280,15 +282,27 @@ export class StreamTaskService {
         });
       }
 
-      //assistant 消息入库
+      //assistant 消息入库（agentId 记录发言者，供群聊消息归属与身份感知上下文）
       const assistantMessage = await tx.message.create({
         data: {
           role: MessageRole.ASSISTANT,
           content: '',
           status: MessageStatus.STREAMING,
           conversationId: targetConversationId,
+          agentId: agentId ?? null,
         },
       });
+
+      // 首次被 @ 的智能体自动加入会话成员列表（幂等：已在列表则不动）
+      if (agentId) {
+        await tx.conversation.updateMany({
+          where: {
+            id: targetConversationId,
+            NOT: { agentIds: { has: agentId } },
+          },
+          data: { agentIds: { push: agentId } },
+        });
+      }
 
       //流式任务入库
       const task = await tx.streamTask.create({
@@ -1150,6 +1164,7 @@ export class StreamTaskService {
 
     void this.refreshConversationSummary(task.conversationId);
   }
+
 
   /**
    * 处理工具调用增量事件
