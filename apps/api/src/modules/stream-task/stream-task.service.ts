@@ -43,6 +43,7 @@ import { ConversationService } from '../conversation/conversation.service';
 import { ConversationTraceService } from '../conversation-trace';
 import type { ChatContextBundle } from '../memory/chat-context.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
+import { ConversationTitleService } from '../memory/conversation-title.service';
 import {
   STREAM_TASK_TERMINAL_EVENT_TYPES,
   StreamTaskEventType,
@@ -108,6 +109,7 @@ export class StreamTaskService {
     private readonly conversationService: ConversationService,
     private readonly conversationTraceService: ConversationTraceService,
     private readonly conversationSummaryService: ConversationSummaryService,
+    private readonly conversationTitleService: ConversationTitleService,
     private readonly registry: StreamTaskRegistry,
     private readonly snapshotService: StreamTaskSnapshotService,
   ) {
@@ -880,6 +882,11 @@ export class StreamTaskService {
       throw new Error('Missing chat task payload');
     }
 
+    // 新会话首轮：与主回答并行生成 AI 标题（非首轮由服务内部判定直接跳过），
+    // 生成后通过本任务的 SSE 流下发 conversation.title.updated，前端在回答
+    // 流式输出期间即可更新标题；失败静默保留创建时的截断兜底。
+    void this.publishConversationTitle(task);
+
     // HITL：存在待处理的人工审批决定 → 走恢复路径（Command 续跑）；否则首轮执行。
     const approvalDecision = await this.readPendingApprovalDecision(task.id);
     const agentRun = approvalDecision
@@ -1165,6 +1172,49 @@ export class StreamTaskService {
     void this.refreshConversationSummary(task.conversationId);
   }
 
+  /**
+   * 生成并下发新会话标题
+   * @param task 聊天任务上下文
+   * @returns 无返回值
+   * @description 委托标题服务判定首轮并生成落库；成功后把标题作为语义事件写入
+   * 本任务的事件流（入库 + Redis 帧，断线重放可达）。任何失败只打日志，不影响主链路。
+   */
+  private async publishConversationTitle(task: {
+    id: string;
+    streamId: string;
+    conversationId: string;
+    messageId: string;
+  }) {
+    try {
+      const title =
+        await this.conversationTitleService.generateTitleIfFirstTurn(
+          task.conversationId,
+        );
+      if (!title) {
+        return;
+      }
+
+      const titleEvent = await this.persistEvent(
+        task.id,
+        task.streamId,
+        StreamTaskEventType.ConversationTitleUpdated,
+        this.serializeTaskEventData({
+          type: StreamTaskEventType.ConversationTitleUpdated,
+          taskId: task.id,
+          streamId: task.streamId,
+          conversationId: task.conversationId,
+          messageId: task.messageId,
+          status: StreamTaskStatus.STREAMING.toLowerCase(),
+          payload: { conversationId: task.conversationId, title },
+        }),
+      );
+      this.registry.publish(task.id, titleEvent.sseEvent);
+    } catch (error) {
+      this.logger.warn(
+        `Publish conversation title failed: ${(error as Error).message}`,
+      );
+    }
+  }
 
   /**
    * 处理工具调用增量事件

@@ -31,6 +31,7 @@ export default function ChatPage() {
     setCurrentConversation,
     ensureDraftConversation,
     replaceConversationId,
+    updateConversationTitle,
     addMessage,
     updateMessageContent,
     updateMessageMetrics,
@@ -116,6 +117,11 @@ export default function ChatPage() {
         },
         onStatus: recordStreamEvent,
         onToolCall: recordStreamEvent,
+        // 首轮回答流式输出期间收到 AI 生成的会话标题，实时替换截断兜底标题
+        onConversationTitle: (title, realConversationId) => {
+          updateConversationTitle(realConversationId, title);
+          persistConversations();
+        },
         onApprovalRequired: (event) => {
           recordStreamEvent(event);
           setMessageApproval(

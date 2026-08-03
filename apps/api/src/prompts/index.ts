@@ -8,6 +8,9 @@ export const conversationSummaryFullPrompt = readPromptMarkdown(
 export const conversationSummaryIncrementalPrompt = readPromptMarkdown(
   'conversation-summary-incremental.md',
 );
+export const conversationTitlePrompt = readPromptMarkdown(
+  'conversation-title.md',
+);
 
 function readPromptMarkdown(filename: string) {
   // 覆盖两种运行形态：

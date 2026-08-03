@@ -47,6 +47,8 @@ export enum StreamTaskEventType {
   TaskCanceled = 'task.canceled',
   /** 需要人工审批（P5 HITL 预留） */
   ApprovalRequired = 'approval.required',
+  /** 会话标题已生成（新会话首轮与主回答并行生成后下发） */
+  ConversationTitleUpdated = 'conversation.title.updated',
 }
 
 /** 终态事件集合 */
@@ -94,6 +96,7 @@ export const STREAM_TASK_EVENT_LABELS: Record<StreamTaskEventType, string> = {
   [StreamTaskEventType.TaskExpired]: '任务已过期',
   [StreamTaskEventType.TaskCanceled]: '任务已取消',
   [StreamTaskEventType.ApprovalRequired]: '待人工确认',
+  [StreamTaskEventType.ConversationTitleUpdated]: '已生成会话标题',
 };
 
 /**
@@ -164,6 +167,18 @@ export function getTaskErrorCategoryLabel(
     ? (TASK_ERROR_CATEGORY_LABELS[category] ??
         TASK_ERROR_CATEGORY_LABELS.unknown)
     : TASK_ERROR_CATEGORY_LABELS.unknown;
+}
+
+/**
+ * conversation.title.updated 事件载荷
+ * @description 新会话首轮时后端与主回答并行生成 AI 标题，生成后通过当前任务的
+ * SSE 流下发，前端可在回答流式输出期间就更新会话标题展示。
+ */
+export interface ConversationTitleUpdatedPayload {
+  /** 会话 id */
+  conversationId: string;
+  /** 生成的标题 */
+  title: string;
 }
 
 /** 人工审批决定类型（P5 HITL） */

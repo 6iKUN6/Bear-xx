@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, PanelRightClose, PanelRightOpen, Send, Square, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -48,6 +49,7 @@ const NON_TIMELINE = new Set<string>([
 ]);
 
 export function AgentTestPage() {
+  const queryClient = useQueryClient();
   const { data: agents } = useAgents();
   const { data: models } = useModelPresets();
   const { data: sessions, isLoading: sessionsLoading } = useTestSessions();
@@ -147,6 +149,16 @@ export function AgentTestPage() {
           ),
         );
       }
+      return;
+    }
+    if (eventName === StreamTaskEventType.ConversationTitleUpdated) {
+      // AI 标题已生成：刷新侧边栏会话列表即可看到新标题
+      void queryClient.invalidateQueries({ queryKey: ["testSessions"] });
+      pushEvent({
+        label: getStreamTaskEventLabel(StreamTaskEventType.ConversationTitleUpdated),
+        detail: (payload.title as string) || undefined,
+        tone: "success",
+      });
       return;
     }
     if (NON_TIMELINE.has(eventName)) return;

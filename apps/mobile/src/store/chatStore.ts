@@ -15,6 +15,7 @@ interface ChatState {
   setCurrentConversation: (id: string) => void;
   ensureDraftConversation: () => string;
   replaceConversationId: (draftId: string, conversationId: string) => void;
+  updateConversationTitle: (conversationId: string, title: string) => void;
 
   addMessage: (msg: Message) => void;
   updateMessageContent: (msgId: string, content: string) => void;
@@ -107,6 +108,20 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
       const currentConversation =
         state.currentConversation?.id === draftId
           ? { ...state.currentConversation, id: conversationId }
+          : state.currentConversation;
+
+      return { conversations, currentConversation };
+    });
+  },
+
+  updateConversationTitle(conversationId: string, title: string) {
+    set((state) => {
+      const conversations = state.conversations.map((c) =>
+        c.id === conversationId ? { ...c, title } : c,
+      );
+      const currentConversation =
+        state.currentConversation?.id === conversationId
+          ? { ...state.currentConversation, title }
           : state.currentConversation;
 
       return { conversations, currentConversation };

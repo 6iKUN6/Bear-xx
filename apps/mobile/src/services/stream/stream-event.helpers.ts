@@ -70,6 +70,17 @@ export function dispatchStreamTaskEvent(
     return;
   }
 
+  if (event.type === StreamTaskEventType.ConversationTitleUpdated) {
+    const payload = event.data.payload as
+      | { conversationId?: string; title?: string }
+      | undefined;
+    const conversationId = payload?.conversationId || event.data.conversationId;
+    if (payload?.title && conversationId) {
+      lifecycle.onConversationTitle?.(payload.title, conversationId, event);
+    }
+    return;
+  }
+
   if (TOOL_STREAM_TASK_EVENT_TYPES.has(event.type as StreamTaskEventType)) {
     lifecycle.onToolCall?.(event);
   }
