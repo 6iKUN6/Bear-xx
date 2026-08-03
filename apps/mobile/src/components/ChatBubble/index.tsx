@@ -6,6 +6,8 @@ import StreamFeedback from "../StreamFeedback";
 import ApprovalCard from "../ApprovalCard";
 import StreamingMarkdownContent from "../StreamingMarkdownContent";
 import { useUserStore } from "../../store/userStore";
+import { useAgentStore } from "../../store/agentStore";
+import { agentAvatarSrc, FALLBACK_AGENT_NAME } from "../../utils/agent";
 import {
   appGradientSurfaceClass,
   appIconTileClass,
@@ -50,9 +52,16 @@ function ChatBubble({
   onApproval,
 }: ChatBubbleProps) {
   const userInfo = useUserStore((state) => state.userInfo);
+  const agents = useAgentStore((state) => state.agents);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
-  const displayName = isUser ? userInfo?.nickname || "用户" : "Litter Bear";
+  // 群聊归属：assistant 名字/头像跟随发言智能体；取不到回退默认助手
+  const speakerAgent = !isUser
+    ? agents.find((agent) => agent.id === message.agentId)
+    : undefined;
+  const displayName = isUser
+    ? userInfo?.nickname || "用户"
+    : message.agentName || speakerAgent?.name || FALLBACK_AGENT_NAME;
   const extra = renderExtra ? (
     renderExtra({ message, isUser, isStreaming })
   ) : (
@@ -63,24 +72,24 @@ function ChatBubble({
   );
 
   return (
-    <View className="mb-[1.25rem] flex w-full min-w-0 items-start gap-[0.75rem] px-[1rem] box-border">
+    <View className='mb-[1.25rem] flex w-full min-w-0 items-start gap-[0.75rem] px-[1rem] box-border'>
       <BubbleAvatar
         isUser={isUser}
-        avatarUrl={userInfo?.avatarUrl}
+        avatarUrl={isUser ? userInfo?.avatarUrl : agentAvatarSrc(speakerAgent?.avatar)}
         name={displayName}
       />
 
-      <View className="flex min-w-0 flex-1 flex-col items-stretch">
-        <View className="flex min-w-0 items-center gap-[0.5rem]">
-          <Text className="block min-w-0 max-w-full flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]">
+      <View className='flex min-w-0 flex-1 flex-col items-stretch'>
+        <View className='flex min-w-0 items-center gap-[0.5rem]'>
+          <Text className='block min-w-0 max-w-full flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
             {displayName}
           </Text>
-          <Text className="shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)]">
+          <Text className='shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)]'>
             {formatTime(message.createdAt)}
           </Text>
         </View>
 
-        {!isUser && <View className="mt-[0.5rem] min-w-0">{extra}</View>}
+        {!isUser && <View className='mt-[0.5rem] min-w-0'>{extra}</View>}
 
         <View className={bubbleBodyClass(isUser)}>
           <StreamingMarkdownContent
@@ -88,13 +97,13 @@ function ChatBubble({
             emptyText={
               message.status === "streaming" ? "正在组织回复..." : undefined
             }
-            className="text-[var(--lb-text-primary)]"
+            className='text-[var(--lb-text-primary)]'
             streaming={!isUser && isStreaming}
           />
         </View>
 
         {!isUser && message.pendingApproval && (
-          <View className="mt-[0.5rem] min-w-0">
+          <View className='mt-[0.5rem] min-w-0'>
             <ApprovalCard
               payload={message.pendingApproval}
               onDecision={(decision) => onApproval?.(message.id, decision)}
@@ -105,7 +114,7 @@ function ChatBubble({
         {!isUser && <MessageMetricsMeta message={message} />}
 
         {message.status === "error" && (
-          <Text className="mt-[0.375rem] block px-[0.375rem] text-[0.75rem] text-[var(--lb-danger)]">
+          <Text className='mt-[0.375rem] block px-[0.375rem] text-[0.75rem] text-[var(--lb-danger)]'>
             发送失败
           </Text>
         )}
@@ -123,12 +132,12 @@ function BubbleAvatar({
   avatarUrl?: string;
   name: string;
 }) {
-  if (isUser && avatarUrl) {
+  if (avatarUrl) {
     return (
       <Image
-        className="h-[2.5rem] w-[2.5rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] box-border"
+        className='h-[2.5rem] w-[2.5rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] box-border'
         src={avatarUrl}
-        mode="aspectFill"
+        mode='aspectFill'
       />
     );
   }
@@ -138,7 +147,7 @@ function BubbleAvatar({
       <View
         className={`${appGradientSurfaceClass} flex h-[2.5rem] w-[2.5rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-md)] text-[1rem] font-bold`}
       >
-        <Text className="leading-none text-[var(--lb-on-accent)]">
+        <Text className='leading-none text-[var(--lb-on-accent)]'>
           {readInitial(name)}
         </Text>
       </View>
@@ -149,7 +158,7 @@ function BubbleAvatar({
     <View
       className={`${appIconTileClass} h-[2.5rem] w-[2.5rem] shrink-0 text-[1.125rem]`}
     >
-      <Text className="leading-none">🐻</Text>
+      <Text className='leading-none'>🐻</Text>
     </View>
   );
 }
@@ -183,17 +192,17 @@ function MessageMetricsMeta({ message }: { message: Message }) {
   }
 
   return (
-    <View className="mt-[0.375rem] flex min-w-0 flex-wrap items-center gap-x-[0.625rem] gap-y-[0.25rem] px-[0.125rem] text-[0.6875rem] leading-[1.4] text-[var(--lb-text-muted)]">
+    <View className='mt-[0.375rem] flex min-w-0 flex-wrap items-center gap-x-[0.625rem] gap-y-[0.25rem] px-[0.125rem] text-[0.6875rem] leading-[1.4] text-[var(--lb-text-muted)]'>
       {totalTokens ? (
         <MetricPill
-          icon="T"
+          icon='T'
           text={`${formatCompactNumber(totalTokens)} tokens${tokenUsage?.estimated ? " 估算" : ""}`}
         />
       ) : null}
 
       {cacheHit ? (
         <MetricPill
-          icon="C"
+          icon='C'
           text={
             cachedTokens
               ? `缓存命中 ${formatCompactNumber(cachedTokens)}`
@@ -203,7 +212,7 @@ function MessageMetricsMeta({ message }: { message: Message }) {
       ) : null}
 
       {durationMs ? (
-        <MetricPill icon="S" text={`${formatDuration(durationMs)}`} />
+        <MetricPill icon='S' text={`${formatDuration(durationMs)}`} />
       ) : null}
     </View>
   );
@@ -211,11 +220,11 @@ function MessageMetricsMeta({ message }: { message: Message }) {
 
 function MetricPill({ icon, text }: { icon: string; text: string }) {
   return (
-    <View className="flex min-w-0 items-center gap-[0.25rem]">
-      <Text className="flex h-[0.875rem] w-[0.875rem] shrink-0 items-center justify-center rounded-full bg-[var(--lb-surface-hover)] text-[0.5625rem] font-semibold leading-none text-[var(--lb-text-muted)]">
+    <View className='flex min-w-0 items-center gap-[0.25rem]'>
+      <Text className='flex h-[0.875rem] w-[0.875rem] shrink-0 items-center justify-center rounded-full bg-[var(--lb-surface-hover)] text-[0.5625rem] font-semibold leading-none text-[var(--lb-text-muted)]'>
         {icon}
       </Text>
-      <Text className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+      <Text className='min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'>
         {text}
       </Text>
     </View>
@@ -283,9 +292,9 @@ function DefaultBubbleExtraSlot({
 
 function WaitingStreamFeedback() {
   return (
-    <View className="chat-bubble-waiting-feedback">
-      <View className="chat-bubble-waiting-shimmer" />
-      <View className="relative z-[2] flex items-center gap-[0.375rem]">
+    <View className='chat-bubble-waiting-feedback'>
+      <View className='chat-bubble-waiting-shimmer' />
+      <View className='relative z-[2] flex items-center gap-[0.375rem]'>
         <View className={`${appLoadingDotClass} bg-[var(--lb-info)]`} />
         <View
           className={`${appLoadingDotClass} bg-[var(--lb-accent)] [animation-delay:120ms]`}
@@ -294,7 +303,7 @@ function WaitingStreamFeedback() {
           className={`${appLoadingDotClass} bg-[var(--lb-success)] [animation-delay:240ms]`}
         />
       </View>
-      <Text className="relative z-[2] ml-[0.25rem] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]">
+      <Text className='relative z-[2] ml-[0.25rem] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]'>
         正在连接对话服务
       </Text>
     </View>

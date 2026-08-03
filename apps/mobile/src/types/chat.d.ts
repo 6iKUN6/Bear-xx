@@ -62,6 +62,10 @@ interface Message {
   content: string;
   status: MessageStatus;
   createdAt: number;
+  /** 发言智能体 id；null/缺省 = 用户消息或默认助手 */
+  agentId?: string | null;
+  /** 发言智能体名称（群聊气泡展示用） */
+  agentName?: string | null;
   metrics?: MessageRunMetrics | null;
   trace?: MessageTraceItem[];
   streamFeedback?: MessageStreamFeedbackState;
@@ -73,6 +77,8 @@ interface Message {
 interface Conversation {
   id: string;
   title: string;
+  /** 群成员：会话中出现过的智能体 id 列表；空/缺省 = 单助手会话 */
+  agentIds?: string[];
   messages: Message[];
   createdAt: number;
   updatedAt: number;

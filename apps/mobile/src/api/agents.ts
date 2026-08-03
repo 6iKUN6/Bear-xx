@@ -5,6 +5,8 @@ export interface AgentSummary {
   id: string;
   name: string;
   description: string;
+  /** 头像 URL；null = 用内置默认头像 */
+  avatar: string | null;
   enabled: boolean;
   isDefault: boolean;
 }

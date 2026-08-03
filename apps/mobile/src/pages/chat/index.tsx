@@ -9,9 +9,9 @@ import MessageList from "../../components/MessageList";
 import ChatInput from "../../components/ChatInput";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
-import AgentSwitcher from "../../components/AgentSwitcher";
 import { useChatStore } from "../../store/chatStore";
 import { useAgentStore } from "../../store/agentStore";
+import { resolveAgentName } from "../../utils/agent";
 import { useChatStream } from "../../hooks/useChatStream";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import type { StreamTaskEvent } from "../../services/stream";
@@ -68,7 +68,7 @@ export default function ChatPage() {
     };
   }, [abort, persistConversations, updateMessageStatus]);
 
-  const handleSend = (content: string) => {
+  const handleSend = (content: string, agentId?: string) => {
     const localConversationId =
       currentConversation?.id || ensureDraftConversation();
     const requestConversationId = localConversationId.startsWith("draft_")
@@ -91,6 +91,9 @@ export default function ChatPage() {
       content: "",
       status: "streaming",
       createdAt: Date.now(),
+      // 群聊归属：占位消息即带上发言者，流式期间气泡就能显示正确头像/名字
+      agentId: agentId ?? null,
+      agentName: resolveAgentName(useAgentStore.getState().agents, agentId),
     };
     addMessage(aiMsg);
     activeAssistantMessageIdRef.current = aiMsgId;
@@ -106,7 +109,7 @@ export default function ChatPage() {
       {
         conversationId: requestConversationId,
         content,
-        agentId: useAgentStore.getState().selectedAgentId ?? undefined,
+        agentId,
       },
       {
         onTaskCreated: ({ conversationId: realConversationId }, event) => {
@@ -179,13 +182,13 @@ export default function ChatPage() {
   return (
     <PageShell>
       <NavBar
-        title={<AgentSwitcher />}
+        title={currentConversation?.title || "AI 助手"}
         showBack
-        capsule="hidden"
-        barClassName="px-[0.5rem]"
+        capsule='hidden'
+        barClassName='px-[0.5rem]'
       />
 
-      <View className="flex min-h-0 flex-1 flex-col">
+      <View className='flex min-h-0 flex-1 flex-col'>
         <MessageList
           messages={messages}
           isStreaming={!!isStreaming}
