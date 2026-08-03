@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useState,
+} from "react";
 import { Image, View, Text, Textarea } from "@tarojs/components";
 import IconButton from "../IconButton";
 import VoiceButton from "../VoiceButton";
@@ -7,6 +12,11 @@ import { useAgentStore } from "../../store/agentStore";
 import { agentAvatarSrc, findAgent, resolveAgentName } from "../../utils/agent";
 import { appSoftInputClass, safeAreaBottom } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
+
+/** 供外部（成员条等）触发一次性 @ 提及 */
+export interface ChatInputHandle {
+  insertMention: (agent: AgentSummary) => void;
+}
 
 interface ChatInputProps {
   /** agentId：本条消息的回答者；undefined = 后端默认智能体 */
@@ -27,13 +37,10 @@ interface MentionTarget {
 const iconClassName =
   "inline-flex items-center justify-center text-[1.25rem] leading-none [&::before]:block";
 
-export default function ChatInput({
-  onSend,
-  onStop,
-  onRecordComplete,
-  isStreaming = false,
-  disabled = false,
-}: ChatInputProps) {
+export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
+  { onSend, onStop, onRecordComplete, isStreaming = false, disabled = false },
+  ref,
+) {
   const [value, setValue] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "voice">("text");
   /** 弹层模式：switch = 切换当前智能体（粘性）；mention = @ 指定本条回答者 */
@@ -83,18 +90,22 @@ export default function ChatInput({
     setValue(next);
   };
 
+  /** 设置一次性提及：补全/追加 @名字 文本并记录目标（成员条快捷 @ 也走这里） */
+  const applyMention = (agent: AgentSummary) => {
+    setInputMode("text");
+    setValue((prev) =>
+      prev.endsWith("@") ? `${prev}${agent.name} ` : `${prev}@${agent.name} `,
+    );
+    setMention({ agentId: agent.isDefault ? null : agent.id, name: agent.name });
+  };
+
+  useImperativeHandle(ref, () => ({ insertMention: applyMention }));
+
   const handleSheetSelect = (agent: AgentSummary) => {
-    const agentId = agent.isDefault ? null : agent.id;
     if (sheetMode === "switch") {
-      setSelectedAgent(agentId);
+      setSelectedAgent(agent.isDefault ? null : agent.id);
     } else if (sheetMode === "mention") {
-      // 把触发用的 @ 补全成 @名字；非 @ 呼出的入口则直接追加
-      setValue((prev) =>
-        prev.endsWith("@")
-          ? `${prev}${agent.name} `
-          : `${prev}@${agent.name} `,
-      );
-      setMention({ agentId, name: agent.name });
+      applyMention(agent);
     }
     setSheetMode(null);
   };
@@ -264,4 +275,4 @@ export default function ChatInput({
       ) : null}
     </View>
   );
-}
+});

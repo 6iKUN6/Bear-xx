@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { View } from "@tarojs/components";
 import { useRouter, useDidHide } from "@tarojs/taro";
 import type {
@@ -7,6 +7,8 @@ import type {
 } from "@litter-bear/types/protocol";
 import MessageList from "../../components/MessageList";
 import ChatInput from "../../components/ChatInput";
+import type { ChatInputHandle } from "../../components/ChatInput";
+import MemberBar from "../../components/MemberBar";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
 import { useChatStore } from "../../store/chatStore";
@@ -43,6 +45,20 @@ export default function ChatPage() {
   } = useChatStore();
 
   const activeAssistantMessageIdRef = useRef<string | null>(null);
+  const chatInputRef = useRef<ChatInputHandle | null>(null);
+  const agents = useAgentStore((state) => state.agents);
+
+  // 群成员 = 会话 agentIds ∪ 历史消息中出现过的发言者（本地即时补充，
+  // 不用等服务端会话重新拉取），再映射到已加载的智能体列表
+  const memberAgents = useMemo(() => {
+    const ids = new Set(currentConversation?.agentIds ?? []);
+    currentConversation?.messages.forEach((m) => {
+      if (m.role === "assistant" && m.agentId) {
+        ids.add(m.agentId);
+      }
+    });
+    return agents.filter((agent) => ids.has(agent.id));
+  }, [currentConversation, agents]);
   const isStreaming = currentConversation?.messages.some(
     (m) => m.status === "streaming",
   );
@@ -188,6 +204,11 @@ export default function ChatPage() {
         barClassName='px-[0.5rem]'
       />
 
+      <MemberBar
+        members={memberAgents}
+        onMention={(agent) => chatInputRef.current?.insertMention(agent)}
+      />
+
       <View className='flex min-h-0 flex-1 flex-col'>
         <MessageList
           messages={messages}
@@ -198,6 +219,7 @@ export default function ChatPage() {
       </View>
 
       <ChatInput
+        ref={chatInputRef}
         onSend={handleSend}
         onStop={() => {
           if (activeAssistantMessageIdRef.current) {
