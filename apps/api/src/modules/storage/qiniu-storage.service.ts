@@ -164,10 +164,21 @@ export class QiniuStorageService {
       accessKey,
       secretKey,
       bucket,
-      domain: rawDomain.replace(/\/+$/, ''),
+      domain: this.normalizeDomain(rawDomain),
       isPrivate:
         this.configService.get<string>('QINIU_BUCKET_PRIVATE') === 'true',
     };
+  }
+
+  /**
+   * 归一化访问域名
+   * @description env 里少写协议头时自动补 http://（七牛测试域名仅支持 HTTP）。
+   * 无协议的裸域名拼进 <img src> 会被浏览器当相对路径解析，产生
+   * localhost/页面路由 前缀的坏 URL。正式 CDN 域名建议显式写 https://。
+   */
+  private normalizeDomain(rawDomain: string): string {
+    const trimmed = rawDomain.trim().replace(/\/+$/, '');
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
   }
 
   /** 防路径注入：key 不允许出现相对路径与协议片段 */

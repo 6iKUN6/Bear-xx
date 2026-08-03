@@ -84,6 +84,16 @@ describe('QiniuStorageService', () => {
     );
   });
 
+  it('域名缺少协议头时自动补 http://，不产生相对路径 URL', () => {
+    const service = createService({
+      QINIU_BUCKET_DOMAIN: 'tj6l5fk2g.hn-bkt.clouddn.com/',
+    });
+    const url = service.resolveAccessUrl('image/202608/u1/abc.jpg');
+    expect(url).toBe(
+      'http://tj6l5fk2g.hn-bkt.clouddn.com/image/202608/u1/abc.jpg',
+    );
+  });
+
   it('配置缺失时抛出可操作的 503 而非静默失败', () => {
     const service = createService({ QINIU_ACCESS_KEY: undefined });
     expect(() =>
