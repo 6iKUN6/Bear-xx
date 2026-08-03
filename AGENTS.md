@@ -197,6 +197,7 @@ node apps/api/scripts/debug-{tool-call,agent,hitl,planner,router}.cjs
 
 用户需本地补跑：
 - ...
+(在需要用户补跑数据库迁移命令`db:migrate`时，需要附带上本次迁移的`migration name`)
 ```
 
 不冗长解释，不复述无关过程，不编造已执行的命令。
