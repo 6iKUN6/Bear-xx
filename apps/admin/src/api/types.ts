@@ -107,6 +107,28 @@ export interface TestSessionDetail {
   messages: TestSessionMessage[];
 }
 
+// ---- 对象存储 ----
+
+export interface UploadCredential {
+  token: string;
+  key: string;
+  uploadUrl: string;
+  accessUrl: string;
+  expiresAt: number;
+}
+
+export interface StorageAsset {
+  id: string;
+  key: string;
+  url: string;
+  kind: "IMAGE" | "AUDIO";
+  usage: string;
+  mimeType: string | null;
+  size: number | null;
+  status: "ACTIVE" | "BROKEN" | "DELETED";
+  createdAt: number;
+}
+
 // ---- Agent CRUD ----
 
 /** 能力闭集：工具组 → 工具（来自 GET /admin/capabilities） */

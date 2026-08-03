@@ -16,6 +16,7 @@ import { LlmModule } from './modules/llm/llm.module';
 import { AgentModule } from './modules/agent/agent.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { StreamTaskModule } from './modules/stream-task/stream-task.module';
+import { StorageModule } from './modules/storage/storage.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
@@ -40,6 +41,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     ConversationModule,
     ChatModule,
     StreamTaskModule,
+    StorageModule,
     HealthModule,
   ],
   providers: [

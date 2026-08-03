@@ -18,6 +18,7 @@ import {
   getToolUsage,
   listAgents,
   getAgentCapabilities,
+  listAssets,
   listModelPresets,
   listTestSessions,
   updateAgent,
@@ -55,6 +56,14 @@ export const useTaskDetail = (id: string | null) =>
 
 export const useAgents = () =>
   useQuery({ queryKey: ["agents"], queryFn: listAgents });
+
+/** 头像资产列表（复用选择器打开时才拉取） */
+export const useAvatarAssets = (enabled: boolean) =>
+  useQuery({
+    queryKey: ["storageAssets", "agent-avatar"],
+    queryFn: () => listAssets({ usage: "agent-avatar" }),
+    enabled,
+  });
 
 /** 能力闭集（工具组/工具）；注册表是静态闭集，长缓存 */
 export const useAgentCapabilities = () =>

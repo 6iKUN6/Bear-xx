@@ -25,8 +25,47 @@ model User {
   streamTasks       StreamTask[]
   turnTraceItems    ConversationTurnTraceItem[]
   createdAgents     Agent[]
+  storageAssets     StorageAsset[]
 
   @@map("users")
+}
+
+/// 对象存储资源登记：一处上传、多处复用；失效走软标记而非物理删行
+/// （历史消息/Agent 可能仍引用，删行会失去溯源）。key 为唯一事实源，
+/// 访问 URL 由域名 + key 运行时拼出，换 CDN 域名/存储商不用刷库。
+model StorageAsset {
+  id           String             @id @default(cuid())
+  /// 对象 key：image/202608/{userId}/{uuid}.png
+  key          String             @unique
+  kind         StorageAssetKind
+  /// 业务用途标签：agent-avatar / chat-image / voice-input ...
+  usage        String             @default("")
+  mimeType     String?            @map("mime_type")
+  /// 字节数（客户端上报，用于展示与统计）
+  size         Int?
+  status       StorageAssetStatus @default(ACTIVE)
+  uploadedById String?            @map("uploaded_by_id")
+  uploadedBy   User?              @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  @@index([usage, status, createdAt])
+  @@index([uploadedById])
+  @@map("storage_assets")
+}
+
+enum StorageAssetKind {
+  IMAGE
+  AUDIO
+}
+
+enum StorageAssetStatus {
+  /// 可用
+  ACTIVE
+  /// 远端已失效（被清理/审核下架/404），系统标记
+  BROKEN
+  /// 用户主动删除（逻辑删）
+  DELETED
 }
 
 /// 数据化的智能体定义：把原本写死的 system prompt / 工具组 / 执行策略变成可管理的一等实体。

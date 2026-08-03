@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import defaultAgentAvatar from "@litter-bear/assets/agents/default-avatar.png";
 import {
@@ -20,8 +20,10 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import {
   useAgentCapabilities,
   useAgentMutations,
+  useAvatarAssets,
   useModelPresets,
 } from "@/hooks/queries";
+import { uploadAgentAvatar } from "@/api/upload";
 import { ApiError } from "@/api/client";
 import type { Agent, AgentInput, AgentStrategy } from "@/api/types";
 import {
@@ -52,9 +54,15 @@ export function AgentFormSheet({
   const { data: capabilities } = useAgentCapabilities();
   const [form, setForm] = useState<AgentInput>({ name: "" });
   const [skillsText, setSkillsText] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { data: avatarAssets, isLoading: assetsLoading } =
+    useAvatarAssets(pickerOpen);
 
   useEffect(() => {
     if (!open) return;
+    setPickerOpen(false);
     if (agent) {
       setForm({
         name: agent.name,
@@ -93,6 +101,21 @@ export function AgentFormSheet({
         ? allowedStrategies.filter((s) => s !== strategy)
         : [...allowedStrategies, strategy],
     });
+  };
+
+  const handleAvatarFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { url } = await uploadAgentAvatar(file);
+      setForm((prev) => ({ ...prev, avatar: url }));
+      toast.success("头像已上传");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "上传失败，请重试");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleSubmit = async () => {
@@ -146,7 +169,7 @@ export function AgentFormSheet({
               }
             />
           </Field>
-          <Field label="头像 URL（留空用默认头像）">
+          <Field label="头像（可上传 ≤2MB 图片，或复用已上传，留空用默认）">
             <div className="flex items-center gap-3">
               <img
                 src={form.avatar?.trim() || defaultAgentAvatar}
@@ -162,7 +185,71 @@ export function AgentFormSheet({
                 onChange={(e) => setForm({ ...form, avatar: e.target.value })}
                 placeholder="https://example.com/avatar.png"
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void handleAvatarFile(e.target.files?.[0])}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? "上传中…" : "上传"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPickerOpen((o) => !o)}
+              >
+                已上传
+              </Button>
             </div>
+            {pickerOpen ? (
+              <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-border bg-popover p-2">
+                {assetsLoading ? (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">
+                    加载中…
+                  </p>
+                ) : (avatarAssets ?? []).length === 0 ? (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">
+                    还没有已上传的头像
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-6 gap-2">
+                    {(avatarAssets ?? []).map((asset) => (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        title={asset.key}
+                        onClick={() => {
+                          setForm((prev) => ({ ...prev, avatar: asset.url }));
+                          setPickerOpen(false);
+                        }}
+                        className={cn(
+                          "overflow-hidden rounded-md border p-0 transition-colors",
+                          form.avatar === asset.url
+                            ? "border-primary ring-1 ring-primary"
+                            : "border-border hover:border-primary/50",
+                        )}
+                      >
+                        <img
+                          src={asset.url}
+                          alt=""
+                          className="aspect-square w-full object-cover"
+                          loading="lazy"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </Field>
           <Field label="系统提示词（留空用内置默认）">
             <Textarea

@@ -2,6 +2,8 @@ import { request } from "./client";
 import type {
   Agent,
   AgentCapabilities,
+  StorageAsset,
+  UploadCredential,
   AgentInput,
   AgentUsage,
   AuthResponse,
@@ -50,6 +52,23 @@ export const getRecentTasks = (params: {
 
 export const getTaskDetail = (id: string) =>
   request<TaskDetail>(`/admin/observability/tasks/${id}`);
+
+// ---- 对象存储 ----
+export const getUploadCredential = (body: {
+  type: "image" | "audio";
+  ext: string;
+  usage?: string;
+}) => request<UploadCredential>("/storage/upload-credential", { method: "POST", body });
+
+export const registerAsset = (body: {
+  key: string;
+  usage?: string;
+  size?: number;
+  mimeType?: string;
+}) => request<StorageAsset>("/storage/assets", { method: "POST", body });
+
+export const listAssets = (query: { usage?: string; limit?: number }) =>
+  request<StorageAsset[]>("/storage/assets", { query });
 
 // ---- Agent CRUD ----
 export const listAgents = () => request<Agent[]>("/agents");
