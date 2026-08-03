@@ -18,6 +18,8 @@ import { AgentFormSheet } from "@/components/agent-form-sheet";
 import { useAgents, useAgentMutations } from "@/hooks/queries";
 import { ApiError } from "@/api/client";
 import type { Agent } from "@/api/types";
+import { strategyName, toolGroupName } from "@/lib/agent-meta";
+import defaultAgentAvatar from "@litter-bear/assets/agents/default-avatar.png";
 
 export function AgentManagePage() {
   const { data, isLoading } = useAgents();
@@ -78,23 +80,40 @@ export function AgentManagePage() {
                 {rows.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell>
-                      <div className="flex items-center gap-2 font-medium">
-                        {a.name}
-                        {a.isDefault ? (
-                          <Badge variant="secondary">默认</Badge>
-                        ) : null}
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={a.avatar || defaultAgentAvatar}
+                          alt={a.name}
+                          className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              defaultAgentAvatar;
+                          }}
+                        />
+                        <div>
+                          <div className="flex items-center gap-2 font-medium">
+                            {a.name}
+                            {a.isDefault ? (
+                              <Badge variant="secondary">默认</Badge>
+                            ) : null}
+                          </div>
+                          {a.description ? (
+                            <p className="text-xs text-muted-foreground">
+                              {a.description}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
-                      {a.description ? (
-                        <p className="text-xs text-muted-foreground">
-                          {a.description}
-                        </p>
-                      ) : null}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{a.defaultStrategy}</Badge>
+                      <Badge variant="outline">
+                        {strategyName(a.defaultStrategy)}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {a.toolGroups.length ? a.toolGroups.join(", ") : "—"}
+                      {a.toolGroups.length
+                        ? a.toolGroups.map(toolGroupName).join("、")
+                        : "—"}
                     </TableCell>
                     <TableCell>
                       <Badge variant={a.enabled ? "success" : "secondary"}>

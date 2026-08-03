@@ -8,6 +8,10 @@ import type {
 
 /** 默认工具组：无显式能力要求时可用的基础工具集合 */
 export const DEFAULT_TOOL_GROUP = 'default';
+/** 天气工具组：仅天气查询 */
+export const WEATHER_TOOL_GROUP = 'weather';
+/** 搜索工具组：仅联网搜索 */
+export const SEARCH_TOOL_GROUP = 'search';
 
 /**
  * 能力注册表
@@ -25,11 +29,12 @@ export class CapabilityRegistry {
   constructor() {
     // P5a 演示：给 getWeather 开启人工审批，使"深圳天气"流程即可端到端验证 HITL。
     // 真实策略应按工具语义配置（只读工具免审批、写类/高风险工具需审批）。
-    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP], {
+    // 每个工具同时归入 default（全量）与语义组（细粒度），供 Agent.toolGroups 按需组合。
+    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP, WEATHER_TOOL_GROUP], {
       requiresApproval: true,
     });
     // 联网搜索为只读、低风险能力，免审批直接执行。
-    this.registerTool(webSearch, [DEFAULT_TOOL_GROUP]);
+    this.registerTool(webSearch, [DEFAULT_TOOL_GROUP, SEARCH_TOOL_GROUP]);
   }
 
   /**

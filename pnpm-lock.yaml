@@ -29,6 +29,9 @@ importers:
 
   apps/admin:
     dependencies:
+      '@litter-bear/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
       '@litter-bear/theme':
         specifier: workspace:*
         version: link:../../packages/theme
@@ -458,6 +461,8 @@ importers:
       weapp-tailwindcss:
         specifier: ^4.10.3
         version: 4.12.0(tailwindcss@4.3.2)
+
+  packages/assets: {}
 
   packages/theme:
     devDependencies:

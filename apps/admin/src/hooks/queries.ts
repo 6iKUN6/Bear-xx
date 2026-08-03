@@ -17,6 +17,7 @@ import {
   getTestSession,
   getToolUsage,
   listAgents,
+  getAgentCapabilities,
   listModelPresets,
   listTestSessions,
   updateAgent,
@@ -54,6 +55,14 @@ export const useTaskDetail = (id: string | null) =>
 
 export const useAgents = () =>
   useQuery({ queryKey: ["agents"], queryFn: listAgents });
+
+/** 能力闭集（工具组/工具）；注册表是静态闭集，长缓存 */
+export const useAgentCapabilities = () =>
+  useQuery({
+    queryKey: ["agentCapabilities"],
+    queryFn: getAgentCapabilities,
+    staleTime: 5 * 60 * 1000,
+  });
 
 export function useAgentMutations() {
   const qc = useQueryClient();

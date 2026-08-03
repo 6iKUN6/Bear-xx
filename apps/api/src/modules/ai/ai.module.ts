@@ -50,6 +50,7 @@ import { AiService } from './ai.service';
   ],
   exports: [
     AiService,
+    CapabilityRegistry,
     CommonChatAgentFactory,
     CommonChatAgentLoopService,
     CommonChatAgentService,

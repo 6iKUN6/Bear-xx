@@ -1,6 +1,7 @@
 import { request } from "./client";
 import type {
   Agent,
+  AgentCapabilities,
   AgentInput,
   AgentUsage,
   AuthResponse,
@@ -52,6 +53,9 @@ export const getTaskDetail = (id: string) =>
 
 // ---- Agent CRUD ----
 export const listAgents = () => request<Agent[]>("/agents");
+
+export const getAgentCapabilities = () =>
+  request<AgentCapabilities>("/admin/capabilities");
 
 export const createAgent = (body: AgentInput) =>
   request<Agent>("/agents", { method: "POST", body });

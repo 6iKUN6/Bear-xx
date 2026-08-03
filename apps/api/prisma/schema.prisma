@@ -35,6 +35,8 @@ model Agent {
   id                String          @id @default(cuid())
   name              String
   description       String          @default("")
+  /// 头像 URL；null = 客户端用内置默认头像
+  avatar            String?
   systemPrompt      String?         @map("system_prompt") @db.Text
   modelPreset       String?         @map("model_preset")
   defaultStrategy   AgentStrategy   @default(AUTO) @map("default_strategy")

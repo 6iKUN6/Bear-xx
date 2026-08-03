@@ -1,0 +1,12 @@
+{
+  "name": "@litter-bear/assets",
+  "version": "0.0.0",
+  "private": true,
+  "description": "前后端共享静态资产（头像、图标等），构建工具按子路径直接引用",
+  "exports": {
+    "./agents/*": "./agents/*"
+  },
+  "files": [
+    "agents"
+  ]
+}

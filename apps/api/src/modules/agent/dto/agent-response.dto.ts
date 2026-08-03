@@ -11,6 +11,12 @@ export class AgentResponseDto {
   @ApiProperty({ example: '默认对话助手' })
   description: string;
 
+  @ApiProperty({
+    nullable: true,
+    description: '头像 URL；null=客户端用内置默认头像',
+  })
+  avatar: string | null;
+
   @ApiProperty({ nullable: true, description: '系统提示词；null=用内置默认' })
   systemPrompt: string | null;
 

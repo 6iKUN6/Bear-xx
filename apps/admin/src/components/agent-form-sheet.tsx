@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import defaultAgentAvatar from "@litter-bear/assets/agents/default-avatar.png";
 import {
   Sheet,
   SheetContent,
@@ -15,17 +16,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAgentMutations, useModelPresets } from "@/hooks/queries";
+import { MultiSelect } from "@/components/ui/multi-select";
+import {
+  useAgentCapabilities,
+  useAgentMutations,
+  useModelPresets,
+} from "@/hooks/queries";
 import { ApiError } from "@/api/client";
 import type { Agent, AgentInput, AgentStrategy } from "@/api/types";
-
-const STRATEGIES: AgentStrategy[] = [
-  "AUTO",
-  "DIRECT",
-  "REACT",
-  "PLAN_EXECUTE",
-  "HYBRID",
-];
+import {
+  STRATEGY_OPTIONS,
+  TOOL_GROUP_META,
+  toolGroupName,
+} from "@/lib/agent-meta";
+import { cn } from "@/lib/utils";
 
 /** 逗号/空格分隔字符串 ↔ 数组 */
 const toList = (s: string) =>
@@ -45,8 +49,8 @@ export function AgentFormSheet({
 }) {
   const { create, update } = useAgentMutations();
   const { data: modelPresets } = useModelPresets();
+  const { data: capabilities } = useAgentCapabilities();
   const [form, setForm] = useState<AgentInput>({ name: "" });
-  const [toolGroupsText, setToolGroupsText] = useState("");
   const [skillsText, setSkillsText] = useState("");
 
   useEffect(() => {
@@ -55,23 +59,41 @@ export function AgentFormSheet({
       setForm({
         name: agent.name,
         description: agent.description,
+        avatar: agent.avatar ?? "",
         systemPrompt: agent.systemPrompt ?? "",
         modelPreset: agent.modelPreset ?? "",
         defaultStrategy: agent.defaultStrategy,
         allowedStrategies: agent.allowedStrategies,
+        toolGroups: agent.toolGroups,
         maxSteps: agent.maxSteps,
         enabled: agent.enabled,
       });
-      setToolGroupsText(agent.toolGroups.join(", "));
       setSkillsText(agent.skills.join(", "));
     } else {
-      setForm({ name: "", defaultStrategy: "AUTO", enabled: true });
-      setToolGroupsText("");
+      setForm({
+        name: "",
+        defaultStrategy: "AUTO",
+        allowedStrategies: [],
+        toolGroups: [],
+        enabled: true,
+      });
       setSkillsText("");
     }
   }, [agent, open]);
 
   const submitting = create.isPending || update.isPending;
+  const toolGroups = capabilities?.toolGroups ?? [];
+  const selectedGroups = form.toolGroups ?? [];
+  const allowedStrategies = form.allowedStrategies ?? [];
+
+  const toggleAllowedStrategy = (strategy: AgentStrategy) => {
+    setForm({
+      ...form,
+      allowedStrategies: allowedStrategies.includes(strategy)
+        ? allowedStrategies.filter((s) => s !== strategy)
+        : [...allowedStrategies, strategy],
+    });
+  };
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
@@ -80,8 +102,8 @@ export function AgentFormSheet({
     }
     const payload: AgentInput = {
       ...form,
-      toolGroups: toList(toolGroupsText),
       skills: toList(skillsText),
+      avatar: form.avatar?.trim() || null,
       systemPrompt: form.systemPrompt?.trim() || null,
       modelPreset: form.modelPreset?.trim() || null,
     };
@@ -124,6 +146,24 @@ export function AgentFormSheet({
               }
             />
           </Field>
+          <Field label="头像 URL（留空用默认头像）">
+            <div className="flex items-center gap-3">
+              <img
+                src={form.avatar?.trim() || defaultAgentAvatar}
+                alt="头像预览"
+                className="h-10 w-10 shrink-0 rounded-full border border-border bg-muted object-cover"
+                onError={(e) => {
+                  // 外链失效时回退默认头像，避免碎图
+                  (e.target as HTMLImageElement).src = defaultAgentAvatar;
+                }}
+              />
+              <Input
+                value={form.avatar ?? ""}
+                onChange={(e) => setForm({ ...form, avatar: e.target.value })}
+                placeholder="https://example.com/avatar.png"
+              />
+            </div>
+          </Field>
           <Field label="系统提示词（留空用内置默认）">
             <Textarea
               value={form.systemPrompt ?? ""}
@@ -152,30 +192,74 @@ export function AgentFormSheet({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="默认策略">
+          <Field label="默认编排策略">
             <Select
               value={form.defaultStrategy ?? "AUTO"}
               onValueChange={(v) =>
                 setForm({ ...form, defaultStrategy: v as AgentStrategy })
               }
             >
-              <SelectTrigger>
+              <SelectTrigger className="h-auto min-h-9 py-1.5">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {STRATEGIES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
+                {STRATEGY_OPTIONS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    <div className="flex flex-col items-start gap-0.5 text-left">
+                      <span>{s.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {s.desc}
+                      </span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field label="工具组（逗号分隔，如 default）">
-            <Input
-              value={toolGroupsText}
-              onChange={(e) => setToolGroupsText(e.target.value)}
-              placeholder="default"
+          <Field label="允许的策略（全不选 = 不限制）">
+            <div className="flex flex-wrap gap-1.5">
+              {STRATEGY_OPTIONS.map((s) => {
+                const active = allowedStrategies.includes(s.value);
+                return (
+                  <button
+                    key={s.value}
+                    type="button"
+                    title={s.desc}
+                    onClick={() => toggleAllowedStrategy(s.value)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                    )}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <Field label="工具组（可多选；全不选 = 不启用工具）">
+            <MultiSelect
+              options={toolGroups.map((g) => ({
+                value: g.name,
+                label: toolGroupName(g.name),
+                description: [
+                  TOOL_GROUP_META[g.name]?.desc,
+                  g.tools.length
+                    ? `包含：${g.tools
+                        .map(
+                          (t) => t.name + (t.requiresApproval ? "·需审批" : ""),
+                        )
+                        .join("、")}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("；"),
+              }))}
+              value={selectedGroups}
+              onChange={(next) => setForm({ ...form, toolGroups: next })}
+              placeholder="选择该智能体可用的工具组"
             />
           </Field>
           <Field label="技能（逗号分隔）">

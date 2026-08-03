@@ -42,6 +42,7 @@ export class AgentService {
       data: {
         name: dto.name,
         description: dto.description ?? '',
+        avatar: dto.avatar?.trim() || null,
         systemPrompt: dto.systemPrompt ?? null,
         modelPreset: dto.modelPreset ?? null,
         defaultStrategy: dto.defaultStrategy ?? undefined,
@@ -64,6 +65,9 @@ export class AgentService {
       data: {
         name: dto.name,
         description: dto.description,
+        // undefined=不改；null/空串=清空回默认头像
+        avatar:
+          dto.avatar === undefined ? undefined : dto.avatar?.trim() || null,
         systemPrompt: dto.systemPrompt,
         modelPreset: dto.modelPreset,
         defaultStrategy: dto.defaultStrategy,
@@ -100,6 +104,7 @@ export class AgentService {
       id: agent.id,
       name: agent.name,
       description: agent.description,
+      avatar: agent.avatar,
       systemPrompt: agent.systemPrompt,
       modelPreset: agent.modelPreset,
       defaultStrategy: agent.defaultStrategy,

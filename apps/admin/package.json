@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@litter-bear/assets": "workspace:*",
     "@litter-bear/theme": "workspace:*",
     "@litter-bear/types": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.4",

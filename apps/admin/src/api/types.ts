@@ -109,6 +109,23 @@ export interface TestSessionDetail {
 
 // ---- Agent CRUD ----
 
+/** 能力闭集：工具组 → 工具（来自 GET /admin/capabilities） */
+export interface CapabilityTool {
+  name: string;
+  description: string;
+  requiresApproval: boolean;
+}
+
+export interface ToolGroup {
+  name: string;
+  tools: CapabilityTool[];
+}
+
+export interface AgentCapabilities {
+  toolGroups: ToolGroup[];
+}
+
+
 export type AgentStrategy =
   | "AUTO"
   | "DIRECT"
@@ -120,6 +137,7 @@ export interface Agent {
   id: string;
   name: string;
   description: string;
+  avatar: string | null;
   systemPrompt: string | null;
   modelPreset: string | null;
   defaultStrategy: AgentStrategy;
@@ -170,6 +188,7 @@ export interface ModelPresetInput {
 export interface AgentInput {
   name: string;
   description?: string;
+  avatar?: string | null;
   systemPrompt?: string | null;
   modelPreset?: string | null;
   defaultStrategy?: AgentStrategy;
