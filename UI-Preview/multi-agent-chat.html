@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Litter Bear · 单聊/群聊 UI 设计稿</title>
+<style>
+  :root{
+    --bg:#f3f5f9; --surface:#ffffff; --surface-muted:#f6f7fa; --surface-hover:#eef1f6;
+    --line:#e5e9f0; --line-soft:#edf0f5;
+    --text:#1b2430; --text-2:#5a6472; --text-3:#98a1ad;
+    --accent:#f59e0b; --accent-soft:#fdf1dc; --accent-ink:#b45309;
+    --blue:#3b82f6; --blue-soft:#e8f0fe;
+    --danger:#e5484d;
+    --radius:14px; --radius-sm:10px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#e9edf3;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);padding:32px 24px 64px}
+  h1{font-size:22px;margin-bottom:6px}
+  .sub{color:var(--text-2);font-size:13px;margin-bottom:28px;max-width:900px;line-height:1.7}
+  .board{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}
+  .col{width:375px;flex:none}
+  .col h2{font-size:14px;margin-bottom:4px}
+  .col .note{font-size:12px;color:var(--text-2);line-height:1.7;margin-bottom:12px;min-height:54px}
+  .phone{width:375px;height:760px;background:var(--bg);border-radius:36px;border:1px solid #d7dce4;box-shadow:0 18px 40px rgba(27,36,48,.12);overflow:hidden;display:flex;flex-direction:column;position:relative}
+  .statusbar{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:600;color:var(--text)}
+  .navbar{height:48px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px}
+  .nav-btn{width:36px;height:36px;border-radius:var(--radius-sm);border:1px solid var(--line-soft);background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:16px}
+  .nav-title{flex:1;text-align:center;font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav-side{width:36px;flex:none;display:flex;justify-content:flex-end}
+  .content{flex:1;min-height:0;overflow-y:auto}
+  /* tabbar */
+  .tabbar{flex:none;border-top:1px solid var(--line-soft);background:var(--surface);display:flex;padding:6px 8px 22px}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--text-3);padding:4px 0}
+  .tab .ic{width:38px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px}
+  .tab.active{color:var(--accent-ink)}
+  .tab.active .ic{background:var(--accent-soft)}
+  /* avatar */
+  .av{border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;flex:none;border:1px solid var(--line-soft)}
+  .av.sq{border-radius:10px}
+  /* 群头像九宫格 */
+  .av-grid{width:44px;height:44px;border-radius:10px;background:var(--surface-muted);border:1px solid var(--line-soft);display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:3px;flex:none}
+  .av-grid span{border-radius:5px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:11px}
+  /* bubbles */
+  .msgrow{display:flex;gap:10px;padding:10px 14px;align-items:flex-start}
+  .msg-meta{font-size:11px;color:var(--text-3);margin-bottom:4px;display:flex;gap:8px;align-items:center}
+  .msg-name{font-weight:600;color:var(--text-2)}
+  .bubble{background:var(--surface);border:1px solid var(--line-soft);border-radius:4px 14px 14px 14px;padding:10px 12px;font-size:14px;line-height:1.6;max-width:270px}
+  .msgrow.me{flex-direction:row-reverse}
+  .msgrow.me .bubble{background:var(--accent-soft);border-color:#f5e3bd;border-radius:14px 4px 14px 14px}
+  .msgrow.me .msg-meta{justify-content:flex-end}
+  .toolcard{margin-top:8px;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;font-size:12px;color:var(--text-2);display:flex;gap:8px;align-items:center;background:var(--surface-muted)}
+  .imgmsg{margin-top:8px;width:180px;height:130px;border-radius:10px;background:linear-gradient(135deg,#fde68a,#f59e0b 60%,#b45309);display:flex;align-items:end;justify-content:flex-start;color:#fff;font-size:11px;padding:8px}
+  /* member bar */
+  .memberbar{background:var(--surface);border-bottom:1px solid var(--line-soft);padding:7px 14px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2)}
+  .stack{display:flex}
+  .stack .av{width:24px;height:24px;font-size:12px;border:2px solid var(--surface)}
+  .stack .av+.av{margin-left:-7px}
+  /* input */
+  .inputbar{flex:none;background:var(--surface);border-top:1px solid var(--line-soft);padding:8px 12px 24px}
+  .chiprow{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-soft);background:var(--bg);border-radius:999px;padding:3px 10px 3px 4px;font-size:12px;font-weight:500}
+  .chip .av{width:22px;height:22px;font-size:11px}
+  .chip.mention{background:var(--accent-soft);border-color:#f5e3bd;color:var(--accent-ink);padding:5px 10px}
+  .inputrow{display:flex;gap:10px;align-items:flex-end}
+  .field{flex:1;background:var(--surface-muted);border:1px solid var(--line-soft);border-radius:12px;padding:10px 12px;font-size:14px;color:var(--text-3)}
+  .send{width:38px;height:38px;border-radius:11px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+  /* drawer */
+  .drawer-shell{position:absolute;inset:0;background:rgba(0,0,0,.4);display:flex}
+  .drawer{width:78%;max-width:300px;background:var(--bg);height:100%;display:flex;flex-direction:column;padding-top:56px}
+  .drawer h3{font-size:16px;padding:0 16px 10px;display:flex;justify-content:space-between;align-items:center}
+  .newbtn{font-size:12px;color:var(--accent-ink);background:var(--accent-soft);border-radius:999px;padding:5px 12px;font-weight:500}
+  .group-label{font-size:11px;color:var(--text-3);padding:8px 10px 4px}
+  .conv-item{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;margin:0 8px 2px}
+  .conv-item.active{background:var(--accent-soft)}
+  .conv-item .av,.conv-item .av-grid{width:36px;height:36px;font-size:16px}
+  .conv-item .av-grid span{font-size:9px}
+  .conv-main{flex:1;min-width:0}
+  .conv-title{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .conv-item.active .conv-title{color:var(--accent-ink);font-weight:600}
+  .conv-sub{font-size:11px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .drawer-foot{border-top:1px solid var(--line-soft);padding:10px 14px 26px;display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500}
+  .drawer-foot .av{width:30px;height:30px;font-size:14px}
+  /* agents grid */
+  .seg{margin:10px 14px;display:flex;background:var(--surface-muted);border:1px solid var(--line-soft);border-radius:10px;padding:3px;font-size:12px}
+  .seg span{flex:1;text-align:center;padding:6px 0;border-radius:8px;color:var(--text-2)}
+  .seg .on{background:var(--surface);font-weight:600;color:var(--text);box-shadow:0 1px 3px rgba(27,36,48,.08)}
+  .agrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 14px 14px}
+  .acard{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--radius);padding:14px 12px;display:flex;flex-direction:column;align-items:center;text-align:center}
+  .acard .av{width:52px;height:52px;font-size:26px;margin-bottom:8px}
+  .acard b{font-size:14px}
+  .acard p{font-size:11px;color:var(--text-2);line-height:1.5;margin:4px 0 8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tags{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom:10px}
+  .tag{font-size:10px;color:var(--blue);background:var(--blue-soft);border-radius:5px;padding:2px 6px}
+  .tag.warn{color:var(--accent-ink);background:var(--accent-soft)}
+  .chatbtn{width:100%;border:1px solid var(--line);border-radius:9px;padding:6px 0;font-size:12px;font-weight:500;background:var(--surface);text-align:center}
+  .fab{position:absolute;right:18px;bottom:96px;background:var(--accent);color:#fff;border-radius:14px;padding:11px 16px;font-size:13px;font-weight:600;box-shadow:0 8px 20px rgba(245,158,11,.4);display:flex;gap:6px;align-items:center}
+  /* pick list */
+  .pick-item{display:flex;gap:12px;align-items:center;padding:10px 16px}
+  .pick-item .av{width:42px;height:42px;font-size:20px}
+  .pick-main{flex:1;min-width:0}
+  .pick-title{font-size:14px;font-weight:500}
+  .pick-sub{font-size:11px;color:var(--text-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cbox{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);flex:none}
+  .cbox.on{background:var(--accent);border-color:var(--accent);position:relative}
+  .cbox.on::after{content:"✓";color:#fff;font-size:12px;position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .pickedbar{flex:none;border-top:1px solid var(--line-soft);background:var(--surface);padding:10px 14px 26px;display:flex;align-items:center;gap:8px}
+  .pickedbar .stack .av{width:32px;height:32px;font-size:15px}
+  .cta{margin-left:auto;background:var(--accent);color:#fff;border-radius:11px;padding:9px 18px;font-size:13px;font-weight:600}
+  .cta.dis{opacity:.4}
+  /* member manage */
+  .sect{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--radius);margin:10px 14px;overflow:hidden}
+  .sect-title{font-size:11px;color:var(--text-3);padding:10px 14px 4px}
+  .mem-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px 4px;padding:10px 14px 16px}
+  .mem{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;color:var(--text-2);position:relative}
+  .mem .av{width:44px;height:44px;font-size:22px}
+  .mem .rm{position:absolute;top:-4px;right:2px;width:16px;height:16px;border-radius:50%;background:var(--danger);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center}
+  .mem .add{width:44px;height:44px;border-radius:50%;border:1.5px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-3);background:var(--surface)}
+  .row-item{display:flex;justify-content:space-between;align-items:center;padding:13px 14px;font-size:14px;border-top:1px solid var(--line-soft)}
+  .row-item span{color:var(--text-3);font-size:12px}
+  .row-item.danger{color:var(--danger);justify-content:center;font-weight:500}
+  .annot{margin-top:14px;font-size:12px;color:var(--text-2);line-height:1.8;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .annot b{color:var(--text)}
+</style>
+</head>
+<body>
+
+<h1>Litter Bear · 单聊 / 群聊 UI 设计稿</h1>
+<p class="sub">
+  信息架构：底部恢复三 Tab（聊天 / 智能体 / 我的）。聊天 Tab 维持「直显最近会话 + 历史抽屉」；
+  「智能体」Tab 是通讯录（网格卡片 → 单聊；右下角发起群聊 → 多选建群）；群聊沿用 @ 提及 + 成员条，
+  标题栏进入成员管理（随时加人/移除）。色彩为示意，落地时全部走 <code>--lb-*</code> 主题 token。
+</p>
+
+<div class="board">
+
+  <!-- ① 群聊界面 -->
+  <div class="col">
+    <h2>① 聊天 Tab · 群聊会话</h2>
+    <p class="note">标题=群名+成员数，点标题进成员管理（⑤）。成员条快捷 @；气泡按发言智能体显示头像/名字（已有能力）。输入栏保留当前智能体胶囊 + 一次性 @ 标记。</p>
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>●●●●</span></div>
+      <div class="navbar">
+        <div class="nav-btn">☰</div>
+        <div class="nav-title">周末出行小分队 (3) ›</div>
+        <div class="nav-side"></div>
+      </div>
+      <div class="memberbar">
+        <div class="stack"><span class="av">🐻</span><span class="av">🌤️</span><span class="av">🎨</span></div>
+        <span>3 位助手参与 · 点击 @ 指定回答</span><span style="margin-left:auto">›</span>
+      </div>
+      <div class="content">
+        <div class="msgrow me">
+          <span class="av" style="width:36px;height:36px">我</span>
+          <div><div class="msg-meta">14:02</div><div class="bubble">@天气专家 周六深圳天气怎么样？适合去大梅沙吗</div></div>
+        </div>
+        <div class="msgrow">
+          <span class="av" style="width:36px;height:36px">🌤️</span>
+          <div>
+            <div class="msg-meta"><span class="msg-name">天气专家</span>14:02</div>
+            <div class="bubble">周六深圳晴，26~31°C，东南风 3 级，非常适合海边活动 ☀️
+              <div class="toolcard">🔧 已调用 getWeather · 查询深圳 3 日预报</div>
+            </div>
+          </div>
+        </div>
+        <div class="msgrow me">
+          <span class="av" style="width:36px;height:36px">我</span>
+          <div><div class="msg-meta">14:03</div><div class="bubble">@画师 画一张周六海边野餐的邀请图</div></div>
+        </div>
+        <div class="msgrow">
+          <span class="av" style="width:36px;height:36px">🎨</span>
+          <div>
+            <div class="msg-meta"><span class="msg-name">画师</span>14:04</div>
+            <div class="bubble">邀请图来啦，暖色调海滩野餐主题：
+              <div class="imgmsg">AI 生成 · 1024×1024</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="inputbar">
+        <div class="chiprow">
+          <span class="chip"><span class="av">🐻</span>通用助手 ⌄</span>
+          <span class="chip mention">本条 @画师 ✕</span>
+        </div>
+        <div class="inputrow"><div class="field">发消息，输入 @ 指定谁来回答…</div><div class="send">↑</div></div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active"><span class="ic">💬</span>聊天</div>
+        <div class="tab"><span class="ic">🤖</span>智能体</div>
+        <div class="tab"><span class="ic">👤</span>我的</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 单聊界面 -->
+  <div class="col">
+    <h2>② 聊天 Tab · 单聊会话</h2>
+    <p class="note">会话绑定单个智能体：标题=名字，无成员条、无切换胶囊、无需 @ ——输入即答，界面最简。标题栏「›」进单聊设置（查看资料/清空上下文）。</p>
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>●●●●</span></div>
+      <div class="navbar">
+        <div class="nav-btn">☰</div>
+        <div class="nav-title">🌤️ 天气专家 ›</div>
+        <div class="nav-side"></div>
+      </div>
+      <div class="content">
+        <div class="msgrow me">
+          <span class="av" style="width:36px;height:36px">我</span>
+          <div><div class="msg-meta">09:20</div><div class="bubble">明天北京要带伞吗</div></div>
+        </div>
+        <div class="msgrow">
+          <span class="av" style="width:36px;height:36px">🌤️</span>
+          <div>
+            <div class="msg-meta"><span class="msg-name">天气专家</span>09:20</div>
+            <div class="bubble">要的 ☔ 明天北京小到中雨，降水概率 80%，建议带伞并注意晚高峰路况。</div>
+          </div>
+        </div>
+        <div class="msgrow me">
+          <span class="av" style="width:36px;height:36px">我</span>
+          <div><div class="msg-meta">09:21</div><div class="bubble">那后天呢</div></div>
+        </div>
+        <div class="msgrow">
+          <span class="av" style="width:36px;height:36px">🌤️</span>
+          <div>
+            <div class="msg-meta"><span class="msg-name">天气专家</span>09:21</div>
+            <div class="bubble">后天转晴，18~24°C，适合户外活动 🌤</div>
+          </div>
+        </div>
+      </div>
+      <div class="inputbar">
+        <div class="inputrow"><div class="field">和天气专家聊聊…</div><div class="send">↑</div></div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active"><span class="ic">💬</span>聊天</div>
+        <div class="tab"><span class="ic">🤖</span>智能体</div>
+        <div class="tab"><span class="ic">👤</span>我的</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 历史抽屉 -->
+  <div class="col">
+    <h2>③ 历史抽屉（升级版）</h2>
+    <p class="note">条目区分单聊（单头像）与群聊（九宫格头像 + 成员数）；时间分组沿用 今天/昨天/七天内/30天内。「我的」入口回归 TabBar 后，抽屉底部可保留为快捷位或移除（图中保留）。</p>
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>●●●●</span></div>
+      <div class="drawer-shell">
+        <div class="drawer">
+          <h3>历史会话 <span class="newbtn">＋ 新对话</span></h3>
+          <div style="flex:1;overflow-y:auto">
+            <div class="group-label">今天</div>
+            <div class="conv-item active">
+              <div class="av-grid"><span>🐻</span><span>🌤️</span><span>🎨</span><span>+</span></div>
+              <div class="conv-main"><div class="conv-title">周末出行小分队</div><div class="conv-sub">画师：邀请图来啦…</div></div>
+            </div>
+            <div class="conv-item">
+              <span class="av sq" style="width:36px;height:36px;font-size:16px">🌤️</span>
+              <div class="conv-main"><div class="conv-title">天气专家</div><div class="conv-sub">后天转晴，18~24°C…</div></div>
+            </div>
+            <div class="group-label">昨天</div>
+            <div class="conv-item">
+              <span class="av sq" style="width:36px;height:36px;font-size:16px">🐻</span>
+              <div class="conv-main"><div class="conv-title">通用助手</div><div class="conv-sub">已为你总结这篇长文的 5 个要点…</div></div>
+            </div>
+            <div class="group-label">七天内</div>
+            <div class="conv-item">
+              <div class="av-grid"><span>🐻</span><span>🔍</span><span></span><span></span></div>
+              <div class="conv-main"><div class="conv-title">选品调研群</div><div class="conv-sub">搜索专家：找到 8 条相关评测…</div></div>
+            </div>
+            <div class="group-label">30天内</div>
+            <div class="conv-item">
+              <span class="av sq" style="width:36px;height:36px;font-size:16px">🎨</span>
+              <div class="conv-main"><div class="conv-title">画师</div><div class="conv-sub">赛博朋克版已生成 ✨</div></div>
+            </div>
+          </div>
+          <div class="drawer-foot"><span class="av">👤</span>我的<span style="margin-left:auto;color:var(--text-3)">›</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 智能体 Tab -->
+  <div class="col">
+    <h2>④ 智能体 Tab（通讯录）</h2>
+    <p class="note">网格卡片：头像/名字/简介/能力标签（来自 toolGroups）。「单聊」直达 1:1 会话（已存在则复用）。右下角悬浮「发起群聊」进入多选（⑥）。</p>
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>●●●●</span></div>
+      <div class="navbar"><div class="nav-side"></div><div class="nav-title">智能体</div><div class="nav-side"></div></div>
+      <div class="content">
+        <div class="agrid">
+          <div class="acard"><span class="av">🐻</span><b>通用助手</b><p>全能对话，日常问题一站式解决</p><div class="tags"><span class="tag">联网搜索</span><span class="tag">天气</span></div><div class="chatbtn">单聊</div></div>
+          <div class="acard"><span class="av">🌤️</span><b>天气专家</b><p>天气预报与出行建议，数据实时</p><div class="tags"><span class="tag">天气</span></div><div class="chatbtn">单聊</div></div>
+          <div class="acard"><span class="av">🎨</span><b>画师</b><p>文生图与参考图改图，风格多样</p><div class="tags"><span class="tag warn">AI 生图</span></div><div class="chatbtn">单聊</div></div>
+          <div class="acard"><span class="av">🔍</span><b>搜索专家</b><p>联网检索实时信息，带来源引用</p><div class="tags"><span class="tag">联网搜索</span></div><div class="chatbtn">单聊</div></div>
+        </div>
+      </div>
+      <div class="fab">👥 发起群聊</div>
+      <div class="tabbar">
+        <div class="tab"><span class="ic">💬</span>聊天</div>
+        <div class="tab active"><span class="ic">🤖</span>智能体</div>
+        <div class="tab"><span class="ic">👤</span>我的</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑤ 群成员管理 -->
+  <div class="col">
+    <h2>⑤ 群成员管理</h2>
+    <p class="note">群聊标题栏进入。微信群设置心智：成员宫格 + 加人（跳多选页）/编辑态移除；下方群名修改与退群（删除会话）。移除成员只影响可 @ 列表，历史消息保留。</p>
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>●●●●</span></div>
+      <div class="navbar"><div class="nav-btn">‹</div><div class="nav-title">会话设置</div><div class="nav-side"></div></div>
+      <div class="content">
+        <div class="sect">
+          <div class="sect-title">群成员 (3)</div>
+          <div class="mem-grid">
+            <div class="mem"><span class="av">🐻</span>通用助手<span class="rm">−</span></div>
+            <div class="mem"><span class="av">🌤️</span>天气专家<span class="rm">−</span></div>
+            <div class="mem"><span class="av">🎨</span>画师<span class="rm">−</span></div>
+            <div class="mem"><span class="add">＋</span>添加</div>
+          </div>
+        </div>
+        <div class="sect">
+          <div class="row-item" style="border-top:none">群聊名称<span>周末出行小分队 ›</span></div>
+          <div class="row-item">默认回答者<span>🐻 通用助手 ›</span></div>
+        </div>
+        <div class="sect"><div class="row-item danger" style="border-top:none">删除此会话</div></div>
+        <div class="annot" style="margin:14px">
+          <b>交互细节</b><br>
+          · 点「−」二次确认后调 DELETE /conversations/:id/agents/:agentId<br>
+          · 「＋」复用 ⑥ 的多选页（已在群成员置灰）<br>
+          · 「默认回答者」= 群内不 @ 时的兜底 agent（输入栏胶囊同款数据）
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑥ 建群多选 -->
+  <div class="col">
+    <h2>⑥ 发起群聊 · 多选智能体</h2>
+    <p class="note">从「智能体」Tab 或群设置「＋」进入。底部已选头像实时堆叠，≥2 个可建群（1 个则降级为发起单聊）。建群调 POST /conversations {type:'GROUP', agentIds}。</p>
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>●●●●</span></div>
+      <div class="navbar"><div class="nav-btn">‹</div><div class="nav-title">选择智能体</div><div class="nav-side" style="font-size:12px;color:var(--text-3)">2/8</div></div>
+      <div class="content">
+        <div class="pick-item"><span class="av">🐻</span><div class="pick-main"><div class="pick-title">通用助手</div><div class="pick-sub">全能对话，日常问题一站式解决</div></div><span class="cbox on"></span></div>
+        <div class="pick-item"><span class="av">🌤️</span><div class="pick-main"><div class="pick-title">天气专家</div><div class="pick-sub">天气预报与出行建议</div></div><span class="cbox"></span></div>
+        <div class="pick-item"><span class="av">🎨</span><div class="pick-main"><div class="pick-title">画师</div><div class="pick-sub">文生图与参考图改图</div></div><span class="cbox on"></span></div>
+        <div class="pick-item"><span class="av">🔍</span><div class="pick-main"><div class="pick-title">搜索专家</div><div class="pick-sub">联网检索实时信息</div></div><span class="cbox"></span></div>
+      </div>
+      <div class="pickedbar">
+        <div class="stack"><span class="av">🐻</span><span class="av">🎨</span></div>
+        <span style="font-size:12px;color:var(--text-2)">已选 2 个</span>
+        <span class="cta">建群聊天</span>
+      </div>
+      <div class="tabbar" style="display:none"></div>
+    </div>
+  </div>
+
+</div>
+
+<p class="sub" style="margin-top:32px">
+  <b>落地映射</b>：①② 复用 ChatWorkspace（按 conversation.type 切换成员条/胶囊显隐）；③ HistoryDrawer 条目组件升级；
+  ④⑥ 为新页面（agents tab / agent-picker）；⑤ 为新页面（conversation-settings）。
+  后端新增：Conversation.type 枚举、建群带初始成员、成员增删两个接口——其余全部复用现有群聊管道。
+</p>
+
+</body>
+</html>
