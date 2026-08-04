@@ -2,7 +2,9 @@ import { authStorage } from "./auth-storage";
 import type { AuthResponse } from "./types";
 
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000"
+  // 默认走 IPv4：macOS 上 localhost 优先解析 ::1，若有其它进程绑在
+  // [::1]:3000（如别的项目的 dev server）请求会被劫持并表现为 CORS 报错
+  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000"
 ).replace(/\/+$/, "");
 
 /** 后端统一响应信封 */
