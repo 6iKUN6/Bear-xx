@@ -17,6 +17,7 @@ describe('ConversationTitleService', () => {
       },
       conversation: {
         update: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({ agentIds: [] }),
       },
     };
     const llmService = {
@@ -105,5 +106,15 @@ describe('ConversationTitleService', () => {
       where: { id: 'conversation-1' },
       data: { title: '一'.repeat(20) },
     });
+  });
+
+  it('绑定了智能体的会话（单聊/群聊）跳过 AI 标题，保持智能体名/群名', async () => {
+    const { service, prisma, llmService } = createService();
+    prisma.conversation.findUnique.mockResolvedValue({ agentIds: ['a1'] });
+
+    const title = await service.generateTitleIfFirstTurn('conversation-1');
+
+    expect(title).toBeNull();
+    expect(llmService.generateChatText).not.toHaveBeenCalled();
   });
 });

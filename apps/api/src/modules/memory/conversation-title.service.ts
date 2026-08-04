@@ -31,6 +31,15 @@ export class ConversationTitleService {
     conversationId: string,
   ): Promise<string | null> {
     try {
+      // 显式绑定智能体的会话（单聊/群聊）标题固定为智能体名/群名，不做 AI 话题标题
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { agentIds: true },
+      });
+      if (!conversation || conversation.agentIds.length > 0) {
+        return null;
+      }
+
       const userMessageCount = await this.prisma.message.count({
         where: { conversationId, role: MessageRole.USER },
       });
