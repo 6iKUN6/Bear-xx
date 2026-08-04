@@ -11,6 +11,7 @@ export const conversationSummaryIncrementalPrompt = readPromptMarkdown(
 export const conversationTitlePrompt = readPromptMarkdown(
   'conversation-title.md',
 );
+export const groupRouterPrompt = readPromptMarkdown('group-router.md');
 
 function readPromptMarkdown(filename: string) {
   // 覆盖两种运行形态：

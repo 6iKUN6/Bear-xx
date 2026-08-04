@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Param,
   Body,
@@ -16,7 +17,11 @@ import {
   ApiOkResponse,
 } from '@nestjs/swagger';
 import { ConversationService } from './conversation.service';
-import { CreateConversationDto } from './dto/create-conversation.dto';
+import {
+  AddConversationAgentDto,
+  CreateConversationDto,
+  UpdateConversationDto,
+} from './dto/create-conversation.dto';
 import { ConversationDto } from './dto/conversation-response.dto';
 import { EmptyResultDto } from '../../common/dto/empty-result.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -44,13 +49,54 @@ export class ConversationController {
   }
 
   @Post()
-  @ApiOperation({ summary: '创建新会话' })
-  @ApiOkResponse({ description: '新建会话', type: ConversationDto })
+  @ApiOperation({
+    summary: '创建会话（单聊/群聊）',
+    description:
+      'SINGLE 绑定单个智能体（重复创建幂等返回既有单聊）；GROUP 需 agentIds ≥2 初始成员。',
+  })
+  @ApiOkResponse({ description: '会话信息', type: ConversationDto })
   async create(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateConversationDto,
   ) {
-    return this.conversationService.create(userId, dto.title);
+    return this.conversationService.create(userId, dto);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: '更新会话（群名/默认回答者）' })
+  @ApiOkResponse({ type: ConversationDto })
+  async update(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateConversationDto,
+  ) {
+    return this.conversationService.update(id, userId, dto);
+  }
+
+  @Post(':id/agents')
+  @ApiOperation({ summary: '群聊添加智能体成员（幂等）' })
+  @ApiOkResponse({ type: ConversationDto })
+  async addAgent(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: AddConversationAgentDto,
+  ) {
+    return this.conversationService.addAgent(id, userId, dto.agentId);
+  }
+
+  @Delete(':id/agents/:agentId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '群聊移除智能体成员',
+    description: '仅影响可 @ 列表与路由候选，历史消息完整保留。',
+  })
+  @ApiOkResponse({ type: ConversationDto })
+  async removeAgent(
+    @Param('id') id: string,
+    @Param('agentId') agentId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.conversationService.removeAgent(id, userId, agentId);
   }
 
   @Delete(':id')

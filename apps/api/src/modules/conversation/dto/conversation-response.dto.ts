@@ -164,11 +164,25 @@ export class ConversationDto {
   title: string;
 
   @ApiProperty({
-    description: '群成员：会话中出现过的智能体 id 列表；空 = 单助手会话',
+    description: '会话形态：SINGLE 单聊 / GROUP 群聊',
+    example: 'SINGLE',
+    required: false,
+  })
+  type?: string;
+
+  @ApiProperty({
+    description: 'GROUP=可 @ 的成员列表；SINGLE=绑定的智能体',
     type: [String],
     required: false,
   })
   agentIds?: string[];
+
+  @ApiProperty({
+    description: '默认回答者；GROUP 下 null = 自动路由',
+    nullable: true,
+    required: false,
+  })
+  defaultAgentId?: string | null;
 
   @ApiProperty({
     description: '会话消息列表',

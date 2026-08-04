@@ -125,8 +125,12 @@ model Conversation {
   userId         String                      @map("user_id")
   /// admin 测试会话标记：端侧会话列表过滤掉，仅 admin 测试工作台可见（与 StreamTask.isTest 对称）
   isTest         Boolean                     @default(false) @map("is_test")
-  /// 群聊成员：本会话中出现过的智能体 id 列表（首次被 @ 自动加入）；空 = 单助手会话
+  /// 会话形态：SINGLE 单聊（绑定一个智能体）/ GROUP 群聊（多成员 @ 协作）
+  type           ConversationType            @default(SINGLE)
+  /// 群聊成员（GROUP）：可被 @ 的智能体列表；单聊（SINGLE）：唯一绑定的智能体
   agentIds       String[]                    @default([]) @map("agent_ids")
+  /// 默认回答者：SINGLE=绑定 agent；GROUP=不 @ 时的兜底（null=自动路由）
+  defaultAgentId String?                     @map("default_agent_id")
   user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages       Message[]
   summary        ConversationSummary?
@@ -347,6 +351,11 @@ enum MessageStatus {
 enum UserRole {
   USER
   ADMIN
+}
+
+enum ConversationType {
+  SINGLE
+  GROUP
 }
 
 enum AgentStrategy {

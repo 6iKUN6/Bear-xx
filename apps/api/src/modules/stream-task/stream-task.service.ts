@@ -19,6 +19,7 @@ import {
   MessageStatus,
   ConversationTraceItemType,
   ConversationTraceItemStatus,
+  ConversationType,
   Prisma,
 } from '@prisma/client';
 import {
@@ -40,6 +41,7 @@ import type {
 } from '../llm/llm.types';
 import { LlmService } from '../llm/llm.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { GroupRouterService } from '../conversation/group-router.service';
 import { ConversationTraceService } from '../conversation-trace';
 import type { ChatContextBundle } from '../memory/chat-context.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
@@ -107,6 +109,7 @@ export class StreamTaskService {
     private readonly llmService: LlmService,
     private readonly configService: ConfigService,
     private readonly conversationService: ConversationService,
+    private readonly groupRouterService: GroupRouterService,
     private readonly conversationTraceService: ConversationTraceService,
     private readonly conversationSummaryService: ConversationSummaryService,
     private readonly conversationTitleService: ConversationTitleService,
@@ -165,12 +168,20 @@ export class StreamTaskService {
     agentId?: string,
     isTest = false,
   ): Promise<TaskStreamResult> {
+    // 未显式指定回答者时按会话形态解析：单聊=绑定 agent；群聊=固定默认或自动路由
+    const answering = await this.resolveAnsweringAgent(
+      conversationId,
+      userId,
+      content,
+      agentId,
+    );
+
     const task = await this.createChatTask(
       conversationId,
       content,
       userId,
       llmRequest,
-      agentId,
+      answering.agentId,
       isTest,
     );
     const taskStream = await this.openTaskStream(
@@ -188,11 +199,68 @@ export class StreamTaskService {
           conversationId: task.conversationId,
           messageId: task.messageId,
           status: task.status,
-          // 群聊：告知前端本轮由哪个智能体回答（重连/回显归属）
-          payload: agentId ? { agentId } : undefined,
+          // 告知前端本轮由哪个智能体回答（重连/回显归属）；自动路由附带理由
+          payload: answering.agentId
+            ? {
+                agentId: answering.agentId,
+                ...(answering.autoRouted
+                  ? { autoRouted: true, routeReason: answering.routeReason }
+                  : {}),
+              }
+            : undefined,
         }),
         taskStream.stream,
       ),
+    };
+  }
+
+  /**
+   * 解析本条消息的回答者
+   * @param conversationId 会话ID（可空=新会话）
+   * @param userId 用户ID
+   * @param content 用户消息（自动路由的输入）
+   * @param explicitAgentId 显式指定（@ 提及/胶囊选择），最高优先
+   * @returns 返回回答者与路由标记
+   * @description 单聊回落到绑定 agent；群聊按「固定默认回答者 > 自动路由」解析。
+   * 会话不存在/归属异常时不在此抛错（原样透传，由后续 resolveConversationId 统一校验）。
+   */
+  private async resolveAnsweringAgent(
+    conversationId: string | undefined,
+    userId: string,
+    content: string,
+    explicitAgentId?: string,
+  ): Promise<{ agentId?: string; autoRouted?: boolean; routeReason?: string }> {
+    if (explicitAgentId || !conversationId) {
+      return { agentId: explicitAgentId };
+    }
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, userId },
+      select: { type: true, agentIds: true, defaultAgentId: true },
+    });
+    if (!conversation) {
+      return { agentId: undefined };
+    }
+
+    if (conversation.type === ConversationType.SINGLE) {
+      return { agentId: conversation.defaultAgentId ?? undefined };
+    }
+
+    if (conversation.defaultAgentId) {
+      return { agentId: conversation.defaultAgentId };
+    }
+    if (conversation.agentIds.length === 0) {
+      return { agentId: undefined };
+    }
+
+    const routed = await this.groupRouterService.route(
+      content,
+      conversation.agentIds,
+    );
+    return {
+      agentId: routed.agentId,
+      autoRouted: true,
+      routeReason: routed.reason,
     };
   }
 
@@ -260,6 +328,7 @@ export class StreamTaskService {
         conversationId,
         userId,
         isTest,
+        agentId,
       );
 
       //消息入库
@@ -295,11 +364,12 @@ export class StreamTaskService {
         },
       });
 
-      // 首次被 @ 的智能体自动加入会话成员列表（幂等：已在列表则不动）
+      // 首次被 @ 的智能体自动加入群成员（仅 GROUP；幂等）。SINGLE 保持绑定语义不动。
       if (agentId) {
         await tx.conversation.updateMany({
           where: {
             id: targetConversationId,
+            type: ConversationType.GROUP,
             NOT: { agentIds: { has: agentId } },
           },
           data: { agentIds: { push: agentId } },
@@ -365,13 +435,16 @@ export class StreamTaskService {
     conversationId: string | undefined,
     userId: string,
     isTest = false,
+    agentId?: string,
   ): Promise<string> {
     if (!conversationId) {
+      // 隐式创建一律 SINGLE：带 agentId 即绑定该智能体为默认回答者
       const conversation = await tx.conversation.create({
         data: {
           userId,
           title: '新对话',
           isTest,
+          ...(agentId ? { agentIds: [agentId], defaultAgentId: agentId } : {}),
         },
       });
 
@@ -934,56 +1007,60 @@ export class StreamTaskService {
 
     // 在模型调用计数上下文内消费 agent 事件流：ReAct 内部多次模型往返由 chat-model.factory
     // 挂的回调在此上下文累计，循环结束后读取（trace 无法覆盖折叠在消息流里的往返）。
-    await runWithModelCallContext(task.id, async () => {
-      for await (const event of agentRun.events) {
-        if (event.type === StreamTaskEventType.ToolCallDelta) {
-          await this.handleToolCallDeltaEvent(task, event);
-          continue;
-        }
-
-        if (event.type !== StreamTaskEventType.MessageDelta) {
-          if (event.type === StreamTaskEventType.ApprovalRequired) {
-            pendingApproval = true;
+    await runWithModelCallContext(
+      task.id,
+      async () => {
+        for await (const event of agentRun.events) {
+          if (event.type === StreamTaskEventType.ToolCallDelta) {
+            await this.handleToolCallDeltaEvent(task, event);
+            continue;
           }
-          await this.handleAgentLoopStatusEvent(task, event);
-          continue;
-        }
 
-        if (!event.delta) {
-          emptyDeltaCount++;
-          continue;
-        }
+          if (event.type !== StreamTaskEventType.MessageDelta) {
+            if (event.type === StreamTaskEventType.ApprovalRequired) {
+              pendingApproval = true;
+            }
+            await this.handleAgentLoopStatusEvent(task, event);
+            continue;
+          }
 
-        deltaCount++;
-        fullContent += event.delta;
-        const deltaEvent = await this.publishFrame(
-          task.id,
-          StreamTaskEventType.MessageDelta,
-          this.serializeTaskEventData({
-            type: StreamTaskEventType.MessageDelta,
+          if (!event.delta) {
+            emptyDeltaCount++;
+            continue;
+          }
+
+          deltaCount++;
+          fullContent += event.delta;
+          const deltaEvent = await this.publishFrame(
+            task.id,
+            StreamTaskEventType.MessageDelta,
+            this.serializeTaskEventData({
+              type: StreamTaskEventType.MessageDelta,
+              taskId: task.id,
+              streamId: task.streamId,
+              conversationId: task.conversationId,
+              messageId: task.messageId,
+              status: StreamTaskStatus.STREAMING.toLowerCase(),
+              payload: {
+                delta: event.delta,
+              },
+            }),
+          );
+          const flushResult = await this.maybeFlushFullContent({
             taskId: task.id,
-            streamId: task.streamId,
-            conversationId: task.conversationId,
-            messageId: task.messageId,
-            status: StreamTaskStatus.STREAMING.toLowerCase(),
-            payload: {
-              delta: event.delta,
-            },
-          }),
-        );
-        const flushResult = await this.maybeFlushFullContent({
-          taskId: task.id,
-          fullContent,
-          lastFlushAt: lastFullContentFlushAt,
-          lastFlushedLength: lastFlushedFullContentLength,
-        });
-        lastFullContentFlushAt = flushResult.lastFlushAt;
-        lastFlushedFullContentLength = flushResult.lastFlushedLength;
-        this.registry.publish(task.id, deltaEvent);
-      }
+            fullContent,
+            lastFlushAt: lastFullContentFlushAt,
+            lastFlushedLength: lastFlushedFullContentLength,
+          });
+          lastFullContentFlushAt = flushResult.lastFlushAt;
+          lastFlushedFullContentLength = flushResult.lastFlushedLength;
+          this.registry.publish(task.id, deltaEvent);
+        }
 
-      modelCallCount = getModelCallCount();
-    });
+        modelCallCount = getModelCallCount();
+      },
+      task.userId,
+    );
 
     if (executionSignal.aborted) {
       throw executionSignal.reason;

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConversationType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -50,7 +55,9 @@ export class ConversationService {
     return conversations.map((c) => ({
       id: c.id,
       title: c.title,
+      type: c.type,
       agentIds: c.agentIds,
+      defaultAgentId: c.defaultAgentId,
       messages: c.messages.map((m) => ({
         id: m.id,
         role: m.role.toLowerCase(),
@@ -81,23 +88,192 @@ export class ConversationService {
   }
 
   /**
-   * 创建一个新的空会话
+   * 创建会话（单聊/群聊）
    * @param userId 用户ID
-   * @param title 会话标题
-   * @returns 返回新建会话的基础信息，初始消息列表为空
-   * @description 为指定用户创建新的会话记录；如果未传 title，则使用默认标题“新对话”。
+   * @param input 标题、形态与初始智能体
+   * @returns 返回会话基础信息；单聊重复创建时幂等返回既有会话
+   * @description SINGLE：绑定单个智能体（agentIds 取第一个；同绑定的既有单聊直接复用，
+   * 通讯录「单聊」按钮天然幂等）。GROUP：初始成员 ≥2，defaultAgentId 留空 = 自动路由。
+   * 智能体 id 会校验存在且启用。
    */
-  async create(userId: string, title?: string) {
+  async create(
+    userId: string,
+    input: {
+      title?: string;
+      type?: ConversationType;
+      agentIds?: string[];
+    } = {},
+  ) {
+    const type = input.type ?? ConversationType.SINGLE;
+    const agentIds = [...new Set(input.agentIds ?? [])];
+
+    if (type === ConversationType.GROUP && agentIds.length < 2) {
+      throw new BadRequestException('群聊至少需要 2 个智能体成员');
+    }
+    if (type === ConversationType.SINGLE && agentIds.length > 1) {
+      throw new BadRequestException('单聊只能绑定 1 个智能体');
+    }
+    if (agentIds.length > 0) {
+      await this.ensureAgentsUsable(agentIds);
+    }
+
+    // 单聊幂等：同绑定（含默认助手单聊）的既有会话直接复用
+    if (type === ConversationType.SINGLE) {
+      const existing = await this.prisma.conversation.findFirst({
+        where: {
+          userId,
+          isTest: false,
+          type: ConversationType.SINGLE,
+          agentIds: { equals: agentIds },
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (existing) {
+        return this.toBrief(existing);
+      }
+    }
+
+    const memberNames =
+      agentIds.length > 0
+        ? (
+            await this.prisma.agent.findMany({
+              where: { id: { in: agentIds } },
+              select: { name: true },
+            })
+          ).map((a) => a.name)
+        : [];
+
     const conversation = await this.prisma.conversation.create({
       data: {
         userId,
-        title: title || '新对话',
+        type,
+        agentIds,
+        // 单聊绑定即默认回答者；群聊留空走自动路由
+        defaultAgentId:
+          type === ConversationType.SINGLE ? (agentIds[0] ?? null) : null,
+        title:
+          input.title ||
+          (type === ConversationType.GROUP
+            ? memberNames.slice(0, 3).join('、') || '群聊'
+            : memberNames[0] || '新对话'),
       },
     });
 
+    return this.toBrief(conversation);
+  }
+
+  /**
+   * 更新会话（群名/默认回答者）
+   * @description defaultAgentId 传空串恢复自动路由；传具体 id 时必须是群成员。
+   */
+  async update(
+    id: string,
+    userId: string,
+    input: { title?: string; defaultAgentId?: string },
+  ) {
+    const conversation = await this.ensureOwnership(id, userId);
+
+    let defaultAgentId: string | null | undefined;
+    if (input.defaultAgentId !== undefined) {
+      defaultAgentId = input.defaultAgentId.trim() || null;
+      if (defaultAgentId && !conversation.agentIds.includes(defaultAgentId)) {
+        throw new BadRequestException('默认回答者必须是会话成员');
+      }
+    }
+
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        title: input.title?.trim() || undefined,
+        defaultAgentId,
+      },
+    });
+    return this.toBrief(updated);
+  }
+
+  /**
+   * 群聊添加成员
+   * @description 仅 GROUP 会话可用；幂等（已在成员表则原样返回）。
+   */
+  async addAgent(id: string, userId: string, agentId: string) {
+    const conversation = await this.ensureOwnership(id, userId);
+    if (conversation.type !== ConversationType.GROUP) {
+      throw new BadRequestException('只有群聊可以管理成员');
+    }
+    if (conversation.agentIds.includes(agentId)) {
+      return this.toBrief(conversation);
+    }
+    await this.ensureAgentsUsable([agentId]);
+
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: { agentIds: { push: agentId } },
+    });
+    return this.toBrief(updated);
+  }
+
+  /**
+   * 群聊移除成员
+   * @description 仅影响可 @ 列表与路由候选：历史消息及其归属完整保留。
+   * 至少保留 1 个成员；被移除者若是默认回答者则恢复自动路由。
+   */
+  async removeAgent(id: string, userId: string, agentId: string) {
+    const conversation = await this.ensureOwnership(id, userId);
+    if (conversation.type !== ConversationType.GROUP) {
+      throw new BadRequestException('只有群聊可以管理成员');
+    }
+    const nextAgentIds = conversation.agentIds.filter((x) => x !== agentId);
+    if (nextAgentIds.length === conversation.agentIds.length) {
+      throw new NotFoundException('该智能体不在群成员中');
+    }
+    if (nextAgentIds.length === 0) {
+      throw new BadRequestException('群聊至少保留 1 个成员');
+    }
+
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        agentIds: nextAgentIds,
+        defaultAgentId:
+          conversation.defaultAgentId === agentId
+            ? null
+            : conversation.defaultAgentId,
+      },
+    });
+    return this.toBrief(updated);
+  }
+
+  /** 校验智能体存在且启用 */
+  private async ensureAgentsUsable(agentIds: string[]) {
+    const found = await this.prisma.agent.findMany({
+      where: { id: { in: agentIds }, enabled: true },
+      select: { id: true },
+    });
+    if (found.length !== agentIds.length) {
+      const foundIds = new Set(found.map((a) => a.id));
+      const missing = agentIds.filter((id) => !foundIds.has(id));
+      throw new BadRequestException(
+        `智能体不存在或已停用：${missing.join(',')}`,
+      );
+    }
+  }
+
+  /** 会话基础信息投影（创建/更新/成员操作的统一响应） */
+  private toBrief(conversation: {
+    id: string;
+    title: string;
+    type: ConversationType;
+    agentIds: string[];
+    defaultAgentId: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
     return {
       id: conversation.id,
       title: conversation.title,
+      type: conversation.type,
+      agentIds: conversation.agentIds,
+      defaultAgentId: conversation.defaultAgentId,
       messages: [],
       createdAt: conversation.createdAt.getTime(),
       updatedAt: conversation.updatedAt.getTime(),
