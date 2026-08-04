@@ -1,5 +1,5 @@
 @import "weapp-tailwindcss/theme.css";
-@import "weapp-tailwindcss/utilities.css";
+@import "weapp-tailwindcss/utilities.css" source(none);
 @source "./**/*.{html,js,ts,jsx,tsx}";
 
 @config "../tailwind.config.js";
