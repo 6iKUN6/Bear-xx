@@ -14,7 +14,7 @@ import NavBar from "../NavBar";
 import PageShell from "../PageShell";
 import { useChatStore } from "../../store/chatStore";
 import { useAgentStore } from "../../store/agentStore";
-import { resolveAgentName } from "../../utils/agent";
+import { findAgent, resolveAgentName } from "../../utils/agent";
 import { useChatStream } from "../../hooks/useChatStream";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import { streamTaskService } from "../../services/stream";
@@ -87,9 +87,21 @@ export default function ChatWorkspace({
   const resumeProbedRef = useRef<Set<string>>(new Set());
   const agents = useAgentStore((state) => state.agents);
 
-  // 群成员 = 会话 agentIds ∪ 历史消息中出现过的发言者（本地即时补充，
-  // 不用等服务端会话重新拉取），再映射到已加载的智能体列表
+  // 会话形态：GROUP/SINGLE 来自服务端；本地草稿与旧数据按未定型（flex）处理
+  const conversationMode =
+    currentConversation?.type === "GROUP"
+      ? ("group" as const)
+      : currentConversation?.type === "SINGLE"
+        ? ("single" as const)
+        : ("flex" as const);
+
+  // 可 @ 成员：GROUP 严格用成员表（被移除即不可 @）；未定型沿用
+  // agentIds ∪ 历史发言者的宽松集合
   const memberAgents = useMemo(() => {
+    if (conversationMode === "group") {
+      const ids = new Set(currentConversation?.agentIds ?? []);
+      return agents.filter((agent) => ids.has(agent.id));
+    }
     const ids = new Set(currentConversation?.agentIds ?? []);
     currentConversation?.messages.forEach((m) => {
       if (m.role === "assistant" && m.agentId) {
@@ -97,7 +109,25 @@ export default function ChatWorkspace({
       }
     });
     return agents.filter((agent) => ids.has(agent.id));
-  }, [currentConversation, agents]);
+  }, [conversationMode, currentConversation, agents]);
+
+  // 单聊绑定的智能体（标题/占位文案用）
+  const boundAgent =
+    conversationMode === "single"
+      ? findAgent(
+          agents,
+          currentConversation?.defaultAgentId ??
+            currentConversation?.agentIds?.[0] ??
+            null,
+        )
+      : undefined;
+
+  const navTitle =
+    conversationMode === "group"
+      ? `${currentConversation?.title || "群聊"} (${currentConversation?.agentIds?.length ?? 0})`
+      : conversationMode === "single"
+        ? boundAgent?.name || currentConversation?.title || "AI 助手"
+        : currentConversation?.title || "AI 助手";
   const isStreaming = currentConversation?.messages.some(
     (m) => m.status === "streaming",
   );
@@ -332,17 +362,19 @@ export default function ChatWorkspace({
   return (
     <PageShell>
       <NavBar
-        title={currentConversation?.title || "AI 助手"}
+        title={navTitle}
         left={navLeft}
         showBack={showBack}
         capsule='hidden'
         barClassName='px-[0.5rem]'
       />
 
-      <MemberBar
-        members={memberAgents}
-        onMention={(agent) => chatInputRef.current?.insertMention(agent)}
-      />
+      {conversationMode !== "single" ? (
+        <MemberBar
+          members={memberAgents}
+          onMention={(agent) => chatInputRef.current?.insertMention(agent)}
+        />
+      ) : null}
 
       <View className='flex min-h-0 flex-1 flex-col'>
         {showEmptySlot ? (
@@ -361,10 +393,12 @@ export default function ChatWorkspace({
         )}
       </View>
 
+      {/* TabBar 占位区与输入栏同底色连成整块底部面板，靠 TabBar 上边框分隔，
+          避免中间露出页面底色显得两截糊在一起 */}
       <View
         className={
           aboveTabBar
-            ? "pb-[calc(env(safe-area-inset-bottom)+3.25rem)]"
+            ? "bg-[var(--lb-surface)] pb-[calc(env(safe-area-inset-bottom)+3.75rem)]"
             : ""
         }
       >
@@ -372,6 +406,15 @@ export default function ChatWorkspace({
           ref={chatInputRef}
           onSend={handleSend}
           reserveSafeArea={!aboveTabBar}
+          mode={conversationMode}
+          mentionAgents={
+            conversationMode === "group" ? memberAgents : undefined
+          }
+          placeholder={
+            conversationMode === "single" && boundAgent
+              ? `和${boundAgent.name}聊聊...`
+              : undefined
+          }
           onStop={() => {
             if (activeAssistantMessageIdRef.current) {
               updateMessageStatus(activeAssistantMessageIdRef.current, "done");

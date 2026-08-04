@@ -8,13 +8,13 @@ interface TabBarProps {
 
 const tabs = [
   { title: "聊天", icon: "at-icon-message" },
-  { title: "画图", icon: "at-icon-image" },
+  { title: "智能体", icon: "at-icon-lightning-bolt" },
   { title: "我的", icon: "at-icon-user" },
 ];
 
 const tabPages = [
   "/pages/index/index",
-  "/pages/image/index",
+  "/pages/agents/index",
   "/pages/profile/index",
 ];
 
@@ -28,13 +28,13 @@ export default function TabBar({ current }: TabBarProps) {
     <View
       className={`${appShellFixedClass} bottom-0 z-50 border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.5rem] pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-[0.25rem]`}
     >
-      <View className="flex w-full flex-row items-center justify-around">
+      <View className='flex w-full flex-row items-center justify-around'>
         {tabs.map((tab, index) => {
           const isActive = index === current;
           return (
             <View
               key={tab.title}
-              className="flex flex-1 flex-col items-center justify-center py-[0.25rem]"
+              className='flex flex-1 flex-col items-center justify-center py-[0.25rem]'
               onClick={() => handleClick(index)}
             >
               <View

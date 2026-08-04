@@ -2,6 +2,7 @@ import { View, Text, Image } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import { themes } from "@litter-bear/theme";
 import NavBar from "../../components/NavBar";
+import TabBar from "../../components/TabBar";
 import PageShell from "../../components/PageShell";
 import { useUserStore } from "../../store/userStore";
 import { useChatStore } from "../../store/chatStore";
@@ -69,7 +70,7 @@ export default function ProfilePage() {
 
   return (
     <PageShell>
-      <NavBar title='我的' showBack variant='ghost' capsule='hidden' />
+      <NavBar title='我的' showBack={false} variant='ghost' capsule='hidden' />
       <View className={appScreenClass}>
         <View className='px-[1rem] pb-[0.5rem] pt-[0.875rem]'>
           <View
@@ -240,6 +241,7 @@ export default function ProfilePage() {
         </View>
       </View>
 
+      <TabBar current={2} />
     </PageShell>
   );
 }

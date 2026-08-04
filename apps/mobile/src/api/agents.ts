@@ -7,6 +7,8 @@ export interface AgentSummary {
   description: string;
   /** 头像 URL；null = 用内置默认头像 */
   avatar: string | null;
+  /** 工具组（通讯录能力标签展示用） */
+  toolGroups: string[];
   enabled: boolean;
   isDefault: boolean;
 }

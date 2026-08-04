@@ -62,18 +62,26 @@ export async function getConversations(): Promise<Conversation[]> {
   return (await api.findAll()) as Conversation[];
 }
 
-export async function createConversation(): Promise<Conversation> {
+export async function createConversation(
+  input: {
+    title?: string;
+    type?: ConversationType;
+    agentIds?: string[];
+  } = {},
+): Promise<Conversation> {
   if (USE_MOCK) {
     return {
       id: genId(),
-      title: "新对话",
+      title: input.title || "新对话",
+      type: input.type ?? "SINGLE",
+      agentIds: input.agentIds ?? [],
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
   }
 
-  return (await api.create({})) as Conversation;
+  return (await api.create(input)) as Conversation;
 }
 
 export async function deleteConversation(id: string): Promise<void> {

@@ -20,8 +20,16 @@ export interface ChatInputHandle {
   setDraft: (text: string) => void;
 }
 
+/**
+ * 输入栏模式：
+ * - single：单聊（无胶囊/无 @，回答者由后端按会话绑定解析）
+ * - group：群聊（无粘性胶囊，仅 @ 提及；不 @ 则后端自动路由）
+ * - flex：未定型会话（本地草稿/旧数据），保留粘性胶囊 + 全量 @
+ */
+export type ChatInputMode = "single" | "group" | "flex";
+
 interface ChatInputProps {
-  /** agentId：本条消息的回答者；undefined = 后端默认智能体 */
+  /** agentId：本条消息的回答者；undefined = 交给后端（绑定/路由/默认） */
   onSend: (content: string, agentId?: string) => void;
   onStop?: () => void;
   onRecordComplete?: (filePath: string) => void;
@@ -29,6 +37,10 @@ interface ChatInputProps {
   disabled?: boolean;
   /** 底部是否预留 safe-area（上方另有 TabBar 占位时传 false 避免双重留白） */
   reserveSafeArea?: boolean;
+  mode?: ChatInputMode;
+  /** @ 提及候选（群聊=成员列表）；缺省用全部智能体 */
+  mentionAgents?: AgentSummary[];
+  placeholder?: string;
 }
 
 /** 一次性 @ 提及：仅对下一条消息生效 */
@@ -49,6 +61,9 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     isStreaming = false,
     disabled = false,
     reserveSafeArea = true,
+    mode = "flex",
+    mentionAgents,
+    placeholder,
   },
   ref,
 ) {
@@ -74,7 +89,9 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
 
   const currentAgent = findAgent(agents, selectedAgentId);
   const currentName = resolveAgentName(agents, selectedAgentId);
-  const canOpenSheet = agents.length > 0;
+  const mentionCandidates = mentionAgents ?? agents;
+  const canOpenSwitch = mode === "flex" && agents.length > 0;
+  const canMention = mode !== "single" && mentionCandidates.length > 0;
 
   const renderIcon = (name: string, extraClassName = "") => (
     <Text
@@ -87,7 +104,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   const handleInput = (next: string) => {
     // 末尾新敲出 @ → 呼出提及选择（仅追加输入时触发，避免删除/粘贴误弹）
     if (
-      canOpenSheet &&
+      canMention &&
       next.length > value.length &&
       next.endsWith("@") &&
       inputMode === "text"
@@ -142,10 +159,16 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   const handleSend = () => {
     const content = value.trim();
     if (!content || disabled || isStreaming) return;
-    // 本条 @ 优先于粘性选择；null（默认智能体）转为 undefined 走后端默认
-    const effectiveAgentId = mention
-      ? (mention.agentId ?? undefined)
-      : (selectedAgentId ?? undefined);
+    // single：回答者由后端按会话绑定解析；group：仅 @ 生效（不 @ = 自动路由）；
+    // flex：本条 @ 优先于粘性选择
+    const effectiveAgentId =
+      mode === "single"
+        ? undefined
+        : mode === "group"
+          ? (mention?.agentId ?? undefined)
+          : mention
+            ? (mention.agentId ?? undefined)
+            : (selectedAgentId ?? undefined);
     onSend(content, effectiveAgentId);
     setValue("");
     setMention(null);
@@ -220,11 +243,13 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
       className='border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] pt-[0.5rem] box-border'
       style={{ paddingBottom: reserveSafeArea ? safeAreaBottom(16) : 12 }}
     >
-      {/* 工具条：当前智能体胶囊（粘性切换） + 本条 @ 提及标记 */}
+      {/* 工具条：flex 显示粘性胶囊；group 仅显示 @ 标记；single 整条隐藏 */}
+      {mode !== "single" && (mode === "flex" || mention) ? (
       <View className='mb-[0.5rem] flex min-w-0 items-center gap-[0.5rem]'>
+        {mode === "flex" ? (
         <View
           className='flex min-w-0 max-w-[60%] items-center gap-[0.375rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-page-background)] py-[0.25rem] pl-[0.25rem] pr-[0.625rem] box-border'
-          onClick={() => canOpenSheet && setSheetMode("switch")}
+          onClick={() => canOpenSwitch && setSheetMode("switch")}
         >
           <Image
             className='h-[1.375rem] w-[1.375rem] shrink-0 rounded-full bg-[var(--lb-surface)]'
@@ -234,10 +259,11 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
           <Text className='block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium leading-[1.3] text-[var(--lb-text-primary)]'>
             {currentName}
           </Text>
-          {canOpenSheet ? (
+          {canOpenSwitch ? (
             <Text className='at-icon at-icon-chevron-down shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
           ) : null}
         </View>
+        ) : null}
 
         {mention ? (
           <View
@@ -251,6 +277,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
           </View>
         ) : null}
       </View>
+      ) : null}
 
       <View className='flex items-end gap-[0.75rem]'>
         <View className='flex-1 min-w-0'>
@@ -259,7 +286,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
               className={`${appSoftInputClass} w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[var(--lb-radius-md)] px-[0.875rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]`}
               value={value}
               onInput={(e) => handleInput(e.detail.value)}
-              placeholder='发消息，输入 @ 指定谁来回答...'
+              placeholder={
+                placeholder ??
+                (mode === "single"
+                  ? "发消息..."
+                  : "发消息，输入 @ 指定谁来回答...")
+              }
               placeholderClass='text-[var(--lb-text-muted)]'
               maxlength={2000}
               disabled={disabled || isStreaming}
@@ -283,7 +315,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
       {sheetMode ? (
         <AgentSheet
           title={sheetMode === "mention" ? "@ 谁来回答这条" : "切换智能体"}
-          agents={agents}
+          agents={sheetMode === "mention" ? mentionCandidates : agents}
           selectedAgentId={
             sheetMode === "switch" ? selectedAgentId : undefined
           }

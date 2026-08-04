@@ -15,6 +15,8 @@ interface ChatState {
   setCurrentConversation: (id: string) => void;
   /** 开始新对话：清空当前会话，下一次发送时创建草稿 */
   clearCurrentConversation: () => void;
+  /** 服务端创建的会话（单聊/群聊）放入列表并置为当前 */
+  upsertConversation: (conversation: Conversation) => void;
   ensureDraftConversation: () => string;
   replaceConversationId: (draftId: string, conversationId: string) => void;
   updateConversationTitle: (conversationId: string, title: string) => void;
@@ -86,6 +88,23 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
   clearCurrentConversation() {
     set({ currentConversation: null });
+  },
+
+  upsertConversation(conversation: Conversation) {
+    set((state) => {
+      const exists = state.conversations.some((c) => c.id === conversation.id);
+      const normalized = { ...conversation, messages: conversation.messages ?? [] };
+      const conversations = exists
+        ? state.conversations.map((c) =>
+            c.id === normalized.id ? { ...c, ...normalized, messages: c.messages } : c,
+          )
+        : [normalized, ...state.conversations];
+      const currentConversation = exists
+        ? (conversations.find((c) => c.id === normalized.id) ?? null)
+        : normalized;
+      return { conversations, currentConversation };
+    });
+    get().persistConversations();
   },
 
   ensureDraftConversation() {

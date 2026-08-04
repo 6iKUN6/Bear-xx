@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text } from "@tarojs/components";
 import { useDidShow } from "@tarojs/taro";
+import TabBar from "../../components/TabBar";
 import ChatWorkspace from "../../components/ChatWorkspace";
 import HistoryDrawer from "../../components/HistoryDrawer";
 import { useChatStore } from "../../store/chatStore";
@@ -76,6 +77,7 @@ export default function IndexPage() {
     <>
       <ChatWorkspace
         navLeft={historyButton}
+        aboveTabBar
         renderEmpty={({ setDraft }) => (
           <View className='px-[1rem] pt-[1rem]'>
             <View
@@ -133,6 +135,7 @@ export default function IndexPage() {
         onClose={() => setDrawerOpen(false)}
       />
 
+      <TabBar current={0} />
     </>
   );
 }

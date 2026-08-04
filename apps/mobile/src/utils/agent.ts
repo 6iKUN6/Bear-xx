@@ -27,3 +27,15 @@ export function resolveAgentName(
 ): string {
   return findAgent(agents, agentId)?.name ?? FALLBACK_AGENT_NAME;
 }
+
+/** 工具组 → 通讯录卡片能力标签（未登记的组回退原名） */
+const TOOL_GROUP_LABELS: Record<string, string> = {
+  default: "通用工具",
+  weather: "天气",
+  search: "联网搜索",
+  "image-gen": "AI 生图",
+};
+
+export function toolGroupLabel(group: string): string {
+  return TOOL_GROUP_LABELS[group] ?? group;
+}

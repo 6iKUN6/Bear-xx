@@ -74,11 +74,17 @@ interface Message {
   pendingApproval?: import("@litter-bear/types/protocol").ApprovalRequiredPayload;
 }
 
+type ConversationType = "SINGLE" | "GROUP";
+
 interface Conversation {
   id: string;
   title: string;
-  /** 群成员：会话中出现过的智能体 id 列表；空/缺省 = 单助手会话 */
+  /** 会话形态；缺省 = 本地草稿/旧数据（按未定型处理） */
+  type?: ConversationType;
+  /** GROUP=可 @ 的成员列表；SINGLE=绑定的智能体 */
   agentIds?: string[];
+  /** 默认回答者；GROUP 下 null = 自动路由 */
+  defaultAgentId?: string | null;
   messages: Message[];
   createdAt: number;
   updatedAt: number;
