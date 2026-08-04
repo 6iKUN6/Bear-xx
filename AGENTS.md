@@ -41,6 +41,7 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 | `apps/mobile/**`                        | `apps/mobile/AGENTS.md`                                                                | 新组件 `impeccable`；新交互先 `shape`                        |
 | 移动端 UI 设计打磨                             | `apps/mobile/AGENTS.md`                                                                | `critique` / `polish` / `adapt` / `harden`           |
 | 设计系统 / 主题 / 共享组件                        | `docs/design-system.md`                                                                | `shape` 定方向；`impeccable` 构建；`critique` / `polish` 打磨 |
+| 独立 HTML 原型 / UI 方案预览                    | 涉及现有产品时读 `docs/design-system.md`                                                | `html-prototype-generator`（`.claude/skills/html-prototype-generator`） |
 | `packages/types/**`、前后端流式契约             | `packages/types/src/protocol` + `apps/api/docs/agent-chat-chain.md`                    | —                                                    |
 | 疑难 bug / 性能回归                           | 相关 app 文档                                                                              | `diagnosing-bugs`                                    |
 | 提交前自查 / 清理                              | —                                                                                      | `code-review` / `simplify`                           |
