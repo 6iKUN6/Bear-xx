@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
 import { View, Text } from "@tarojs/components";
-import { useDidShow } from "@tarojs/taro";
-import TabBar from "../../components/TabBar";
+import Taro, { useDidShow } from "@tarojs/taro";
 import ChatWorkspace from "../../components/ChatWorkspace";
 import HistoryDrawer from "../../components/HistoryDrawer";
 import { useChatStore } from "../../store/chatStore";
-import {
-  appGlassCardStrongClass,
-  appIconTileClass,
-} from "../../utils/style";
+import { appGlassCardStrongClass, appIconTileClass } from "../../utils/style";
 
 const starterPrompts = [
   {
@@ -66,10 +62,10 @@ export default function IndexPage() {
 
   const historyButton = (
     <View
-      className='flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[1.125rem] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]'
+      className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[1.125rem] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
       onClick={() => setDrawerOpen(true)}
     >
-      <Text className='at-icon at-icon-bullet-list leading-none [&::before]:block' />
+      <Text className="at-icon at-icon-bullet-list leading-none [&::before]:block" />
     </View>
   );
 
@@ -77,42 +73,41 @@ export default function IndexPage() {
     <>
       <ChatWorkspace
         navLeft={historyButton}
-        aboveTabBar
         renderEmpty={({ setDraft }) => (
-          <View className='px-[1rem] pt-[1rem]'>
+          <View className="px-[1rem] pt-[1rem]">
             <View
               className={`${appGlassCardStrongClass} overflow-hidden px-[1.25rem] py-[1.25rem]`}
             >
-              <View className='flex items-start gap-[0.875rem]'>
+              <View className="flex items-start gap-[0.875rem]">
                 <View
                   className={`${appIconTileClass} h-[3.25rem] w-[3.25rem] shrink-0 text-[1.5rem]`}
                 >
-                  <Text className='leading-none'>✦</Text>
+                  <Text className="leading-none">✦</Text>
                 </View>
-                <View className='min-w-0 flex-1'>
-                  <Text className='block text-[1.125rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
+                <View className="min-w-0 flex-1">
+                  <Text className="block text-[1.125rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]">
                     今天想让小熊帮你做什么？
                   </Text>
-                  <Text className='mt-[0.375rem] block text-[0.875rem] leading-[1.55] text-[var(--lb-text-secondary)]'>
+                  <Text className="mt-[0.375rem] block text-[0.875rem] leading-[1.55] text-[var(--lb-text-secondary)]">
                     选择一个常用任务填进输入框，或直接开聊。
                   </Text>
                 </View>
               </View>
 
-              <View className='mt-[1.125rem] grid grid-cols-2 gap-[0.625rem]'>
+              <View className="mt-[1.125rem] grid grid-cols-2 gap-[0.625rem]">
                 {starterPrompts.map((item) => (
                   <View
                     key={item.title}
-                    className='rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] px-[0.875rem] py-[0.875rem] active:bg-[var(--lb-surface-hover)]'
+                    className="rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] px-[0.875rem] py-[0.875rem] active:bg-[var(--lb-surface-hover)]"
                     onClick={() => setDraft(`${item.title}：`)}
                   >
-                    <Text className='block text-[1.25rem] leading-none text-[var(--lb-accent-ink)]'>
+                    <Text className="block text-[1.25rem] leading-none text-[var(--lb-accent-ink)]">
                       {item.icon}
                     </Text>
-                    <Text className='mt-[0.625rem] block text-[0.875rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]'>
+                    <Text className="mt-[0.625rem] block text-[0.875rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
                       {item.title}
                     </Text>
-                    <Text className='mt-[0.25rem] block text-[0.75rem] leading-[1.45] text-[var(--lb-text-secondary)]'>
+                    <Text className="mt-[0.25rem] block text-[0.75rem] leading-[1.45] text-[var(--lb-text-secondary)]">
                       {item.desc}
                     </Text>
                   </View>
@@ -129,13 +124,17 @@ export default function IndexPage() {
         currentId={currentConversation?.id ?? null}
         onSelect={setCurrentConversation}
         onCreate={clearCurrentConversation}
+        onOpenAgents={() => {
+          void Taro.navigateTo({ url: "/pages/agents/index" });
+        }}
+        onOpenSettings={() => {
+          void Taro.navigateTo({ url: "/pages/profile/index" });
+        }}
         onDelete={(id) => {
           void deleteConversation(id);
         }}
         onClose={() => setDrawerOpen(false)}
       />
-
-      <TabBar current={0} />
     </>
   );
 }

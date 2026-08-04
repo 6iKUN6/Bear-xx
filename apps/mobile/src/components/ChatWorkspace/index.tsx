@@ -18,7 +18,10 @@ import { findAgent, resolveAgentName } from "../../utils/agent";
 import { useChatStream } from "../../hooks/useChatStream";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import { streamTaskService } from "../../services/stream";
-import type { StreamTaskEvent, StreamTaskLifecycle } from "../../services/stream";
+import type {
+  StreamTaskEvent,
+  StreamTaskLifecycle,
+} from "../../services/stream";
 import {
   clearPendingTask,
   getPendingTask,
@@ -42,8 +45,6 @@ interface ChatWorkspaceProps {
   /** 导航栏左槽（首页的历史抽屉按钮等）；不传则按 showBack 渲染返回键 */
   navLeft?: ReactNode;
   showBack?: boolean;
-  /** 输入栏下方是否为 TabBar 预留空间（首页 = true，独立 chat 页 = false） */
-  aboveTabBar?: boolean;
   /** 无消息时渲染的占位内容（开场提示卡等） */
   renderEmpty?: (actions: ChatWorkspaceEmptySlotActions) => ReactNode;
 }
@@ -51,14 +52,13 @@ interface ChatWorkspaceProps {
 /**
  * 聊天工作台（页面级共享组件）
  * @description 完整的对话交互：消息列表、群成员条、@ 提及输入栏、审批卡、
- * SSE 流式接线与标题实时更新。首页（最近对话直显 + TabBar）与独立 chat 页
- * （返回键导航）共用，两处只有导航栏与底部留白的差异。
+ * SSE 流式接线与标题实时更新。首页直显最近对话，独立 chat 页保留给深链入口；
+ * 两者共用相同的消息与输入区，不在聊天页渲染全局导航。
  */
 export default function ChatWorkspace({
   conversationId,
   navLeft,
   showBack = false,
-  aboveTabBar = false,
   renderEmpty,
 }: ChatWorkspaceProps) {
   const { abort, cancel, sendMessage, submitApproval, resume } =
@@ -256,7 +256,10 @@ export default function ChatWorkspace({
     };
 
     return {
-      onTaskCreated: ({ conversationId: realConversationId, taskId }, event) => {
+      onTaskCreated: (
+        { conversationId: realConversationId, taskId },
+        event,
+      ) => {
         recordStreamEvent(event);
         if (localConversationId?.startsWith("draft_")) {
           replaceConversationId(localConversationId, realConversationId);
@@ -365,8 +368,8 @@ export default function ChatWorkspace({
         title={navTitle}
         left={navLeft}
         showBack={showBack}
-        capsule='hidden'
-        barClassName='px-[0.5rem]'
+        capsule="hidden"
+        barClassName="px-[0.5rem]"
       />
 
       {conversationMode !== "single" ? (
@@ -376,9 +379,9 @@ export default function ChatWorkspace({
         />
       ) : null}
 
-      <View className='flex min-h-0 flex-1 flex-col'>
+      <View className="flex min-h-0 flex-1 flex-col">
         {showEmptySlot ? (
-          <View className='min-h-0 flex-1 overflow-y-auto'>
+          <View className="min-h-0 flex-1 overflow-y-auto">
             {renderEmpty({
               setDraft: (text) => chatInputRef.current?.setDraft(text),
             })}
@@ -393,19 +396,11 @@ export default function ChatWorkspace({
         )}
       </View>
 
-      {/* TabBar 占位区与输入栏同底色连成整块底部面板，靠 TabBar 上边框分隔，
-          避免中间露出页面底色显得两截糊在一起 */}
-      <View
-        className={
-          aboveTabBar
-            ? "bg-[var(--lb-surface)] pb-[calc(env(safe-area-inset-bottom)+3.75rem)]"
-            : ""
-        }
-      >
+      <View>
         <ChatInput
           ref={chatInputRef}
           onSend={handleSend}
-          reserveSafeArea={!aboveTabBar}
+          reserveSafeArea
           mode={conversationMode}
           mentionAgents={
             conversationMode === "group" ? memberAgents : undefined
