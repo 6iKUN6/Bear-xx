@@ -17,6 +17,7 @@ import { AgentModule } from './modules/agent/agent.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { StreamTaskModule } from './modules/stream-task/stream-task.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { ImagesModule } from './modules/images/images.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
@@ -42,6 +43,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     ChatModule,
     StreamTaskModule,
     StorageModule,
+    ImagesModule,
     HealthModule,
   ],
   providers: [

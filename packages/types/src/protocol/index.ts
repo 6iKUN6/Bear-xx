@@ -181,8 +181,7 @@ export interface ConversationTitleUpdatedPayload {
   title: string;
 }
 
-/** 人工审批决定类型（P5 HITL） */
-export type ApprovalDecisionType = 'approve' | 'reject' | 'edit';
+import type { ApprovalDecisionType } from './approval-card.js';
 
 /**
  * approval.required 事件载荷
@@ -216,3 +215,5 @@ export interface ApprovalDecision {
   /** reject 时可选的说明 */
   reason?: string;
 }
+
+export * from './approval-card.js';

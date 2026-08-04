@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LlmModule } from '../llm/llm.module';
 import { MemoryModule } from '../memory/memory.module';
 import { AgentModule } from '../agent/agent.module';
+import { ImagesModule } from '../images/images.module';
 import {
   AgentCheckpointerService,
   CommonChatAgentFactory,
@@ -27,7 +28,7 @@ import {
 import { AiService } from './ai.service';
 
 @Module({
-  imports: [LlmModule, MemoryModule, AgentModule],
+  imports: [LlmModule, MemoryModule, AgentModule, ImagesModule],
   providers: [
     AiService,
     CommonChatAgentFactory,

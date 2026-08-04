@@ -9,6 +9,8 @@ import { AsyncLocalStorage } from 'async_hooks';
  */
 interface ModelCallContext {
   taskId: string;
+  /** 任务归属用户：供工具（生图转存等）在执行期取归属，不用逐层传参 */
+  userId?: string;
   counter: { model: number };
 }
 
@@ -24,8 +26,9 @@ const storage = new AsyncLocalStorage<ModelCallContext>();
 export function runWithModelCallContext<T>(
   taskId: string,
   fn: () => Promise<T>,
+  userId?: string,
 ): Promise<T> {
-  return storage.run({ taskId, counter: { model: 0 } }, fn);
+  return storage.run({ taskId, userId, counter: { model: 0 } }, fn);
 }
 
 /**
@@ -46,4 +49,12 @@ export function incrementModelCall(): void {
  */
 export function getModelCallCount(): number {
   return storage.getStore()?.counter.model ?? 0;
+}
+
+/**
+ * 读取当前任务上下文的归属用户
+ * @returns 返回 userId；不在任务上下文中（如直调链路）返回 undefined
+ */
+export function getTaskUserId(): string | undefined {
+  return storage.getStore()?.userId;
 }

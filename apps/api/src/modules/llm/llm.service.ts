@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AIMessage,
@@ -9,6 +13,9 @@ import { LlmModelRegistryService } from './llm-model-registry.service';
 import { LlmChatModelFactory } from './providers/chat-model.factory';
 import { classifyLlmError } from './llm-error';
 import type {
+  LlmImageEditRequest,
+  LlmImageRequest,
+  LlmImageResult,
   LlmMessage,
   LlmTextRequest,
   LlmStreamOptions,
@@ -414,5 +421,138 @@ export class LlmService {
   private readBooleanConfig(key: string) {
     const value = this.configService.get<string>(key);
     return value === 'true' || value === '1';
+  }
+
+  /**
+   * 调用生图模型生成图片
+   * @param request 生图请求（prompt/size/model）
+   * @returns 返回图片 URL 或 base64（不同 provider 二选一）与润色后的 prompt
+   * @description 走 OpenAI 兼容的 /v1/images/generations 端点（gpt-image 系列 /
+   * dall-e / 兼容中转站通用）。模型配置独立于聊天模型，来自 IMAGE_GEN_* env：
+   * 未配置时抛 503（生图链路留白可随时补 key 启用，不影响其它功能）。
+   */
+  async generateImage(request: LlmImageRequest): Promise<LlmImageResult> {
+    const { baseURL, apiKey, model } = this.requireImageConfig(request.model);
+
+    this.debugLog('llm.image.request', {
+      model,
+      promptLength: request.prompt.length,
+      size: request.size,
+    });
+
+    const response = await fetch(`${baseURL}/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        prompt: request.prompt,
+        n: 1,
+        ...(request.size ? { size: request.size } : {}),
+      }),
+      signal: request.abortSignal ?? AbortSignal.timeout(120000),
+    });
+
+    return this.parseImageResponse(response);
+  }
+
+  /**
+   * 参考图生图（图生图/改图）
+   * @param request 参考图 + prompt 的编辑请求
+   * @returns 返回图片 URL 或 base64 与润色后的 prompt
+   * @description 走 OpenAI 兼容的 /v1/images/edits 端点（gpt-image 系列原生
+   * 支持多参考图高保真输入）。edits 是 multipart/form-data：单图用 image 字段，
+   * 多图按官方约定用 image[] 重复字段；Content-Type 由 FormData 自带 boundary。
+   */
+  async editImage(request: LlmImageEditRequest): Promise<LlmImageResult> {
+    const { baseURL, apiKey, model } = this.requireImageConfig(request.model);
+
+    this.debugLog('llm.image.edit.request', {
+      model,
+      promptLength: request.prompt.length,
+      imageCount: request.images.length,
+      size: request.size,
+    });
+
+    const form = new FormData();
+    form.append('model', model);
+    form.append('prompt', request.prompt);
+    form.append('n', '1');
+    if (request.size) {
+      form.append('size', request.size);
+    }
+    const fieldName = request.images.length > 1 ? 'image[]' : 'image';
+    request.images.forEach((image, index) => {
+      form.append(
+        fieldName,
+        new Blob([new Uint8Array(image.data)], {
+          type: image.mimeType ?? 'image/png',
+        }),
+        `reference-${index}.png`,
+      );
+    });
+
+    const response = await fetch(`${baseURL}/v1/images/edits`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+      signal: request.abortSignal ?? AbortSignal.timeout(180000),
+    });
+
+    return this.parseImageResponse(response);
+  }
+
+  /** 生图模型配置（独立于聊天模型）；未配置抛 503，链路留白可随时补 key 启用 */
+  private requireImageConfig(modelOverride?: string) {
+    const baseURL = this.configService.get<string>('IMAGE_GEN_BASE_URL');
+    const apiKey = this.configService.get<string>('IMAGE_GEN_API_KEY');
+    const model =
+      modelOverride ?? this.configService.get<string>('IMAGE_GEN_MODEL');
+
+    if (!baseURL || !apiKey || !model) {
+      throw new ServiceUnavailableException(
+        '生图模型未配置：请在 env 中填写 IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY / IMAGE_GEN_MODEL',
+      );
+    }
+
+    // 归一化：容忍带不带尾部 /v1 两种填法（代码统一自己拼 /v1/...，
+    // env 里多带一个 /v1 会打出 /v1/v1/... 的 404）
+    return {
+      baseURL: baseURL.replace(/\/+$/, '').replace(/\/v1$/i, ''),
+      apiKey,
+      model,
+    };
+  }
+
+  /** 解析 generations/edits 共同的响应形状（url 或 b64_json 二选一） */
+  private async parseImageResponse(
+    response: Response,
+  ): Promise<LlmImageResult> {
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(
+        `生图请求失败(${response.status})：${detail.slice(0, 200)}`,
+      );
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{
+        url?: string;
+        b64_json?: string;
+        revised_prompt?: string;
+      }>;
+    };
+    const image = payload.data?.[0];
+    if (!image?.url && !image?.b64_json) {
+      throw new Error('生图响应缺少图片数据');
+    }
+
+    return {
+      url: image.url,
+      b64: image.b64_json,
+      revisedPrompt: image.revised_prompt,
+    };
   }
 }

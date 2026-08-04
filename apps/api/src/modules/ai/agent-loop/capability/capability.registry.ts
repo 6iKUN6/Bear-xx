@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { getWeather, webSearch } from '../../tools';
+import {
+  createEditImageTool,
+  createGenerateImageTool,
+  getWeather,
+  webSearch,
+} from '../../tools';
+import { ImageGenerationService } from '../../../images/image-generation.service';
 import type {
   CapabilityTool,
   SkillDefinition,
@@ -12,6 +18,8 @@ export const DEFAULT_TOOL_GROUP = 'default';
 export const WEATHER_TOOL_GROUP = 'weather';
 /** 搜索工具组：仅联网搜索 */
 export const SEARCH_TOOL_GROUP = 'search';
+/** 生图工具组：AI 文生图（不入 default，按 agent 显式分配） */
+export const IMAGE_TOOL_GROUP = 'image-gen';
 
 /**
  * 能力注册表
@@ -26,7 +34,7 @@ export class CapabilityRegistry {
   private readonly skills = new Map<string, SkillDefinition>();
   private readonly subagents = new Map<string, SubagentDefinition>();
 
-  constructor() {
+  constructor(private readonly imageGenerationService: ImageGenerationService) {
     // P5a 演示：给 getWeather 开启人工审批，使"深圳天气"流程即可端到端验证 HITL。
     // 真实策略应按工具语义配置（只读工具免审批、写类/高风险工具需审批）。
     // 每个工具同时归入 default（全量）与语义组（细粒度），供 Agent.toolGroups 按需组合。
@@ -35,6 +43,13 @@ export class CapabilityRegistry {
     });
     // 联网搜索为只读、低风险能力，免审批直接执行。
     this.registerTool(webSearch, [DEFAULT_TOOL_GROUP, SEARCH_TOOL_GROUP]);
+    // 生图不进 default：有真实费用与耗时，只给显式配置了 image-gen 组的 agent（如「画师」）。
+    this.registerTool(createGenerateImageTool(this.imageGenerationService), [
+      IMAGE_TOOL_GROUP,
+    ]);
+    this.registerTool(createEditImageTool(this.imageGenerationService), [
+      IMAGE_TOOL_GROUP,
+    ]);
   }
 
   /**

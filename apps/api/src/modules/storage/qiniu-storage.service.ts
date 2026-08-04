@@ -203,4 +203,43 @@ export class QiniuStorageService {
   private urlsafeBase64(input: Buffer): string {
     return input.toString('base64').replaceAll('+', '-').replaceAll('/', '_');
   }
+
+  /**
+   * 服务端直传二进制到七牛
+   * @param input 数据、归属用户、媒体类型与扩展名
+   * @returns 返回对象 key
+   * @description 供后端自产内容（AI 生图等）转存：内部签自己的直传凭证后
+   * 表单上传，key 归属 ownerId（与客户端直传同一目录规则，登记校验可复用）。
+   */
+  async uploadBuffer(input: {
+    data: Buffer;
+    ownerId: string;
+    type: UploadMediaType;
+    ext: string;
+  }): Promise<string> {
+    const credential = this.createUploadCredential(
+      input.ownerId,
+      input.type,
+      input.ext,
+    );
+
+    const form = new FormData();
+    form.append('token', credential.token);
+    form.append('key', credential.key);
+    form.append('file', new Blob([new Uint8Array(input.data)]));
+
+    const response = await fetch(credential.uploadUrl, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(
+        `七牛服务端上传失败(${response.status})：${detail.slice(0, 200)}`,
+      );
+    }
+
+    return credential.key;
+  }
 }

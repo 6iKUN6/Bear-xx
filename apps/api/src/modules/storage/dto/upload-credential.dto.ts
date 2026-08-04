@@ -9,6 +9,7 @@ export const STORAGE_USAGES = [
   'agent-avatar',
   'chat-image',
   'voice-input',
+  'ai-image',
 ] as const;
 export type StorageUsage = (typeof STORAGE_USAGES)[number];
 

@@ -80,3 +80,32 @@ export interface LlmRunMetrics {
   summaryMessageCount?: number;
   recentMessageCount?: number;
 }
+
+/** 生图请求：模型/尺寸可选，默认取 IMAGE_GEN_* env 配置 */
+export interface LlmImageRequest {
+  prompt: string;
+  /** 形如 1024x1024；不传由模型决定 */
+  size?: string;
+  /** 覆盖默认生图模型名 */
+  model?: string;
+  abortSignal?: AbortSignal;
+}
+
+/** 生图结果：不同 provider 返回 url 或 base64 二选一 */
+export interface LlmImageResult {
+  url?: string;
+  b64?: string;
+  revisedPrompt?: string;
+}
+
+/** 参考图生图（edits）请求：参考图以二进制随 multipart 直传 */
+export interface LlmImageEditRequest {
+  prompt: string;
+  /** 参考图（1-N 张；gpt-image 系列支持多参考图高保真输入） */
+  images: Array<{ data: Buffer; mimeType?: string }>;
+  /** 形如 1024x1024；不传由模型决定 */
+  size?: string;
+  /** 覆盖默认生图模型名 */
+  model?: string;
+  abortSignal?: AbortSignal;
+}
