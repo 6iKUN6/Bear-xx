@@ -13,12 +13,16 @@ interface ChatState {
   createConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   setCurrentConversation: (id: string) => void;
+  /** 开始新对话：清空当前会话，下一次发送时创建草稿 */
+  clearCurrentConversation: () => void;
   ensureDraftConversation: () => string;
   replaceConversationId: (draftId: string, conversationId: string) => void;
   updateConversationTitle: (conversationId: string, title: string) => void;
 
   addMessage: (msg: Message) => void;
   updateMessageContent: (msgId: string, content: string) => void;
+  /** 整体替换消息文本（SSE 续接从头重放帧时先清空重建） */
+  setMessageContent: (msgId: string, content: string) => void;
   updateMessageStatus: (msgId: string, status: MessageStatus) => void;
   updateMessageMetrics: (
     msgId: string,
@@ -44,6 +48,11 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
   async loadConversations() {
     const conversations = await chatApi.getConversations();
+    // 网关异常/被劫持时响应可能不是数组：宁可保留本地数据也不能崩 app
+    if (!Array.isArray(conversations)) {
+      console.warn("loadConversations: 响应不是数组，忽略", conversations);
+      return;
+    }
     set({
       conversations: conversations.map(normalizeConversationStreamFeedback),
     });
@@ -73,6 +82,10 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   setCurrentConversation(id: string) {
     const conv = get().conversations.find((c) => c.id === id) || null;
     set({ currentConversation: conv });
+  },
+
+  clearCurrentConversation() {
+    set({ currentConversation: null });
   },
 
   ensureDraftConversation() {
@@ -165,6 +178,26 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
         updatedAt: Date.now(),
       };
 
+      const conversations = state.conversations.map((c) =>
+        c.id === updatedConv.id ? updatedConv : c,
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
+  setMessageContent(msgId: string, content: string) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((m) =>
+        m.id === msgId ? { ...m, content } : m,
+      );
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
       const conversations = state.conversations.map((c) =>
         c.id === updatedConv.id ? updatedConv : c,
       );
@@ -317,7 +350,7 @@ function normalizeConversationStreamFeedback(
 ): Conversation {
   return {
     ...conversation,
-    messages: conversation.messages.map(normalizeMessageStreamFeedback),
+    messages: (conversation.messages ?? []).map(normalizeMessageStreamFeedback),
   };
 }
 

@@ -224,6 +224,9 @@ export class BaseApiClient {
           method: resolvedOptions.method || "GET",
           data: resolvedOptions.data,
           enableChunked: true,
+          // 小程序 request 默认 60s 超时会掐断长任务的 SSE（生图等工具一跑
+          // 就是分钟级）；放宽到 300s，与后端任务缓冲窗口对齐
+          timeout: 300000,
           header: this.buildHeaders(
             resolvedOptions.header,
             resolvedOptions.skipAuth,

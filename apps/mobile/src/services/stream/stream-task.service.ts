@@ -11,7 +11,27 @@ import type {
   StreamTaskLifecycle,
 } from "./stream.types";
 
+/** GET /stream-tasks/:id 的恢复判定字段（只取续接需要的子集） */
+export interface StreamTaskStatusSnapshot {
+  taskId: string;
+  status: string;
+  conversationId: string;
+  messageId: string;
+  lastEventId: number;
+  fullContent: string;
+  errorMessage: string | null;
+  canResume: boolean;
+}
+
 export class StreamTaskService {
+  /** 查询任务状态：跨页面回到会话时判断「续接还是取终稿」 */
+  async getTaskStatus(taskId: string): Promise<StreamTaskStatusSnapshot> {
+    return apiClient.request<StreamTaskStatusSnapshot>({
+      url: `/api/stream-tasks/${taskId}`,
+      method: "GET",
+    });
+  }
+
   startChatMessage(
     input: ChatStreamInput,
     lifecycle: StreamTaskLifecycle = {},

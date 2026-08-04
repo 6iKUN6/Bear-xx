@@ -13,9 +13,11 @@ import { agentAvatarSrc, findAgent, resolveAgentName } from "../../utils/agent";
 import { appSoftInputClass, safeAreaBottom } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
 
-/** 供外部（成员条等）触发一次性 @ 提及 */
+/** 供外部（成员条/开场提示等）操控输入框 */
 export interface ChatInputHandle {
   insertMention: (agent: AgentSummary) => void;
+  /** 把文本填进输入框（不发送） */
+  setDraft: (text: string) => void;
 }
 
 interface ChatInputProps {
@@ -25,6 +27,8 @@ interface ChatInputProps {
   onRecordComplete?: (filePath: string) => void;
   isStreaming?: boolean;
   disabled?: boolean;
+  /** 底部是否预留 safe-area（上方另有 TabBar 占位时传 false 避免双重留白） */
+  reserveSafeArea?: boolean;
 }
 
 /** 一次性 @ 提及：仅对下一条消息生效 */
@@ -38,7 +42,14 @@ const iconClassName =
   "inline-flex items-center justify-center text-[1.25rem] leading-none [&::before]:block";
 
 export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
-  { onSend, onStop, onRecordComplete, isStreaming = false, disabled = false },
+  {
+    onSend,
+    onStop,
+    onRecordComplete,
+    isStreaming = false,
+    disabled = false,
+    reserveSafeArea = true,
+  },
   ref,
 ) {
   const [value, setValue] = useState("");
@@ -99,7 +110,14 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     setMention({ agentId: agent.isDefault ? null : agent.id, name: agent.name });
   };
 
-  useImperativeHandle(ref, () => ({ insertMention: applyMention }));
+  useImperativeHandle(ref, () => ({
+    insertMention: applyMention,
+    setDraft: (text: string) => {
+      setInputMode("text");
+      setMention(null);
+      setValue(text);
+    },
+  }));
 
   const handleSheetSelect = (agent: AgentSummary) => {
     if (sheetMode === "switch") {
@@ -200,7 +218,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   return (
     <View
       className='border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] pt-[0.5rem] box-border'
-      style={{ paddingBottom: safeAreaBottom(16) }}
+      style={{ paddingBottom: reserveSafeArea ? safeAreaBottom(16) : 12 }}
     >
       {/* 工具条：当前智能体胶囊（粘性切换） + 本条 @ 提及标记 */}
       <View className='mb-[0.5rem] flex min-w-0 items-center gap-[0.5rem]'>
