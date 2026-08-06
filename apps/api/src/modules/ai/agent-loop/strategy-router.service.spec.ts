@@ -1,8 +1,5 @@
 import { StrategyRouterService } from './strategy-router.service';
-import {
-  AgentStrategyMode,
-  type AgentDefinition,
-} from './agent-loop.types';
+import { AgentStrategyMode, type AgentDefinition } from './agent-loop.types';
 import { DEFAULT_TOOL_GROUP } from './capability/capability.registry';
 
 function buildRouter() {

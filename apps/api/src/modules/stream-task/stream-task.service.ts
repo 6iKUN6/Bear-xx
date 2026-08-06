@@ -41,7 +41,10 @@ import type {
 } from '../llm/llm.types';
 import { LlmService } from '../llm/llm.service';
 import { ConversationService } from '../conversation/conversation.service';
-import { GroupRouterService } from '../conversation/group-router.service';
+import {
+  GroupRouterService,
+  type GroupRouteSource,
+} from '../conversation/group-router.service';
 import { ConversationTraceService } from '../conversation-trace';
 import type { ChatContextBundle } from '../memory/chat-context.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
@@ -204,7 +207,11 @@ export class StreamTaskService {
             ? {
                 agentId: answering.agentId,
                 ...(answering.autoRouted
-                  ? { autoRouted: true, routeReason: answering.routeReason }
+                  ? {
+                      autoRouted: true,
+                      routeReason: answering.routeReason,
+                      routeSource: answering.routeSource,
+                    }
                   : {}),
               }
             : undefined,
@@ -229,7 +236,12 @@ export class StreamTaskService {
     userId: string,
     content: string,
     explicitAgentId?: string,
-  ): Promise<{ agentId?: string; autoRouted?: boolean; routeReason?: string }> {
+  ): Promise<{
+    agentId?: string;
+    autoRouted?: boolean;
+    routeReason?: string;
+    routeSource?: GroupRouteSource;
+  }> {
     if (explicitAgentId || !conversationId) {
       return { agentId: explicitAgentId };
     }
@@ -261,6 +273,7 @@ export class StreamTaskService {
       agentId: routed.agentId,
       autoRouted: true,
       routeReason: routed.reason,
+      routeSource: routed.source,
     };
   }
 

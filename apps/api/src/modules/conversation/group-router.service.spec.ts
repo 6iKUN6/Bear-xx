@@ -10,7 +10,9 @@ describe('GroupRouterService', () => {
    */
   const createService = () => {
     const prisma = { agent: { findMany: jest.fn() } };
-    const llmService = { generateChatText: jest.fn() };
+    // generateStructured 内部已负责「原生结构化输出 → 提示词降级」与 schema 校验，
+    // 这里只 mock 它的产物：成功返回对象、不可用返回 null。
+    const llmService = { generateStructured: jest.fn() };
     return {
       service: new GroupRouterService(
         prisma as unknown as PrismaService,
@@ -41,48 +43,85 @@ describe('GroupRouterService', () => {
   it('按模型结构化输出选中成员并透出理由', async () => {
     const { service, prisma, llmService } = createService();
     prisma.agent.findMany.mockResolvedValue(members);
-    llmService.generateChatText.mockResolvedValue(
-      '{"agentId":"agent-painter","reason":"用户要画图"}',
-    );
+    llmService.generateStructured.mockResolvedValue({
+      agentId: 'agent-painter',
+      reason: '用户要画图',
+    });
 
     const result = await service.route('帮我画一只太空熊', [
       'agent-general',
       'agent-painter',
     ]);
 
-    expect(result).toEqual({ agentId: 'agent-painter', reason: '用户要画图' });
+    expect(result).toEqual({
+      agentId: 'agent-painter',
+      reason: '用户要画图',
+      source: 'model',
+    });
   });
 
-  it('成员唯一时短路，不调用模型', async () => {
+  it('用 schema 约束模型输出（透传 schemaName 便于服务端定位）', async () => {
+    const { service, prisma, llmService } = createService();
+    prisma.agent.findMany.mockResolvedValue(members);
+    llmService.generateStructured.mockResolvedValue({
+      agentId: 'agent-painter',
+    });
+
+    await service.route('画图', ['agent-general', 'agent-painter']);
+
+    const [, schema, options] = llmService.generateStructured.mock
+      .calls[0] as unknown[];
+    expect(schema).toBeDefined();
+    expect(options).toMatchObject({ schemaName: 'group_route' });
+  });
+
+  it('成员唯一时短路，不调用模型（确定性结果，非降级）', async () => {
     const { service, llmService } = createService();
     const result = await service.route('随便聊聊', ['agent-general']);
     expect(result.agentId).toBe('agent-general');
-    expect(llmService.generateChatText).not.toHaveBeenCalled();
+    expect(result.source).toBe('model');
+    expect(llmService.generateStructured).not.toHaveBeenCalled();
   });
 
-  it('模型输出不合法（含幻觉成员 id）时回退第一个成员', async () => {
+  it('模型给出幻觉成员 id 时回退第一个成员并标记 fallback', async () => {
     const { service, prisma, llmService } = createService();
     prisma.agent.findMany.mockResolvedValue(members);
-    llmService.generateChatText.mockResolvedValue(
-      '{"agentId":"agent-ghost","reason":"?"}',
-    );
+    llmService.generateStructured.mockResolvedValue({
+      agentId: 'agent-ghost',
+      reason: '?',
+    });
 
     const result = await service.route('画图', [
       'agent-general',
       'agent-painter',
     ]);
     expect(result.agentId).toBe('agent-general');
+    expect(result.source).toBe('fallback');
   });
 
-  it('模型异常时回退第一个成员，不阻塞发送链路', async () => {
+  it('结构化与降级路径均失败（返回 null）时回退并标记 fallback', async () => {
     const { service, prisma, llmService } = createService();
     prisma.agent.findMany.mockResolvedValue(members);
-    llmService.generateChatText.mockRejectedValue(new Error('llm down'));
+    llmService.generateStructured.mockResolvedValue(null);
 
     const result = await service.route('画图', [
       'agent-general',
       'agent-painter',
     ]);
     expect(result.agentId).toBe('agent-general');
+    expect(result.source).toBe('fallback');
+  });
+
+  it('模型异常时回退第一个成员并标记 fallback，不阻塞发送链路', async () => {
+    const { service, prisma, llmService } = createService();
+    prisma.agent.findMany.mockResolvedValue(members);
+    llmService.generateStructured.mockRejectedValue(new Error('llm down'));
+
+    const result = await service.route('画图', [
+      'agent-general',
+      'agent-painter',
+    ]);
+    expect(result.agentId).toBe('agent-general');
+    expect(result.source).toBe('fallback');
   });
 });

@@ -66,6 +66,15 @@ export interface AgentLoopInput {
   abortSignal?: AbortSignal;
 }
 
+/**
+ * 策略决策来源
+ * @description model=结构化 LLM 路由生效；rules=降级到关键词规则；
+ * forced=agent 配置强制指定；resume=HITL 恢复按配置装配。
+ * LLM 路由失败是静默降级的，不标记则无法区分「模型判定用 direct」和
+ * 「模型挂了退到规则」——两者线上表现相同，需要此字段观测真实生效率。
+ */
+export type AgentStrategySource = 'model' | 'rules' | 'forced' | 'resume';
+
 export interface AgentStrategyDecision {
   mode: AgentStrategyMode;
   confidence: number;
@@ -74,6 +83,7 @@ export interface AgentStrategyDecision {
   toolGroups: string[];
   maxSteps: number;
   publicStatus: string;
+  source: AgentStrategySource;
 }
 
 export interface AgentStrategyGraph {

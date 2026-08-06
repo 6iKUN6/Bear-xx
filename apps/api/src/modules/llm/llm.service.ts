@@ -9,9 +9,11 @@ import {
   HumanMessage,
   SystemMessage,
 } from '@langchain/core/messages';
+import type { ZodType } from 'zod';
 import { LlmModelRegistryService } from './llm-model-registry.service';
 import { LlmChatModelFactory } from './providers/chat-model.factory';
 import { classifyLlmError } from './llm-error';
+import { parseJsonFromText } from '../../common/utils/json-extract';
 import type {
   LlmImageEditRequest,
   LlmImageRequest,
@@ -20,6 +22,7 @@ import type {
   LlmTextRequest,
   LlmStreamOptions,
   LlmGenerateOptions,
+  LlmStructuredOptions,
   ResolvedLlmTextRequest,
   LlmTokenUsageMetrics,
 } from './llm.types';
@@ -205,6 +208,125 @@ export class LlmService {
         }),
       );
       throw error;
+    }
+  }
+
+  /**
+   * 结构化生成：按 schema 约束模型输出
+   * @param messages 聊天消息列表
+   * @param schema zod schema，既用于约束模型也用于校验结果
+   * @param options 模型选择 / 生成参数 / schema 名称 / abortSignal
+   * @returns 返回通过校验的结构化结果；不可用或校验失败时返回 null（由调用方降级）
+   * @description 优先走 provider 原生结构化输出（OpenAI 兼容的 json_schema、Anthropic 的
+   * tool 模式，由 LangChain withStructuredOutput 抹平差异）；provider 不支持或调用失败时，
+   * 降级为「提示词约束 + 从杂文里提取 JSON」，**两条路径都用同一 schema 做校验**——
+   * 这是相比裸 generateChatText 的核心收益：非法输出在此收敛，调用方只需处理 null。
+   */
+  async generateStructured<T>(
+    messages: LlmMessage[],
+    schema: ZodType<T>,
+    options?: LlmStructuredOptions,
+  ): Promise<T | null> {
+    const resolvedRequest = this.modelRegistry.resolveTextRequest(
+      options?.request,
+    );
+    const langChainMessages = this.toLangChainMessages(messages);
+    const startedAt = Date.now();
+    const schemaName = options?.schemaName ?? 'structured_output';
+
+    this.debugLog('llm.structured.request', {
+      model: this.toSafeModelLog(resolvedRequest),
+      schemaName,
+      messageCount: messages.length,
+    });
+
+    try {
+      const chatModel = this.createChatModel(resolvedRequest);
+      const structured = chatModel.withStructuredOutput(schema, {
+        name: schemaName,
+      });
+      const result = (await structured.invoke(langChainMessages, {
+        signal: options?.abortSignal,
+      })) as unknown;
+
+      const parsed = schema.safeParse(result);
+      if (parsed.success) {
+        this.debugLog('llm.structured.completed', {
+          model: this.toSafeModelLog(resolvedRequest),
+          schemaName,
+          durationMs: Date.now() - startedAt,
+        });
+        return parsed.data;
+      }
+
+      this.logger.warn(
+        this.formatLog('llm.structured.invalid', {
+          model: this.toSafeModelLog(resolvedRequest),
+          schemaName,
+        }),
+      );
+    } catch (error) {
+      // provider 不支持 json_schema、或本次调用失败：转提示词降级路径
+      this.logger.warn(
+        this.formatLog('llm.structured.unavailable', {
+          model: this.toSafeModelLog(resolvedRequest),
+          schemaName,
+          error: classifyLlmError(error),
+        }),
+      );
+    }
+
+    return this.generateStructuredByPrompt(
+      messages,
+      schema,
+      resolvedRequest,
+      options,
+    );
+  }
+
+  /**
+   * 结构化生成的降级路径：提示词约束 + 提取 JSON + schema 校验
+   * @returns 返回通过校验的结果；仍失败则 null
+   * @description 供不支持原生结构化输出的 provider 使用。相比历史实现的差别在于
+   * 结果仍过 schema.safeParse，字段缺失/类型不符不会被当成有效决策放行。
+   */
+  private async generateStructuredByPrompt<T>(
+    messages: LlmMessage[],
+    schema: ZodType<T>,
+    resolvedRequest: ResolvedLlmTextRequest,
+    options?: LlmStructuredOptions,
+  ): Promise<T | null> {
+    try {
+      const raw = await this.generateChatText(
+        [
+          ...messages,
+          {
+            role: 'system',
+            content:
+              '只输出符合要求的 JSON 对象，禁止输出解释、Markdown 代码块或任何额外文本。',
+          },
+        ],
+        resolvedRequest,
+        { abortSignal: options?.abortSignal },
+      );
+
+      const value = parseJsonFromText(raw);
+      if (value === undefined) {
+        this.logger.warn('llm.structured.fallback_unparsable');
+        return null;
+      }
+
+      const parsed = schema.safeParse(value);
+      if (!parsed.success) {
+        this.logger.warn('llm.structured.fallback_invalid');
+        return null;
+      }
+      return parsed.data;
+    } catch (error) {
+      this.logger.warn(
+        `llm.structured.fallback_failed: ${(error as Error).message}`,
+      );
+      return null;
     }
   }
 

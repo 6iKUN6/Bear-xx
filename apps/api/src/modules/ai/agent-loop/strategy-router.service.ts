@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { LlmService } from '../../llm/llm.service';
 import { KIMI_PLATFORM } from '../../llm/providers/kimi';
 import type { LlmMessage } from '../../llm/llm.types';
+import { z } from 'zod';
 import {
   AgentStrategyMode,
   type AgentDefinition,
@@ -16,6 +17,23 @@ import {
 
 const DEFAULT_MAX_STEPS = 6;
 const MAX_STEPS_LIMIT = 10;
+
+/**
+ * 策略决策输出契约
+ * @description mode 用宽松 string 而非 enum：模型常给 `react_agent`/`planExecute` 等别名，
+ * 交由 normalizeMode 归一后再做闭集校验，比让 schema 直接拒绝更宽容（拒绝=整轮降级到规则）。
+ * toolGroups/skills 同理只约束为字符串数组，具体值由注册表闭集收敛。
+ */
+const strategyDecisionSchema = z.object({
+  mode: z.string().describe('direct | react | plan_execute | hybrid'),
+  toolGroups: z.array(z.string()).optional().describe('从可用工具组中选择'),
+  skills: z.array(z.string()).optional().describe('从可用技能中选择'),
+  maxSteps: z.number().optional(),
+  confidence: z.number().optional(),
+  reason: z.string().optional().describe('简述理由'),
+});
+
+type StrategyDecisionOutput = z.infer<typeof strategyDecisionSchema>;
 
 // 仅保留有真实工具支撑的意图关键词，避免路由承诺出并不存在的能力。
 const TOOL_INTENT_KEYWORDS = [
@@ -90,6 +108,10 @@ export class StrategyRouterService {
     if (this.isModelRouterEnabled()) {
       try {
         decision = await this.routeByModel(input);
+        if (!decision) {
+          // 调用成功但输出不合法（解析失败/mode 非法），同样是降级，需可观测
+          this.logger.warn('LLM 路由输出不合法，降级关键词规则');
+        }
       } catch (error) {
         this.logger.warn(
           `LLM 路由失败，降级关键词规则：${(error as Error).message}`,
@@ -120,6 +142,7 @@ export class StrategyRouterService {
       toolGroups: this.forcedDefaultToolGroups(mode, cfg),
       maxSteps: DEFAULT_MAX_STEPS,
       publicStatus: PUBLIC_STATUS_BY_MODE[mode],
+      source: 'forced',
     };
   }
 
@@ -142,6 +165,7 @@ export class StrategyRouterService {
           ? this.clampMaxSteps(cfg.maxSteps)
           : DEFAULT_MAX_STEPS,
       publicStatus: PUBLIC_STATUS_BY_MODE[AgentStrategyMode.ReAct],
+      source: 'resume',
     };
   }
 
@@ -264,7 +288,7 @@ export class StrategyRouterService {
     const toolNames = this.registry.listToolNames();
     const skillNames = this.registry.listSkillNames();
 
-    const raw = await this.llmService.generateChatText(
+    const parsed = await this.llmService.generateStructured(
       [
         { role: 'system', content: this.buildRouterSystemPrompt() },
         {
@@ -277,12 +301,16 @@ export class StrategyRouterService {
           ),
         },
       ],
-      // 不覆盖 temperature：部分模型（如 kimi-for-coding）仅允许 temperature=1。
-      { model: { platform: KIMI_PLATFORM } },
-      { abortSignal: input.abortSignal },
+      strategyDecisionSchema,
+      {
+        schemaName: 'strategy_decision',
+        // 不覆盖 temperature：部分模型（如 kimi-for-coding）仅允许 temperature=1。
+        request: { model: { platform: KIMI_PLATFORM } },
+        abortSignal: input.abortSignal,
+      },
     );
 
-    return this.parseDecision(raw);
+    return this.buildDecisionFromModel(parsed);
   }
 
   private buildRouterSystemPrompt(): string {
@@ -318,40 +346,29 @@ export class StrategyRouterService {
    * @returns 返回合法决策；无法解析或 mode 非法时返回 null
    * @description 对 mode 做别名归一与枚举校验，toolGroups/skills 收敛到注册表闭集，maxSteps/confidence 做区间约束。
    */
-  private parseDecision(raw: string): AgentStrategyDecision | null {
-    const json = this.extractJson(raw);
-    if (!json) {
+  private buildDecisionFromModel(
+    parsed: StrategyDecisionOutput | null,
+  ): AgentStrategyDecision | null {
+    if (!parsed) {
       return null;
     }
 
-    let parsed: Record<string, unknown>;
-    try {
-      const value: unknown = JSON.parse(json);
-      if (!value || typeof value !== 'object') {
-        return null;
-      }
-      parsed = value as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-
+    // schema 保证了形状，这里做闭集收敛：mode 别名归一 + toolGroups/skills 收敛到注册表
     const mode = this.normalizeMode(parsed.mode);
     if (!mode) {
       return null;
     }
-
-    const toolGroups = this.resolveToolGroups(mode, parsed.toolGroups);
-    const skills = this.filterKnownSkills(parsed.skills);
 
     return {
       mode,
       confidence: this.clampConfidence(parsed.confidence),
       reason:
         this.readString(parsed.reason) ?? '由结构化路由模型决策得到的执行策略',
-      skills,
-      toolGroups,
+      skills: this.filterKnownSkills(parsed.skills),
+      toolGroups: this.resolveToolGroups(mode, parsed.toolGroups),
       maxSteps: this.clampMaxSteps(parsed.maxSteps),
       publicStatus: PUBLIC_STATUS_BY_MODE[mode],
+      source: 'model',
     };
   }
 
@@ -420,20 +437,6 @@ export class StrategyRouterService {
       return DEFAULT_MAX_STEPS;
     }
     return Math.min(MAX_STEPS_LIMIT, Math.max(1, Math.round(value)));
-  }
-
-  private extractJson(raw: string): string | undefined {
-    if (!raw) {
-      return undefined;
-    }
-    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-    const body = fenced ? fenced[1] : raw;
-    const start = body.indexOf('{');
-    const end = body.lastIndexOf('}');
-    if (start < 0 || end <= start) {
-      return undefined;
-    }
-    return body.slice(start, end + 1);
   }
 
   private readString(value: unknown): string | undefined {
@@ -523,6 +526,8 @@ export class StrategyRouterService {
       toolGroups: decision.toolGroups ?? [],
       maxSteps: decision.maxSteps ?? DEFAULT_MAX_STEPS,
       publicStatus: decision.publicStatus,
+      // 该工厂仅服务关键词规则路由（LLM 路由走 parseDecision 自行标记）
+      source: 'rules',
     };
   }
 

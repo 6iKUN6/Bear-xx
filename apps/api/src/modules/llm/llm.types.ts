@@ -57,6 +57,14 @@ export interface LlmGenerateOptions {
   abortSignal?: AbortSignal;
 }
 
+/** 结构化生成选项 */
+export interface LlmStructuredOptions extends LlmGenerateOptions {
+  /** 模型选择与生成参数（同 generateChatText 的 request） */
+  request?: LlmTextRequest | ResolvedLlmTextRequest;
+  /** schema 名称，透传给 provider 的 json_schema.name（便于服务端日志定位） */
+  schemaName?: string;
+}
+
 export interface LlmTokenUsageMetrics {
   inputTokens?: number;
   outputTokens?: number;

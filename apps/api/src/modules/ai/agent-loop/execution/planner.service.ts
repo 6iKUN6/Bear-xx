@@ -2,11 +2,27 @@ import { Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../../../llm/llm.service';
 import { KIMI_PLATFORM } from '../../../llm/providers/kimi';
 import type { LlmMessage } from '../../../llm/llm.types';
+import { z } from 'zod';
 import type { AgentLoopInput } from '../agent-loop.types';
 import type { AgentPlan, PlanStep } from './plan.types';
 
 /** 模型规划最多产出的步骤数上限（再受 maxSteps 约束） */
 const PLANNER_HARD_STEP_CAP = 5;
+
+/** 计划输出契约：约束模型输出，同时用于校验（含降级路径） */
+const planSchema = z.object({
+  steps: z.array(
+    z.object({
+      goal: z.string().min(1).describe('该步骤要达成的目标'),
+      suggestedTools: z
+        .array(z.string())
+        .optional()
+        .describe('建议使用的工具名（可选）'),
+    }),
+  ),
+});
+
+type PlanOutput = z.infer<typeof planSchema>;
 
 @Injectable()
 export class PlannerService {
@@ -28,17 +44,21 @@ export class PlannerService {
     const cap = Math.max(1, Math.min(maxSteps, PLANNER_HARD_STEP_CAP));
 
     try {
-      const raw = await this.llmService.generateChatText(
+      const parsed = await this.llmService.generateStructured(
         [
           { role: 'system', content: this.buildSystemPrompt(cap) },
           { role: 'user', content: this.buildUserPrompt(userText, toolNames) },
         ],
-        // 不覆盖 temperature：部分模型（如 kimi-for-coding）仅允许 temperature=1，交由预设/模型默认。
-        { model: { platform: KIMI_PLATFORM } },
-        { abortSignal: input.abortSignal },
+        planSchema,
+        {
+          schemaName: 'agent_plan',
+          // 不覆盖 temperature：部分模型（如 kimi-for-coding）仅允许 temperature=1，交由预设/模型默认。
+          request: { model: { platform: KIMI_PLATFORM } },
+          abortSignal: input.abortSignal,
+        },
       );
 
-      const steps = this.parseSteps(raw).slice(0, cap);
+      const steps = this.toPlanSteps(parsed).slice(0, cap);
       if (steps.length > 0) {
         return { steps, fromModel: true };
       }
@@ -72,106 +92,36 @@ export class PlannerService {
   }
 
   /**
-   * 解析模型返回的步骤 JSON
-   * @param raw 模型原始输出
-   * @returns 返回解析后的步骤列表；无法解析时返回空数组
-   * @description 兼容纯 JSON 与被 Markdown 代码块包裹的 JSON，并对 steps 字段做结构校验。
+   * 结构化输出 → 计划步骤
+   * @param parsed 已通过 schema 校验的输出（null = 结构化与降级路径均失败）
+   * @returns 返回步骤列表；无有效步骤时返回空数组（触发单步兜底）
+   * @description schema 已保证形状，这里只做 id 编号与空目标过滤。
    */
-  private parseSteps(raw: string): PlanStep[] {
-    const json = this.extractJson(raw);
-    if (!json) {
-      return [];
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      return [];
-    }
-
-    const stepsRaw = this.readStepsField(parsed);
-    if (!Array.isArray(stepsRaw)) {
+  private toPlanSteps(parsed: PlanOutput | null): PlanStep[] {
+    if (!parsed) {
       return [];
     }
 
     const steps: PlanStep[] = [];
-    stepsRaw.forEach((item, index) => {
-      const goal = this.readStepGoal(item);
+    parsed.steps.forEach((item) => {
+      const goal = item.goal.trim();
       if (!goal) {
         return;
       }
+      const suggestedTools = item.suggestedTools?.filter(
+        (name) => name.length > 0,
+      );
       steps.push({
-        id: `step-${index + 1}`,
+        id: `step-${steps.length + 1}`,
         goal,
-        suggestedTools: this.readSuggestedTools(item),
+        suggestedTools:
+          suggestedTools && suggestedTools.length > 0
+            ? suggestedTools
+            : undefined,
       });
     });
 
     return steps;
-  }
-
-  private readStepsField(parsed: unknown): unknown {
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-    if (parsed && typeof parsed === 'object') {
-      return (parsed as Record<string, unknown>).steps;
-    }
-    return undefined;
-  }
-
-  private readStepGoal(item: unknown): string | undefined {
-    if (typeof item === 'string') {
-      return item.trim() || undefined;
-    }
-    if (item && typeof item === 'object') {
-      const goal = (item as Record<string, unknown>).goal;
-      if (typeof goal === 'string' && goal.trim()) {
-        return goal.trim();
-      }
-    }
-    return undefined;
-  }
-
-  private readSuggestedTools(item: unknown): string[] | undefined {
-    if (!item || typeof item !== 'object') {
-      return undefined;
-    }
-    const value = (item as Record<string, unknown>).suggestedTools;
-    if (!Array.isArray(value)) {
-      return undefined;
-    }
-    const names = value.filter(
-      (name): name is string => typeof name === 'string' && name.length > 0,
-    );
-    return names.length > 0 ? names : undefined;
-  }
-
-  private extractJson(raw: string): string | undefined {
-    if (!raw) {
-      return undefined;
-    }
-
-    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-    const body = fenced ? fenced[1] : raw;
-
-    const firstObject = body.indexOf('{');
-    const firstArray = body.indexOf('[');
-    const candidates = [firstObject, firstArray].filter((i) => i >= 0);
-    if (candidates.length === 0) {
-      return undefined;
-    }
-
-    const start = Math.min(...candidates);
-    const lastObject = body.lastIndexOf('}');
-    const lastArray = body.lastIndexOf(']');
-    const end = Math.max(lastObject, lastArray);
-    if (end <= start) {
-      return undefined;
-    }
-
-    return body.slice(start, end + 1);
   }
 
   private readToolNames(tools: unknown[] | undefined): string[] {
