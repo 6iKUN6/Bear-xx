@@ -24,6 +24,25 @@ import type {
   LlmTokenUsageMetrics,
 } from './llm.types';
 
+/** 生图 provider 类型：openai 兼容（gpt-image / dall-e / 中转站）| 豆包 Seedream（Ark） */
+type ImageProviderKind = 'openai' | 'seedream';
+
+/**
+ * 工具层尺寸枚举 → Seedream 合法尺寸的映射
+ * @description Seedream 要求 width*height ∈ [2560x1440=3686400, 4096x4096=16777216]，
+ * 而工具层沿用的 1024x1024 / 1024x1536 / 1536x1024 全部低于下限（会报
+ * "至少 3,686,400 像素"）。这里按相同的画幅语义（方图/竖图/横图）映射到官方推荐尺寸，
+ * 保持工具 schema 对模型不变。
+ */
+const SEEDREAM_SIZE_MAP: Record<string, string> = {
+  '1024x1024': '2048x2048', // 方图
+  '1024x1536': '1664x2496', // 竖图
+  '1536x1024': '2496x1664', // 横图
+};
+
+/** Seedream 默认尺寸（方图，4194304 像素，位于合法区间内） */
+const SEEDREAM_DEFAULT_SIZE = '2048x2048';
+
 @Injectable()
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
@@ -427,20 +446,32 @@ export class LlmService {
    * 调用生图模型生成图片
    * @param request 生图请求（prompt/size/model）
    * @returns 返回图片 URL 或 base64（不同 provider 二选一）与润色后的 prompt
-   * @description 走 OpenAI 兼容的 /v1/images/generations 端点（gpt-image 系列 /
-   * dall-e / 兼容中转站通用）。模型配置独立于聊天模型，来自 IMAGE_GEN_* env：
-   * 未配置时抛 503（生图链路留白可随时补 key 启用，不影响其它功能）。
+   * @description 按激活 provider 分派：openai 兼容走 /v1/images/generations（gpt-image
+   * 系列 / dall-e / 中转站），Seedream 走 Ark 的 /images/generations。配置独立于聊天模型，
+   * 来自 IMAGE_GEN_* env：未配置激活 provider 时抛 503（留白可随时补 key 启用）。
    */
   async generateImage(request: LlmImageRequest): Promise<LlmImageResult> {
-    const { baseURL, apiKey, model } = this.requireImageConfig(request.model);
+    const { kind, baseURL, apiKey, model } = this.resolveImageProvider(
+      request.model,
+    );
 
     this.debugLog('llm.image.request', {
+      provider: kind,
       model,
       promptLength: request.prompt.length,
       size: request.size,
     });
 
-    const response = await fetch(`${baseURL}/v1/images/generations`, {
+    // Seedream 端点无 /v1 前缀（base 已含 /api/v3）；openai 兼容统一拼 /v1。
+    const endpoint =
+      kind === 'seedream'
+        ? `${baseURL}/images/generations`
+        : `${baseURL}/v1/images/generations`;
+    // Seedream 有像素下限，尺寸需按画幅语义映射；openai 分支原样透传。
+    const size =
+      kind === 'seedream' ? this.toSeedreamSize(request.size) : request.size;
+
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -450,7 +481,7 @@ export class LlmService {
         model,
         prompt: request.prompt,
         n: 1,
-        ...(request.size ? { size: request.size } : {}),
+        ...(size ? { size } : {}),
       }),
       signal: request.abortSignal ?? AbortSignal.timeout(120000),
     });
@@ -462,19 +493,44 @@ export class LlmService {
    * 参考图生图（图生图/改图）
    * @param request 参考图 + prompt 的编辑请求
    * @returns 返回图片 URL 或 base64 与润色后的 prompt
-   * @description 走 OpenAI 兼容的 /v1/images/edits 端点（gpt-image 系列原生
-   * 支持多参考图高保真输入）。edits 是 multipart/form-data：单图用 image 字段，
-   * 多图按官方约定用 image[] 重复字段；Content-Type 由 FormData 自带 boundary。
+   * @description 按激活 provider 分派：Seedream 文生图/图生图同一 /images/generations
+   * 端点，参考图以 base64 data URI 放 image 字段（1 张给字符串、多张给数组）；
+   * openai 兼容走独立的 multipart /v1/images/edits（单图 image、多图 image[]）。
    */
   async editImage(request: LlmImageEditRequest): Promise<LlmImageResult> {
-    const { baseURL, apiKey, model } = this.requireImageConfig(request.model);
+    const { kind, baseURL, apiKey, model } = this.resolveImageProvider(
+      request.model,
+    );
 
     this.debugLog('llm.image.edit.request', {
+      provider: kind,
       model,
       promptLength: request.prompt.length,
       imageCount: request.images.length,
       size: request.size,
     });
+
+    if (kind === 'seedream') {
+      const images = request.images.map((image) =>
+        this.toImageDataUri(image.data, image.mimeType),
+      );
+      const response = await fetch(`${baseURL}/images/generations`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          prompt: request.prompt,
+          n: 1,
+          image: images.length > 1 ? images : images[0],
+          size: this.toSeedreamSize(request.size),
+        }),
+        signal: request.abortSignal ?? AbortSignal.timeout(180000),
+      });
+      return this.parseImageResponse(response);
+    }
 
     const form = new FormData();
     form.append('model', model);
@@ -504,26 +560,90 @@ export class LlmService {
     return this.parseImageResponse(response);
   }
 
-  /** 生图模型配置（独立于聊天模型）；未配置抛 503，链路留白可随时补 key 启用 */
-  private requireImageConfig(modelOverride?: string) {
+  /**
+   * 解析激活的生图 provider 配置（独立于聊天模型）
+   * @param modelOverride 覆盖默认模型名（来自 per-call 请求）
+   * @returns provider 类型 + 归一化 baseURL + apiKey + model
+   * @description 由 IMAGE_GEN_PROVIDER 选择（缺省 seedream）。未配置对应三元组抛 503，
+   * 报错点名缺哪套 key，链路留白可随时补 key 启用，不影响其它功能。
+   */
+  private resolveImageProvider(modelOverride?: string): {
+    kind: ImageProviderKind;
+    baseURL: string;
+    apiKey: string;
+    model: string;
+  } {
+    const provider = (
+      this.configService.get<string>('IMAGE_GEN_PROVIDER') ?? 'seedream'
+    )
+      .trim()
+      .toLowerCase();
+
+    if (provider === 'seedream') {
+      const baseURL = this.configService.get<string>(
+        'IMAGE_GEN_SEEDREAM_BASE_URL',
+      );
+      const apiKey = this.configService.get<string>(
+        'IMAGE_GEN_SEEDREAM_API_KEY',
+      );
+      const model =
+        modelOverride ??
+        this.configService.get<string>('IMAGE_GEN_SEEDREAM_MODEL');
+      if (!baseURL || !apiKey || !model) {
+        throw new ServiceUnavailableException(
+          '生图模型未配置：请在 env 中填写 IMAGE_GEN_SEEDREAM_BASE_URL / IMAGE_GEN_SEEDREAM_API_KEY / IMAGE_GEN_SEEDREAM_MODEL（或改 IMAGE_GEN_PROVIDER=openai 切换）',
+        );
+      }
+      // Ark base 形如 .../api/v3，仅去尾部斜杠（不能删 /v1，那是 openai 分支的活）
+      return {
+        kind: 'seedream',
+        baseURL: baseURL.replace(/\/+$/, ''),
+        apiKey,
+        model,
+      };
+    }
+
     const baseURL = this.configService.get<string>('IMAGE_GEN_BASE_URL');
     const apiKey = this.configService.get<string>('IMAGE_GEN_API_KEY');
     const model =
       modelOverride ?? this.configService.get<string>('IMAGE_GEN_MODEL');
-
     if (!baseURL || !apiKey || !model) {
       throw new ServiceUnavailableException(
-        '生图模型未配置：请在 env 中填写 IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY / IMAGE_GEN_MODEL',
+        '生图模型未配置：请在 env 中填写 IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY / IMAGE_GEN_MODEL（或改 IMAGE_GEN_PROVIDER=seedream 切换）',
       );
     }
 
     // 归一化：容忍带不带尾部 /v1 两种填法（代码统一自己拼 /v1/...，
     // env 里多带一个 /v1 会打出 /v1/v1/... 的 404）
     return {
+      kind: 'openai',
       baseURL: baseURL.replace(/\/+$/, '').replace(/\/v1$/i, ''),
       apiKey,
       model,
     };
+  }
+
+  /**
+   * 工具层尺寸 → Seedream 合法尺寸
+   * @param size 工具层枚举尺寸（可空）
+   * @returns 返回 Seedream 可接受的尺寸串
+   * @description 未传或不在映射表内的值一律兜底为默认方图，而不是原样透传——
+   * 透传低于像素下限的尺寸会被 Ark 直接拒绝（"至少 3,686,400 像素"）。
+   */
+  private toSeedreamSize(size?: string): string {
+    if (!size) {
+      return SEEDREAM_DEFAULT_SIZE;
+    }
+    return SEEDREAM_SIZE_MAP[size] ?? SEEDREAM_DEFAULT_SIZE;
+  }
+
+  /**
+   * 参考图转 base64 data URI（Seedream image 字段格式）
+   * @description Ark 约定 data:image/<格式>;base64,<...>，且 <格式> 需小写。
+   */
+  private toImageDataUri(data: Buffer, mimeType?: string): string {
+    const mime = (mimeType ?? 'image/png').toLowerCase();
+    return `data:${mime};base64,${data.toString('base64')}`;
   }
 
   /** 解析 generations/edits 共同的响应形状（url 或 b64_json 二选一） */

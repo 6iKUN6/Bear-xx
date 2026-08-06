@@ -168,4 +168,33 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   AI_IMAGE_MODEL?: string;
+
+  // ---- AI 生图 provider（独立于聊天模型；留白则激活 provider 返回 503）----
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_PROVIDER?: string;
+
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_SEEDREAM_BASE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_SEEDREAM_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  IMAGE_GEN_SEEDREAM_MODEL?: string;
 }
