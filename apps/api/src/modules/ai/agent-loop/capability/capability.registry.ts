@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  createEditImageTool,
-  createGenerateImageTool,
-  getWeather,
-  webSearch,
-} from '../../tools';
+import { createGenerateImageTool, getWeather, webSearch } from '../../tools';
 import { ImageGenerationService } from '../../../images/image-generation.service';
 import type {
   CapabilityTool,
@@ -35,21 +30,21 @@ export class CapabilityRegistry {
   private readonly subagents = new Map<string, SubagentDefinition>();
 
   constructor(private readonly imageGenerationService: ImageGenerationService) {
-    // P5a 演示：给 getWeather 开启人工审批，使"深圳天气"流程即可端到端验证 HITL。
-    // 真实策略应按工具语义配置（只读工具免审批、写类/高风险工具需审批）。
+    // 审批策略按工具语义配置：只读、无副作用的工具免审批直接执行；
+    // 写类 / 有真实费用的工具需人工确认（approve / edit 改参 / reject）。
     // 每个工具同时归入 default（全量）与语义组（细粒度），供 Agent.toolGroups 按需组合。
-    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP, WEATHER_TOOL_GROUP], {
-      requiresApproval: true,
-    });
+    this.registerTool(getWeather, [DEFAULT_TOOL_GROUP, WEATHER_TOOL_GROUP]);
     // 联网搜索为只读、低风险能力，免审批直接执行。
     this.registerTool(webSearch, [DEFAULT_TOOL_GROUP, SEARCH_TOOL_GROUP]);
     // 生图不进 default：有真实费用与耗时，只给显式配置了 image-gen 组的 agent（如「画师」）。
-    this.registerTool(createGenerateImageTool(this.imageGenerationService), [
-      IMAGE_TOOL_GROUP,
-    ]);
-    this.registerTool(createEditImageTool(this.imageGenerationService), [
-      IMAGE_TOOL_GROUP,
-    ]);
+    // 文生图/参考图生图已合并为单个 generateImage 工具（传 imageUrls 即改图/融合）。
+    // 单次调用产生真实模型费用，故开启人工审批：用户可在审批卡里改 prompt/尺寸后再放行，
+    // 拒绝则不产生任何调用与资产。
+    this.registerTool(
+      createGenerateImageTool(this.imageGenerationService),
+      [IMAGE_TOOL_GROUP],
+      { requiresApproval: true },
+    );
   }
 
   /**

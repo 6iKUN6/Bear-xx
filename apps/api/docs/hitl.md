@@ -18,7 +18,7 @@
    runChatTask → prepareConversationRun(taskId 作为 thread_id)
      → ReAct: createAgent({ checkpointer, middleware:[hitl] })
         agent.stream(input, { streamMode:'messages', configurable:{ thread_id: taskId } })
-     → 模型提议 getWeather（已配 requiresApproval）→ hitl 中间件在工具执行前 interrupt()
+     → 模型提议 generateImage（已配 requiresApproval）→ hitl 中间件在工具执行前 interrupt()
    loop 结束 → getState 检测挂起中断 → 发 approval.required 事件
    runChatTask 检测到 pendingApproval → 任务置 WAITING_HUMAN，不落 message.done / COMPLETED
    （检查点已持久化，图暂停；SSE 首轮流结束）
@@ -61,7 +61,11 @@
 
 `CapabilityRegistry.registerTool(tool, groups, { requiresApproval })`。`CapabilityResolver` 产出本次装配中的 `approvalToolNames`（resolved tools ∩ requiresApproval），沿 agent 层透传，驱动 `humanInTheLoopMiddleware` 的 `interruptOn`。
 
-> **P5a 演示**：临时给只读的 `getWeather` 开了审批，使"深圳天气"即可端到端验证。真实策略应按语义配置（只读免审批、写类/高风险需审批）。
+当前策略：
+- **免审批**（只读、无副作用）：`getWeather`、`webSearch`。
+- **需审批**：`generateImage`（`image-gen` 组）——单次调用产生真实模型费用且耗时，approve 前用户可在卡片里改 `prompt`/`size`，reject 则不产生任何模型调用与七牛资产。
+
+> 早期曾临时给只读的 `getWeather` 开审批用于跑通链路（P5a 演示），已还原——审批语义应落在真正有副作用/有成本的工具上。
 
 ## 关键实现点
 
@@ -79,7 +83,7 @@
 - `systemPrompt` = 基础提示词。
 - `approvalToolNames` = `registry.listApprovalToolNames()`。
 
-对 P5a（单工具 getWeather、无 skill）与首轮完全一致。**将来多工具组/skill 场景需持久化首轮的 decision/toolGroups 才严谨**，否则重建的工具集/提示词可能与首轮不一致。
+对当前场景（单审批工具、无 skill）与首轮完全一致。**将来多工具组/skill 场景需持久化首轮的 decision/toolGroups 才严谨**，否则重建的工具集/提示词可能与首轮不一致。
 
 其它边界：
 - **MemorySaver 进程内**：服务重启会丢挂起状态。生产应换成基于现有 Redis 的 `BaseCheckpointSaver`——已封装 `AgentCheckpointerService`，替换只改这一处。
