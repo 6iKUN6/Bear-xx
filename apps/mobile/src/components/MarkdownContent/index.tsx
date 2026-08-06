@@ -29,6 +29,11 @@ const codeBlockStyle =
 const mathBlockStyle =
   "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:var(--lb-radius-md);background:var(--lb-surface-muted);color:var(--lb-accent-ink);text-align:center;overflow-wrap:anywhere;";
 const mathInlineStyle = "color:var(--lb-accent-ink);";
+// 图片：markdown-it 默认输出的 <img> 不带任何属性，而生图产物宽 2048px，
+// 会溢出气泡并被 ChatBubble 的 overflow-hidden 右侧裁掉。约束到容器宽度并按
+// 原比例缩放即可完整显示。注意 rich-text 节点只认内联样式，外部 CSS 到不了这里。
+const imageStyle =
+  "display:block;box-sizing:border-box;max-width:100%;height:auto;margin:8px 0;border-radius:var(--lb-radius-md);";
 
 export default function MarkdownContent({
   content,
@@ -57,7 +62,7 @@ export default function MarkdownContent({
 }
 
 function createMarkdownRenderer() {
-  const md = new MarkdownIt({
+  const md: MarkdownIt = new MarkdownIt({
     html: false,
     breaks: true,
     linkify: true,
@@ -81,6 +86,16 @@ function createMarkdownRenderer() {
   md.renderer.rules.hr = () => `<div style="${hrStyle}"></div>`;
   md.renderer.rules.code_inline = (tokens, idx) =>
     `<code style="${inlineCodeStyle}">${md.utils.escapeHtml(tokens[idx].content)}</code>`;
+  md.renderer.rules.image = (tokens, idx) => {
+    const token = tokens[idx];
+    const src = token.attrGet("src") ?? "";
+    if (!src) {
+      return "";
+    }
+    // alt 存在 token.content（markdown-it 对 image token 的约定）
+    const alt = md.utils.escapeHtml(token.content || "图片");
+    return `<img src="${md.utils.escapeHtml(src)}" alt="${alt}" style="${imageStyle}" />`;
+  };
   md.renderer.rules.code_block = (tokens, idx) =>
     `<code style="${codeBlockStyle}">${md.utils.escapeHtml(tokens[idx].content)}</code>`;
   md.renderer.rules.fence = (tokens, idx) => {
