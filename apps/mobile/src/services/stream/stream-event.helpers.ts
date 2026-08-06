@@ -126,12 +126,20 @@ export function getChatTaskMeta(event: StreamTaskEvent): ChatTaskMeta | null {
     return null;
   }
 
+  // 回答者信息在 payload 里（群聊自动路由的结果），不在顶层字段
+  const payload = event.data.payload as
+    | { agentId?: string; autoRouted?: boolean; routeReason?: string }
+    | undefined;
+
   return {
     taskId,
     conversationId,
     messageId,
     streamId,
     status,
+    agentId: payload?.agentId,
+    autoRouted: payload?.autoRouted,
+    routeReason: payload?.routeReason,
   };
 }
 

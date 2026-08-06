@@ -56,6 +56,16 @@ export interface ChatTaskMeta {
   messageId?: string;
   streamId?: string;
   status?: string;
+  /**
+   * 本轮实际回答者
+   * @description 群聊不 @ 时由后端自动路由决定，前端发消息时并不知道是谁；
+   * 必须用它回填气泡的头像与名字，否则会一直显示占位时猜的默认助手。
+   */
+  agentId?: string;
+  /** 该回答者是否来自自动路由（非 @ 指定） */
+  autoRouted?: boolean;
+  /** 自动路由的理由 */
+  routeReason?: string;
 }
 
 export interface StreamTaskEvent<TPayload = unknown> {

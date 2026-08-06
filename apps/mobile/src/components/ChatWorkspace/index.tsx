@@ -75,6 +75,7 @@ export default function ChatWorkspace({
     setMessageContent,
     updateMessageMetrics,
     updateMessageStatus,
+    updateMessageSpeaker,
     updateMessageStreamEvent,
     toggleMessageStreamFeedback,
     setMessageApproval,
@@ -86,6 +87,13 @@ export default function ChatWorkspace({
   /** 每个会话每次挂载只做一次续接探测，避免消息更新反复触发 */
   const resumeProbedRef = useRef<Set<string>>(new Set());
   const agents = useAgentStore((state) => state.agents);
+  const ensureAgents = useAgentStore((state) => state.ensureAgents);
+
+  // 群聊气泡头像与 @ 候选都只能由智能体列表解析（消息里只存 agentId），
+  // 冷启动首屏直达群聊时列表可能还是空的，这里兜一次。
+  useEffect(() => {
+    void ensureAgents();
+  }, [ensureAgents]);
 
   // 会话形态：GROUP/SINGLE 来自服务端；本地草稿与旧数据按未定型（flex）处理
   const conversationMode =
@@ -257,7 +265,7 @@ export default function ChatWorkspace({
 
     return {
       onTaskCreated: (
-        { conversationId: realConversationId, taskId },
+        { conversationId: realConversationId, taskId, agentId: answeringId },
         event,
       ) => {
         recordStreamEvent(event);
@@ -265,6 +273,15 @@ export default function ChatWorkspace({
           replaceConversationId(localConversationId, realConversationId);
         }
         taskConversationId = realConversationId;
+        // 群聊不 @ 时回答者由后端自动路由，发送时前端并不知道是谁；
+        // 这里用真实回答者回填，否则气泡会一直显示占位时猜的默认助手。
+        if (answeringId) {
+          updateMessageSpeaker(
+            aiMsgId,
+            answeringId,
+            resolveAgentName(useAgentStore.getState().agents, answeringId),
+          );
+        }
         // 跨页面续接的锚点：进行中任务指针落本地存储
         savePendingTask(realConversationId, taskId);
       },
@@ -335,9 +352,13 @@ export default function ChatWorkspace({
       content: "",
       status: "streaming",
       createdAt: Date.now(),
-      // 群聊归属：占位消息即带上发言者，流式期间气泡就能显示正确头像/名字
+      // 归属：@ 指定时占位即可显示正确头像/名字；未指定则留空，
+      // 等 task.created 带回真实回答者再回填——不能用 resolveAgentName 兜底，
+      // 它在 id 为空时会返回「默认助手」，群聊自动路由下必然显示成错误的人。
       agentId: agentId ?? null,
-      agentName: resolveAgentName(useAgentStore.getState().agents, agentId),
+      agentName: agentId
+        ? resolveAgentName(useAgentStore.getState().agents, agentId)
+        : undefined,
     };
     addMessage(aiMsg);
     activeAssistantMessageIdRef.current = aiMsgId;

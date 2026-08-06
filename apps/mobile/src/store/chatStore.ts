@@ -26,6 +26,12 @@ interface ChatState {
   /** 整体替换消息文本（SSE 续接从头重放帧时先清空重建） */
   setMessageContent: (msgId: string, content: string) => void;
   updateMessageStatus: (msgId: string, status: MessageStatus) => void;
+  /** 回填本轮真实回答者（群聊自动路由的结果随 task.created 才到） */
+  updateMessageSpeaker: (
+    msgId: string,
+    agentId: string,
+    agentName?: string,
+  ) => void;
   updateMessageMetrics: (
     msgId: string,
     metrics?: MessageRunMetrics | null,
@@ -231,6 +237,30 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
       const messages = state.currentConversation.messages.map((m) =>
         m.id === msgId ? { ...m, status } : m,
+      );
+
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
+
+      const conversations = state.conversations.map((c) =>
+        c.id === updatedConv.id ? updatedConv : c,
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
+  updateMessageSpeaker(msgId: string, agentId: string, agentName?: string) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((m) =>
+        m.id === msgId
+          ? { ...m, agentId, ...(agentName ? { agentName } : {}) }
+          : m,
       );
 
       const updatedConv: Conversation = {
