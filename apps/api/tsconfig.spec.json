@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // 测试跑在 CJS 下：ts-jest 需把 TS 源码编成 commonjs。
+    // 必须同时改回 node 解析——nodenext 会读 package.json 的 "type": "module"，
+    // 把 workspace 包（@litter-bear/types 是纯 ESM）编成 ESM，jest 解析时即
+    // "SyntaxError: Unexpected token 'export'"。
+    "module": "commonjs",
+    "moduleResolution": "node",
+    // 该选项仅在 node16/nodenext/bundler 下合法，改回 node 后必须关掉。
+    "resolvePackageJsonExports": false
+  }
+}
