@@ -68,7 +68,7 @@
 ### P5 · 人工审批（HITL）（见 [hitl.md](./hitl.md)）
 - ReAct 工具级审批：受控工具执行前中断 → `approval.required` + 任务 `WAITING_HUMAN` → `POST /api/stream-tasks/:taskId/approval` 提交 approve/reject/edit → `Command` 从中断处续跑。
 - 基于 LangChain `humanInTheLoopMiddleware` + LangGraph checkpointer（thread_id = taskId）。前端 `ApprovalCard` 组件 + 全链路接线。
-- **取舍**：checkpointer 先用进程内 `MemorySaver`（封装成 service 便于换 Redis）；Plan/Hybrid 审批(P5b)延后（controller 在 langgraph 之外，需迁 StateGraph）。
+- **取舍**：Plan/Hybrid 审批(P5b)延后（controller 在 langgraph 之外，需迁 StateGraph）。checkpointer 起初为进程内 `MemorySaver`，现已换成 `PostgresSaver`（独立 `langgraph` schema，复用 `DATABASE_URL`）。
 - **实证**：`debug-hitl.cjs` 独立验证"中断 → getState 取 HITLRequest → Command 恢复 → 工具执行"机制成立。
 
 ---
@@ -95,7 +95,7 @@ POST /api/chat/message (@Sse)
 ## 五、TODO / 后续
 
 **稳健性**
-- [ ] HITL checkpointer 换成基于 Redis 的 `BaseCheckpointSaver`（现 MemorySaver 进程内，重启丢挂起状态）。仅需改 `AgentCheckpointerService`。
+- [x] HITL checkpointer 持久化：`AgentCheckpointerService` 改用 `PostgresSaver`（`langgraph` schema），重启不再丢挂起状态；仅在 `DATABASE_URL` 缺失/`setup()` 失败时降级 MemorySaver 并 error 告警。
 - [ ] HITL 恢复重建：持久化首轮 `decision/toolGroups`（现恢复用全量 tools + 基础 systemPrompt，仅对单工具/无 skill 严格一致）。
 - [ ] 多审批并发（一次多个工具调用 / 多消息挂起）目前是边界，未支持。
 

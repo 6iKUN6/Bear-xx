@@ -37,6 +37,14 @@
 
 关键：**同一 `checkpointer`（进程单例）+ 稳定 `thread_id`（= taskId）**。重建 agent 对象无所谓，图状态从 checkpointer 按 thread_id 取回。
 
+## 检查点存储
+
+`AgentCheckpointerService` 用 `PostgresSaver`（`@langchain/langgraph-checkpoint-postgres`），表建在独立的 **`langgraph` schema**：
+
+- **为什么是 Postgres 而非 Redis**：任务状态 `StreamTask.status=WAITING_HUMAN` 落在 Postgres，检查点必须与它同生共死。放 Redis 会出现「任务行说等待审批、图状态已被 TTL/淘汰清掉」，恢复时找不到中断点 → 任务永久卡死。审批间隔可能数分钟到数小时，不适合有过期语义的缓存。
+- **为什么独立 schema**：这些表由 LangGraph 的 `setup()` 自建自管（含自身迁移），不进 Prisma 迁移历史；隔离后 `prisma migrate` 不会把它们当 schema 漂移。
+- **无需额外配置**：复用 `DATABASE_URL`；`setup()` 幂等（`CREATE SCHEMA / TABLE IF NOT EXISTS`），每次启动自动对齐。
+
 ## 协议契约（前后端共享，`@litter-bear/types/protocol`）
 
 - 事件 `StreamTaskEventType.ApprovalRequired = 'approval.required'`，中文文案「待人工确认」。
@@ -86,7 +94,7 @@
 对当前场景（单审批工具、无 skill）与首轮完全一致。**将来多工具组/skill 场景需持久化首轮的 decision/toolGroups 才严谨**，否则重建的工具集/提示词可能与首轮不一致。
 
 其它边界：
-- **MemorySaver 进程内**：服务重启会丢挂起状态。生产应换成基于现有 Redis 的 `BaseCheckpointSaver`——已封装 `AgentCheckpointerService`，替换只改这一处。
+- **检查点降级**：`AgentCheckpointerService` 正常使用 Postgres（`langgraph` schema，见下）；仅当 `DATABASE_URL` 缺失或 `setup()` 失败时才退回进程内 `MemorySaver`，此时重启会丢挂起状态——启动日志会以 error 级别告警，不要忽略。
 - **中断前的助手文本**：若模型在工具调用前输出过文本，暂停时未并入最终 message，恢复后的 message 只含续跑文本（P5a 常见流程是先调工具，无此问题）。
 - **approval.required 无 toolCallId**：`HITLRequest.actionRequests` 不带工具调用 id，前端按 toolName + 最近的 tool.call.* 关联即可。
 
