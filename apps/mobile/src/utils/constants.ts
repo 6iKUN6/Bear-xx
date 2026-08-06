@@ -4,6 +4,7 @@ export const STORAGE_KEYS = {
   CONVERSATIONS: "litter_bear_conversations",
   THEME: "litter_bear_theme",
   SELECTED_AGENT_ID: "litter_bear_selected_agent_id",
+  AGENTS: "litter_bear_agents",
   PENDING_STREAM_TASKS: "litter_bear_pending_stream_tasks",
 } as const;
 

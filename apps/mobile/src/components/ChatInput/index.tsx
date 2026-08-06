@@ -76,16 +76,13 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   const [mention, setMention] = useState<MentionTarget | null>(null);
 
   const agents = useAgentStore((state) => state.agents);
-  const loaded = useAgentStore((state) => state.loaded);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
   const setSelectedAgent = useAgentStore((state) => state.setSelectedAgent);
-  const loadAgents = useAgentStore((state) => state.loadAgents);
+  const ensureAgents = useAgentStore((state) => state.ensureAgents);
 
   useEffect(() => {
-    if (!loaded) {
-      void loadAgents();
-    }
-  }, [loaded, loadAgents]);
+    void ensureAgents();
+  }, [ensureAgents]);
 
   const currentAgent = findAgent(agents, selectedAgentId);
   const currentName = resolveAgentName(agents, selectedAgentId);

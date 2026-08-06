@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Image, View, Text } from "@tarojs/components";
 import Taro, { useDidShow } from "@tarojs/taro";
 import NavBar from "../../components/NavBar";
@@ -22,14 +22,10 @@ export default function AgentsPage() {
   const upsertConversation = useChatStore((state) => state.upsertConversation);
   const [creating, setCreating] = useState<string | null>(null);
 
+  // 通讯录是「看最新列表」的场景：每次进入无条件刷新（其它页面用 ensureAgents 即可）
   useDidShow(() => {
     void loadAgents();
   });
-  useEffect(() => {
-    if (!loaded) {
-      void loadAgents();
-    }
-  }, [loaded, loadAgents]);
 
   const handleSingleChat = async (agent: AgentSummary) => {
     if (creating) return;

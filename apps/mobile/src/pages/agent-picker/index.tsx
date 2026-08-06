@@ -16,17 +16,14 @@ import { safeAreaBottom } from "../../utils/style";
  */
 export default function AgentPickerPage() {
   const agents = useAgentStore((state) => state.agents);
-  const loaded = useAgentStore((state) => state.loaded);
-  const loadAgents = useAgentStore((state) => state.loadAgents);
+  const ensureAgents = useAgentStore((state) => state.ensureAgents);
   const upsertConversation = useChatStore((state) => state.upsertConversation);
   const [selected, setSelected] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    if (!loaded) {
-      void loadAgents();
-    }
-  }, [loaded, loadAgents]);
+    void ensureAgents();
+  }, [ensureAgents]);
 
   const toggle = (id: string) => {
     setSelected((prev) =>
