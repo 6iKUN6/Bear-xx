@@ -34,6 +34,12 @@ export function dispatchStreamTaskEvent(
   event: StreamTaskEvent,
   lifecycle: StreamTaskLifecycle,
 ) {
+  // 去重闸门：多连接扇出/重放场景下同一帧可能到达多次，重复帧在此丢弃，
+  // 不得进入任何回调（onChunk 是纯追加，重复应用会导致文本翻倍）。
+  if (lifecycle.shouldApplyEvent && !lifecycle.shouldApplyEvent(event)) {
+    return;
+  }
+
   lifecycle.onEvent?.(event);
 
   if (event.rawId) {

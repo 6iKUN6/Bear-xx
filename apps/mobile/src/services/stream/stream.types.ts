@@ -26,6 +26,14 @@ export interface StreamTaskSnapshot {
 
 export interface StreamTaskLifecycle {
   onOpen?: () => void;
+  /**
+   * 帧准入判定（去重钩子）：返回 false 则该帧不再派发给任何回调
+   * @description 同一个 StreamTask 可能同时存在多条 SSE 连接（典型场景：HITL
+   * 审批时首轮流尚未真正关闭、审批流已建立；或恢复探测从 "0" 重放），服务端
+   * 按 Redis Stream 向每条连接扇出，同一帧会被投递多次。由调用方
+   * （useStreamTask）持有跨连接共享的帧 id 游标做幂等，避免 delta 被重复追加。
+   */
+  shouldApplyEvent?: (event: StreamTaskEvent) => boolean;
   onEvent?: (event: StreamTaskEvent) => void;
   onTaskCreated?: (task: ChatTaskMeta, event: StreamTaskEvent) => void;
   onChunk?: (delta: string, event: StreamTaskEvent) => void;

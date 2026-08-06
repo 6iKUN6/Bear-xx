@@ -141,7 +141,14 @@ export class StreamTaskService {
       onError: fail,
     });
 
-    return handle;
+    return {
+      abort: () => {
+        // 置 settled 让 onMessage 的闸门立即生效：abort 后仍可能有已到达
+        // 但未派发的帧，它们不应再进入 lifecycle（该 lifecycle 可能已被新连接共用）。
+        settled = true;
+        handle.abort();
+      },
+    };
   }
 }
 

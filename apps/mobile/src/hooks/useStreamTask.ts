@@ -14,6 +14,21 @@ const DEFAULT_RETRY_DELAY_MS = 800;
 
 type StreamStarter = (lifecycle: StreamTaskLifecycle) => StreamTaskHandle;
 
+/**
+ * 比较两个 Redis Stream 帧 id
+ * @returns a > b 返回正数，相等返回 0，a < b 返回负数
+ * @description 帧 id 形如 `1738913000123-0`（毫秒-序号），必须按两段数值比较：
+ * 字符串比较会把 "10-0" 判为小于 "9-0"。非法/缺失 id 视为最小值。
+ */
+function compareEventId(a: string, b: string): number {
+  const [aMs = 0, aSeq = 0] = a.split("-").map(Number);
+  const [bMs = 0, bSeq = 0] = b.split("-").map(Number);
+  if (!Number.isFinite(aMs) || !Number.isFinite(bMs)) {
+    return 0;
+  }
+  return aMs !== bMs ? aMs - bMs : aSeq - bSeq;
+}
+
 const initialSnapshot: StreamTaskSnapshot = {
   status: "idle",
   task: null,
@@ -27,6 +42,13 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
   const handleRef = useRef<StreamTaskHandle | null>(null);
   const taskIdRef = useRef<string>("");
   const lastEventIdRef = useRef("0");
+  /**
+   * 已应用过的最大帧 id（跨连接共享）
+   * @description 与 lastEventIdRef 的区别：lastEventId 是"续传游标"（发给服务端），
+   * 这里是"幂等游标"（本地判重）。同一任务的首轮流与审批/恢复流共用它，
+   * 因此 resume/submitApproval 时**不能重置**，否则重复帧会重新放行。
+   */
+  const appliedEventIdRef = useRef("");
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleRetryRef = useRef<(fallbackError?: Error) => boolean>(
@@ -78,8 +100,26 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
         error: null,
       }));
 
+      // 本次连接的 handle：onDone 里据此判断"我还是当前连接吗"，
+      // 避免旧流的 onDone 迟到时把新流的 handle 清掉（清掉后 abort/cancel 全失效）。
+      let selfHandle: StreamTaskHandle | null = null;
+
       const wrappedLifecycle: StreamTaskLifecycle = {
         ...lifecycle,
+        shouldApplyEvent: (event) => {
+          const rawId = event.rawId;
+          if (!rawId) {
+            return true;
+          }
+          if (
+            appliedEventIdRef.current &&
+            compareEventId(rawId, appliedEventIdRef.current) <= 0
+          ) {
+            return false;
+          }
+          appliedEventIdRef.current = rawId;
+          return true;
+        },
         onOpen: () => {
           safeSetSnapshot((current) => ({
             ...current,
@@ -131,13 +171,17 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
           lifecycle.onError?.(error, event);
         },
         onDone: () => {
-          handleRef.current = null;
+          // 只有仍是当前连接时才清空，防止旧流的 onDone 迟到抹掉新流 handle
+          if (selfHandle && handleRef.current === selfHandle) {
+            handleRef.current = null;
+          }
           lifecycle.onDone?.();
         },
       };
 
-      handleRef.current = starter(wrappedLifecycle);
-      return handleRef.current;
+      selfHandle = starter(wrappedLifecycle);
+      handleRef.current = selfHandle;
+      return selfHandle;
     },
     [cleanupHandle, clearRetryTimer, safeSetSnapshot],
   );
@@ -265,6 +309,8 @@ export function useStreamTask(options: StreamTaskStartOptions = {}) {
     (input: ChatStreamInput, lifecycle: StreamTaskLifecycle = {}) => {
       retryCountRef.current = 0;
       lastEventIdRef.current = "0";
+      // 新任务才重置幂等游标（resume/审批续跑必须继承，否则重复帧会被放行）
+      appliedEventIdRef.current = "";
       taskIdRef.current = "";
 
       safeSetSnapshot(() => ({

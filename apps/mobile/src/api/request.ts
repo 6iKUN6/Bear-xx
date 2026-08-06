@@ -233,6 +233,12 @@ export class BaseApiClient {
             { Accept: "text/event-stream" },
           ),
           success: () => {
+            // 中止的连接不再冲刷残余缓冲、不触发 onDone：否则会把最后一个
+            // 事件派发进已被新连接接管的 lifecycle，并误清新连接的 handle。
+            if (state.aborted) {
+              return;
+            }
+
             this.flushSseBuffer(state, options, handlers);
             this.finishStream(state, handlers);
           },
@@ -266,6 +272,8 @@ export class BaseApiClient {
     return {
       abort: () => {
         state.aborted = true;
+        // 同时置 finished，让 finishStream 的幂等闸门再拦一道（onDone 不应再触发）
+        state.finished = true;
         requestTask?.abort();
         abortFetchStream?.();
       },
@@ -479,10 +487,16 @@ export class BaseApiClient {
   }
 
   private consumeSseBuffer<TData>(
-    state: { buffer: string; finished: boolean },
+    state: { buffer: string; finished: boolean; aborted: boolean },
     options: ApiStreamOptions<TData>,
     handlers: StreamHandlers<TData>,
   ) {
+    // 已中止的连接不再派发事件：小程序 requestTask.abort() 不保证已到达
+    // 但未派发的 chunk 停止回调，漏派发会与新连接的帧叠加造成重复渲染。
+    if (state.aborted) {
+      return;
+    }
+
     let separatorIndex = state.buffer.indexOf("\n\n");
     while (separatorIndex >= 0) {
       const rawBlock = state.buffer.slice(0, separatorIndex).trim();
@@ -500,10 +514,14 @@ export class BaseApiClient {
   }
 
   private flushSseBuffer<TData>(
-    state: { buffer: string; finished: boolean },
+    state: { buffer: string; finished: boolean; aborted: boolean },
     options: ApiStreamOptions<TData>,
     handlers: StreamHandlers<TData>,
   ) {
+    if (state.aborted) {
+      return;
+    }
+
     const rawBlock = state.buffer.trim();
     if (!rawBlock) {
       return;
