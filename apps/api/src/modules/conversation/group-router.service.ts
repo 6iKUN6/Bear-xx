@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
+import { describeToolGroups } from '../ai/agent-loop/capability/tool-group-labels';
 import { groupRouterPrompt } from '../../prompts';
 
 const ROUTER_TEMPERATURE = 0;
@@ -15,6 +16,18 @@ const groupRouteSchema = z.object({
 
 /** 路由结果来源：model=模型决策生效；fallback=降级为兜底成员 */
 export type GroupRouteSource = 'model' | 'fallback';
+
+/** 路由上下文：用于判断「延续上文」类消息该由谁接 */
+export interface GroupRouteContext {
+  /** 上一轮回答者（延续类消息优先沿用） */
+  lastAgentId?: string;
+  /** 最近若干轮对话（时间正序，仅用于判断指代，不做完整上下文） */
+  recentTurns?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    agentName?: string;
+  }>;
+}
 
 export interface GroupRouteResult {
   agentId: string;
@@ -49,9 +62,14 @@ export class GroupRouterService {
    * 为群聊消息选择回答者
    * @param content 用户消息
    * @param memberIds 群成员 agent id 列表（非空）
+   * @param context 可选路由上下文（上一轮回答者与最近对话，用于延续类消息）
    * @returns 返回选中的成员与理由；成员唯一时直接短路
    */
-  async route(content: string, memberIds: string[]): Promise<GroupRouteResult> {
+  async route(
+    content: string,
+    memberIds: string[],
+    context?: GroupRouteContext,
+  ): Promise<GroupRouteResult> {
     const fallback: GroupRouteResult = {
       agentId: memberIds[0],
       source: 'fallback',
@@ -80,10 +98,10 @@ export class GroupRouterService {
       }
 
       const memberLines = members
-        .map(
-          (m) =>
-            `- id: ${m.id} | 名称: ${m.name}${m.isDefault ? '（默认）' : ''} | 简介: ${m.description || '无'} | 能力: ${m.toolGroups.join(',') || '通用对话'}`,
-        )
+        .map((m) => {
+          const isLast = context?.lastAgentId === m.id;
+          return `- id: ${m.id} | 名称: ${m.name}${m.isDefault ? '（默认）' : ''}${isLast ? '（上一轮回答者）' : ''} | 简介: ${m.description || '无'} | 能力: ${describeToolGroups(m.toolGroups)}`;
+        })
         .join('\n');
 
       const parsed = await this.llmService.generateStructured(
@@ -91,7 +109,7 @@ export class GroupRouterService {
           { role: 'system', content: groupRouterPrompt },
           {
             role: 'user',
-            content: `群成员：\n${memberLines}\n\n用户消息：${content.slice(0, 500)}`,
+            content: this.buildUserPrompt(content, memberLines, context),
           },
         ],
         groupRouteSchema,
@@ -124,5 +142,34 @@ export class GroupRouterService {
       );
       return fallback;
     }
+  }
+
+  /**
+   * 拼装路由用户提示词
+   * @description 带上最近几轮对话，使「再来一张」「换个风格」这类指代能被判定为
+   * 延续上文（否则只看最新一条必然选错人）。上下文只取尾部若干轮并截断，
+   * 路由是低成本调用，不做完整历史。
+   */
+  private buildUserPrompt(
+    content: string,
+    memberLines: string,
+    context?: GroupRouteContext,
+  ): string {
+    const sections = [`群成员：\n${memberLines}`];
+
+    const turns = context?.recentTurns ?? [];
+    if (turns.length > 0) {
+      const history = turns
+        .map((turn) => {
+          const speaker =
+            turn.role === 'user' ? '用户' : turn.agentName || '智能体';
+          return `${speaker}：${turn.content.slice(0, 120)}`;
+        })
+        .join('\n');
+      sections.push(`最近对话：\n${history}`);
+    }
+
+    sections.push(`用户消息：${content.slice(0, 500)}`);
+    return sections.join('\n\n');
   }
 }

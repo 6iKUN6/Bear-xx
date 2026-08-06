@@ -3,6 +3,7 @@ import { LlmService } from '../../../llm/llm.service';
 import { KIMI_PLATFORM } from '../../../llm/providers/kimi';
 import type { LlmMessage } from '../../../llm/llm.types';
 import { z } from 'zod';
+import { buildTaskPlannerPrompt } from '../../../../prompts';
 import type { AgentLoopInput } from '../agent-loop.types';
 import type { AgentPlan, PlanStep } from './plan.types';
 
@@ -46,7 +47,7 @@ export class PlannerService {
     try {
       const parsed = await this.llmService.generateStructured(
         [
-          { role: 'system', content: this.buildSystemPrompt(cap) },
+          { role: 'system', content: buildTaskPlannerPrompt(cap) },
           { role: 'user', content: this.buildUserPrompt(userText, toolNames) },
         ],
         planSchema,
@@ -74,15 +75,6 @@ export class PlannerService {
       steps: [{ id: 'step-1', goal: userText || '完成用户请求' }],
       fromModel: false,
     };
-  }
-
-  private buildSystemPrompt(cap: number): string {
-    return [
-      '你是任务规划助手。把用户请求拆解为有序、可执行的步骤。',
-      `最多输出 ${cap} 个步骤，步骤应聚焦、互不重复，能覆盖完成请求所需的关键动作。`,
-      '只输出 JSON，禁止输出解释或 Markdown 代码块，格式：',
-      '{"steps":[{"goal":"步骤目标","suggestedTools":["可选的工具名"]}]}',
-    ].join('\n');
   }
 
   private buildUserPrompt(userText: string, toolNames: string[]): string {

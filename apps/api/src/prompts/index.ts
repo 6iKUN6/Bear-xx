@@ -12,6 +12,20 @@ export const conversationTitlePrompt = readPromptMarkdown(
   'conversation-title.md',
 );
 export const groupRouterPrompt = readPromptMarkdown('group-router.md');
+export const groupContextPrompt = readPromptMarkdown('group-context.md');
+export const strategyRouterPrompt = readPromptMarkdown('strategy-router.md');
+const taskPlannerPromptTemplate = readPromptMarkdown('task-planner.md');
+
+/**
+ * 任务规划提示词
+ * @param maxSteps 本次允许的最大步骤数
+ * @returns 返回填充步数上限后的提示词
+ * @description 模板含 {{maxSteps}} 占位符：步数上限由调用方按 agent 配置动态收敛，
+ * 不能写死在 markdown 里。
+ */
+export function buildTaskPlannerPrompt(maxSteps: number): string {
+  return taskPlannerPromptTemplate.replace('{{maxSteps}}', String(maxSteps));
+}
 
 function readPromptMarkdown(filename: string) {
   // 覆盖两种运行形态：

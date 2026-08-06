@@ -43,6 +43,7 @@ import { LlmService } from '../llm/llm.service';
 import { ConversationService } from '../conversation/conversation.service';
 import {
   GroupRouterService,
+  type GroupRouteContext,
   type GroupRouteSource,
 } from '../conversation/group-router.service';
 import { ConversationTraceService } from '../conversation-trace';
@@ -95,6 +96,8 @@ const EMPTY_ASSISTANT_CONTENT =
   '模型本次没有返回有效文本。请检查模型名称、中转站响应格式或流式输出配置。';
 
 const INITIAL_STREAM_TRIGGER = 'initial';
+/** 群聊路由上下文取的尾部消息条数（仅供判断指代，不是完整上下文） */
+const GROUP_ROUTE_CONTEXT_MESSAGES = 4;
 const FULL_CONTENT_FLUSH_INTERVAL_MS = 1000;
 const FULL_CONTENT_FLUSH_CHARS = 2048;
 
@@ -268,6 +271,7 @@ export class StreamTaskService {
     const routed = await this.groupRouterService.route(
       content,
       conversation.agentIds,
+      await this.buildGroupRouteContext(conversationId),
     );
     return {
       agentId: routed.agentId,
@@ -275,6 +279,71 @@ export class StreamTaskService {
       routeReason: routed.reason,
       routeSource: routed.source,
     };
+  }
+
+  /**
+   * 构建群聊路由上下文
+   * @param conversationId 会话ID
+   * @returns 返回上一轮回答者与最近若干轮对话（时间正序）
+   * @description 只看最新一条消息时，「再来一张」「换个风格」这类指代必然路由错人。
+   * 取尾部少量消息供路由判断延续关系；查询范围刻意收紧（路由是低成本前置调用，
+   * 不做完整上下文，那是 chat-context 的职责）。
+   */
+  private async buildGroupRouteContext(
+    conversationId: string,
+  ): Promise<GroupRouteContext> {
+    const recent = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: GROUP_ROUTE_CONTEXT_MESSAGES,
+      select: { role: true, content: true, agentId: true },
+    });
+    if (recent.length === 0) {
+      return {};
+    }
+
+    const agentNames = await this.resolveAgentNames(
+      recent
+        .map((message) => message.agentId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    return {
+      lastAgentId:
+        recent.find(
+          (message) =>
+            message.role === MessageRole.ASSISTANT && Boolean(message.agentId),
+        )?.agentId ?? undefined,
+      // 查询是倒序，转成时间正序供模型阅读
+      recentTurns: recent
+        .slice()
+        .reverse()
+        .map((message) => ({
+          role:
+            message.role === MessageRole.ASSISTANT
+              ? ('assistant' as const)
+              : ('user' as const),
+          content: message.content,
+          agentName: message.agentId
+            ? agentNames.get(message.agentId)
+            : undefined,
+        })),
+    };
+  }
+
+  /** 批量取 agent 名称（供路由上下文回显发言者） */
+  private async resolveAgentNames(
+    agentIds: string[],
+  ): Promise<Map<string, string>> {
+    const uniqueIds = [...new Set(agentIds)];
+    if (uniqueIds.length === 0) {
+      return new Map();
+    }
+    const agents = await this.prisma.agent.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, name: true },
+    });
+    return new Map(agents.map((agent) => [agent.id, agent.name]));
   }
 
   /**

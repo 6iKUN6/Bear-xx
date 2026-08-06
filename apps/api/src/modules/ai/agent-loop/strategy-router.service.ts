@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { LlmService } from '../../llm/llm.service';
 import { KIMI_PLATFORM } from '../../llm/providers/kimi';
 import type { LlmMessage } from '../../llm/llm.types';
+import { strategyRouterPrompt } from '../../../prompts';
 import { z } from 'zod';
 import {
   AgentStrategyMode,
@@ -290,7 +291,7 @@ export class StrategyRouterService {
 
     const parsed = await this.llmService.generateStructured(
       [
-        { role: 'system', content: this.buildRouterSystemPrompt() },
+        { role: 'system', content: strategyRouterPrompt },
         {
           role: 'user',
           content: this.buildRouterUserPrompt(
@@ -311,19 +312,6 @@ export class StrategyRouterService {
     );
 
     return this.buildDecisionFromModel(parsed);
-  }
-
-  private buildRouterSystemPrompt(): string {
-    return [
-      '你是一个对话策略路由器。判断用户请求应使用哪种执行策略，只输出 JSON，禁止解释或 Markdown。',
-      '可选策略 mode：',
-      '- direct：可直接回答，无需工具或多步骤。',
-      '- react：需要调用工具（如查询天气）一步到位。',
-      '- plan_execute：任务较复杂，需要先拆解为多步骤再依次执行。',
-      '- hybrid：任务复杂且需要根据中间结果动态调整，边规划边用工具。',
-      '输出格式：{"mode":"direct|react|plan_execute|hybrid","toolGroups":[],"skills":[],"maxSteps":6,"confidence":0.0,"reason":"简述理由"}',
-      'toolGroups/skills 只能从"可用能力"中选择；没有合适的就给空数组。',
-    ].join('\n');
   }
 
   private buildRouterUserPrompt(

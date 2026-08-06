@@ -1,4 +1,4 @@
-import { MessageRole } from '@prisma/client';
+import { ConversationType, MessageRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatContextService } from './chat-context.service';
 import { ConversationSummaryService } from './conversation-summary.service';
@@ -18,6 +18,10 @@ describe('ChatContextService', () => {
       agent: {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(null),
+      },
+      conversation: {
+        // 缺省返回 null = 旧数据（无会话形态），走「历史里有别人发言」的兜底判定
+        findUnique: jest.fn().mockResolvedValue(null),
       },
     };
     const conversationSummaryService = {
@@ -156,6 +160,68 @@ describe('ChatContextService', () => {
       { role: 'assistant', content: '回复' },
     ]);
     expect(prisma.agent.findMany).not.toHaveBeenCalled();
+  });
+
+  it('群聊首条消息（历史无其它发言）也注入身份说明，含自己与其它成员的能力', async () => {
+    const { service, prisma, conversationSummaryService } = createService();
+    conversationSummaryService.getConversationSummary.mockResolvedValue(null);
+    // 群里第一句话：历史只有用户这一条，没有任何 assistant 发言
+    prisma.message.findMany.mockResolvedValue([
+      { role: MessageRole.USER, content: '你俩有人会画画吗', agentId: null },
+    ]);
+    prisma.conversation.findUnique.mockResolvedValue({
+      type: ConversationType.GROUP,
+      agentIds: ['agent-painter', 'agent-general'],
+    });
+    prisma.agent.findMany.mockResolvedValue([
+      {
+        id: 'agent-painter',
+        name: '画师一号',
+        description: '文生图',
+        toolGroups: ['image-gen'],
+      },
+      {
+        id: 'agent-general',
+        name: '通用助手',
+        description: '',
+        toolGroups: ['default'],
+      },
+    ]);
+
+    const bundle = await service.buildContextBundle(
+      'conversation-1',
+      'pending-message',
+      'agent-painter',
+    );
+
+    const system = bundle.messages[0];
+    expect(system?.role).toBe('system');
+    // 知道自己是谁 + 专长（缺了这段就会出现「我就是画师一号」的冒充）
+    expect(system?.content).toContain('你是「画师一号」');
+    expect(system?.content).toContain('画图 / 生成图片 / 修改图片');
+    // 知道群里还有谁
+    expect(system?.content).toContain('通用助手');
+    expect(system?.content).toContain('绝不要自称是群里的其它成员');
+  });
+
+  it('单聊会话不注入群聊身份说明', async () => {
+    const { service, prisma, conversationSummaryService } = createService();
+    conversationSummaryService.getConversationSummary.mockResolvedValue(null);
+    prisma.message.findMany.mockResolvedValue([
+      { role: MessageRole.USER, content: '你好', agentId: null },
+    ]);
+    prisma.conversation.findUnique.mockResolvedValue({
+      type: ConversationType.SINGLE,
+      agentIds: ['agent-painter'],
+    });
+
+    const bundle = await service.buildContextBundle(
+      'conversation-1',
+      'pending-message',
+      'agent-painter',
+    );
+
+    expect(bundle.messages).toEqual([{ role: 'user', content: '你好' }]);
   });
 
   it('历史默认助手（null）发言在具体智能体回答时按默认智能体名转写', async () => {

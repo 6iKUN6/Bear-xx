@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { MessageRole } from '@prisma/client';
+import { ConversationType, MessageRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { describeToolGroups } from '../ai/agent-loop/capability/tool-group-labels';
+import { groupContextPrompt } from '../../prompts';
 import type { LlmMessage } from '../llm/llm.types';
 import { ConversationSummaryService } from './conversation-summary.service';
 import { CHAT_CONTEXT_RECENT_MESSAGE_LIMIT } from './memory.constants';
@@ -81,7 +83,7 @@ export class ChatContextService {
     const orderedMessages = recentMessages.reverse();
     const currentAgentId = answeringAgentId ?? null;
 
-    // 群语境判定：历史 assistant 消息中存在与本轮回答者不同的发言者（null 视为默认助手，同一身份）。
+    // 历史里出现过的其它发言者（null 视为默认助手，同一身份）
     const foreignAgentIds = new Set(
       orderedMessages
         .filter(
@@ -91,7 +93,18 @@ export class ChatContextService {
         )
         .map((m) => m.agentId ?? null),
     );
-    const isGroupContext = foreignAgentIds.size > 0;
+
+    // 群语境判定以「会话形态」为准，不能只看历史里有没有别人发过言：
+    // 群聊第一条消息时历史为空，若按历史判定就不会注入身份说明，模型不知道
+    // 自己是谁、群里还有谁，会出现冒充其它成员的幻觉。历史判定作为旧数据
+    // （无 type 的会话）的兜底保留。
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { type: true, agentIds: true },
+    });
+    const isGroupContext =
+      conversation?.type === ConversationType.GROUP || foreignAgentIds.size > 0;
+
     const agentNameById = isGroupContext
       ? await this.loadAgentNames(foreignAgentIds)
       : new Map<string | null, string>();
@@ -101,7 +114,10 @@ export class ChatContextService {
     if (isGroupContext) {
       contextMessages.push({
         role: 'system',
-        content: this.formatGroupContextMessage(),
+        content: await this.formatGroupContextMessage(
+          currentAgentId,
+          conversation?.agentIds ?? [],
+        ),
       });
     }
 
@@ -183,15 +199,73 @@ export class ChatContextService {
 
   /**
    * 群聊语境说明
+   * @param currentAgentId 本轮回答者 id（null = 默认助手）
+   * @param memberIds 群成员 id 列表（可空：旧数据无成员表时只给通用规则）
    * @returns 返回注入 LLM 的 system 消息内容
-   * @description 告知模型处于多助手协作对话，历史中带署名的记录来自其它助手，只需以自己的身份回答。
+   * @description 静态规则来自 prompts/group-context.md，这里补上动态花名册：
+   * 「你是谁 + 你的专长」与「群里还有谁 + 各自专长」。缺了这两段，模型在群聊
+   * 首条消息时既不知道自己的身份也不知道同伴，容易自称成别的成员。
    */
-  private formatGroupContextMessage() {
-    return [
-      '当前是一个多助手协作对话：用户可以点名不同的智能助手回答。',
-      '历史消息中形如「[助手·某某]: 内容」的记录是其它助手的发言，不是你说的，也不是用户说的。',
-      '请以你自己的身份直接回答用户，不要模仿该署名格式，也不要替其它助手发言。',
-    ].join('\n');
+  private async formatGroupContextMessage(
+    currentAgentId: string | null,
+    memberIds: string[],
+  ): Promise<string> {
+    const sections = [groupContextPrompt];
+    const roster = await this.loadGroupRoster(memberIds, currentAgentId);
+
+    if (roster.self) {
+      sections.push(
+        `## 你的身份\n你是「${roster.self.name}」，专长：${roster.self.capability}。`,
+      );
+    }
+    if (roster.others.length > 0) {
+      const lines = roster.others
+        .map((member) => `- ${member.name}：${member.capability}`)
+        .join('\n');
+      sections.push(`## 群内其它成员\n${lines}`);
+    }
+
+    return sections.join('\n\n');
+  }
+
+  /**
+   * 加载群成员花名册
+   * @returns 返回本轮回答者自身信息与其它成员信息（含中文能力描述）
+   * @description 能力用 describeToolGroups 译成中文语义（image-gen 这类技术标识
+   * 对模型语义太弱）；简介存在时并入能力描述，便于模型判断该不该接这个需求。
+   */
+  private async loadGroupRoster(
+    memberIds: string[],
+    currentAgentId: string | null,
+  ): Promise<{
+    self?: { name: string; capability: string };
+    others: Array<{ name: string; capability: string }>;
+  }> {
+    const ids = [...new Set(memberIds)];
+    if (ids.length === 0) {
+      return { others: [] };
+    }
+
+    const agents = await this.prisma.agent.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, description: true, toolGroups: true },
+    });
+
+    const describe = (agent: (typeof agents)[number]) => {
+      const capability = describeToolGroups(agent.toolGroups);
+      return agent.description
+        ? `${capability}（${agent.description}）`
+        : capability;
+    };
+
+    return {
+      self: agents
+        .filter((agent) => agent.id === currentAgentId)
+        .map((agent) => ({ name: agent.name, capability: describe(agent) }))[0],
+      others: agents
+        .filter((agent) => agent.id !== currentAgentId)
+        .map((agent) => ({ name: agent.name, capability: describe(agent) })),
+    };
   }
 
   /**
