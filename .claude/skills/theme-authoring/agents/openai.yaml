@@ -1,0 +1,4 @@
+interface:
+  display_name: "主题创作"
+  short_description: "为 Litter-Bear 创建完整且可消费的语义主题"
+  default_prompt: "Use $theme-authoring 为 mobile 设计并接入一个新主题。"

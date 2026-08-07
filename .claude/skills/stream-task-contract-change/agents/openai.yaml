@@ -1,0 +1,4 @@
+interface:
+  display_name: "演进流式任务契约"
+  short_description: "安全演进 StreamTask 事件、载荷与前后端流式协议"
+  default_prompt: "Use $stream-task-contract-change 新增一个流式任务状态事件。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "主题视觉回归"
+  short_description: "校验 Litter-Bear 各主题在双端关键交互中的视觉回归"
+  default_prompt: "Use $theme-visual-regression 审查本次主题改动的视觉风险。"

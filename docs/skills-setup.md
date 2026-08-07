@@ -2,7 +2,22 @@
 
 本项目的 [AGENTS.md](../AGENTS.md) 路由表按改动范围**推荐**一些 Agent Skills（工作辅助，非"必须加载"）。这些 skill 来自开放生态 [skills.sh](https://skills.sh)（`npx skills`），**安装到用户级** `~/.claude/skills/`，不随仓库分发。团队成员各自安装一次即可。
 
-> 也可选择把用到的 skill vendored 进本仓库 `.claude/skills/` 并提交（免安装、可移植），但需逐个确认各 skill 的开源许可，并自行维护更新。当前采用"用户级安装 + 本文档记录命令"的轻量方案。
+> 通用的第三方 skill 仍采用用户级安装；与本项目架构强绑定的 skill 已 vendored 到 `.claude/skills/`，随仓库维护。新增第三方 vendored skill 前仍需逐个确认开源许可。
+
+## 仓库内 Skill
+
+这些 Skill 读取本项目的真实目录、协议与运行时约束，改动对应领域时优先使用：
+
+| Skill | 适用场景 |
+| --- | --- |
+| `theme-authoring` | 新增完整主题或补全主题语义 token |
+| `theme-token-audit` | 清理硬编码视觉值、修复单主题可读性 |
+| `theme-adapter-mobile` | Taro H5 / 微信小程序的主题切换与单位适配 |
+| `theme-visual-regression` | 主题、共享组件或跨端样式改动后的视觉验收 |
+| `agent-tool-onboarding` | 接入 LangChain / MCP 工具及能力闭集 |
+| `stream-task-contract-change` | 修改 StreamTask SSE 事件、载荷或前端流式消费 |
+| `hitl-action-review` | 为有费用或副作用的工具接入人工审批 |
+| `agent-evaluation-loop` | 改动模型、路由、工具或 HITL 后的评测与发布判断 |
 
 ## 推荐 skill 与来源
 

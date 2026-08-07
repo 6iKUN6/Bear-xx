@@ -1,0 +1,4 @@
+interface:
+  display_name: "接入智能体工具"
+  short_description: "接入受控 Agent 工具并纳入能力闭集与审批链路"
+  default_prompt: "Use $agent-tool-onboarding 将新的 MCP 工具接入聊天 Agent。"

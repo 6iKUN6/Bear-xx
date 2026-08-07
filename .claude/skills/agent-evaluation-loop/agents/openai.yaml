@@ -1,0 +1,4 @@
+interface:
+  display_name: "迭代智能体质量"
+  short_description: "用真实 trace 和固定场景评估 Agent 路由、工具与成本回归"
+  default_prompt: "Use $agent-evaluation-loop 评估本次 Agent 路由改动是否可发布。"

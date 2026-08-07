@@ -1,0 +1,4 @@
+interface:
+  display_name: "主题令牌审计"
+  short_description: "审计并迁移 Litter-Bear UI 的主题硬编码"
+  default_prompt: "Use $theme-token-audit 审计并修复聊天页面的主题硬编码。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "审核高风险智能体动作"
+  short_description: "为有成本或副作用的 Agent 工具接入可恢复人工审批"
+  default_prompt: "Use $hitl-action-review 为新的下单工具设计人工审批。"

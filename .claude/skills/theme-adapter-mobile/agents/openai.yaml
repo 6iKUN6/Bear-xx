@@ -1,0 +1,4 @@
+interface:
+  display_name: "移动端主题适配"
+  short_description: "将共享主题稳妥接入 Taro H5 与微信小程序双端运行环境"
+  default_prompt: "Use $theme-adapter-mobile 排查 mobile 主题切换的跨端表现。"
