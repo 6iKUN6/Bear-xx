@@ -8,6 +8,8 @@ import { appIconTileClass } from "../../utils/style";
 interface MessageListProps {
   messages: Message[];
   isStreaming?: boolean;
+  /** 当前会话 id：切换会话时首屏重新无动画直达底部 */
+  conversationId?: string;
   onToggleStreamFeedback?: (messageId: string) => void;
   onApproval?: (messageId: string, decision: ApprovalDecision) => void;
 }
@@ -22,6 +24,7 @@ const sampleQuestions = [
 export default function MessageList({
   messages,
   isStreaming = false,
+  conversationId,
   onToggleStreamFeedback,
   onApproval,
 }: MessageListProps) {
@@ -40,11 +43,13 @@ export default function MessageList({
     handleUserScrollStart,
     restoreAutoScroll,
     scrollIntoView,
+    scrollWithAnimation,
     showScrollToBottom,
   } = useAutoScrollToBottom({
     enabled: messages.length > 0,
     isStreaming,
     scrollSignal,
+    resetKey: conversationId,
   });
 
   return (
@@ -55,7 +60,7 @@ export default function MessageList({
         lowerThreshold={96}
         scrollIntoView={scrollIntoView}
         scrollY
-        scrollWithAnimation
+        scrollWithAnimation={scrollWithAnimation}
         onScroll={handleScroll}
         onScrollToLower={handleScrollToLower}
         onTouchStart={handleUserScrollStart}

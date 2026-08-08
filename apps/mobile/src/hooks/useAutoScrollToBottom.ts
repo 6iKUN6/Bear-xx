@@ -24,6 +24,12 @@ interface UseAutoScrollToBottomOptions {
   bottomElementId?: string;
   bottomThreshold?: number;
   throttleMs?: number;
+  /**
+   * 首屏重置标识（通常传会话 id）
+   * @description 变化时把「下一次滚动」重新当作首屏：无动画直达底部。
+   * 组件在会话间复用实例，不重置就只有首次挂载能享受直达。
+   */
+  resetKey?: string;
 }
 
 /**
@@ -46,6 +52,7 @@ export function useAutoScrollToBottom({
   bottomElementId = BOTTOM_ELEMENT_ID,
   bottomThreshold = 96,
   throttleMs = 120,
+  resetKey,
 }: UseAutoScrollToBottomOptions) {
   // 底部放两个零高度锚点，滚动时在两者间交替，保证 scroll-into-view
   // 每次都是有效且不同的 id；命令触发后会移除该 prop，避免后续 onScroll
@@ -85,6 +92,10 @@ export function useAutoScrollToBottom({
   const anchorToggleRef = useRef(false);
   // 当前滚动命令序号，用于避免较早的重置定时器清掉较新的滚动命令。
   const scrollCommandIdRef = useRef(0);
+  // 首屏是否已经落位。首屏要求无动画直达底部，之后的流式增量才开启平滑滚动。
+  const firstScrollSettledRef = useRef(false);
+  // 传给 ScrollView 的 scroll-with-animation；首屏为 false。
+  const [scrollWithAnimation, setScrollWithAnimation] = useState(false);
 
   /**
    * 测量 ScrollView 可视区域高度
@@ -127,6 +138,13 @@ export function useAutoScrollToBottom({
     resetScrollIntoViewTimerRef.current = setTimeout(() => {
       if (scrollCommandIdRef.current === commandId) {
         setScrollIntoView(undefined);
+      }
+
+      // 首屏那次已经落位，之后再开动画。必须等到这里而不是紧跟 setScrollIntoView：
+      // 同一批渲染里打开动画，首屏这次滚动就会被带上动画，等于没关。
+      if (!firstScrollSettledRef.current) {
+        firstScrollSettledRef.current = true;
+        setScrollWithAnimation(true);
       }
 
       resetScrollIntoViewTimerRef.current = null;
@@ -299,6 +317,17 @@ export function useAutoScrollToBottom({
     measureViewport();
   }, [measureViewport]);
 
+  // 换会话：列表整体换了内容，重新按首屏处理——无动画直达底部，
+  // 否则会看到从上一个会话位置一路滚下来的过程。
+  useEffect(() => {
+    firstScrollSettledRef.current = false;
+    setScrollWithAnimation(false);
+    autoScrollEnabledRef.current = true;
+    userScrollIntentRef.current = false;
+    lastIsAtBottomRef.current = true;
+    setIsAtBottom(true);
+  }, [resetKey]);
+
   useEffect(() => {
     if (!enabled) {
       return;
@@ -331,6 +360,7 @@ export function useAutoScrollToBottom({
     isAtBottom,
     restoreAutoScroll,
     scrollIntoView,
+    scrollWithAnimation,
     showScrollToBottom: enabled && !isAtBottom,
   };
 }
