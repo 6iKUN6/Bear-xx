@@ -5,6 +5,9 @@ import * as chatApi from "../api/chat";
 import { createBoundStore } from "./createBoundStore";
 import { buildStreamFeedbackFromTrace } from "../utils/streamFeedback";
 
+/** 本地草稿会话 id 前缀（服务端不存在此记录） */
+const DRAFT_CONVERSATION_PREFIX = "draft_";
+
 interface ChatState {
   conversations: Conversation[];
   currentConversation: Conversation | null;
@@ -55,14 +58,43 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   currentConversation: null,
 
   async loadConversations() {
-    const conversations = await chatApi.getConversations();
+    const remote = await chatApi.getConversations();
     // 网关异常/被劫持时响应可能不是数组：宁可保留本地数据也不能崩 app
-    if (!Array.isArray(conversations)) {
-      console.warn("loadConversations: 响应不是数组，忽略", conversations);
+    if (!Array.isArray(remote)) {
+      console.warn("loadConversations: 响应不是数组，忽略", remote);
       return;
     }
-    set({
-      conversations: conversations.map(normalizeConversationStreamFeedback),
+
+    set((state) => {
+      // 草稿只活在本地（未发送前服务端没有记录），远程列表里不存在，
+      // 直接整体覆盖会把它连同用户已输入的上下文一起丢掉。
+      const drafts = state.conversations.filter((c) => isDraftConversation(c.id));
+      const conversations = [
+        ...drafts,
+        ...remote.map(normalizeConversationStreamFeedback),
+      ];
+
+      const current = state.currentConversation;
+      if (!current) {
+        return { conversations };
+      }
+
+      // 流式进行中不能用远程覆盖：服务端此刻的消息落后于正在增量拼接的本地内容，
+      // 覆盖会把已经渲染出来的半截回答抹掉。草稿同理，远程没有对应记录。
+      const hasInFlight = current.messages.some((m) => m.status === "streaming");
+      if (hasInFlight || isDraftConversation(current.id)) {
+        return { conversations };
+      }
+
+      // 重新指向刷新后的对象。不这样做，当前会话会一直停在 hydrate 时的旧快照，
+      // 本地残留（例如请求失败留下的占位消息）永远等不到服务端数据来纠正——
+      // 表现为切走再切回来才恢复正常。
+      const refreshed = conversations.find((c) => c.id === current.id);
+      return {
+        conversations,
+        // 远端已不存在（在别处删了）时保留当前对象，避免视图突然空掉
+        currentConversation: refreshed ?? current,
+      };
     });
   },
 
@@ -121,7 +153,7 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
     const now = Date.now();
     const draftConversation: Conversation = {
-      id: `draft_${now}`,
+      id: `${DRAFT_CONVERSATION_PREFIX}${now}`,
       title: "新对话",
       messages: [],
       createdAt: now,
@@ -236,7 +268,18 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
       if (!state.currentConversation) return state;
 
       const messages = state.currentConversation.messages.map((m) =>
-        m.id === msgId ? { ...m, status } : m,
+        m.id === msgId
+          ? {
+              ...m,
+              status,
+              // 收敛到终态就意味着这轮不会再有回答者被指派了。
+              // 不清会留下 routing=true 的幽灵消息：发送失败（task.created 从未到达，
+              // updateMessageSpeaker 也就没机会执行）后永久显示「正在指派…」。
+              ...(status === "done" || status === "error"
+                ? { routing: false }
+                : {}),
+            }
+          : m,
       );
 
       const updatedConv: Conversation = {
@@ -259,7 +302,13 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
       const messages = state.currentConversation.messages.map((m) =>
         m.id === msgId
-          ? { ...m, agentId, ...(agentName ? { agentName } : {}) }
+          ? {
+              ...m,
+              agentId,
+              ...(agentName ? { agentName } : {}),
+              // 指派已落定，撤下「正在指派…」
+              routing: false,
+            }
           : m,
       );
 
@@ -394,6 +443,15 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   },
 }));
 
+/**
+ * 判断是否为本地草稿会话
+ * @description 草稿在首次发送前只存在于本地，服务端没有对应记录，
+ * 因此不能参与任何「以远程列表为准」的覆盖逻辑。
+ */
+function isDraftConversation(conversationId: string) {
+  return conversationId.startsWith(DRAFT_CONVERSATION_PREFIX);
+}
+
 function normalizeConversationStreamFeedback(
   conversation: Conversation,
 ): Conversation {
@@ -404,22 +462,27 @@ function normalizeConversationStreamFeedback(
 }
 
 function normalizeMessageStreamFeedback(message: Message): Message {
+  // 落盘的 routing=true 必然是残留：指派一旦落定就随 task.created 走
+  // updateMessageSpeaker 清掉，能被持久化下来说明那条请求压根没建起任务，
+  // 重启后也不存在可续接的目标。留着会一直显示「正在指派…」。
+  const base = message.routing ? { ...message, routing: false } : message;
+
   if (
-    message.role !== "assistant" ||
-    message.streamFeedback ||
-    message.currentStreamEvent ||
-    !message.trace?.length
+    base.role !== "assistant" ||
+    base.streamFeedback ||
+    base.currentStreamEvent ||
+    !base.trace?.length
   ) {
-    return message;
+    return base;
   }
 
-  const streamFeedback = buildStreamFeedbackFromTrace(message.trace);
+  const streamFeedback = buildStreamFeedbackFromTrace(base.trace);
   if (!streamFeedback) {
-    return message;
+    return base;
   }
 
   return {
-    ...message,
+    ...base,
     currentStreamEvent: streamFeedback.current,
     streamFeedback,
   };

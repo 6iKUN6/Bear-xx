@@ -66,6 +66,13 @@ interface Message {
   agentId?: string | null;
   /** 发言智能体名称（群聊气泡展示用） */
   agentName?: string | null;
+  /**
+   * 等待后端指派回答者
+   * @description 群聊未 @ 时回答者由后端自动路由决定，发送时前端并不知道是谁。
+   * 此标记期间气泡不显示任何具体身份（避免误显示成默认助手），
+   * 待 task.created 带回真实回答者后清除。
+   */
+  routing?: boolean;
   metrics?: MessageRunMetrics | null;
   trace?: MessageTraceItem[];
   streamFeedback?: MessageStreamFeedbackState;

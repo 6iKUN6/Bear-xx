@@ -19,6 +19,7 @@ export const TOOL_STREAM_TASK_EVENT_TYPES = new Set<StreamTaskEventType>([
 ]);
 
 export const STATUS_STREAM_TASK_EVENT_TYPES = new Set<StreamTaskEventType>([
+  StreamTaskEventType.AgentRouted,
   StreamTaskEventType.AgentLoopStart,
   StreamTaskEventType.StrategySelected,
   StreamTaskEventType.SkillSelected,

@@ -18,6 +18,7 @@ import { findAgent, resolveAgentName } from "../../utils/agent";
 import { useChatStream } from "../../hooks/useChatStream";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import { streamTaskService } from "../../services/stream";
+import { ApiRequestError } from "../../api/request";
 import type {
   StreamTaskEvent,
   StreamTaskLifecycle,
@@ -186,7 +187,9 @@ export default function ChatWorkspace({
             (m) => m.id === status.messageId,
           ) ?? stuckMessage;
         if (!targetMessage) {
-          clearPendingTask(convId);
+          // 只说明本地快照里还没有这条消息（storage 未落盘、远程列表未回来），
+          // 不代表后端任务不存在——清掉指针会让这轮回答再也接不回来。
+          // 留着指针，下次进入会话时重新探测。
           return;
         }
 
@@ -218,10 +221,17 @@ export default function ChatWorkspace({
         persistConversations();
       } catch (error) {
         console.warn("Resume probe failed:", error);
-        if (stuckMessage) {
-          updateMessageStatus(stuckMessage.id, "done");
+        // 只有服务端明确说这个任务没了（404/410）才收敛消息并清指针。
+        // 网络不通、超时这类瞬时失败保留指针——一次抖动就把指针清掉，
+        // 这轮回答会永久接不回来（与上面 targetMessage 缺失同一类误判）。
+        const status =
+          error instanceof ApiRequestError ? error.status : undefined;
+        if (status === 404 || status === 410) {
+          if (stuckMessage) {
+            updateMessageStatus(stuckMessage.id, "done");
+          }
+          clearPendingTask(convId);
         }
-        clearPendingTask(convId);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -284,6 +294,10 @@ export default function ChatWorkspace({
         }
         // 跨页面续接的锚点：进行中任务指针落本地存储
         savePendingTask(realConversationId, taskId);
+        // 指针和消息必须同时落盘。只存指针的话，刷新后 hydrate 出的会话里
+        // 没有这条 streaming 消息，续接探测找不到目标 → 直接放弃，
+        // 这轮回答就再也接不回来了（表现为一直等不到内容，再刷一次才出现）。
+        persistConversations();
       },
       onStatus: recordStreamEvent,
       onToolCall: recordStreamEvent,
@@ -352,13 +366,16 @@ export default function ChatWorkspace({
       content: "",
       status: "streaming",
       createdAt: Date.now(),
-      // 归属：@ 指定时占位即可显示正确头像/名字；未指定则留空，
-      // 等 task.created 带回真实回答者再回填——不能用 resolveAgentName 兜底，
-      // 它在 id 为空时会返回「默认助手」，群聊自动路由下必然显示成错误的人。
+      // 归属：@ 指定、或单聊/未定型会话，占位即可显示正确身份；
+      // 群聊未 @ 时回答者由后端自动路由，此时留空并标记 routing，
+      // 等 task.created 回填——不能用 resolveAgentName 兜底，它在 id 为空时
+      // 返回「默认助手」，群聊下必然显示成错误的人。
       agentId: agentId ?? null,
-      agentName: agentId
-        ? resolveAgentName(useAgentStore.getState().agents, agentId)
-        : undefined,
+      agentName:
+        agentId || conversationMode !== "group"
+          ? resolveAgentName(useAgentStore.getState().agents, agentId)
+          : undefined,
+      routing: !agentId && conversationMode === "group",
     };
     addMessage(aiMsg);
     activeAssistantMessageIdRef.current = aiMsgId;
@@ -411,6 +428,7 @@ export default function ChatWorkspace({
           <MessageList
             messages={messages}
             isStreaming={!!isStreaming}
+            conversationId={currentConversation?.id}
             onToggleStreamFeedback={toggleMessageStreamFeedback}
             onApproval={handleApproval}
           />

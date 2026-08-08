@@ -15,6 +15,21 @@ export interface ApiResponseEnvelope<T> {
   message: string;
 }
 
+/**
+ * 带 HTTP 状态码的请求错误
+ * @description 调用方需要区分「服务端明确拒绝」和「网络没通」时才有得判断——
+ * 只抛裸 Error 会把状态码丢掉，调用方只能把两者当成同一种失败处理。
+ */
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export interface ApiRequestOptions<TData = unknown> {
   url: string;
   method?: ApiRequestMethod;
@@ -109,7 +124,7 @@ export class BaseApiClient {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         const message = response.data?.message || "请求失败";
         Taro.showToast({ title: message, icon: "none" });
-        throw new Error(message);
+        throw new ApiRequestError(message, response.statusCode);
       }
 
       const envelope = await this.applyResponseInterceptor(response.data);
@@ -166,7 +181,7 @@ export class BaseApiClient {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         const message = envelope?.message || "上传失败";
         Taro.showToast({ title: message, icon: "none" });
-        throw new Error(message);
+        throw new ApiRequestError(message, response.statusCode);
       }
 
       const resolvedEnvelope = await this.applyResponseInterceptor(envelope);
@@ -321,7 +336,10 @@ export class BaseApiClient {
       }
 
       if (!response.ok) {
-        throw new Error(await this.getFetchErrorMessage(response));
+        throw new ApiRequestError(
+          await this.getFetchErrorMessage(response),
+          response.status,
+        );
       }
 
       if (!response.body) {
