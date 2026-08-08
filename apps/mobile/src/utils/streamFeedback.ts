@@ -1,5 +1,9 @@
-// 中文文案来自前后端共享包（唯一事实源）
-import { STREAM_TASK_EVENT_LABELS as EVENT_LABELS } from "@litter-bear/types/protocol";
+// 中文文案与载荷契约来自前后端共享包（唯一事实源）
+import {
+  STREAM_TASK_EVENT_LABELS as EVENT_LABELS,
+  getAgentStrategyLabel,
+  type StreamTaskPayloadMap,
+} from "@litter-bear/types/protocol";
 import {
   StreamTaskEventType,
   type StreamTaskEvent,
@@ -58,7 +62,7 @@ export function toMessageStreamFeedback(
     title,
     detail,
     tone: EVENT_TONES[type] || "info",
-    display: isTerminalTextEvent(type) ? "text" : "panel",
+    display: isTextDisplayEvent(type) ? "text" : "panel",
     updatedAt: Date.now(),
   };
 }
@@ -101,7 +105,12 @@ export function toMessageStreamFeedbackFromTrace(
       formatTraceDuration(traceItem.durationMs),
     ]),
     tone: traceStatusTone(traceItem.status),
-    display: traceItem.type === "MESSAGE_FINALIZE" ? "text" : "panel",
+    // 与实时流保持一致：指派和收尾都是一行小字，刷新回显后不该变回卡片
+    display:
+      traceItem.type === "MESSAGE_FINALIZE" ||
+      traceItem.type === "AGENT_ROUTING"
+        ? "text"
+        : "panel",
     updatedAt: Date.now(),
   };
 }
@@ -130,8 +139,14 @@ function resolveFeedbackId(
   return `${event.rawId || event.id || Date.now()}-${event.type}`;
 }
 
-function isTerminalTextEvent(type: StreamTaskEventType) {
+/**
+ * 是否用一行小字而非卡片展示
+ * @description 指派与终态都属于「一句话说完就过去」的信息，套上带状态点和
+ * 展开箭头的卡片会显得比实际重要。
+ */
+function isTextDisplayEvent(type: StreamTaskEventType) {
   return (
+    type === StreamTaskEventType.AgentRouted ||
     type === StreamTaskEventType.TaskCompleted ||
     type === StreamTaskEventType.TaskCanceled ||
     type === StreamTaskEventType.TaskExpired
@@ -144,45 +159,84 @@ function readPayload(payload: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * 按事件类型取出对应契约的载荷
+ * @param payload 原始载荷（来自线上 JSON）
+ * @returns 返回该事件的载荷契约视图
+ * @description 线上数据不可信，字段可能缺失（旧版后端、被截断），故收敛为 Partial。
+ * 断言只此一处；之后按契约取字段，写错字段名编译期即报错，
+ * 不再是先前 `readString(payload.任意名)` 永远静默返回 undefined。
+ */
+function payloadOf<K extends StreamTaskEventType>(
+  payload: Record<string, unknown>,
+  _type: K,
+): Partial<StreamTaskPayloadMap[K]> {
+  return payload as Partial<StreamTaskPayloadMap[K]>;
+}
+
 function readEventDetail(
   type: StreamTaskEventType,
-  payload: Record<string, unknown>,
+  raw: Record<string, unknown>,
 ) {
   switch (type) {
-    case StreamTaskEventType.StrategySelected:
+    case StreamTaskEventType.AgentRouted: {
+      const payload = payloadOf(raw, StreamTaskEventType.AgentRouted);
       return joinParts([
-        readString(payload.mode) && `策略 ${readString(payload.mode)}`,
-        readString(payload.reason),
+        payload.agentName,
+        // 自动路由带模型理由；降级时明确告知未生效，避免「怎么老是同一个人回答」无从判断
+        payload.source === "fallback"
+          ? "自动分配不可用，已交给首位成员"
+          : payload.reason,
       ]);
-    case StreamTaskEventType.SkillSelected:
+    }
+    case StreamTaskEventType.StrategySelected: {
+      const payload = payloadOf(raw, StreamTaskEventType.StrategySelected);
       return joinParts([
-        readString(payload.skill) && `能力 ${readString(payload.skill)}`,
-        readString(payload.strategy) && `策略 ${readString(payload.strategy)}`,
+        payload.mode && `策略 ${getAgentStrategyLabel(payload.mode)}`,
+        payload.reason,
       ]);
+    }
+    case StreamTaskEventType.SkillSelected: {
+      const payload = payloadOf(raw, StreamTaskEventType.SkillSelected);
+      return joinParts([
+        payload.skill && `能力 ${payload.skill}`,
+        payload.strategy && `策略 ${getAgentStrategyLabel(payload.strategy)}`,
+      ]);
+    }
     case StreamTaskEventType.WorkflowStepStart:
-    case StreamTaskEventType.WorkflowStepDone:
+    case StreamTaskEventType.WorkflowStepDone: {
+      const payload = payloadOf(raw, StreamTaskEventType.WorkflowStepDone);
       return joinParts([
-        readString(payload.step) && `步骤 ${readString(payload.step)}`,
-        readString(payload.strategy),
+        payload.step && `步骤 ${payload.title ?? payload.step}`,
+        payload.strategy && getAgentStrategyLabel(payload.strategy),
       ]);
+    }
     case StreamTaskEventType.ModelCallStart:
-    case StreamTaskEventType.ModelCallDone:
-      return joinParts([
-        readString(payload.provider),
-        readString(payload.model),
-      ]);
+    case StreamTaskEventType.ModelCallDone: {
+      const payload = payloadOf(raw, StreamTaskEventType.ModelCallStart);
+      return joinParts([payload.provider, payload.model]);
+    }
     case StreamTaskEventType.ToolCallStart:
     case StreamTaskEventType.ToolCallDelta:
     case StreamTaskEventType.ToolCallDone:
-    case StreamTaskEventType.ToolCallError:
+    case StreamTaskEventType.ToolCallError: {
+      const payload = payloadOf(raw, StreamTaskEventType.ToolCallDelta);
       return joinParts([
-        readString(payload.name) && `工具 ${readString(payload.name)}`,
-        readString(payload.args),
+        payload.name && `工具 ${payload.name}`,
+        payload.args,
       ]);
+    }
+    case StreamTaskEventType.ApprovalRequired: {
+      const payload = payloadOf(raw, StreamTaskEventType.ApprovalRequired);
+      return joinParts([
+        payload.toolName && `工具 ${payload.toolName}`,
+        payload.description,
+      ]);
+    }
     case StreamTaskEventType.TaskCompleted:
       return undefined;
     case StreamTaskEventType.MessageDone:
-      return readString(payload.warning) || undefined;
+      return payloadOf(raw, StreamTaskEventType.MessageDone).warning;
     default:
       return undefined;
   }

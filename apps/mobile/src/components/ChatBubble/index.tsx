@@ -59,6 +59,21 @@ function ChatBubble({
   const speakerAgent = !isUser
     ? agents.find((agent) => agent.id === message.agentId)
     : undefined;
+  // 群聊自动路由尚未落定：这条消息没有任何真实身份可展示
+  const isUnassigned = !isUser && !message.agentName && !speakerAgent;
+  const isRouting = isUnassigned && Boolean(message.routing);
+  // 指派没走完就失败了（请求根本没建起任务）。此时回退成默认助手身份是错的——
+  // 没有任何智能体接过这轮，不该显示成「某人回答失败」。
+  const isUnassignedFailure = isUnassigned && message.status === "error";
+
+  // 没有归属的这两种状态，头像、名字、正文全是占位，撑起一整个气泡
+  // 反而像「某人已经在回答」。统一收成一行灰字。
+  if (isRouting || isUnassignedFailure) {
+    return (
+      <UnassignedNotice text={isRouting ? "正在指派…" : "发送失败"} />
+    );
+  }
+
   const displayName = isUser
     ? userInfo?.nickname || "用户"
     : message.agentName || speakerAgent?.name || FALLBACK_AGENT_NAME;
@@ -119,6 +134,21 @@ function ChatBubble({
           </Text>
         )}
       </View>
+    </View>
+  );
+}
+
+/**
+ * 无归属消息的单行提示
+ * @description 指派未落定（进行中或失败）时代替整个气泡，避免占位头像与
+ * 默认助手名让用户误以为已经有人在回答。
+ */
+function UnassignedNotice({ text }: { text: string }) {
+  return (
+    <View className='mb-[0.75rem] flex w-full min-w-0 items-center px-[1rem] box-border'>
+      <Text className='min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.35] text-[var(--lb-text-muted)]'>
+        {text}
+      </Text>
     </View>
   );
 }

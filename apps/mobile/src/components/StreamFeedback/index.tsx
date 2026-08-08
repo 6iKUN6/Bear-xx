@@ -25,6 +25,18 @@ function StreamFeedback({
   const events = normalizedFeedback.events;
   const expanded = normalizedFeedback.expanded;
 
+  // 指派、收尾这类一句话信息不套卡片：卡片带状态点和展开箭头，
+  // 会让它们看起来比实际重要，也和气泡上方的灰字提示风格割裂。
+  if (current.display === "text") {
+    return (
+      <View className='mb-[0.625rem] w-full max-w-full'>
+        <Text className='block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.35] text-[var(--lb-text-muted)]'>
+          {current.detail ? `${current.title} · ${current.detail}` : current.title}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View className='mb-[0.625rem] w-full max-w-full'>
       <View
