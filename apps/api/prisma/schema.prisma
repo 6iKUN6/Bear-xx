@@ -367,6 +367,7 @@ enum AgentStrategy {
 }
 
 enum ConversationTraceItemType {
+  AGENT_ROUTING
   STRATEGY_DECISION
   SKILL_SELECTION
   WORKFLOW_STEP
@@ -378,6 +379,7 @@ enum ConversationTraceItemType {
   MCP_CALL
   MEMORY_READ
   MEMORY_WRITE
+  APPROVAL
   MESSAGE_FINALIZE
   ERROR
 }

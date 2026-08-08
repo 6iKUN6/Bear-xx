@@ -4,11 +4,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { mapStreamEventToTraceCommand } from './conversation-trace.mapper';
 import {
   ConversationTraceItemStatus,
+  ConversationTraceItemType,
   type CompleteTraceItemInput,
   type FailTraceItemInput,
   type RecordStreamEventInput,
+  type RecordStreamEventInputOf,
   type StartTraceItemInput,
 } from './conversation-trace.types';
+import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
 
 @Injectable()
 export class ConversationTraceService {
@@ -22,12 +25,18 @@ export class ConversationTraceService {
    * @returns 无返回值
    * @description 将实时 SSE 事件归约为历史消息可回显的 trace item。delta 类高频事件不会写入 trace。
    */
-  async recordStreamEvent(input: RecordStreamEventInput) {
+  async recordStreamEvent<K extends StreamTaskEventType>(
+    input: RecordStreamEventInputOf<K>,
+  ) {
     if (!input.userId) {
       return;
     }
 
-    const command = mapStreamEventToTraceCommand(input);
+    // 泛型已保证 eventName 与 payload 对应，但 TS 无法证明未收窄的泛型形态
+    // 可赋值给分发后的联合。断言收敛在这一处，调用方仍受泛型约束。
+    const command = mapStreamEventToTraceCommand(
+      input as RecordStreamEventInput,
+    );
     if (!command) {
       return;
     }
@@ -201,6 +210,30 @@ export class ConversationTraceService {
         startedAt: input.startedAt ?? new Date(),
         endedAt,
         durationMs: this.calculateDurationMs(input.startedAt, endedAt),
+      },
+    });
+  }
+
+  /**
+   * 查询任务下待处理的审批轨迹项
+   * @param taskId 任务ID
+   * @returns 返回最近一条 RUNNING 的审批项；不存在时返回 null
+   * @description 提交人工决定时用它取回请求侧的 traceKey/nodeKey，使 approval.resolved
+   * 能收敛同一条 trace，而不是另起一条孤立记录。审批是人工门禁、频率极低，
+   * 这里多一次查询不影响链路。
+   */
+  findPendingApprovalItem(taskId: string) {
+    return this.prisma.conversationTurnTraceItem.findFirst({
+      where: {
+        taskId,
+        type: ConversationTraceItemType.APPROVAL,
+        status: ConversationTraceItemStatus.RUNNING,
+      },
+      orderBy: { sequence: 'desc' },
+      select: {
+        traceKey: true,
+        nodeKey: true,
+        toolName: true,
       },
     });
   }

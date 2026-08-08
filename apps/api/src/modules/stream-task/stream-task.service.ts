@@ -6,8 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { APPROVAL_DECISION_LABELS } from '@litter-bear/types/protocol';
 import type {
+  AgentRoutedPayload,
   ApprovalDecision,
+  ApprovalResolvedPayload,
+  StreamTaskPayloadMap,
   TaskErrorPayload,
 } from '@litter-bear/types/protocol';
 import { classifyLlmError } from '../llm/llm-error';
@@ -190,6 +194,10 @@ export class StreamTaskService {
       answering.agentId,
       isTest,
     );
+    // 路由结果落成真事件（在开流之前写，openTaskStream 从 '0' 读全量缓冲，
+    // 客户端照样收得到）。task.created 是 prependEvent 合成的、不入持久化流，
+    // 只能满足实时展示；要让「谁被指派、为什么」在刷新后仍可回溯，必须走这里。
+    await this.recordAgentRouted({ ...task, userId }, answering);
     const taskStream = await this.openTaskStream(
       task.taskId,
       userId,
@@ -279,6 +287,80 @@ export class StreamTaskService {
       routeReason: routed.reason,
       routeSource: routed.source,
     };
+  }
+
+  /**
+   * 记录回答者指派事件
+   * @param task 刚创建的任务
+   * @param answering 回答者解析结果
+   * @description 仅在确实指派了具体回答者时记录。事件同时进 Redis 帧流（前端可见）
+   * 与 conversation-trace（刷新后可回溯），与 strategy.selected 同构。
+   * 失败不阻断发送链路——指派信息属于可观测性，不该让主流程为它挂掉。
+   */
+  private async recordAgentRouted(
+    task: {
+      taskId: string;
+      streamId?: string | null;
+      conversationId: string;
+      messageId: string;
+      userId: string;
+    },
+    answering: {
+      agentId?: string;
+      autoRouted?: boolean;
+      routeReason?: string;
+      routeSource?: GroupRouteSource;
+    },
+  ): Promise<void> {
+    if (!answering.agentId) {
+      return;
+    }
+
+    try {
+      const agent = await this.prisma.agent.findUnique({
+        where: { id: answering.agentId },
+        select: { name: true },
+      });
+      // satisfies 而非类型注解：保留字面量推断，使其可直接赋给 Record<string, unknown>
+      // （interface 无隐式索引签名，注解后需要断言才能传给事件载荷）
+      const payload = {
+        agentId: answering.agentId,
+        agentName: agent?.name,
+        source: answering.autoRouted
+          ? (answering.routeSource ?? 'model')
+          : 'explicit',
+        reason: answering.routeReason,
+      } satisfies AgentRoutedPayload;
+
+      const event = await this.persistEvent(
+        task.taskId,
+        task.streamId,
+        StreamTaskEventType.AgentRouted,
+        this.serializeTaskEventData({
+          type: StreamTaskEventType.AgentRouted,
+          taskId: task.taskId,
+          streamId: task.streamId ?? undefined,
+          conversationId: task.conversationId,
+          messageId: task.messageId,
+          status: StreamTaskStatus.PENDING.toLowerCase(),
+          payload,
+        }),
+      );
+      await this.recordConversationTraceEvent({
+        userId: task.userId,
+        taskId: task.taskId,
+        streamId: task.streamId ?? undefined,
+        conversationId: task.conversationId,
+        messageId: task.messageId,
+        eventName: StreamTaskEventType.AgentRouted,
+        payload,
+      });
+      this.registry.publish(task.taskId, event.sseEvent);
+    } catch (error) {
+      this.logger.warn(
+        `记录回答者指派失败（不影响发送）：${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -735,9 +817,76 @@ export class StreamTaskService {
     }
 
     await this.storePendingApprovalDecision(taskId, decision);
+    // 在开流之前落事件：客户端带着旧 lastEventId 续读，照样能收到。
+    // 不发的话 trace 会永远停在「待人工确认」，看不出批没批、谁批的。
+    await this.recordApprovalResolved(task, userId, decision);
 
     const stream = this.createTaskStream(task.id, lastEventId, signal);
     return { stream };
+  }
+
+  /**
+   * 记录人工审批结果
+   * @param task 任务
+   * @param userId 决定人
+   * @param decision 人工决定
+   * @returns 无返回值
+   * @description 复用待审批 trace 项的 traceKey，使这条结果收敛到同一条 trace 而非另起一条。
+   * 审批属审计语义，失败只告警不阻断续跑——决定已落 Redis，链路必须继续。
+   */
+  private async recordApprovalResolved(
+    task: Prisma.StreamTaskGetPayload<object>,
+    userId: string,
+    decision: ApprovalDecision,
+  ): Promise<void> {
+    try {
+      const conversationId = this.requireConversationId(task);
+      const messageId = this.requireMessageId(task);
+      const pending =
+        await this.conversationTraceService.findPendingApprovalItem(task.id);
+
+      const payload = {
+        decision: decision.decision,
+        decidedBy: userId,
+        toolName: pending?.toolName ?? undefined,
+        editedArgs: decision.editedArgs
+          ? JSON.stringify(decision.editedArgs)
+          : undefined,
+        reason: decision.reason,
+        nodeKey: pending?.nodeKey ?? 'common_chat_approval',
+        traceKey: pending?.traceKey ?? 'approval',
+        publicStatus: APPROVAL_DECISION_LABELS[decision.decision],
+      } satisfies ApprovalResolvedPayload;
+
+      const event = await this.persistEvent(
+        task.id,
+        task.currentRunId,
+        StreamTaskEventType.ApprovalResolved,
+        this.serializeTaskEventData({
+          type: StreamTaskEventType.ApprovalResolved,
+          taskId: task.id,
+          streamId: task.currentRunId ?? undefined,
+          conversationId,
+          messageId,
+          status: StreamTaskStatus.WAITING_HUMAN.toLowerCase(),
+          payload,
+        }),
+      );
+      await this.recordConversationTraceEvent({
+        userId: task.userId,
+        taskId: task.id,
+        streamId: task.currentRunId,
+        conversationId,
+        messageId,
+        eventName: StreamTaskEventType.ApprovalResolved,
+        payload,
+      });
+      this.registry.publish(task.id, event.sseEvent);
+    } catch (error) {
+      this.logger.warn(
+        `记录人工审批结果失败（不影响续跑）：${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -1748,15 +1897,20 @@ export class StreamTaskService {
    * @param input 任务事件和上下文
    * @returns 无返回值
    * @description 将关键 StreamTask 事件交给 ConversationTraceService 归约为历史可回显的执行轨迹；失败不影响主流式链路。
+   *
+   * 泛型把 `payload` 绑定到 `eventName` 对应的载荷契约：写错字段名、漏必填字段
+   * 或用错事件的载荷都会在编译期报错，不再依赖下游 `readString` 猜字段。
    */
-  private async recordConversationTraceEvent(input: {
+  private async recordConversationTraceEvent<
+    K extends StreamTaskEventType,
+  >(input: {
     userId?: string;
     taskId: string;
     streamId?: string | null;
     conversationId: string;
     messageId: string;
-    eventName: StreamTaskEventType;
-    payload?: Record<string, unknown>;
+    eventName: K;
+    payload?: StreamTaskPayloadMap[K];
     errorMessage?: string;
   }) {
     const userId = input.userId ?? (await this.resolveTaskUserId(input.taskId));
