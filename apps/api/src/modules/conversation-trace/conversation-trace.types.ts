@@ -1,4 +1,5 @@
 import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
+import type { StreamTaskPayloadMap } from '@litter-bear/types/protocol';
 
 export {
   ConversationTraceItemStatus,
@@ -74,8 +75,20 @@ export type TraceCommand =
       input: StartTraceItemInput;
     };
 
-export interface RecordStreamEventInput extends TraceTaskContext {
-  eventName: StreamTaskEventType;
-  payload?: Record<string, unknown>;
-  errorMessage?: string;
-}
+/**
+ * 流式事件 → trace 的输入
+ * @description 按事件类型展开成判别联合，`switch (input.eventName)` 即可把
+ * `input.payload` 收窄到对应契约。此前是 `Record<string, unknown>` + 按 key
+ * 动态读取，读到契约上根本不存在的字段也不会报错——映射里因此积了不少永远
+ * 取不到值的兜底分支。
+ */
+export type RecordStreamEventInputOf<K extends StreamTaskEventType> =
+  TraceTaskContext & {
+    eventName: K;
+    payload?: StreamTaskPayloadMap[K];
+    errorMessage?: string;
+  };
+
+export type RecordStreamEventInput = {
+  [K in StreamTaskEventType]: RecordStreamEventInputOf<K>;
+}[StreamTaskEventType];

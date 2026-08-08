@@ -1,13 +1,18 @@
 import { StreamTaskEventType } from '../../stream-task/stream-task-event.types';
+import {
+  AgentStrategyMode,
+  type StreamTaskWireEvent,
+} from '@litter-bear/types/protocol';
 import type { LlmMessage, ResolvedLlmTextRequest } from '../../llm/llm.types';
 import type { CommonChatAgentStreamEvent } from '../agents/common-chat-agent';
 
-export enum AgentStrategyMode {
-  Direct = 'direct',
-  ReAct = 'react',
-  PlanExecute = 'plan_execute',
-  Hybrid = 'hybrid',
-}
+/**
+ * 执行策略闭集
+ * @description 定义已收敛到共享包 @litter-bear/types/protocol——策略标识会随
+ * strategy.selected / workflow.step.* 下发给前端展示。本处仅 re-export，
+ * 保持既有相对路径 import 不变。
+ */
+export { AgentStrategyMode };
 
 /** agent 默认策略：'auto' = 在 allowedStrategies 内路由；具体值 = 强制该模式 */
 export type AgentDefaultStrategy = 'auto' | AgentStrategyMode;
@@ -100,17 +105,26 @@ export interface AgentStrategyGraph {
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown>;
 }
 
-export interface AgentLoopWorkflowEvent {
-  type:
-    | StreamTaskEventType.AgentLoopStart
-    | StreamTaskEventType.StrategySelected
-    | StreamTaskEventType.SkillSelected
-    | StreamTaskEventType.WorkflowStepStart
-    | StreamTaskEventType.WorkflowStepDone
-    | StreamTaskEventType.ModelCallStart
-    | StreamTaskEventType.ModelCallDone;
-  payload: Record<string, unknown>;
-}
+/** 编排层自行发射的事件类型（其余事件由 agent 层产出） */
+type AgentLoopWorkflowEventType =
+  | StreamTaskEventType.AgentLoopStart
+  | StreamTaskEventType.StrategySelected
+  | StreamTaskEventType.SkillSelected
+  | StreamTaskEventType.WorkflowStepStart
+  | StreamTaskEventType.WorkflowStepDone
+  | StreamTaskEventType.ModelCallStart
+  | StreamTaskEventType.ModelCallDone;
+
+/**
+ * 编排层事件
+ * @description 从共享包的线上事件判别联合中切出编排层负责的那几类，
+ * 使 type 与 payload 绑定——写错字段名或漏字段直接编译报错，
+ * 不再是先前的 `payload: Record<string, unknown>`（前端靠猜字段）。
+ */
+export type AgentLoopWorkflowEvent = Extract<
+  StreamTaskWireEvent,
+  { type: AgentLoopWorkflowEventType }
+>;
 
 export type AgentLoopStreamEvent =
   CommonChatAgentStreamEvent | AgentLoopWorkflowEvent;

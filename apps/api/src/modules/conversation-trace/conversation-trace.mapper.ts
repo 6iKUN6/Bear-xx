@@ -1,3 +1,10 @@
+import {
+  AgentStrategyMode,
+  type ToolCallDeltaPayload,
+  type ToolCallDonePayload,
+  type ToolCallStartPayload,
+  type WorkflowStepStartPayload,
+} from '@litter-bear/types/protocol';
 import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
 import {
   ConversationTraceItemType,
@@ -17,260 +24,287 @@ const MAX_SUMMARY_LENGTH = 240;
 export function mapStreamEventToTraceCommand(
   input: RecordStreamEventInput,
 ): TraceCommand | null {
-  const payload = input.payload ?? {};
   const context = pickTraceContext(input);
 
   switch (input.eventName) {
-    case StreamTaskEventType.StrategySelected:
+    case StreamTaskEventType.AgentRouted: {
+      const payload = input.payload;
       return {
         action: 'create-success',
         input: {
           ...context,
-          traceKey: readTraceKey(payload, 'strategy:selected'),
+          traceKey: 'agent:routed',
+          type: ConversationTraceItemType.AGENT_ROUTING,
+          title: '指派回答者',
+          // 自动路由带模型理由；显式 @ / 固定默认回答者没有理由，退化为来源说明
+          summary: truncate(
+            payload?.reason ?? describeRouteSource(payload?.source),
+          ),
+          metadata: safeMetadata(payload),
+        },
+      };
+    }
+
+    case StreamTaskEventType.StrategySelected: {
+      const payload = input.payload;
+      return {
+        action: 'create-success',
+        input: {
+          ...context,
+          traceKey: 'strategy:selected',
           type: ConversationTraceItemType.STRATEGY_DECISION,
           title: '选择执行策略',
-          summary:
-            readString(payload, 'reason') ??
-            readString(payload, 'publicStatus'),
-          strategy: readString(payload, 'mode'),
+          summary: truncate(payload?.reason),
+          strategy: payload?.mode,
           metadata: safeMetadata(payload),
         },
       };
+    }
 
-    case StreamTaskEventType.SkillSelected:
+    case StreamTaskEventType.SkillSelected: {
+      const payload = input.payload;
       return {
         action: 'create-success',
         input: {
           ...context,
-          traceKey: readTraceKey(
-            payload,
-            `skill:${readString(payload, 'skill') ?? 'selected'}`,
-          ),
+          traceKey: `skill:${payload?.skill ?? 'selected'}`,
           type: ConversationTraceItemType.SKILL_SELECTION,
           title: '选择业务能力',
-          summary: readString(payload, 'reason') ?? readString(payload, 'name'),
-          skill: readString(payload, 'skill') ?? readString(payload, 'name'),
+          skill: payload?.skill,
           metadata: safeMetadata(payload),
         },
       };
+    }
 
-    case StreamTaskEventType.AgentLoopStart:
+    case StreamTaskEventType.AgentLoopStart: {
+      const payload = input.payload;
       return {
         action: 'create-success',
         input: {
           ...context,
-          traceKey: readTraceKey(payload, 'agent-loop:start'),
+          traceKey: payload?.traceKey ?? 'agent-loop:start',
           type: ConversationTraceItemType.WORKFLOW_STEP,
           title: '开始执行 Agent Loop',
-          summary:
-            readString(payload, 'publicStatus') ?? '已进入智能体编排流程',
+          summary: truncate(payload?.publicStatus) ?? '已进入智能体编排流程',
           metadata: safeMetadata(payload),
         },
       };
+    }
 
-    case StreamTaskEventType.WorkflowStepStart:
+    case StreamTaskEventType.WorkflowStepStart: {
+      const payload = input.payload;
       return {
         action: 'start',
         input: {
           ...context,
           traceKey: workflowTraceKey(payload),
-          type: resolveWorkflowTraceType(payload),
-          title:
-            readString(payload, 'title') ??
-            readString(payload, 'step') ??
-            '执行工作流步骤',
-          summary:
-            readString(payload, 'summary') ??
-            readString(payload, 'publicStatus'),
-          graph:
-            readString(payload, 'graph') ?? readString(payload, 'strategy'),
-          nodeKey: readNodeKey(payload),
+          type: resolveWorkflowTraceType(payload?.strategy),
+          title: payload?.title ?? payload?.step ?? '执行工作流步骤',
+          summary: truncate(payload?.publicStatus),
+          graph: payload?.strategy,
+          nodeKey: payload?.nodeKey,
           metadata: safeMetadata(payload),
           startedAt: new Date(),
         },
       };
+    }
 
-    case StreamTaskEventType.WorkflowStepDone:
+    case StreamTaskEventType.WorkflowStepDone: {
+      const payload = input.payload;
       return {
         action: 'complete',
         input: {
           taskId: input.taskId,
           traceKey: workflowTraceKey(payload),
-          nodeKey: readNodeKey(payload),
-          title:
-            readString(payload, 'title') ??
-            readString(payload, 'step') ??
-            undefined,
-          summary:
-            readString(payload, 'summary') ??
-            readString(payload, 'publicStatus'),
-          outputSummary: readObject(payload, 'outputSummary'),
-          metrics: readMetrics(payload),
+          nodeKey: payload?.nodeKey,
+          title: payload?.title ?? payload?.step,
+          summary: truncate(payload?.summary ?? payload?.publicStatus),
           metadata: safeMetadata(payload),
           endedAt: new Date(),
         },
       };
+    }
 
-    case StreamTaskEventType.ModelCallStart:
+    case StreamTaskEventType.ModelCallStart: {
+      const payload = input.payload;
       return {
         action: 'start',
         input: {
           ...context,
-          traceKey: readTraceKey(
-            payload,
-            `model:${readNodeKey(payload) ?? 'call'}`,
-          ),
+          traceKey: payload?.traceKey ?? `model:${payload?.nodeKey ?? 'call'}`,
           type: ConversationTraceItemType.MODEL_CALL,
           title: '调用模型',
-          summary:
-            readString(payload, 'publicStatus') ?? readString(payload, 'model'),
-          nodeKey: readNodeKey(payload),
-          inputSummary: readObject(payload, 'inputSummary'),
+          summary: truncate(payload?.publicStatus ?? payload?.model),
+          nodeKey: payload?.nodeKey,
           metadata: safeMetadata(payload),
           startedAt: new Date(),
         },
       };
+    }
 
     case StreamTaskEventType.ModelCallDone:
       return {
         action: 'complete',
         input: {
           taskId: input.taskId,
-          traceKey: readTraceKey(
-            payload,
-            `model:${readNodeKey(payload) ?? 'call'}`,
-          ),
-          nodeKey: readNodeKey(payload),
-          summary:
-            readString(payload, 'summary') ??
-            readString(payload, 'publicStatus') ??
-            '模型调用完成',
-          outputSummary: readObject(payload, 'outputSummary'),
-          metrics: readMetrics(payload),
-          metadata: safeMetadata(payload),
+          traceKey:
+            input.payload?.traceKey ??
+            `model:${input.payload?.nodeKey ?? 'call'}`,
+          nodeKey: input.payload?.nodeKey,
+          summary: '模型调用完成',
+          metadata: safeMetadata(input.payload),
           endedAt: new Date(),
         },
       };
 
-    case StreamTaskEventType.ToolCallStart:
+    case StreamTaskEventType.ToolCallStart: {
+      const payload = input.payload;
       return {
         action: 'start',
         input: {
           ...context,
           traceKey: toolTraceKey(payload),
           type: ConversationTraceItemType.TOOL_CALL,
-          title: `调用工具${formatNameSuffix(readToolName(payload))}`,
-          summary:
-            readString(payload, 'summary') ??
-            readString(payload, 'publicStatus'),
-          nodeKey: readNodeKey(payload),
-          toolName: readToolName(payload),
-          inputSummary:
-            readObject(payload, 'inputSummary') ??
-            readObject(payload, 'argsSummary'),
+          title: `调用工具${formatNameSuffix(payload?.toolName ?? payload?.name)}`,
+          summary: truncate(payload?.publicStatus),
+          nodeKey: payload?.nodeKey,
+          toolName: payload?.toolName ?? payload?.name,
           metadata: safeMetadata(payload),
           startedAt: new Date(),
         },
       };
+    }
 
-    case StreamTaskEventType.ToolCallDelta:
+    case StreamTaskEventType.ToolCallDelta: {
+      const payload = input.payload;
       return {
         action: 'start',
         input: {
           ...context,
           traceKey: toolTraceKey(payload),
           type: ConversationTraceItemType.TOOL_CALL,
-          title: `准备调用工具${formatNameSuffix(readToolName(payload))}`,
+          title: `准备调用工具${formatNameSuffix(payload?.name)}`,
           summary: '模型已生成工具调用请求',
-          nodeKey: readNodeKey(payload),
-          toolName: readToolName(payload),
-          inputSummary: summarizeToolArgs(payload),
+          toolName: payload?.name,
+          inputSummary: summarizeToolArgs(payload?.args),
           metadata: safeMetadata(payload, ['args']),
           startedAt: new Date(),
         },
       };
+    }
 
-    case StreamTaskEventType.ToolCallDone:
+    case StreamTaskEventType.ToolCallDone: {
+      const payload = input.payload;
       return {
         action: 'complete',
         input: {
           taskId: input.taskId,
           traceKey: toolTraceKey(payload),
-          nodeKey: readNodeKey(payload),
-          title: `工具调用完成${formatNameSuffix(readToolName(payload))}`,
-          summary:
-            readString(payload, 'summary') ??
-            readString(payload, 'publicStatus') ??
-            '工具调用完成',
-          outputSummary:
-            readObject(payload, 'outputSummary') ??
-            readObject(payload, 'resultSummary'),
-          metrics: readMetrics(payload),
+          nodeKey: payload?.nodeKey,
+          title: `工具调用完成${formatNameSuffix(payload?.toolName ?? payload?.name)}`,
+          summary: truncate(payload?.summary ?? payload?.publicStatus),
+          outputSummary: payload?.outputSummary,
           metadata: safeMetadata(payload),
           endedAt: new Date(),
         },
       };
+    }
 
-    case StreamTaskEventType.ToolCallError:
+    case StreamTaskEventType.ToolCallError: {
+      const payload = input.payload;
       return {
         action: 'fail',
         input: {
           ...context,
           traceKey: toolTraceKey(payload),
           type: ConversationTraceItemType.TOOL_CALL,
-          title: `工具调用失败${formatNameSuffix(readToolName(payload))}`,
-          summary:
-            readString(payload, 'summary') ??
-            readString(payload, 'publicStatus'),
-          nodeKey: readNodeKey(payload),
-          toolName: readToolName(payload),
-          error: readObject(payload, 'error') ?? {
-            message: readString(payload, 'message') ?? '工具调用失败',
+          title: `工具调用失败${formatNameSuffix(payload?.toolName ?? payload?.name)}`,
+          summary: truncate(payload?.summary ?? payload?.publicStatus),
+          nodeKey: payload?.nodeKey,
+          toolName: payload?.toolName ?? payload?.name,
+          error: payload?.error ?? {
+            message: payload?.message ?? '工具调用失败',
           },
           metadata: safeMetadata(payload),
           endedAt: new Date(),
         },
       };
+    }
 
-    case StreamTaskEventType.MessageDone:
+    // 审批请求先开一条 RUNNING 项，由 approval.resolved 收敛为最终结果。
+    // 不落 trace 的话，刷新后完全看不出「这条消息曾经过人工确认」。
+    case StreamTaskEventType.ApprovalRequired: {
+      const payload = input.payload;
+      return {
+        action: 'start',
+        input: {
+          ...context,
+          traceKey: payload?.traceKey ?? 'approval',
+          type: ConversationTraceItemType.APPROVAL,
+          title: `待人工确认${formatNameSuffix(payload?.toolName)}`,
+          summary: truncate(payload?.description ?? payload?.publicStatus),
+          nodeKey: payload?.nodeKey,
+          toolName: payload?.toolName,
+          metadata: safeMetadata(payload),
+        },
+      };
+    }
+
+    case StreamTaskEventType.ApprovalResolved: {
+      const payload = input.payload;
+      return {
+        action: 'complete',
+        input: {
+          taskId: input.taskId,
+          traceKey: payload?.traceKey ?? 'approval',
+          nodeKey: payload?.nodeKey,
+          title: `人工确认${formatNameSuffix(payload?.toolName)}`,
+          // publicStatus 由发射端写成决定的中文文案（已通过/已拒绝/…），
+          // 标签映射只保留在协议包一处，不在此重复一份
+          summary: payload?.publicStatus ?? '人工确认已处理',
+          metadata: safeMetadata(payload),
+          endedAt: new Date(),
+        },
+      };
+    }
+
+    case StreamTaskEventType.MessageDone: {
+      const payload = input.payload;
       return {
         action: 'create-success',
         input: {
           ...context,
-          traceKey: readTraceKey(payload, 'message:done'),
+          traceKey: 'message:done',
           type: ConversationTraceItemType.MESSAGE_FINALIZE,
           title: '生成最终回复',
-          summary: readString(payload, 'warning') ?? '助手回复已生成完成',
+          summary: truncate(payload?.warning) ?? '助手回复已生成完成',
           metrics: {
-            ...readMetrics(payload),
-            contentLength: readString(payload, 'content')?.length ?? 0,
+            ...payload?.metrics,
+            contentLength: payload?.content?.length ?? 0,
           },
           metadata: safeMetadata(payload, ['content']),
         },
       };
+    }
 
-    case StreamTaskEventType.TaskError:
+    case StreamTaskEventType.TaskError: {
+      // 人类可读的错误文本在信封的 errorMessage 上，不在 payload 里；
+      // payload 只有 category/retryable/status 这些分类信息
+      const message = input.errorMessage ?? '任务执行失败';
       return {
         action: 'fail',
         input: {
           ...context,
-          traceKey: readTraceKey(payload, 'task:error'),
+          traceKey: 'task:error',
           type: ConversationTraceItemType.ERROR,
           title: '任务执行失败',
-          summary:
-            input.errorMessage ??
-            readString(payload, 'message') ??
-            '任务执行失败',
-          error: {
-            message:
-              input.errorMessage ??
-              readString(payload, 'message') ??
-              '任务执行失败',
-          },
-          metadata: safeMetadata(payload),
+          summary: truncate(message),
+          error: { message },
+          metadata: safeMetadata(input.payload),
           endedAt: new Date(),
         },
       };
+    }
 
     default:
       return null;
@@ -293,65 +327,55 @@ function pickTraceContext(input: RecordStreamEventInput): TraceTaskContext {
   };
 }
 
-function workflowTraceKey(payload: Record<string, unknown>) {
-  return readTraceKey(
-    payload,
-    `workflow:${readNodeKey(payload) ?? readString(payload, 'step') ?? 'step'}`,
-  );
-}
-
-function toolTraceKey(payload: Record<string, unknown>) {
-  return readTraceKey(
-    payload,
-    `tool:${readString(payload, 'toolCallId') ?? readString(payload, 'callId') ?? readToolName(payload) ?? 'call'}`,
-  );
-}
-
-function readTraceKey(payload: Record<string, unknown>, fallback: string) {
-  return readString(payload, 'traceKey') ?? fallback;
-}
-
-function readNodeKey(payload: Record<string, unknown>) {
+function workflowTraceKey(payload?: WorkflowStepStartPayload) {
   return (
-    readString(payload, 'nodeKey') ??
-    readString(payload, 'stepKey') ??
-    readString(payload, 'step') ??
-    readString(payload, 'node')
+    payload?.traceKey ??
+    `workflow:${payload?.nodeKey ?? payload?.step ?? 'step'}`
   );
 }
 
-function readToolName(payload: Record<string, unknown>) {
-  return readString(payload, 'toolName') ?? readString(payload, 'name');
+function toolTraceKey(
+  payload?: ToolCallStartPayload | ToolCallDeltaPayload | ToolCallDonePayload,
+) {
+  if (payload && 'traceKey' in payload && payload.traceKey) {
+    return payload.traceKey;
+  }
+  const name = payload && 'toolName' in payload ? payload.toolName : undefined;
+  return `tool:${payload?.toolCallId ?? name ?? payload?.name ?? 'call'}`;
 }
 
-function resolveWorkflowTraceType(payload: Record<string, unknown>) {
-  const mode =
-    readString(payload, 'mode') ??
-    readString(payload, 'strategy') ??
-    readString(payload, 'graph');
-  if (mode === 'react') {
+/** 指派来源的中文说明（自动路由无理由时作为 summary 兜底） */
+function describeRouteSource(source?: string) {
+  switch (source) {
+    case 'explicit':
+      return '用户指定回答者';
+    case 'default':
+      return '会话固定回答者';
+    case 'fallback':
+      return '自动分配不可用，已交给首位成员';
+    case 'model':
+      return '按能力自动分配';
+    default:
+      return undefined;
+  }
+}
+
+function resolveWorkflowTraceType(mode?: AgentStrategyMode) {
+  if (mode === AgentStrategyMode.ReAct) {
     return ConversationTraceItemType.REACT_NODE;
   }
-  if (mode === 'hybrid') {
+  if (mode === AgentStrategyMode.Hybrid) {
     return ConversationTraceItemType.HYBRID_NODE;
   }
-  if (mode === 'plan_execute') {
+  if (mode === AgentStrategyMode.PlanExecute) {
     return ConversationTraceItemType.PLAN_NODE;
   }
   return ConversationTraceItemType.WORKFLOW_STEP;
 }
 
-function readMetrics(payload: Record<string, unknown>) {
-  return (
-    readObject(payload, 'metrics') ??
-    readObject(payload, 'usage') ??
-    readObject(payload, 'tokenUsage')
-  );
-}
-
-function readString(payload: Record<string, unknown>, key: string) {
-  const value = payload[key];
-  if (typeof value !== 'string') {
+/** 截断过长文本，避免 summary 撑爆展示与存储 */
+function truncate(value?: string) {
+  if (!value) {
     return undefined;
   }
   return value.length > MAX_SUMMARY_LENGTH
@@ -359,18 +383,7 @@ function readString(payload: Record<string, unknown>, key: string) {
     : value;
 }
 
-function readObject(payload: Record<string, unknown>, key: string) {
-  const value = payload[key];
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-  return value;
-}
-
-function safeMetadata(
-  payload: Record<string, unknown>,
-  omitKeys: string[] = [],
-) {
+function safeMetadata(payload?: object, omitKeys: string[] = []) {
   const blockedKeys = new Set([
     'content',
     'prompt',
@@ -381,16 +394,15 @@ function safeMetadata(
     ...omitKeys,
   ]);
   return Object.fromEntries(
-    Object.entries(payload).filter(([key]) => !blockedKeys.has(key)),
+    Object.entries(payload ?? {}).filter(([key]) => !blockedKeys.has(key)),
   );
 }
 
-function summarizeToolArgs(payload: Record<string, unknown>) {
-  const args = readString(payload, 'args');
+function summarizeToolArgs(args?: string) {
   if (!args) {
     return undefined;
   }
-  return { args };
+  return { args: truncate(args) };
 }
 
 function formatNameSuffix(name: string | undefined) {

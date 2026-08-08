@@ -429,11 +429,16 @@ export class CommonChatAgentLoopService {
     };
   }
 
-  private buildToolPayload(
+  /**
+   * 拼装工具事件的公共载荷
+   * @description extra 用泛型而非 `Record<string, unknown>`：后者会让展开后的字段
+   * 从返回类型里消失，调用点就无法校验是否补齐了 summary / message 等必填项。
+   */
+  private buildToolPayload<TExtra extends object>(
     callId: string | undefined,
     name: string | undefined,
     index: number,
-    extra: Record<string, unknown>,
+    extra: TExtra,
   ) {
     return {
       toolCallId: callId,
