@@ -291,7 +291,9 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
               }
               placeholderClass='text-[var(--lb-text-muted)]'
               maxlength={2000}
-              disabled={disabled || isStreaming}
+              // 流式输出期间只挡「发送」不挡「输入」：右侧按钮此时是停止键，
+              // 本就没有发送入口，再禁用输入框只会让人连下一句都打不了。
+              disabled={disabled}
               autoHeight
               confirmType='send'
               onConfirm={handleSend}
