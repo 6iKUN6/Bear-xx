@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { humanInTheLoopMiddleware, type AnyAgentMiddleware } from 'langchain';
 import { Command } from '@langchain/langgraph';
 import {
@@ -6,12 +6,7 @@ import {
   HumanMessage,
   SystemMessage,
 } from '@langchain/core/messages';
-import type {
-  AIMessageChunk,
-  BaseMessage,
-  BaseMessageChunk,
-  ToolMessage,
-} from '@langchain/core/messages';
+import type { BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type {
   ApprovalDecision,
@@ -26,11 +21,9 @@ import { CommonChatAgentFactory } from './common-chat-agent.factory';
 import { AgentCheckpointerService } from './agent-checkpointer.service';
 import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
 import {
-  buildToolDoneSummary,
-  buildToolErrorSummary,
-} from '../../agent-loop/trace/trace-summary.builder';
-
-type MessagesModeChunk = [BaseMessageChunk, Record<string, unknown>];
+  mapMessagesStream,
+  type MessagesModeChunk,
+} from './agent-message-stream.mapper';
 
 /** 运行时可流式 + 可读状态的最小 agent 接口（绕开 langchain 重型泛型） */
 interface StreamableAgent {
@@ -71,8 +64,6 @@ type HitlDecision =
 
 @Injectable()
 export class CommonChatAgentLoopService {
-  private readonly logger = new Logger(CommonChatAgentLoopService.name);
-
   constructor(
     private readonly agentFactory: CommonChatAgentFactory,
     private readonly checkpointer: AgentCheckpointerService,
@@ -97,7 +88,9 @@ export class CommonChatAgentLoopService {
       { messages: this.toLangChainMessages(request.messages) },
       config,
     );
-    yield* this.mapMessagesStream(stream);
+    for await (const { event } of mapMessagesStream(stream)) {
+      yield event;
+    }
 
     if (hitlTools.length > 0 && request.threadId) {
       yield* this.emitPendingApproval(agent, request.threadId);
@@ -137,7 +130,9 @@ export class CommonChatAgentLoopService {
       new Command({ resume: resumeValue }),
       this.buildStreamConfig(request, true),
     );
-    yield* this.mapMessagesStream(stream);
+    for await (const { event } of mapMessagesStream(stream)) {
+      yield event;
+    }
 
     yield* this.emitPendingApproval(agent, request.threadId);
   }
@@ -289,89 +284,6 @@ export class CommonChatAgentLoopService {
   }
 
   /**
-   * 映射 messages 模式消息流为统一事件
-   * @param stream agent.stream({ streamMode: 'messages' }) 的产出
-   * @description ai 文本 → message.delta；tool_call_chunks → tool.call.start/delta；ToolMessage → done/error。
-   */
-  private async *mapMessagesStream(
-    stream: AsyncIterable<MessagesModeChunk>,
-  ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
-    const toolIndexById = new Map<string, number>();
-    const toolNameById = new Map<string, string>();
-    const toolArgsById = new Map<string, string>();
-    let nextToolIndex = 0;
-    let lastToolCallId: string | undefined;
-
-    for await (const [message] of stream) {
-      const messageType = message.getType();
-
-      if (messageType === 'tool') {
-        yield this.buildToolResultEvent(
-          message as unknown as ToolMessage,
-          toolIndexById,
-          toolNameById,
-          toolArgsById,
-        );
-        continue;
-      }
-
-      if (messageType !== 'ai') {
-        continue;
-      }
-
-      const aiChunk = message as AIMessageChunk;
-
-      const text = this.readMessageText(aiChunk.content);
-      if (text) {
-        yield { type: StreamTaskEventType.MessageDelta, delta: text };
-      }
-
-      for (const chunk of aiChunk.tool_call_chunks ?? []) {
-        const callId = this.readOptionalString(chunk.id) ?? lastToolCallId;
-        if (!callId) {
-          continue;
-        }
-        lastToolCallId = callId;
-
-        const chunkName = this.readOptionalString(chunk.name);
-        if (chunkName && !toolNameById.has(callId)) {
-          toolNameById.set(callId, chunkName);
-        }
-
-        if (!toolIndexById.has(callId)) {
-          const index = nextToolIndex;
-          nextToolIndex += 1;
-          toolIndexById.set(callId, index);
-
-          const name = toolNameById.get(callId);
-          yield {
-            type: StreamTaskEventType.ToolCallStart,
-            payload: this.buildToolPayload(callId, name, index, {
-              publicStatus: `正在调用工具${this.formatNameSuffix(name)}`,
-            }),
-          };
-        }
-
-        const argsChunk = this.readOptionalString(chunk.args);
-        if (argsChunk) {
-          toolArgsById.set(
-            callId,
-            (toolArgsById.get(callId) ?? '') + argsChunk,
-          );
-        }
-
-        yield {
-          type: StreamTaskEventType.ToolCallDelta,
-          toolCallId: callId,
-          name: toolNameById.get(callId),
-          args: argsChunk,
-          index: toolIndexById.get(callId),
-        };
-      }
-    }
-  }
-
-  /**
    * 转换为 LangChain 消息列表
    * @param messages 通用聊天消息列表
    * @returns 返回 LangChain BaseMessage 数组
@@ -388,132 +300,5 @@ export class CommonChatAgentLoopService {
 
       return new HumanMessage(message.content);
     });
-  }
-
-  /**
-   * 构建工具执行结果事件
-   */
-  private buildToolResultEvent(
-    message: ToolMessage,
-    toolIndexById: Map<string, number>,
-    toolNameById: Map<string, string>,
-    toolArgsById: Map<string, string>,
-  ): CommonChatAgentStreamEvent {
-    const callId = this.readOptionalString(message.tool_call_id);
-    const index = callId ? (toolIndexById.get(callId) ?? -1) : -1;
-    const name = callId ? toolNameById.get(callId) : undefined;
-    const rawArgs = callId ? toolArgsById.get(callId) : undefined;
-    const content = this.readMessageText(message.content);
-
-    if (this.readOptionalString(message.status) === 'error') {
-      const errorMessage = content || '工具调用失败';
-      return {
-        type: StreamTaskEventType.ToolCallError,
-        payload: this.buildToolPayload(callId, name, index, {
-          publicStatus: `工具调用失败${this.formatNameSuffix(name)}`,
-          summary: buildToolErrorSummary(name, { message: errorMessage }),
-          message: errorMessage,
-          error: { message: errorMessage },
-        }),
-      };
-    }
-
-    const outputSummary = this.toJsonSummary(message.content);
-    return {
-      type: StreamTaskEventType.ToolCallDone,
-      payload: this.buildToolPayload(callId, name, index, {
-        publicStatus: `工具调用完成${this.formatNameSuffix(name)}`,
-        summary: buildToolDoneSummary(name, rawArgs, outputSummary),
-        outputSummary,
-      }),
-    };
-  }
-
-  /**
-   * 拼装工具事件的公共载荷
-   * @description extra 用泛型而非 `Record<string, unknown>`：后者会让展开后的字段
-   * 从返回类型里消失，调用点就无法校验是否补齐了 summary / message 等必填项。
-   */
-  private buildToolPayload<TExtra extends object>(
-    callId: string | undefined,
-    name: string | undefined,
-    index: number,
-    extra: TExtra,
-  ) {
-    return {
-      toolCallId: callId,
-      name,
-      toolName: name,
-      index,
-      nodeKey: 'common_chat_tool',
-      traceKey: `tool:${callId ?? name ?? index}`,
-      ...extra,
-    };
-  }
-
-  private formatNameSuffix(value: unknown) {
-    const name = this.readOptionalString(value);
-    return name ? `：${name}` : '';
-  }
-
-  private readOptionalString(value: unknown) {
-    return typeof value === 'string' && value ? value : undefined;
-  }
-
-  /**
-   * 读取消息内容中的纯文本
-   */
-  private readMessageText(content: unknown): string {
-    if (typeof content === 'string') {
-      return content;
-    }
-
-    if (!Array.isArray(content)) {
-      return '';
-    }
-
-    return content
-      .map((item) => {
-        if (!item || typeof item !== 'object') {
-          return '';
-        }
-
-        const record = item as Record<string, unknown>;
-        return record.type === 'text' && typeof record.text === 'string'
-          ? record.text
-          : '';
-      })
-      .join('');
-  }
-
-  private toJsonSummary(value: unknown) {
-    if (value === undefined || value === null) {
-      return undefined;
-    }
-
-    if (typeof value === 'string') {
-      return { text: value };
-    }
-
-    if (
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint'
-    ) {
-      return { value: value.toString() };
-    }
-
-    if (typeof value === 'object') {
-      try {
-        return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-      } catch (error) {
-        this.logger.warn(
-          `Serialize tool output failed: ${(error as Error).message}`,
-        );
-        return { value: '[unserializable]' };
-      }
-    }
-
-    return { value: '[unsupported]' };
   }
 }
