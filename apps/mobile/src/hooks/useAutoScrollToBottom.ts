@@ -4,6 +4,12 @@ import Taro from "@tarojs/taro";
 const BOTTOM_ELEMENT_ID = "bottomEl";
 const PROGRAMMATIC_SCROLL_LOCK_MS = 700;
 const SCROLL_INTO_VIEW_RESET_MS = 80;
+/**
+ * 换会话后补发滚动的时点
+ * @description 内容分批布局完成，单次命令会落在半途。两次覆盖「首屏文本」与
+ * 「较慢的 markdown / 图片」，再多收益递减。
+ */
+const CONVERSATION_SETTLE_DELAYS_MS = [120, 400];
 
 interface ScrollDetail {
   deltaY?: number;
@@ -317,6 +323,13 @@ export function useAutoScrollToBottom({
     measureViewport();
   }, [measureViewport]);
 
+  // 始终持有最新的调度函数：下面换会话的补发是在定时器里跑的，
+  // 闭包捕获会取到旧的 enabled（切会话那一刻可能列表还是空的）。
+  const scheduleScrollRef = useRef(scheduleScrollToBottom);
+  useEffect(() => {
+    scheduleScrollRef.current = scheduleScrollToBottom;
+  }, [scheduleScrollToBottom]);
+
   // 换会话：列表整体换了内容，重新按首屏处理——无动画直达底部，
   // 否则会看到从上一个会话位置一路滚下来的过程。
   useEffect(() => {
@@ -326,6 +339,18 @@ export function useAutoScrollToBottom({
     userScrollIntentRef.current = false;
     lastIsAtBottomRef.current = true;
     setIsAtBottom(true);
+
+    // 只发一次滚动命令会停在半路：切过来的瞬间 markdown、trace 卡、图片都还没
+    // 布局完，内容高度还在长，底部锚点也就还在往下走。补发几次，每次 anchor 都
+    // 会切换，命令必定重新生效。关掉动画后这个问题更明显——原先平滑滚动的
+    // 那几百毫秒恰好掩盖了它。
+    // 补发刻意不用 force：上面刚把 autoScrollEnabled 置回 true，正常情况照样触发；
+    // 但用户如果在这几百毫秒里已经上滑去看历史，force 会把人硬拽回底部。
+    const timers = CONVERSATION_SETTLE_DELAYS_MS.map((delay) =>
+      setTimeout(() => scheduleScrollRef.current(false), delay),
+    );
+
+    return () => timers.forEach(clearTimeout);
   }, [resetKey]);
 
   useEffect(() => {
