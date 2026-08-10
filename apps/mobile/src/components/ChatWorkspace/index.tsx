@@ -87,7 +87,10 @@ export default function ChatWorkspace({
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   /** 每个会话每次挂载只做一次续接探测，避免消息更新反复触发 */
   const resumeProbedRef = useRef<Set<string>>(new Set());
+  /** 上一次的会话 id，用于区分「换会话」与「草稿 id 被替换成真实 id」 */
+  const lastConversationIdRef = useRef<string | undefined>(undefined);
   const agents = useAgentStore((state) => state.agents);
+  const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
   const ensureAgents = useAgentStore((state) => state.ensureAgents);
 
   // 群聊气泡头像与 @ 候选都只能由智能体列表解析（消息里只存 agentId），
@@ -131,12 +134,16 @@ export default function ChatWorkspace({
         )
       : undefined;
 
+  // 新对话页当前选中的智能体（粘性选择，首条消息发出时才真正绑定成会话）
+  const newChatAgent = findAgent(agents, selectedAgentId);
+
   const navTitle =
     conversationMode === "group"
       ? `${currentConversation?.title || "群聊"} (${currentConversation?.agentIds?.length ?? 0})`
       : conversationMode === "single"
         ? boundAgent?.name || currentConversation?.title || "AI 助手"
-        : currentConversation?.title || "AI 助手";
+        : // 尚未选定会话时就是新对话页，标题跟着说「新对话」而不是「AI 助手」
+          currentConversation?.title || "新对话";
   const isStreaming = currentConversation?.messages.some(
     (m) => m.status === "streaming",
   );
@@ -146,6 +153,24 @@ export default function ChatWorkspace({
       setCurrentConversation(conversationId);
     }
   }, [conversationId, setCurrentConversation]);
+
+  // 换会话就清空输入框。ChatInput 的草稿与 @ 绑定是它自己的内部 state，而
+  // ChatWorkspace 常驻不重挂——不清的话，打了半句话去点「发起新对话」或切会话，
+  // 文字连同上一个会话的 @ 绑定会一起带过去。
+  useEffect(() => {
+    const prevId = lastConversationIdRef.current;
+    const nextId = currentConversation?.id;
+    lastConversationIdRef.current = nextId;
+
+    // 草稿 id 被换成真实 id（task.created）不是换会话，是同一轮对话。
+    // 这时清空会把用户已经在打的下一句话抹掉。
+    if (prevId?.startsWith("draft_")) {
+      return;
+    }
+    if (prevId !== nextId) {
+      chatInputRef.current?.setDraft("");
+    }
+  }, [currentConversation?.id]);
 
   useDidHide(() => {
     persistConversations();
@@ -410,7 +435,10 @@ export default function ChatWorkspace({
         barClassName="px-[0.5rem]"
       />
 
-      {conversationMode !== "single" ? (
+      {/* 只有群聊才显示成员条。用 !== "single" 会让单聊首轮闪现一条
+          「1 位助手参与」——占位消息带了 agentId，未定型(flex)分支会把它并进
+          memberAgents，直到下次 loadConversations 返回 type=SINGLE 才消失。 */}
+      {conversationMode === "group" ? (
         <MemberBar
           members={memberAgents}
           onMention={(agent) => chatInputRef.current?.insertMention(agent)}
@@ -441,13 +469,21 @@ export default function ChatWorkspace({
           onSend={handleSend}
           reserveSafeArea
           mode={conversationMode}
+          // 新对话页期间关掉 @：面板刚选了 A，再 @B 发送会把新会话绑给 B，
+          // 而面板仍高亮 A——这是唯一一处「显示与实际不符」
           mentionAgents={
-            conversationMode === "group" ? memberAgents : undefined
+            showEmptySlot
+              ? []
+              : conversationMode === "group"
+                ? memberAgents
+                : undefined
           }
           placeholder={
             conversationMode === "single" && boundAgent
               ? `和${boundAgent.name}聊聊...`
-              : undefined
+              : showEmptySlot && newChatAgent
+                ? `和${newChatAgent.name}聊聊...`
+                : undefined
           }
           onStop={() => {
             if (activeAssistantMessageIdRef.current) {
