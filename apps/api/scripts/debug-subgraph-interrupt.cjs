@@ -40,6 +40,12 @@ const {
 } = require('@langchain/langgraph');
 const { ChatOpenAICompletions } = require('@langchain/openai');
 const { tool } = require('@langchain/core/tools');
+const {
+  RemoveMessage,
+  SystemMessage,
+  HumanMessage,
+} = require('@langchain/core/messages');
+const { REMOVE_ALL_MESSAGES } = require('@langchain/langgraph');
 const { z } = require('zod');
 
 const backendRoot = path.resolve(__dirname, '..');
@@ -72,11 +78,33 @@ const StateAnnotation = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => [],
   }),
+  stepIndex: Annotation({
+    reducer: (_prev, next) => next,
+    default: () => 0,
+  }),
+  observations: Annotation({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
   nodeTrace: Annotation({
     reducer: (prev, next) => prev.concat(next),
     default: () => [],
   }),
 });
+
+/**
+ * 重置 messages 为「原始对话 + 本步提示词」
+ * @description 生产里每步只带 observations 文本、不看彼此的原始消息（步骤隔离，
+ * 也控住 token）。用 RemoveMessage(REMOVE_ALL_MESSAGES) 清空再填，
+ * 否则 MessagesAnnotation 的 reducer 只会累加。
+ */
+function resetStepMessages(userInput, stepPrompt) {
+  return [
+    new RemoveMessage({ id: REMOVE_ALL_MESSAGES }),
+    new SystemMessage(stepPrompt),
+    new HumanMessage(userInput),
+  ];
+}
 
 /**
  * 消费流并归类块的形状
@@ -140,28 +168,63 @@ async function main() {
     name: 'inner-react',
   });
 
+  const USER_INPUT = '深圳现在的天气怎么样？顺便说说适合穿什么。';
+
+  // 生产真实形状：多步循环 + 每步重置 messages + 条件边回环。
+  // 单步跑通不代表循环跑通，中断发生在第 N 步时状态推进是否正确必须实测。
   const graph = new StateGraph(StateAnnotation)
     // 节点名不能与状态字段重名（LangGraph 会直接报错），故用 create_plan，
     // 正好与生产代码 STEP_TITLES 里的 key 一致
     .addNode('create_plan', () => ({
-      plan: ['查询深圳天气'],
+      plan: ['查询深圳天气', '根据天气给穿衣建议'],
+      stepIndex: 0,
       nodeTrace: ['create_plan'],
+    }))
+    // 每步进子图前重置上下文：内层 agent 不带固定 systemPrompt，
+    // 本步提示词作为 SystemMessage 注入
+    .addNode('prepare_step', (state) => ({
+      messages: resetStepMessages(
+        USER_INPUT,
+        `只专注完成当前步骤：${state.plan[state.stepIndex]}。` +
+          (state.observations.length
+            ? `\n已有信息：${state.observations.join(' / ')}`
+            : ''),
+      ),
+      nodeTrace: [`prepare_step:${state.stepIndex}`],
     }))
     // createAgent 返回的 ReactAgent 是门面对象（有 invoke/stream 但不是 Runnable
     // 子类），直接当节点会被 _coerceToRunnable 拒绝。真正的编译图在 .graph 上。
     .addNode('execute', innerAgent.graph)
-    // 刻意让 synthesize 真的调模型：需要看清外层节点直接调模型时，
-    // 消息流里的命名空间与 langgraph_node 是什么，才能区分
-    // 「步骤过程文本（收集为观察）」与「最终答案（下发 message.delta）」
+    // 收集本步产出为观察，推进步骤指针
+    .addNode('collect_step', (state) => {
+      const lastAi = [...state.messages]
+        .reverse()
+        .find((m) => m.getType && m.getType() === 'ai');
+      const text =
+        lastAi && typeof lastAi.content === 'string' ? lastAi.content : '';
+      return {
+        observations: [text.slice(0, 80)],
+        stepIndex: state.stepIndex + 1,
+        nodeTrace: [`collect_step:${state.stepIndex}`],
+      };
+    })
     .addNode('synthesize', async (state) => {
       const res = await chat.invoke([
-        { role: 'user', content: `用一句话总结：${state.plan.join('、')}` },
+        new SystemMessage('基于已有信息给出最终回答，不要提及内部步骤。'),
+        new HumanMessage(
+          `${USER_INPUT}\n已收集：${state.observations.join(' / ')}`,
+        ),
       ]);
       return { nodeTrace: ['synthesize'], messages: [res] };
     })
     .addEdge(START, 'create_plan')
-    .addEdge('create_plan', 'execute')
-    .addEdge('execute', 'synthesize')
+    .addEdge('create_plan', 'prepare_step')
+    .addEdge('prepare_step', 'execute')
+    .addEdge('execute', 'collect_step')
+    // 条件边：还有步骤就回到 prepare_step，否则收尾
+    .addConditionalEdges('collect_step', (state) =>
+      state.stepIndex < state.plan.length ? 'prepare_step' : 'synthesize',
+    )
     .addEdge('synthesize', END)
     .compile({ checkpointer: new MemorySaver() });
 
@@ -175,7 +238,7 @@ async function main() {
   // ---- turn1：期望在子图内中断，synthesize 不应执行 ----
   const turn1Chunks = await drain(
     await graph.stream(
-      { messages: [{ role: 'user', content: '深圳现在的天气怎么样？' }] },
+      { messages: [new HumanMessage(USER_INPUT)] },
       config,
     ),
   );
@@ -202,13 +265,27 @@ async function main() {
   }
 
   // ---- resume：从**外层图**恢复，验证内层工具真的被执行 ----
-  const resumeChunks = await drain(
-    await graph.stream(
-      new Command({ resume: { decisions: [{ type: 'approve' }] } }),
-      config,
-    ),
-  );
-  log('resume-chunks', resumeChunks);
+  // 多步计划里每个调用受审批工具的步骤都会各中断一次，故要循环恢复直到无挂起。
+  // 上限只为防死循环——生产侧同理，必须能承受同一任务多轮 WAITING_HUMAN。
+  const MAX_RESUMES = 5;
+  let resumeRounds = 0;
+  let resumeChunks = {};
+  for (let i = 0; i < MAX_RESUMES; i++) {
+    const pending = await graph.getState(config);
+    const stillPaused = (pending.tasks || []).some(
+      (t) => (t.interrupts || []).length > 0,
+    );
+    if (!stillPaused) break;
+
+    resumeRounds += 1;
+    resumeChunks = await drain(
+      await graph.stream(
+        new Command({ resume: { decisions: [{ type: 'approve' }] } }),
+        config,
+      ),
+    );
+  }
+  log('resume-rounds', { resumeRounds, lastRoundChunks: resumeChunks });
 
   const finalState = await graph.getState(config);
   const messages = (finalState.values && finalState.values.messages) || [];
