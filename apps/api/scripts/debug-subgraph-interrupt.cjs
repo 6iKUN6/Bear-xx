@@ -8,8 +8,21 @@
  * 这是迁移的成败关键：若中断不穿透，外层 checkpointer 就托管不了编排状态，
  * 「让 plan/hybrid 支持审批」这个头号价值主张就不成立，方案需要推倒重来。
  *
- * 外层图：plan -> execute(子图=ReAct agent) -> synthesize
+ * 外层图：create_plan -> execute(子图=ReAct agent) -> synthesize
  * 内层 agent 刻意不带 checkpointer，由外层提供，否则各存各的、无法联动。
+ *
+ * 已验证的结论（迁移方案据此设计）：
+ * 1. 内层 HITL 中断能穿透：外层 getState() 读得到 actionRequests，next 停在子图节点
+ * 2. 外层 Command({resume}) 能续跑内层并走完后续节点
+ * 3. createAgent() 返回的 ReactAgent 是门面对象、不是 Runnable 子类，
+ *    必须用 .graph 才能当节点
+ * 4. 外层 streamMode:'messages' + subgraphs:true 拿得到子图内部消息块，
+ *    形状 [命名空间, [message, metadata]]，内层元组与 mapMessagesStream 现有格式一致
+ * 5. 命名空间首段即可区分来源，无需读 metadata：
+ *      execute:*_/model_request:*  ai    内层步骤推理  -> 收集为观察
+ *      execute:*_/tools:*          tool  工具结果      -> tool.call.done
+ *      synthesize:*                ai    最终答案      -> message.delta
+ *    外层节点直接调模型是**单段**命名空间，子图是**两段**。
  *
  * 用法：node scripts/debug-subgraph-interrupt.cjs
  */
@@ -137,15 +150,15 @@ async function main() {
     // createAgent 返回的 ReactAgent 是门面对象（有 invoke/stream 但不是 Runnable
     // 子类），直接当节点会被 _coerceToRunnable 拒绝。真正的编译图在 .graph 上。
     .addNode('execute', innerAgent.graph)
-    .addNode('synthesize', (state) => ({
-      nodeTrace: ['synthesize'],
-      messages: [
-        {
-          role: 'assistant',
-          content: `[synthesize] 已完成 ${state.plan.length} 个步骤`,
-        },
-      ],
-    }))
+    // 刻意让 synthesize 真的调模型：需要看清外层节点直接调模型时，
+    // 消息流里的命名空间与 langgraph_node 是什么，才能区分
+    // 「步骤过程文本（收集为观察）」与「最终答案（下发 message.delta）」
+    .addNode('synthesize', async (state) => {
+      const res = await chat.invoke([
+        { role: 'user', content: `用一句话总结：${state.plan.join('、')}` },
+      ]);
+      return { nodeTrace: ['synthesize'], messages: [res] };
+    })
     .addEdge(START, 'create_plan')
     .addEdge('create_plan', 'execute')
     .addEdge('execute', 'synthesize')
@@ -189,12 +202,13 @@ async function main() {
   }
 
   // ---- resume：从**外层图**恢复，验证内层工具真的被执行 ----
-  await drain(
+  const resumeChunks = await drain(
     await graph.stream(
       new Command({ resume: { decisions: [{ type: 'approve' }] } }),
       config,
     ),
   );
+  log('resume-chunks', resumeChunks);
 
   const finalState = await graph.getState(config);
   const messages = (finalState.values && finalState.values.messages) || [];
