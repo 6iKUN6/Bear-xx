@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Litter-Bear 高层运行时架构",
+    "subtitle": "以一次可恢复的聊天任务为主路径，展示信任边界、状态归属与外部依赖",
+    "output": "docs/litter-bear-runtime-architecture.html",
+    "visual_preset": "signal-flow",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/6iKUN6/Bear-xx.git",
+      "revision": "a783b8a72fd735a71c510abed41ab690c868caeb"
+    },
+    "views": [
+      {
+        "id": "primary-chat-path",
+        "label": "主聊天路径",
+        "focus": ["user", "mobile", "api", "task-runtime", "agent-loop", "llm", "model-provider"],
+        "note": "一条消息从端侧提交，经任务与 Agent 编排调用模型，再由同一任务流式回传。"
+      },
+      {
+        "id": "state-and-recovery",
+        "label": "状态与恢复",
+        "focus": ["mobile", "task-runtime", "postgres", "redis"],
+        "note": "PostgreSQL 保存业务事实，Redis 保存短期帧、锁与审批决定，端侧按游标恢复。"
+      },
+      {
+        "id": "controlled-capabilities",
+        "label": "受控能力",
+        "focus": ["agent-loop", "capabilities", "external-tools"],
+        "note": "工具由闭集注册与解析装配；高风险调用在审批后才恢复执行。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "终端用户",
+      "sublabel": "微信 / H5 访问者",
+      "pos": [38, 316],
+      "size": [128, 62]
+    },
+    {
+      "id": "mobile",
+      "type": "frontend",
+      "label": "移动端应用",
+      "sublabel": "Taro + React",
+      "tag": "不可信设备",
+      "pos": [238, 316],
+      "size": [140, 62],
+      "sources": [
+        { "path": "apps/mobile/src/services/stream/stream-task.service.ts", "line": 35, "label": "任务流客户端" },
+        { "path": "apps/mobile/src/hooks/useStreamTask.ts", "label": "重试与恢复" }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "security",
+      "label": "NestJS API",
+      "sublabel": "JWT、校验、限流、SSE",
+      "tag": "认证入口",
+      "pos": [458, 316],
+      "size": [154, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/chat/chat.controller.ts", "line": 30, "label": "聊天 SSE 入口" },
+        { "path": "apps/api/src/app.module.ts", "line": 24, "label": "全局限流" }
+      ]
+    },
+    {
+      "id": "task-runtime",
+      "type": "backend",
+      "label": "StreamTask 运行时",
+      "sublabel": "建任务、执行、回放",
+      "tag": "主状态机",
+      "pos": [694, 316],
+      "size": [158, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/stream-task/stream-task.service.ts", "line": 162, "label": "首轮流式任务" },
+        { "path": "apps/api/src/modules/stream-task/stream-task.service.ts", "line": 596, "label": "任务流恢复" }
+      ]
+    },
+    {
+      "id": "agent-loop",
+      "type": "backend",
+      "label": "Agent 编排",
+      "sublabel": "路由、策略、Plan / ReAct",
+      "tag": "LangGraph",
+      "pos": [938, 316],
+      "size": [164, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/ai/agent-loop/agent-loop-runner.service.ts", "label": "Agent 执行入口" },
+        { "path": "apps/api/src/modules/ai/agent-loop/strategy-router.service.ts", "label": "策略路由" }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "LlmService",
+      "sublabel": "模型解析与 Provider 工厂",
+      "tag": "统一模型入口",
+      "pos": [1190, 316],
+      "size": [164, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/llm/llm.service.ts", "label": "模型服务" },
+        { "path": "apps/api/src/modules/llm/providers/chat-model.factory.ts", "label": "Provider 工厂" }
+      ]
+    },
+    {
+      "id": "model-provider",
+      "type": "external",
+      "label": "模型 Provider",
+      "sublabel": "OpenAI 兼容 / DeepSeek / Kimi 等",
+      "tag": "外部信任域",
+      "pos": [1440, 316],
+      "size": [190, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/llm/providers/openai-compatible-model-preset.ts", "label": "兼容 Provider" },
+        { "path": "apps/api/src/modules/llm/providers/deepseek.ts", "label": "DeepSeek 配置" }
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "会话、消息、任务与事件事实源",
+      "tag": "持久状态",
+      "pos": [694, 526],
+      "size": [190, 62],
+      "sources": [
+        { "path": "apps/api/prisma/schema.prisma", "line": 132, "label": "会话与消息" },
+        { "path": "apps/api/prisma/schema.prisma", "line": 228, "label": "StreamTask 模型" }
+      ]
+    },
+    {
+      "id": "redis",
+      "type": "messagebus",
+      "label": "Redis",
+      "sublabel": "帧缓冲、分布式锁、审批 TTL",
+      "tag": "短期状态",
+      "pos": [924, 526],
+      "size": [190, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/stream-task/stream-task-snapshot.service.ts", "label": "Redis Stream 帧" },
+        { "path": "apps/api/src/modules/stream-task/stream-task.service.ts", "line": 753, "label": "执行锁" }
+      ]
+    },
+    {
+      "id": "capabilities",
+      "type": "security",
+      "label": "能力与审批门禁",
+      "sublabel": "闭集工具、schema 校验、HITL",
+      "tag": "受控执行",
+      "pos": [938, 112],
+      "size": [190, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/ai/agent-loop/capability/capability.registry.ts", "label": "能力注册" },
+        { "path": "apps/api/src/modules/ai/agent-loop/capability/capability.resolver.ts", "label": "能力装配" }
+      ]
+    },
+    {
+      "id": "external-tools",
+      "type": "external",
+      "label": "外部工具与服务",
+      "sublabel": "搜索、天气、生图、对象存储",
+      "tag": "外部信任域",
+      "pos": [1202, 112],
+      "size": [190, 62],
+      "sources": [
+        { "path": "apps/api/src/modules/ai/tools/webSearch.ts", "label": "搜索工具" },
+        { "path": "apps/api/src/modules/ai/tools/getWeather.ts", "label": "天气工具" },
+        { "path": "apps/api/src/modules/ai/tools/generateImage.ts", "label": "生图工具" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "客户端信任边界：设备与访问令牌",
+      "wraps": ["mobile"],
+      "pad": 26
+    },
+    {
+      "kind": "security-group",
+      "label": "Litter-Bear 后端可信边界",
+      "wraps": ["api", "task-runtime", "agent-loop", "llm", "postgres", "redis", "capabilities"],
+      "pad": 32
+    }
+  ],
+  "connections": [
+    {
+      "from": "user",
+      "to": "mobile",
+      "label": "发送消息 / 审批",
+      "variant": "emphasis",
+      "labelDy": 55
+    },
+    {
+      "from": "mobile",
+      "to": "api",
+      "label": "HTTPS + JWT；SSE 接收",
+      "variant": "security",
+      "labelDy": 55
+    },
+    {
+      "from": "api",
+      "to": "task-runtime",
+      "label": "创建任务并建立首轮流",
+      "variant": "emphasis",
+      "labelDy": 55
+    },
+    {
+      "from": "task-runtime",
+      "to": "agent-loop",
+      "label": "执行 Agent；事件回写",
+      "variant": "emphasis",
+      "labelDy": -30
+    },
+    {
+      "from": "agent-loop",
+      "to": "llm",
+      "label": "流式模型调用",
+      "variant": "emphasis",
+      "labelDy": 55
+    },
+    {
+      "from": "llm",
+      "to": "model-provider",
+      "label": "Provider API",
+      "variant": "security"
+    },
+    {
+      "from": "task-runtime",
+      "to": "postgres",
+      "label": "事务与事件落库",
+      "route": "orthogonal-v"
+    },
+    {
+      "from": "task-runtime",
+      "to": "redis",
+      "label": "帧、锁、恢复游标",
+      "route": "orthogonal-v",
+      "labelDx": 100
+    },
+    {
+      "from": "agent-loop",
+      "to": "capabilities",
+      "label": "解析可用能力",
+      "route": "orthogonal-v"
+    },
+    {
+      "from": "capabilities",
+      "to": "external-tools",
+      "label": "经审批的工具调用",
+      "variant": "security",
+      "labelDy": 55
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主路径",
+      "items": [
+        "POST /api/chat/message 在认证和限流后创建 StreamTask，并直接建立首轮 SSE。",
+        "Agent 的模型增量和工具状态事件由 StreamTask 持久化后沿同一任务流回传端侧。",
+        "端侧以 taskId 与 lastEventId 恢复中断连接，不重新创建任务。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "状态归属",
+      "items": [
+        "PostgreSQL 是会话、消息、StreamTask、运行批次和语义事件的持久事实源。",
+        "Redis 保存 Redis Stream 帧、执行锁与短期审批决定；它不替代业务事实。",
+        "单进程运行中的取消与实时发布由 StreamTaskRegistry 协调。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "受控执行",
+      "items": [
+        "策略路由在 Direct、ReAct、Plan 与 Hybrid 图之间选择，并在结构化决策失败时降级。",
+        "CapabilityRegistry 定义工具闭集，CapabilityResolver 按 Agent 配置与策略装配。",
+        "需要确认的调用发送 approval.required，任务进入 WAITING_HUMAN；approve、reject 或 edit 后恢复。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "边界与依赖",
+      "items": [
+        "移动设备处于不可信边界，JWT、参数白名单和全局限流在 NestJS 入口执行。",
+        "模型与工具服务均处在后端信任边界之外；其错误不能伪装为成功事件。",
+        "SSE 事件名和载荷统一来自 @litter-bear/types/protocol，前后端不各自维护字符串。"
+      ]
+    }
+  ]
+}

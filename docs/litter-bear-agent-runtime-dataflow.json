@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Litter-Bear Agent Runtime：任务、记忆、工具与事件",
+    "subtitle": "单次聊天任务从请求、上下文组装、受控执行到可恢复 SSE 回放的数据流",
+    "output": "docs/litter-bear-agent-runtime-dataflow.html",
+    "viewBox": [1140, 820],
+    "animation": "none",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-task-path",
+        "label": "任务主路径",
+        "focus": ["request", "streamtask", "memory", "agent", "events", "redis", "sse-client"],
+        "note": "一轮对话由同一个 StreamTask 组织，结果不依赖于连接是否持续存在。"
+      },
+      {
+        "id": "durable-state",
+        "label": "持久状态与记忆",
+        "focus": ["streamtask", "postgres", "memory", "agent"],
+        "note": "会话事实、任务状态、语义事件和 Agent checkpoint 都在 PostgreSQL；Memory 只负责按需组装上下文。"
+      },
+      {
+        "id": "controlled-tools",
+        "label": "受控工具调用",
+        "focus": ["agent", "capabilities", "external-execution"],
+        "note": "工具由闭集能力装配，需确认的调用会暂停任务，直到端侧提交审批决定。"
+      }
+    ]
+  },
+  "stages": [
+    { "label": "请求" },
+    { "label": "任务事实" },
+    { "label": "记忆组装" },
+    { "label": "Agent 执行" },
+    { "label": "事件与交付" }
+  ],
+  "nodes": [
+    {
+      "id": "request",
+      "type": "frontend",
+      "label": "端侧消息",
+      "sublabel": "内容、agentId、lastEventId",
+      "stage": 0,
+      "row": 0,
+      "width": 140,
+      "tag": "Taro 客户端"
+    },
+    {
+      "id": "streamtask",
+      "type": "backend",
+      "label": "StreamTask",
+      "sublabel": "创建、单生产者、取消、恢复",
+      "stage": 1,
+      "row": 0,
+      "width": 150,
+      "tag": "任务状态机"
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "会话、消息、任务、事件、checkpoint",
+      "stage": 1,
+      "row": 3,
+      "width": 176,
+      "tag": "持久事实源"
+    },
+    {
+      "id": "memory",
+      "type": "backend",
+      "label": "ChatContext / Memory",
+      "sublabel": "摘要、近期消息、当前输入",
+      "stage": 2,
+      "row": 0,
+      "width": 160,
+      "tag": "按需读取"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent Runtime",
+      "sublabel": "路由、Graph、流式生成",
+      "stage": 3,
+      "row": 0,
+      "width": 150,
+      "tag": "Direct / ReAct / Plan"
+    },
+    {
+      "id": "capabilities",
+      "type": "security",
+      "label": "Capability Gate",
+      "sublabel": "闭集、schema、HITL",
+      "stage": 3,
+      "row": 3,
+      "width": 150,
+      "tag": "受控执行"
+    },
+    {
+      "id": "events",
+      "type": "backend",
+      "label": "任务事件写入",
+      "sublabel": "统一事件信封",
+      "stage": 4,
+      "row": 0,
+      "width": 150,
+      "tag": "策略、模型、工具、消息"
+    },
+    {
+      "id": "external-execution",
+      "type": "external",
+      "label": "模型与外部工具",
+      "sublabel": "LLM、搜索、天气、生图",
+      "stage": 4,
+      "row": 2,
+      "width": 150,
+      "tag": "后端外部依赖"
+    },
+    {
+      "id": "redis",
+      "type": "messagebus",
+      "label": "Redis Stream",
+      "sublabel": "帧缓冲、游标、执行锁",
+      "stage": 4,
+      "row": 3,
+      "width": 150,
+      "tag": "短期可恢复流"
+    },
+    {
+      "id": "sse-client",
+      "type": "frontend",
+      "label": "SSE 消费端",
+      "sublabel": "去重、重试、审批提交",
+      "stage": 4,
+      "row": 4,
+      "width": 150,
+      "tag": "同一移动端"
+    }
+  ],
+  "flows": [
+    {
+      "from": "request",
+      "to": "streamtask",
+      "label": "创建或续接任务",
+      "classification": "JWT 认证后请求",
+      "variant": "emphasis",
+      "labelDy": 53
+    },
+    {
+      "from": "streamtask",
+      "to": "memory",
+      "label": "携带本轮输入",
+      "classification": "requestPayload",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelDy": 56,
+      "labelDx": -50
+    },
+    {
+      "from": "memory",
+      "to": "agent",
+      "label": "上下文包",
+      "classification": "summary + messages",
+      "variant": "emphasis",
+      "labelDy": 53
+    },
+    {
+      "from": "agent",
+      "to": "events",
+      "label": "生成执行事件",
+      "classification": "增量、状态与终态",
+      "variant": "emphasis",
+      "labelDy": 53
+    },
+    {
+      "from": "events",
+      "to": "redis",
+      "label": "追加 SSE 帧",
+      "classification": "按 eventId 缓冲",
+      "variant": "emphasis",
+      "route": "vertical-channel",
+      "fromSide": "right",
+      "toSide": "right",
+      "channelX": 1070
+    },
+    {
+      "from": "redis",
+      "to": "sse-client",
+      "label": "回放与实时帧",
+      "classification": "lastEventId 续流",
+      "variant": "emphasis"
+    },
+    {
+      "from": "streamtask",
+      "to": "postgres",
+      "label": "创建任务事实",
+      "classification": "消息、任务、运行批次",
+      "variant": "default"
+    },
+    {
+      "from": "postgres",
+      "to": "memory",
+      "label": "读取历史上下文",
+      "classification": "摘要与近期消息",
+      "variant": "default"
+    },
+    {
+      "from": "agent",
+      "to": "capabilities",
+      "label": "解析能力集",
+      "classification": "策略 + Agent 配置",
+      "variant": "security"
+    },
+    {
+      "from": "capabilities",
+      "to": "external-execution",
+      "label": "受控工具调用",
+      "classification": "schema 校验与审批门禁",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "StreamTask 是执行外壳",
+      "items": [
+        "一条用户消息先成为可恢复的任务，而不是直接把 HTTP 连接绑定到模型调用。",
+        "任务保存请求、状态、累计内容、运行批次和最后事件号，并用 Redis 锁保证同一任务只有一个执行者。",
+        "取消、重连和审批恢复都复用 taskId；端侧断线不等于任务被放弃。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Memory 不是另一个事实库",
+      "items": [
+        "ChatContextService 从 PostgreSQL 组合会话摘要、最近消息与当前输入，得到本轮上下文包。",
+        "ConversationSummary 降低长会话上下文成本；Message 仍是完整对话历史的事实来源。",
+        "LangGraph 的待恢复节点状态由 AgentCheckpointerService 持久化到 PostgreSQL，它与对话记忆职责不同。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Tool 先受控再执行",
+      "items": [
+        "CapabilityRegistry 定义可调用工具闭集，CapabilityResolver 依据策略和 Agent 配置装配最终能力集。",
+        "工具带参数 schema；调用结果作为 observation 返回 Agent，失败不会伪装成成功。",
+        "需人工确认时发送 approval.required，任务进入 WAITING_HUMAN；approve、reject、edit 后从中断点继续。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Event 同时服务实时性与恢复",
+      "items": [
+        "事件覆盖策略选择、模型开始/结束、工具调用、消息增量与任务终态，类型和载荷由共享 protocol 统一定义。",
+        "语义事件写入 PostgreSQL；高频 SSE 帧写入 Redis Stream，以低成本支持实时推送与按游标回放。",
+        "端侧按 eventId 去重，重试时携带 lastEventId，只消费缺失帧。"
+      ]
+    }
+  ]
+}
