@@ -45,6 +45,7 @@ export interface StreamTaskLifecycle {
     event: StreamTaskEvent,
   ) => void;
   onApprovalRequired?: (event: StreamTaskEvent) => void;
+  onPlanReviewRequired?: (event: StreamTaskEvent) => void;
   onMessageDone?: (
     content: string | undefined,
     event: StreamTaskEvent<MessageDonePayload>,

@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { ScrollView, View, Text } from "@tarojs/components";
-import type { ApprovalDecision } from "@litter-bear/types/protocol";
+import type {
+  ApprovalDecision,
+  PlanReviewDecision,
+} from "@litter-bear/types/protocol";
 import ChatBubble from "../ChatBubble";
 import { useAutoScrollToBottom } from "../../hooks/useAutoScrollToBottom";
 import { appIconTileClass } from "../../utils/style";
@@ -12,6 +15,7 @@ interface MessageListProps {
   conversationId?: string;
   onToggleStreamFeedback?: (messageId: string) => void;
   onApproval?: (messageId: string, decision: ApprovalDecision) => void;
+  onPlanReview?: (messageId: string, decision: PlanReviewDecision) => void;
 }
 
 const sampleQuestions = [
@@ -27,6 +31,7 @@ export default function MessageList({
   conversationId,
   onToggleStreamFeedback,
   onApproval,
+  onPlanReview,
 }: MessageListProps) {
   const scrollSignal = useMemo(
     () => messages.map(getMessageScrollSignal).join("|"),
@@ -116,6 +121,7 @@ export default function MessageList({
                 message={msg}
                 onToggleStreamFeedback={onToggleStreamFeedback}
                 onApproval={onApproval}
+                onPlanReview={onPlanReview}
               />
             ))}
           </>

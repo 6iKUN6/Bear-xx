@@ -79,6 +79,8 @@ interface Message {
   currentStreamEvent?: MessageStreamEventFeedback;
   /** HITL：待人工审批的工具调用（approval.required 载荷）；处理后清空 */
   pendingApproval?: import("@litter-bear/types/protocol").ApprovalRequiredPayload;
+  /** HITL：待人工确认的执行计划（plan.review.required 载荷）；处理后清空 */
+  pendingPlanReview?: import("@litter-bear/types/protocol").PlanReviewRequiredPayload;
 }
 
 type ConversationType = "SINGLE" | "GROUP";

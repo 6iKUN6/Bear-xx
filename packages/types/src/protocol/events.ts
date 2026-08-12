@@ -51,6 +51,10 @@ export enum StreamTaskEventType {
   ApprovalRequired = 'approval.required',
   /** 人工审批已处理（通过/拒绝/改参后通过） */
   ApprovalResolved = 'approval.resolved',
+  /** 需要人工确认执行计划（plan_execute 出计划后、执行前） */
+  PlanReviewRequired = 'plan.review.required',
+  /** 计划确认已处理（通过/改计划/打回/终止） */
+  PlanReviewResolved = 'plan.review.resolved',
   /** 会话标题已生成（新会话首轮与主回答并行生成后下发） */
   ConversationTitleUpdated = 'conversation.title.updated',
 }
@@ -102,6 +106,8 @@ export const STREAM_TASK_EVENT_LABELS: Record<StreamTaskEventType, string> = {
   [StreamTaskEventType.TaskCanceled]: '任务已取消',
   [StreamTaskEventType.ApprovalRequired]: '待人工确认',
   [StreamTaskEventType.ApprovalResolved]: '人工确认已处理',
+  [StreamTaskEventType.PlanReviewRequired]: '待确认计划',
+  [StreamTaskEventType.PlanReviewResolved]: '计划确认已处理',
   [StreamTaskEventType.ConversationTitleUpdated]: '已生成会话标题',
 };
 

@@ -5,6 +5,8 @@ import { useDidHide } from "@tarojs/taro";
 import type {
   ApprovalDecision,
   ApprovalRequiredPayload,
+  PlanReviewDecision,
+  PlanReviewRequiredPayload,
 } from "@litter-bear/types/protocol";
 import MessageList from "../MessageList";
 import ChatInput from "../ChatInput";
@@ -62,8 +64,14 @@ export default function ChatWorkspace({
   showBack = false,
   renderEmpty,
 }: ChatWorkspaceProps) {
-  const { abort, cancel, sendMessage, submitApproval, resume } =
-    useChatStream();
+  const {
+    abort,
+    cancel,
+    sendMessage,
+    submitApproval,
+    submitPlanReview,
+    resume,
+  } = useChatStream();
 
   const {
     currentConversation,
@@ -80,6 +88,7 @@ export default function ChatWorkspace({
     updateMessageStreamEvent,
     toggleMessageStreamFeedback,
     setMessageApproval,
+    setMessagePlanReview,
     persistConversations,
   } = useChatStore();
 
@@ -338,6 +347,13 @@ export default function ChatWorkspace({
           (event.data.payload as ApprovalRequiredPayload | undefined) ?? null,
         );
       },
+      onPlanReviewRequired: (event) => {
+        recordStreamEvent(event);
+        setMessagePlanReview(
+          aiMsgId,
+          (event.data.payload as PlanReviewRequiredPayload | undefined) ?? null,
+        );
+      },
       onChunk: (chunk) => {
         updateMessageContent(aiMsgId, chunk);
       },
@@ -422,6 +438,13 @@ export default function ChatWorkspace({
     submitApproval(decision);
   };
 
+  const handlePlanReview = (msgId: string, decision: PlanReviewDecision) => {
+    setMessagePlanReview(msgId, null);
+    updateMessageStatus(msgId, "streaming");
+    activeAssistantMessageIdRef.current = msgId;
+    submitPlanReview(decision);
+  };
+
   const messages = currentConversation?.messages || [];
   const showEmptySlot = messages.length === 0 && renderEmpty;
 
@@ -459,6 +482,7 @@ export default function ChatWorkspace({
             conversationId={currentConversation?.id}
             onToggleStreamFeedback={toggleMessageStreamFeedback}
             onApproval={handleApproval}
+            onPlanReview={handlePlanReview}
           />
         )}
       </View>

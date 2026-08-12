@@ -1,6 +1,8 @@
 import { StreamTaskEventType } from '../../stream-task/stream-task-event.types';
 import {
   AgentStrategyMode,
+  type ApprovalDecision,
+  type PlanReviewDecision,
   type StreamTaskWireEvent,
 } from '@litter-bear/types/protocol';
 import type { LlmMessage, ResolvedLlmTextRequest } from '../../llm/llm.types';
@@ -103,6 +105,21 @@ export interface AgentStrategyGraph {
   stream(
     input: AgentLoopInput,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown>;
+
+  /**
+   * 从人工审批中断处恢复执行
+   * @param input agent loop 输入（需 threadId，且工具/审批集与首轮一致）
+   * @param decision 人工决定
+   * @returns 返回续跑的事件流
+   * @description 只有会挂起的策略才实现：ReAct 与 plan/hybrid 有工具审批，
+   * direct 是单次模型调用、无工具，永远不会进等待态，故不实现。
+   * **恢复必须由首轮实际生效的那个策略图接手**——检查点里存的是它的图状态，
+   * 换成别的图形状对不上。
+   */
+  resume?(
+    input: AgentLoopInput,
+    decision: ApprovalDecision | PlanReviewDecision,
+  ): AsyncGenerator<AgentLoopStreamEvent, void, unknown>;
 }
 
 /** 编排层自行发射的事件类型（其余事件由 agent 层产出） */
@@ -113,7 +130,8 @@ type AgentLoopWorkflowEventType =
   | StreamTaskEventType.WorkflowStepStart
   | StreamTaskEventType.WorkflowStepDone
   | StreamTaskEventType.ModelCallStart
-  | StreamTaskEventType.ModelCallDone;
+  | StreamTaskEventType.ModelCallDone
+  | StreamTaskEventType.PlanReviewRequired;
 
 /**
  * 编排层事件

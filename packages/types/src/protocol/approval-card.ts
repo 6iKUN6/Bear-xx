@@ -14,6 +14,38 @@
 /** 人工审批决定类型（P5 HITL）；定义在此避免与 index 的 export * 成环 */
 export type ApprovalDecisionType = 'approve' | 'reject' | 'edit';
 
+/**
+ * 计划审批决定类型（plan_execute 出计划后、执行前的人工关卡）
+ * @description 与工具审批（ApprovalDecisionType）是两套语义，独立定义避免混用：
+ * approve=按当前计划执行；edit=用改后步骤执行；reject_replan=带意见打回重新规划；
+ * reject_terminate=直接终止任务。
+ */
+export type PlanReviewDecisionType =
+  | 'approve'
+  | 'edit'
+  | 'reject_replan'
+  | 'reject_terminate';
+
+/** 计划审批决定（前端提交、后端恢复时消费） */
+export interface PlanReviewDecision {
+  decision: PlanReviewDecisionType;
+  /** decision=edit 时的完整步骤列表（改后的文字 + 末尾追加的） */
+  editedSteps?: { goal: string }[];
+  /** decision=reject_replan 时的意见，拼进 planner 提示词重新拆解 */
+  feedback?: string;
+}
+
+/** 计划审批决定 → 中文展示文案（Record 保证新增类型必须补文案） */
+export const PLAN_REVIEW_DECISION_LABELS: Record<
+  PlanReviewDecisionType,
+  string
+> = {
+  approve: '已确认计划',
+  edit: '已修改计划后执行',
+  reject_replan: '已打回重新规划',
+  reject_terminate: '已终止任务',
+};
+
 export const APPROVAL_CARD_VERSION = 1 as const;
 
 /** 风险等级：前端映射颜色/图标（low=中性 medium=警示 high=危险） */

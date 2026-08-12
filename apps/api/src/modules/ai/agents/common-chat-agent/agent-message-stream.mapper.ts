@@ -4,13 +4,16 @@
  * 抽成纯函数模块而非 Nest service：这里没有任何依赖与状态，
  * 而 plan/hybrid 的编排图与 ReAct 链路都要用同一套解析——重复一遍会立刻漂移。
  *
- * 两种入流形状都支持：
- * - `[message, metadata]`                   单图 `streamMode:'messages'`
- * - `[namespace, [message, metadata]]`      带子图 `subgraphs:true`
+ * 三种入流形状：
+ * - `[message, metadata]`                    单图 `streamMode:'messages'`（ReAct 链路）
+ * - `[namespace, [message, metadata]]`       单模式 + `subgraphs:true`
+ * - `[namespace, mode, payload]`             多模式 + `subgraphs:true`（编排图）
  *
- * 后者的命名空间首段标明来源（子图是两段、外层节点直接调模型是单段），
+ * 前两种走 `mapMessagesStream`，第三种走 `mapGraphStream`；两者共用同一份块解析。
+ *
+ * messages 的命名空间首段标明来源（子图是两段、外层节点直接调模型是单段），
  * 编排图据此区分「步骤过程文本（收集为观察）」与「最终答案（下发 delta）」。
- * 结论由 `scripts/debug-subgraph-interrupt.cjs` 实测得出。
+ * 结论由 `scripts/debug-subgraph-interrupt.cjs` 与 `scripts/debug-graph-events.cjs` 实测得出。
  */
 
 import type { AIMessageChunk, ToolMessage } from '@langchain/core/messages';
@@ -20,6 +23,7 @@ import {
   buildToolDoneSummary,
   buildToolErrorSummary,
 } from '../../agent-loop/trace/trace-summary.builder';
+import type { AgentLoopStreamEvent } from '../../agent-loop/agent-loop.types';
 import type { CommonChatAgentStreamEvent } from './common-chat-agent.types';
 
 /** 单图 messages 模式的块 */
@@ -28,9 +32,24 @@ export type MessagesModeChunk = [BaseMessageChunk, Record<string, unknown>];
 /** 带子图时的块：外层再包一层命名空间 */
 export type SubgraphMessagesModeChunk = [string[], MessagesModeChunk];
 
+/**
+ * 多模式流的块：`[命名空间, 模式, 载荷]`
+ * @description `streamMode: ['messages','custom'] + subgraphs:true` 的形状。
+ * custom 的载荷就是编排节点用 `config.writer()` 推出的成品事件，无需再解析。
+ */
+export type GraphModeChunk =
+  | [string[], 'messages', MessagesModeChunk]
+  | [string[], 'custom', AgentLoopStreamEvent];
+
 /** 映射产出：事件 + 它来自哪个命名空间（单图流下为空数组） */
 export interface MappedAgentEvent {
   event: CommonChatAgentStreamEvent;
+  namespace: string[];
+}
+
+/** 编排图的映射产出：事件集比 agent 层多出编排事件 */
+export interface MappedGraphEvent {
+  event: AgentLoopStreamEvent;
   namespace: string[];
 }
 
@@ -63,44 +82,35 @@ function isSubgraphChunk(
 }
 
 /**
- * 映射 messages 流为统一事件
- * @param stream `streamMode:'messages'` 的产出（可带 `subgraphs:true`）
- * @returns 返回事件与其来源命名空间
+ * 创建有状态的 messages 块解析器
+ * @returns 返回「单块 → 事件数组」的解析函数
  * @description ai 文本 → message.delta；tool_call_chunks → tool.call.start/delta；
- * ToolMessage → tool.call.done/error。工具的 args 分片跨块累积，故解析必须是有状态的单次遍历。
+ * ToolMessage → tool.call.done/error。工具的 args 分片跨块累积，故解析必须有状态。
+ * 抽成工厂而非直接写在生成器里：单模式流与多模式流两个入口要共用同一份解析，
+ * 复制一遍就会立刻漂移。
  */
-export async function* mapMessagesStream(
-  stream: AsyncIterable<MessagesModeChunk | SubgraphMessagesModeChunk>,
-): AsyncGenerator<MappedAgentEvent, void, unknown> {
+function createMessageChunkParser() {
   const tools = createToolCallAccumulator();
 
-  for await (const rawChunk of stream) {
-    const [namespace, [message]] = isSubgraphChunk(rawChunk)
-      ? rawChunk
-      : ([[], rawChunk] as [string[], MessagesModeChunk]);
-
-    const messageType = message.getType();
+  return ([message]: MessagesModeChunk): CommonChatAgentStreamEvent[] => {
+    const messageType = message.type;
 
     if (messageType === 'tool') {
-      yield {
-        namespace,
-        event: buildToolResultEvent(message as unknown as ToolMessage, tools),
-      };
-      continue;
+      return [buildToolResultEvent(message as unknown as ToolMessage, tools)];
     }
 
+    // 编排节点写进 state 的消息（remove/system/human）也会混进 messages 流，
+    // 这里一并滤掉，否则前端会多出一堆空 delta。
     if (messageType !== 'ai') {
-      continue;
+      return [];
     }
 
     const aiChunk = message as AIMessageChunk;
+    const events: CommonChatAgentStreamEvent[] = [];
 
     const text = readMessageText(aiChunk.content);
     if (text) {
-      yield {
-        namespace,
-        event: { type: StreamTaskEventType.MessageDelta, delta: text },
-      };
+      events.push({ type: StreamTaskEventType.MessageDelta, delta: text });
     }
 
     for (const chunk of aiChunk.tool_call_chunks ?? []) {
@@ -121,15 +131,12 @@ export async function* mapMessagesStream(
         tools.indexById.set(callId, index);
 
         const name = tools.nameById.get(callId);
-        yield {
-          namespace,
-          event: {
-            type: StreamTaskEventType.ToolCallStart,
-            payload: buildToolPayload(callId, name, index, {
-              publicStatus: `正在调用工具${formatNameSuffix(name)}`,
-            }),
-          },
-        };
+        events.push({
+          type: StreamTaskEventType.ToolCallStart,
+          payload: buildToolPayload(callId, name, index, {
+            publicStatus: `正在调用工具${formatNameSuffix(name)}`,
+          }),
+        });
       }
 
       const argsChunk = readOptionalString(chunk.args);
@@ -140,16 +147,69 @@ export async function* mapMessagesStream(
         );
       }
 
-      yield {
-        namespace,
-        event: {
-          type: StreamTaskEventType.ToolCallDelta,
-          toolCallId: callId,
-          name: tools.nameById.get(callId),
-          args: argsChunk,
-          index: tools.indexById.get(callId),
-        },
-      };
+      events.push({
+        type: StreamTaskEventType.ToolCallDelta,
+        toolCallId: callId,
+        name: tools.nameById.get(callId),
+        args: argsChunk,
+        index: tools.indexById.get(callId),
+      });
+    }
+
+    return events;
+  };
+}
+
+/**
+ * 映射 messages 流为统一事件
+ * @param stream `streamMode:'messages'` 的产出（可带 `subgraphs:true`）
+ * @returns 返回事件与其来源命名空间
+ */
+export async function* mapMessagesStream(
+  stream: AsyncIterable<MessagesModeChunk | SubgraphMessagesModeChunk>,
+): AsyncGenerator<MappedAgentEvent, void, unknown> {
+  const parse = createMessageChunkParser();
+
+  for await (const rawChunk of stream) {
+    const [namespace, messageChunk] = isSubgraphChunk(rawChunk)
+      ? rawChunk
+      : ([[], rawChunk] as [string[], MessagesModeChunk]);
+
+    for (const event of parse(messageChunk)) {
+      yield { event, namespace };
+    }
+  }
+}
+
+/**
+ * 映射编排图的多模式流为统一事件
+ * @param stream `streamMode: ['messages','custom'] + subgraphs:true` 的产出
+ * @returns 返回事件与其来源命名空间
+ * @description custom 块是编排节点用 `config.writer()` 推出的成品事件，原样透传；
+ * messages 块走与 ReAct 链路完全相同的解析。
+ *
+ * ⚠️ custom 块的命名空间**恒为空数组**（实测，见 `scripts/debug-graph-events.cjs`），
+ * 与 messages 的「外层节点 1 段、子图内 2 段」不是一套语义。消费侧要先按事件类型
+ * 分支，再在模型输出上用段数区分「步骤过程文本」与「最终答案」，
+ * 不能直接拿 `namespace.length` 判断所有事件。
+ */
+export async function* mapGraphStream(
+  stream: AsyncIterable<GraphModeChunk>,
+): AsyncGenerator<MappedGraphEvent, void, unknown> {
+  const parse = createMessageChunkParser();
+
+  // 不解构成三个变量：解构后 TS 无法把 mode 的判别收窄到 payload 上，
+  // 保留元组按下标判别才能让 custom 分支拿到成品事件类型。
+  for await (const chunk of stream) {
+    const namespace = chunk[0];
+
+    if (chunk[1] === 'custom') {
+      yield { event: chunk[2], namespace };
+      continue;
+    }
+
+    for (const event of parse(chunk[2])) {
+      yield { event, namespace };
     }
   }
 }

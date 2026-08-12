@@ -1,9 +1,13 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
 import { Image, View, Text } from "@tarojs/components";
-import type { ApprovalDecision } from "@litter-bear/types/protocol";
+import type {
+  ApprovalDecision,
+  PlanReviewDecision,
+} from "@litter-bear/types/protocol";
 import StreamFeedback from "../StreamFeedback";
 import ApprovalCard from "../ApprovalCard";
+import PlanReviewCard from "../PlanReviewCard";
 import StreamingMarkdownContent from "../StreamingMarkdownContent";
 import { useUserStore } from "../../store/userStore";
 import { useAgentStore } from "../../store/agentStore";
@@ -20,6 +24,7 @@ interface ChatBubbleProps {
   renderExtra?: (slotProps: ChatBubbleExtraSlotProps) => ReactNode;
   onToggleStreamFeedback?: (messageId: string) => void;
   onApproval?: (messageId: string, decision: ApprovalDecision) => void;
+  onPlanReview?: (messageId: string, decision: PlanReviewDecision) => void;
 }
 
 export interface ChatBubbleExtraSlotProps {
@@ -50,6 +55,7 @@ function ChatBubble({
   renderExtra,
   onToggleStreamFeedback,
   onApproval,
+  onPlanReview,
 }: ChatBubbleProps) {
   const userInfo = useUserStore((state) => state.userInfo);
   const agents = useAgentStore((state) => state.agents);
@@ -122,6 +128,15 @@ function ChatBubble({
             <ApprovalCard
               payload={message.pendingApproval}
               onDecision={(decision) => onApproval?.(message.id, decision)}
+            />
+          </View>
+        )}
+
+        {!isUser && message.pendingPlanReview && (
+          <View className='mt-[0.5rem] min-w-0'>
+            <PlanReviewCard
+              payload={message.pendingPlanReview}
+              onDecision={(decision) => onPlanReview?.(message.id, decision)}
             />
           </View>
         )}

@@ -6,8 +6,16 @@
 
 ## 范围
 
-- **P5a（已实现）**：**ReAct** 策略的工具级审批。Direct 无工具不涉及。
-- **P5b（延后）**：Plan/Hybrid 的中途审批。其 controller 是手写 JS 编排，状态不在 LangGraph 图内，checkpointer 托管不到；需先把 controller 迁成 StateGraph，届时再开。
+- **P5a（已实现）**：**ReAct** 策略的工具级审批。
+- **P5b（已实现）**：**Plan/Hybrid** 的中途工具审批。手写 JS 编排已迁成 `StateGraph`（见 [plan-graph-migration.md](./plan-graph-migration.md)），编排状态与内层中断都由外层 checkpointer 托管。
+- **P5c（已实现）**：**计划审批**（plan_execute 默认开）。出计划后、执行第一步前暂停，用户可通过/编辑步骤（改文字+末尾追加）/带意见打回重规划/终止。见下方「计划审批」专节。
+- **Direct** 无工具，永不挂起，不实现 `resume`。
+
+### Plan/Hybrid 与 ReAct 的两处差异
+
+1. **一次任务会多轮 `WAITING_HUMAN`。** 每个调用受审批工具的**步骤**各中断一次；ReAct 单轮通常只中断一次。实测两步计划 = `resumeRounds: 2`。任务状态机必须能反复进出等待态（现有实现可以：resume 后再次检测挂起即再置 `WAITING_HUMAN`）。
+2. **中断发生在子图内，但外层读得到。** `execute` 节点是内层 ReAct 子图，HITL 中间件挂在它上面；中断穿透到外层，外层 `getState()` 读得到 `actionRequests`，外层 `Command({resume})` 也能续跑内层。**内层刻意不挂 checkpointer**——各存各的就无法联动。
+3. `approval.required` 的 `nodeKey` 区分来源：ReAct 链路 `common_chat_approval`，编排图链路 `plan_graph_approval`。
 
 ## 端到端流程
 
@@ -69,11 +77,40 @@
 
 `CapabilityRegistry.registerTool(tool, groups, { requiresApproval })`。`CapabilityResolver` 产出本次装配中的 `approvalToolNames`（resolved tools ∩ requiresApproval），沿 agent 层透传，驱动 `humanInTheLoopMiddleware` 的 `interruptOn`。
 
+同一套 `approvalToolNames` 同时驱动 ReAct 的 agent 与编排图的**内层子图**——`agent-hitl.ts` 的 `buildHitlMiddleware()` 两边共用，审批语义不会漂移。
+
 当前策略：
 - **免审批**（只读、无副作用）：`getWeather`、`webSearch`。
 - **需审批**：`generateImage`（`image-gen` 组）——单次调用产生真实模型费用且耗时，approve 前用户可在卡片里改 `prompt`/`size`，reject 则不产生任何模型调用与七牛资产。
 
 > 早期曾临时给只读的 `getWeather` 开审批用于跑通链路（P5a 演示），已还原——审批语义应落在真正有副作用/有成本的工具上。
+
+## 计划审批（P5c，plan_execute 默认开）
+
+与工具审批**是两套独立中断**，但共用 `WAITING_HUMAN` 状态机、checkpointer 与续跑管道：
+
+| | 工具审批 | 计划审批 |
+|---|---|---|
+| 中断点 | 子图内 `humanInTheLoopMiddleware`（工具执行前） | 外层 `review_plan` 节点的 `interrupt()`（出计划后、第一步前） |
+| 判别 | 中断值含 `actionRequests` | 中断值 `{ kind:'plan-review', steps, revision }` |
+| 事件 | `approval.required` | `plan.review.required`（`nodeKey=plan_review`） |
+| 端点 | `POST :taskId/approval` | `POST :taskId/plan-review`（`SubmitPlanReviewDto`） |
+| Redis | `hitl:approval:<taskId>` | `hitl:plan-review:<taskId>` |
+| 决定 | `ApprovalDecision` | `PlanReviewDecision` |
+
+**开关**：`strategy === plan_execute && 有 threadId` 即开（`PlanGraphRunner.isPlanReviewEnabled`）。计划审批需要 checkpointer，故 `needsCheckpoint = 有审批工具 || 计划审批`。
+
+**图形状**：`create_plan → review_plan ─┬ proceed→prepare_step ├ replan→create_plan └ terminate→END`。`review_plan` 在 `interrupt()` 后按决定写 `reviewOutcome`，条件边据此路由。
+
+**四种决定**（`PlanReviewDecision`，直接作为 `interrupt()` 的 resume 返回值）：
+- **approve** → 按当前计划执行。
+- **edit** → `editedSteps`（改后文字 + 追加）重编号成新 `plan`，再执行。
+- **reject_replan** → `feedback` 累积进 `planFeedback`，回 `create_plan` 带意见重规划 → 新一轮 `plan.review.required`（`revision+1`）。
+- **reject_terminate** → 到 `END`，不经 synthesize；`PlanGraphRunner` 补发一条固定「已终止」`message.delta`（否则助手气泡空白）。
+
+**组合流**：plan_execute + 有审批工具时，先计划审批，approve 后逐步执行，含审批工具的步骤再各自中断。实测 `debug-plan-graph.cjs` 场景 B（`PLAN_HITL_OK`：先 plan 后 tool）、场景 C（`PLAN_REVIEW_OK`：四种决定齐全）。
+
+**trace**：计划审批 trace 复用 `APPROVAL` 类型（避免枚举迁移），靠 `nodeKey=plan_review` / `traceKey=plan-review` 区分；`plan.review.resolved` 收敛同一条 RUNNING 项。
 
 ## 关键实现点
 
@@ -86,12 +123,13 @@
 
 ## 恢复的重建策略与边界
 
-恢复不重新路由/决策，直接重建 agent：
-- `tools` = `registry.listTools()`（全量，确保挂起工具在场，ToolNode 按名匹配）。
-- `systemPrompt` = 基础提示词。
-- `approvalToolNames` = `registry.listApprovalToolNames()`。
+恢复**不重新路由**，但必须交回**首轮那个策略图**——检查点里存的是它的图状态（ReAct 存 agent 图、plan/hybrid 存编排图），换个形状的图就对不上。
 
-对当前场景（单审批工具、无 skill）与首轮完全一致。**将来多工具组/skill 场景需持久化首轮的 decision/toolGroups 才严谨**，否则重建的工具集/提示词可能与首轮不一致。
+为此首轮策略需要持久化：`strategy.selected` 事件到达时，`StreamTaskService.persistExecutionStrategy()` 把 `{ strategy }` 写进 `StreamTask.executionState`（既有 Json 列，无需迁移）。恢复时 `readExecutionStrategy()` 取策略交给 `AgentLoopRunnerService.resume()` 分发到对应策略图。
+
+> 该列缺失或非法时回退 `react`：本字段上线前创建的老任务只可能是 ReAct 挂起的（当时只有 ReAct 支持审批）。若策略与实际不符导致图找不到 `resume`，**直接抛错**而不是静默重跑——这是必须暴露的状态不一致。
+
+工具与提示词由 `AgentLoopRunnerService.resolveResumeCapabilities()` 按 agent 配置/default 装配（与受限主链路一致，不用全量工具）。
 
 其它边界：
 - **检查点降级**：`AgentCheckpointerService` 正常使用 Postgres（`langgraph` schema，见下）；仅当 `DATABASE_URL` 缺失或 `setup()` 失败时才退回进程内 `MemorySaver`，此时重启会丢挂起状态——启动日志会以 error 级别告警，不要忽略。
@@ -105,18 +143,25 @@
 | 协议 | `packages/types/src/protocol/index.ts` |
 | 能力 | `agent-loop/capability/capability.{registry,resolver,types}.ts` |
 | checkpointer | `agents/common-chat-agent/agent-checkpointer.service.ts` |
+| **HITL 共用逻辑** | `agents/common-chat-agent/agent-hitl.ts`（中间件 / 读中断 / 发 approval.required / 决定映射，两条链路共用） |
 | agent 层 | `agents/common-chat-agent/common-chat-agent-{factory,loop,service,runner}.service.ts` + `*.types.ts` |
-| 透传 | `agent-loop/{agent-loop.types,agent-loop-runner}.ts`、`graphs/common-react.graph.ts` |
+| 编排图 | `agent-loop/execution/plan-graph.runner.ts`（plan/hybrid 的中断与恢复） |
+| 分发 | `agent-loop/{agent-loop.types,agent-loop-runner}.ts`、`graphs/{common-react,plan-execute,hybrid-plan-react}.graph.ts` |
 | 任务/端点 | `stream-task/stream-task.{service,controller}.ts`、`dto/submit-approval.dto.ts` |
-| 诊断 | `scripts/debug-hitl.cjs` |
+| 诊断 | `scripts/debug-hitl.cjs`（ReAct）、`scripts/debug-plan-graph.cjs`（plan/hybrid） |
 
 ## 验证
 
-`node scripts/debug-hitl.cjs`（真实模型，独立于 HTTP）已验证核心机制：
+`node scripts/debug-hitl.cjs`（真实模型，独立于 HTTP）已验证 ReAct 的核心机制：
 - turn1：工具**未执行**（工具执行前中断）；
 - `getState` 读出 `actionRequests`/`reviewConfigs`（结构与解析一致）；
 - `Command({resume:{decisions:[{type:'approve'}]}})` 续跑 → **工具执行** → 最终答案。
 
-配合 `pnpm build` + `lint` 全绿、api 启动 DI 装配正常。
+`node scripts/debug-plan-graph.cjs`（需先 `build`，跑 dist 里的真实 `PlanGraphRunner`）已验证 plan/hybrid：
+- turn1：`approval.required`（`toolName=getWeather`、`args={"city":"深圳"}`、三态决定齐全），工具**未执行**；
+- `runner.resume()` 续跑 → `tool.call.done` → 步骤推进 → **第二个受审步骤再次中断**；
+- 第二轮恢复 → `synthesize` → 最终答案。`resumeRounds: 2`，工具确实执行。
 
-端到端（前端 + 登录态）验证与前端审批卡片为收尾项。
+配合 `pnpm build` + `lint` 全绿。
+
+**端到端（HTTP + DB + 前端审批卡片）尚未验证**，为收尾项。

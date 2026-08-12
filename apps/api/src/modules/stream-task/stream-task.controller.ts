@@ -26,6 +26,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Sse, SseInterceptor, type SseRequest } from '../../common/sse';
 import { ResumeStreamTaskDto } from './dto/resume-stream-task.dto';
 import { SubmitApprovalDto } from './dto/submit-approval.dto';
+import { SubmitPlanReviewDto } from './dto/submit-plan-review.dto';
 import {
   CancelStreamTaskResultDto,
   StreamTaskEventPayloadDto,
@@ -151,6 +152,45 @@ export class StreamTaskController {
         decision: dto.decision,
         editedArgs: dto.editedArgs,
         reason: dto.reason,
+      },
+      lastEventId,
+      req.__sseAbortSignal,
+    );
+  }
+
+  @Post(':taskId/plan-review')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Sse()
+  @UseInterceptors(SseInterceptor)
+  @ApiProduces('text/event-stream')
+  @ApiOperation({
+    summary: '提交计划审批决定并恢复流式任务（plan_execute HITL）',
+    description:
+      '对处于 WAITING_HUMAN 且挂起在计划审批的任务提交 approve/edit/reject_replan/reject_terminate，并从中断处继续流式返回。',
+  })
+  @ApiOkResponse({
+    description: '恢复后的流式事件响应',
+    content: {
+      'text/event-stream': {
+        schema: { type: 'string' },
+      },
+    },
+  })
+  async submitPlanReview(
+    @Param('taskId') taskId: string,
+    @Body() dto: SubmitPlanReviewDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: SseRequest,
+  ) {
+    const lastEventId = dto.lastEventId ?? req.__sseLastEventId ?? '0';
+    return this.streamTaskService.resumeTaskWithPlanReview(
+      taskId,
+      userId,
+      {
+        decision: dto.decision,
+        editedSteps: dto.editedSteps,
+        feedback: dto.feedback,
       },
       lastEventId,
       req.__sseAbortSignal,

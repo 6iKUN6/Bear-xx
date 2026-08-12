@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { ApprovalDecision } from '@litter-bear/types/protocol';
+import type {
+  ApprovalDecision,
+  PlanReviewDecision,
+} from '@litter-bear/types/protocol';
 import { chatAgentCommonPrompt } from '../../../../prompts';
 import {
   ChatContextService,
@@ -14,6 +17,7 @@ import { AgentLoopRunnerService } from '../../agent-loop/agent-loop-runner.servi
 import type {
   AgentDefinition,
   AgentLoopStreamEvent,
+  AgentStrategyMode,
 } from '../../agent-loop/agent-loop.types';
 import { CapabilityRegistry } from '../../agent-loop/capability/capability.registry';
 import { AgentDefinitionService } from '../../../agent/agent-definition.service';
@@ -105,7 +109,9 @@ export class CommonChatAgentRunnerService {
    */
   async resumeConversationRun(
     request: CommonChatConversationAgentRequest & {
-      decision: ApprovalDecision;
+      decision: ApprovalDecision | PlanReviewDecision;
+      /** 首轮实际生效的策略（任务层从 StreamTask.executionState 取回） */
+      strategy: AgentStrategyMode;
     },
   ): Promise<PreparedCommonChatAgentRun> {
     const agentConfig = await this.agentDefinitionService.resolve(
@@ -128,16 +134,23 @@ export class CommonChatAgentRunnerService {
       systemPrompt,
       tools,
       context,
-      events: this.commonChatAgentService.resumeEvents({
-        messages: [],
-        systemPrompt,
-        llm,
-        tools,
-        threadId: request.taskId,
-        approvalToolNames,
-        decision: request.decision,
-        abortSignal: request.abortSignal,
-      }),
+      // 交回首轮那个策略图恢复：检查点里存的是它的图状态。
+      // messages 传真实上下文而非空数组——ReAct 恢复只用检查点、忽略它，
+      // 但编排图的节点闭包（prepare_step / synthesize）需要原始对话。
+      events: this.agentLoopRunnerService.resume(
+        {
+          messages: context.messages,
+          systemPrompt,
+          llm,
+          tools,
+          threadId: request.taskId,
+          approvalToolNames,
+          agentConfig,
+          abortSignal: request.abortSignal,
+        },
+        request.strategy,
+        request.decision,
+      ),
     };
   }
 

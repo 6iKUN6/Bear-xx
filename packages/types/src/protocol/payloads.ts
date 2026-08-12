@@ -13,7 +13,10 @@
  */
 
 import type { AgentStrategyMode } from "./strategy.js";
-import type { ApprovalDecisionType } from "./approval-card.js";
+import type {
+  ApprovalDecisionType,
+  PlanReviewDecisionType,
+} from "./approval-card.js";
 // 映射表的计算属性键需要枚举成员作为字面量类型，故用值导入而非 import type
 import { StreamTaskEventType } from "./events.js";
 
@@ -408,6 +411,41 @@ export const APPROVAL_DECISION_LABELS: Record<ApprovalDecisionType, string> = {
 };
 
 /**
+ * `plan.review.required` 载荷
+ * @description plan_execute 出计划后、执行第一步前下发，用于展示可确认/编辑的步骤清单。
+ */
+export interface PlanReviewRequiredPayload extends StreamNodePayloadBase {
+  /** 待确认的步骤清单 */
+  steps: PlanReviewStep[];
+  /** 允许的决定（通过/编辑/打回/终止） */
+  allowedDecisions: PlanReviewDecisionType[];
+  /** 第几轮（打回重规划递增，首轮为 0），供 UI 提示 */
+  revision: number;
+}
+
+/** 计划审批步骤（面向展示，仅 id + 目标文字） */
+export interface PlanReviewStep {
+  id: string;
+  goal: string;
+}
+
+/**
+ * `plan.review.resolved` 载荷
+ * @description 用户提交计划决定后下发，与对应的 `plan.review.required` 共用 `traceKey`，
+ * 使 trace 上那条「待确认计划」能收敛为最终结果。
+ */
+export interface PlanReviewResolvedPayload extends StreamNodePayloadBase {
+  /** 人工决定 */
+  decision: PlanReviewDecisionType;
+  /** 决定人 userId（审计语义，必须记录） */
+  decidedBy: string;
+  /** 决定后的步骤数（仅 decision=edit 时有意义） */
+  stepCount?: number;
+  /** 打回意见（仅 decision=reject_replan 且用户填写时） */
+  feedback?: string;
+}
+
+/**
  * `conversation.title.updated` 载荷
  * @description 新会话首轮时后端与主回答并行生成 AI 标题，生成后经当前任务的 SSE 下发，
  * 前端可在回答流式输出期间就更新标题展示。
@@ -449,6 +487,8 @@ export interface StreamTaskPayloadMap {
   [StreamTaskEventType.TaskCanceled]: TaskCanceledPayload;
   [StreamTaskEventType.ApprovalRequired]: ApprovalRequiredPayload;
   [StreamTaskEventType.ApprovalResolved]: ApprovalResolvedPayload;
+  [StreamTaskEventType.PlanReviewRequired]: PlanReviewRequiredPayload;
+  [StreamTaskEventType.PlanReviewResolved]: PlanReviewResolvedPayload;
   [StreamTaskEventType.ConversationTitleUpdated]: ConversationTitleUpdatedPayload;
 }
 

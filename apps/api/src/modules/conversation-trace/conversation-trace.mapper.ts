@@ -268,6 +268,44 @@ export function mapStreamEventToTraceCommand(
       };
     }
 
+    // 计划审批复用 APPROVAL 类型（避免枚举迁移），靠 nodeKey=plan_review 区分来源。
+    case StreamTaskEventType.PlanReviewRequired: {
+      const payload = input.payload;
+      return {
+        action: 'start',
+        input: {
+          ...context,
+          traceKey: payload?.traceKey ?? 'plan-review',
+          type: ConversationTraceItemType.APPROVAL,
+          title: '待确认计划',
+          summary: truncate(
+            payload?.steps?.length
+              ? `共 ${payload.steps.length} 步待确认`
+              : payload?.publicStatus,
+          ),
+          nodeKey: payload?.nodeKey,
+          metadata: safeMetadata(payload),
+        },
+      };
+    }
+
+    case StreamTaskEventType.PlanReviewResolved: {
+      const payload = input.payload;
+      return {
+        action: 'complete',
+        input: {
+          taskId: input.taskId,
+          traceKey: payload?.traceKey ?? 'plan-review',
+          nodeKey: payload?.nodeKey,
+          title: '计划确认',
+          // publicStatus 由发射端写成决定的中文文案（已确认计划/已打回/…）
+          summary: payload?.publicStatus ?? '计划确认已处理',
+          metadata: safeMetadata(payload),
+          endedAt: new Date(),
+        },
+      };
+    }
+
     case StreamTaskEventType.MessageDone: {
       const payload = input.payload;
       return {

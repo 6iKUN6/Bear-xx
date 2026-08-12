@@ -6,11 +6,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { APPROVAL_DECISION_LABELS } from '@litter-bear/types/protocol';
+import {
+  AgentStrategyMode,
+  APPROVAL_DECISION_LABELS,
+  PLAN_REVIEW_DECISION_LABELS,
+} from '@litter-bear/types/protocol';
 import type {
   AgentRoutedPayload,
   ApprovalDecision,
   ApprovalResolvedPayload,
+  PlanReviewDecision,
+  PlanReviewResolvedPayload,
   StreamTaskPayloadMap,
   TaskErrorPayload,
 } from '@litter-bear/types/protocol';
@@ -36,7 +42,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AiService } from '../ai/ai.service';
 import { CommonChatAgentRunnerService } from '../ai/agents';
-import type { AgentLoopStreamEvent } from '../ai/agent-loop';
+import type {
+  AgentLoopStreamEvent,
+} from '../ai/agent-loop';
 import type {
   LlmMessage,
   LlmRunMetrics,
@@ -810,11 +818,7 @@ export class StreamTaskService {
     lastEventId: string,
     signal?: AbortSignal,
   ): Promise<TaskStreamResult> {
-    const task = await this.loadTask(taskId, userId);
-
-    if (task.status !== StreamTaskStatus.WAITING_HUMAN) {
-      throw new BadRequestException('任务当前不处于待人工审批状态');
-    }
+    const task = await this.loadWaitingTask(taskId, userId);
 
     await this.storePendingApprovalDecision(taskId, decision);
     // 在开流之前落事件：客户端带着旧 lastEventId 续读，照样能收到。
@@ -823,6 +827,45 @@ export class StreamTaskService {
 
     const stream = this.createTaskStream(task.id, lastEventId, signal);
     return { stream };
+  }
+
+  /**
+   * 提交计划审批决定并恢复流式任务（plan_execute HITL）
+   * @param taskId 任务ID
+   * @param userId 用户ID
+   * @param decision 计划审批决定（approve/edit/reject_replan/reject_terminate）
+   * @param lastEventId 客户端已接收的最后事件ID
+   * @param signal 连接中断信号
+   * @returns 返回续跑的 SSE 事件流
+   * @description 与工具审批共用 WAITING_HUMAN 状态机与续跑管道，只是决定形状与 Redis 通道不同：
+   * 决定落 `hitl:plan-review:<taskId>`，由 runChatTask 读到后走计划审批恢复分支。
+   */
+  async resumeTaskWithPlanReview(
+    taskId: string,
+    userId: string,
+    decision: PlanReviewDecision,
+    lastEventId: string,
+    signal?: AbortSignal,
+  ): Promise<TaskStreamResult> {
+    const task = await this.loadWaitingTask(taskId, userId);
+
+    await this.storePendingPlanReviewDecision(taskId, decision);
+    await this.recordPlanReviewResolved(task, userId, decision);
+
+    const stream = this.createTaskStream(task.id, lastEventId, signal);
+    return { stream };
+  }
+
+  /**
+   * 加载并校验处于待人工审批态的任务
+   * @description 工具审批与计划审批共用：非 WAITING_HUMAN 一律拒绝。
+   */
+  private async loadWaitingTask(taskId: string, userId: string) {
+    const task = await this.loadTask(taskId, userId);
+    if (task.status !== StreamTaskStatus.WAITING_HUMAN) {
+      throw new BadRequestException('任务当前不处于待人工审批状态');
+    }
+    return task;
   }
 
   /**
@@ -890,6 +933,64 @@ export class StreamTaskService {
   }
 
   /**
+   * 记录计划审批结果
+   * @description 与工具审批同构：复用待审批 trace 项的 traceKey 收敛到同一条 trace。
+   * 计划审批 trace 项复用 APPROVAL 类型（避免枚举迁移），靠 nodeKey=plan_review 区分。
+   * 失败只告警不阻断续跑——决定已落 Redis。
+   */
+  private async recordPlanReviewResolved(
+    task: Prisma.StreamTaskGetPayload<object>,
+    userId: string,
+    decision: PlanReviewDecision,
+  ): Promise<void> {
+    try {
+      const conversationId = this.requireConversationId(task);
+      const messageId = this.requireMessageId(task);
+      const pending =
+        await this.conversationTraceService.findPendingApprovalItem(task.id);
+
+      const payload = {
+        decision: decision.decision,
+        decidedBy: userId,
+        stepCount: decision.editedSteps?.length,
+        feedback: decision.feedback,
+        nodeKey: pending?.nodeKey ?? 'plan_review',
+        traceKey: pending?.traceKey ?? 'plan-review',
+        publicStatus: PLAN_REVIEW_DECISION_LABELS[decision.decision],
+      } satisfies PlanReviewResolvedPayload;
+
+      const event = await this.persistEvent(
+        task.id,
+        task.currentRunId,
+        StreamTaskEventType.PlanReviewResolved,
+        this.serializeTaskEventData({
+          type: StreamTaskEventType.PlanReviewResolved,
+          taskId: task.id,
+          streamId: task.currentRunId ?? undefined,
+          conversationId,
+          messageId,
+          status: StreamTaskStatus.WAITING_HUMAN.toLowerCase(),
+          payload,
+        }),
+      );
+      await this.recordConversationTraceEvent({
+        userId: task.userId,
+        taskId: task.id,
+        streamId: task.currentRunId,
+        conversationId,
+        messageId,
+        eventName: StreamTaskEventType.PlanReviewResolved,
+        payload,
+      });
+      this.registry.publish(task.id, event.sseEvent);
+    } catch (error) {
+      this.logger.warn(
+        `记录计划审批结果失败（不影响续跑）：${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * 暂存人工审批决定
    * @description 写入 Redis（TTL 复用缓冲期），供后台恢复执行读取一次后消费。
    */
@@ -899,6 +1000,19 @@ export class StreamTaskService {
   ): Promise<void> {
     await this.redis.set(
       `hitl:approval:${taskId}`,
+      JSON.stringify(decision),
+      'EX',
+      this.bufferTtl,
+    );
+  }
+
+  /** 暂存计划审批决定（独立 Redis 通道，与工具审批区分） */
+  private async storePendingPlanReviewDecision(
+    taskId: string,
+    decision: PlanReviewDecision,
+  ): Promise<void> {
+    await this.redis.set(
+      `hitl:plan-review:${taskId}`,
       JSON.stringify(decision),
       'EX',
       this.bufferTtl,
@@ -920,6 +1034,23 @@ export class StreamTaskService {
     await this.redis.del(key);
     try {
       return JSON.parse(raw) as ApprovalDecision;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 读取并消费待处理的计划审批决定 */
+  private async readPendingPlanReviewDecision(
+    taskId: string,
+  ): Promise<PlanReviewDecision | undefined> {
+    const key = `hitl:plan-review:${taskId}`;
+    const raw = await this.redis.get(key);
+    if (!raw) {
+      return undefined;
+    }
+    await this.redis.del(key);
+    try {
+      return JSON.parse(raw) as PlanReviewDecision;
     } catch {
       return undefined;
     }
@@ -1191,16 +1322,20 @@ export class StreamTaskService {
     // 流式输出期间即可更新标题；失败静默保留创建时的截断兜底。
     void this.publishConversationTitle(task);
 
-    // HITL：存在待处理的人工审批决定 → 走恢复路径（Command 续跑）；否则首轮执行。
-    const approvalDecision = await this.readPendingApprovalDecision(task.id);
-    const agentRun = approvalDecision
+    // HITL：存在待处理决定 → 走恢复路径（Command 续跑）；否则首轮执行。
+    // 计划审批与工具审批各走独立 Redis 通道，先查计划审批（它在执行任何工具之前发生）。
+    const pendingDecision =
+      (await this.readPendingPlanReviewDecision(task.id)) ??
+      (await this.readPendingApprovalDecision(task.id));
+    const agentRun = pendingDecision
       ? await this.commonChatAgentRunnerService.resumeConversationRun({
           conversationId: task.conversationId,
           pendingMessageId: task.messageId,
           llm: payload.llm,
           agentId: payload.agentId,
           taskId: task.id,
-          decision: approvalDecision,
+          decision: pendingDecision,
+          strategy: this.readExecutionStrategy(task.executionState),
           abortSignal: executionSignal,
         })
       : await this.commonChatAgentRunnerService.prepareConversationRun({
@@ -1248,8 +1383,14 @@ export class StreamTaskService {
           }
 
           if (event.type !== StreamTaskEventType.MessageDelta) {
-            if (event.type === StreamTaskEventType.ApprovalRequired) {
+            if (
+              event.type === StreamTaskEventType.ApprovalRequired ||
+              event.type === StreamTaskEventType.PlanReviewRequired
+            ) {
               pendingApproval = true;
+            }
+            if (event.type === StreamTaskEventType.StrategySelected) {
+              await this.persistExecutionStrategy(task.id, event.payload.mode);
             }
             await this.handleAgentLoopStatusEvent(task, event);
             continue;
@@ -1586,6 +1727,51 @@ export class StreamTaskService {
    * @returns 无返回值
    * @description 将策略选择、工作流步骤、模型调用等非文本事件转发为 SSE 事件，供前端展示当前 loop 正在做的事情。
    */
+  /**
+   * 记录本轮实际生效的执行策略
+   * @param taskId 任务ID
+   * @param strategy 路由决策选中的策略
+   * @returns 无返回值
+   * @description HITL 恢复必须交回**首轮那个策略图**——检查点里存的是它的图状态
+   * （ReAct 存 agent 图、plan/hybrid 存编排图），换个形状就对不上。
+   * 策略在路由时只决定一次，故在 strategy.selected 到达时落库。
+   */
+  private async persistExecutionStrategy(
+    taskId: string,
+    strategy: AgentStrategyMode,
+  ) {
+    await this.prisma.streamTask.update({
+      where: { id: taskId },
+      data: {
+        executionState: {
+          strategy,
+        },
+      },
+    });
+  }
+
+  /**
+   * 读取首轮生效的执行策略
+   * @param executionState 任务的执行状态列
+   * @returns 返回策略；缺失或非法时回退 ReAct
+   * @description 回退到 ReAct 而不是抛错：老任务（本字段上线前创建）没有这条记录，
+   * 而它们只可能是 ReAct 挂起的——当时只有 ReAct 支持审批。
+   */
+  private readExecutionStrategy(
+    executionState: Prisma.JsonValue,
+  ): AgentStrategyMode {
+    const strategy =
+      executionState && typeof executionState === 'object'
+        ? (executionState as { strategy?: unknown }).strategy
+        : undefined;
+
+    const known = Object.values(AgentStrategyMode) as string[];
+    if (typeof strategy === 'string' && known.includes(strategy)) {
+      return strategy as AgentStrategyMode;
+    }
+    return AgentStrategyMode.ReAct;
+  }
+
   private async handleAgentLoopStatusEvent(
     task: {
       id: string;

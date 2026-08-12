@@ -31,6 +31,7 @@ const EVENT_TONES: Partial<
   [StreamTaskEventType.TaskCanceled]: "warning",
   [StreamTaskEventType.ToolCallError]: "error",
   [StreamTaskEventType.TaskError]: "error",
+  [StreamTaskEventType.PlanReviewResolved]: "success",
 };
 
 export function toMessageStreamFeedback(
@@ -232,6 +233,12 @@ function readEventDetail(
         payload.toolName && `工具 ${payload.toolName}`,
         payload.description,
       ]);
+    }
+    case StreamTaskEventType.PlanReviewRequired: {
+      const payload = payloadOf(raw, StreamTaskEventType.PlanReviewRequired);
+      return payload.steps?.length
+        ? `共 ${payload.steps.length} 步待确认`
+        : undefined;
     }
     case StreamTaskEventType.TaskCompleted:
       return undefined;

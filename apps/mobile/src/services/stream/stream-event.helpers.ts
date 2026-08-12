@@ -76,6 +76,11 @@ export function dispatchStreamTaskEvent(
     return;
   }
 
+  if (event.type === StreamTaskEventType.PlanReviewRequired) {
+    lifecycle.onPlanReviewRequired?.(event);
+    return;
+  }
+
   if (event.type === StreamTaskEventType.ConversationTitleUpdated) {
     const payload = event.data.payload as
       | { conversationId?: string; title?: string }

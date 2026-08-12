@@ -1,4 +1,7 @@
-import type { ApprovalDecision } from "@litter-bear/types/protocol";
+import type {
+  ApprovalDecision,
+  PlanReviewDecision,
+} from "@litter-bear/types/protocol";
 import { apiClient, type StreamEvent } from "../../api/request";
 import {
   dispatchStreamTaskEvent,
@@ -80,6 +83,27 @@ export class StreamTaskService {
     return this.openStream(
       {
         url: `/api/stream-tasks/${taskId}/approval`,
+        method: "POST",
+        data: body,
+      },
+      lifecycle,
+    );
+  }
+
+  submitPlanReview(
+    taskId: string,
+    decision: PlanReviewDecision,
+    lastEventId?: string,
+    lifecycle: StreamTaskLifecycle = {},
+  ): StreamTaskHandle {
+    const body: PlanReviewDecision & { lastEventId?: string } = { ...decision };
+    if (lastEventId) {
+      body.lastEventId = lastEventId;
+    }
+
+    return this.openStream(
+      {
+        url: `/api/stream-tasks/${taskId}/plan-review`,
         method: "POST",
         data: body,
       },

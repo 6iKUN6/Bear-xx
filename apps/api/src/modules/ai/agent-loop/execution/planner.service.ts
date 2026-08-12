@@ -39,7 +39,11 @@ export class PlannerService {
    * @description 使用 Kimi 预设做一次结构化输出调用，把用户请求拆解为可执行步骤；
    * 任何失败（模型不可用/输出非法/解析为空）都回退为"单步 = 原始请求"的兜底计划，保证主链路不被规划环节拖垮。
    */
-  async plan(input: AgentLoopInput, maxSteps: number): Promise<AgentPlan> {
+  async plan(
+    input: AgentLoopInput,
+    maxSteps: number,
+    feedback: string[] = [],
+  ): Promise<AgentPlan> {
     const userText = this.readLatestUserText(input.messages);
     const toolNames = this.readToolNames(input.tools);
     const cap = Math.max(1, Math.min(maxSteps, PLANNER_HARD_STEP_CAP));
@@ -48,7 +52,10 @@ export class PlannerService {
       const parsed = await this.llmService.generateStructured(
         [
           { role: 'system', content: buildTaskPlannerPrompt(cap) },
-          { role: 'user', content: this.buildUserPrompt(userText, toolNames) },
+          {
+            role: 'user',
+            content: this.buildUserPrompt(userText, toolNames, feedback),
+          },
         ],
         planSchema,
         {
@@ -77,10 +84,23 @@ export class PlannerService {
     };
   }
 
-  private buildUserPrompt(userText: string, toolNames: string[]): string {
+  private buildUserPrompt(
+    userText: string,
+    toolNames: string[],
+    feedback: string[],
+  ): string {
     const toolLine =
       toolNames.length > 0 ? toolNames.join('、') : '（无可用工具）';
-    return [`用户请求：\n${userText}`, `可用工具：${toolLine}`].join('\n\n');
+    const sections = [`用户请求：\n${userText}`, `可用工具：${toolLine}`];
+    // 打回重规划时把用户历次意见拼进来，让模型据此调整拆解（而非重复上一版计划）。
+    if (feedback.length > 0) {
+      sections.push(
+        `用户对上一版计划的反馈（请据此调整）：\n${feedback
+          .map((text, index) => `${index + 1}. ${text}`)
+          .join('\n')}`,
+      );
+    }
+    return sections.join('\n\n');
   }
 
   /**

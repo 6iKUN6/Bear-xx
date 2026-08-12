@@ -1,0 +1,155 @@
+.plan-review-card {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.625rem;
+  border: 1px solid var(--lb-accent);
+  border-radius: var(--lb-radius-md);
+  background: var(--lb-accent-soft, var(--lb-surface-muted));
+  padding: 0.75rem;
+  color: var(--lb-text-secondary);
+}
+
+.plan-review-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.plan-review-card-icon {
+  font-size: 0.9375rem;
+  line-height: 1;
+  color: var(--lb-accent);
+}
+
+.plan-review-card-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--lb-accent);
+}
+
+.plan-review-card-badge {
+  margin-left: auto;
+  border-radius: var(--lb-radius-xs);
+  background: var(--lb-surface-hover);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--lb-accent);
+}
+
+.plan-review-card-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.plan-review-card-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: var(--lb-radius-sm);
+  background: var(--lb-surface-muted);
+  padding: 0.5rem 0.625rem;
+}
+
+.plan-review-card-step-index {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: var(--lb-surface-hover);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.25rem;
+  text-align: center;
+  color: var(--lb-accent);
+}
+
+.plan-review-card-step-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--lb-text-primary);
+}
+
+.plan-review-card-step-input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 1.75rem;
+  border: 1px solid var(--lb-line-strong);
+  border-radius: var(--lb-radius-xs);
+  background: var(--lb-surface-strong);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--lb-text-primary);
+}
+
+.plan-review-card-append {
+  align-self: flex-start;
+  border-radius: var(--lb-radius-sm);
+  border: 1px dashed var(--lb-line-strong);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--lb-accent);
+}
+
+.plan-review-card-feedback {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3.5rem;
+  border: 1px solid var(--lb-line-strong);
+  border-radius: var(--lb-radius-sm);
+  background: var(--lb-surface-strong);
+  padding: 0.5rem 0.625rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--lb-text-primary);
+}
+
+.plan-review-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.125rem;
+}
+
+.plan-review-btn {
+  display: flex;
+  min-width: 3.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lb-radius-sm);
+  padding: 0.375rem 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: opacity 160ms ease;
+}
+
+.plan-review-btn-primary {
+  background: var(--lb-accent-surface);
+  color: var(--lb-on-accent);
+}
+
+.plan-review-btn-ghost {
+  border: 1px solid var(--lb-line-strong);
+  background: var(--lb-surface);
+  color: var(--lb-text-secondary);
+}
+
+.plan-review-btn-danger {
+  border: 1px solid var(--lb-danger);
+  background: var(--lb-surface);
+  color: var(--lb-danger);
+}
+
+.plan-review-btn-disabled {
+  opacity: 0.5;
+}

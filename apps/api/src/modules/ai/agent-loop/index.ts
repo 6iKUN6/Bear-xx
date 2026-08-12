@@ -24,7 +24,7 @@ export type {
   SubagentDefinition,
 } from './capability/capability.types';
 export { PlannerService } from './execution/planner.service';
-export { AgentLoopController } from './execution/agent-loop-controller.service';
+export { PlanGraphRunner } from './execution/plan-graph.runner';
 export {
   STEP_EVALUATOR,
   HeuristicStepEvaluator,

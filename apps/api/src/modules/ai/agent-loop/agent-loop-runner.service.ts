@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import type {
+  ApprovalDecision,
+  PlanReviewDecision,
+} from '@litter-bear/types/protocol';
 import { StreamTaskEventType } from '../../stream-task/stream-task-event.types';
 import {
+  AgentStrategyMode,
   type AgentLoopInput,
   type AgentLoopStreamEvent,
   type AgentStrategyDecision,
@@ -66,7 +71,7 @@ export class AgentLoopRunnerService {
    * 解析 HITL 恢复所需的能力装配
    * @param input agent loop 输入（可带 agentConfig）
    * @returns 返回续跑所需的 { tools, approvalToolNames, systemPrompt }
-   * @description 恢复不跑策略图，故用 config 派生 decision（强制或 config-only）经 CapabilityResolver 装配，
+   * @description 恢复不重新路由，故用 config 派生 decision（强制或 config-only）经 CapabilityResolver 装配，
    * 与 stream 路径产出同一套工具/审批集/系统提示词，避免恢复用全量工具、与受限主链路不一致。
    */
   resolveResumeCapabilities(input: AgentLoopInput): {
@@ -89,6 +94,32 @@ export class AgentLoopRunnerService {
         capabilities.systemPromptAdditions,
       ),
     };
+  }
+
+  /**
+   * 从人工审批中断处恢复执行
+   * @param input agent loop 输入（须已经过 resolveResumeCapabilities 装配）
+   * @param strategy 首轮实际生效的策略（任务层从 StreamTask.executionState 取回）
+   * @param decision 人工决定
+   * @returns 返回续跑的事件流
+   * @description 恢复必须交回**首轮那个策略图**：检查点里存的是它的图状态，
+   * 换个形状的图就对不上（ReAct 存的是 agent 图，plan/hybrid 存的是编排图）。
+   * 故这里不重新路由，只按持久化的策略分发。
+   */
+  resume(
+    input: AgentLoopInput,
+    strategy: AgentStrategyMode,
+    decision: ApprovalDecision | PlanReviewDecision,
+  ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
+    const graph = this.strategyRegistry.resolve(strategy);
+
+    if (!graph.resume) {
+      // direct 无工具、永不挂起；真出现说明 executionState 里的策略与实际不符，
+      // 属于必须暴露的状态不一致，不静默兜底成重跑。
+      throw new Error(`策略 ${strategy} 不支持从人工审批恢复`);
+    }
+
+    return graph.resume(input, decision);
   }
 
   /**
