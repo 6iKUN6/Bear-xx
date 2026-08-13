@@ -8,7 +8,7 @@ import { API_GLOBAL_PREFIX } from './app.constants';
 import { createSwaggerDocument } from './swagger';
 
 const MAX_PORT_ATTEMPTS = 10;
-
+const SERVER_NAME = 'XX SERVER';
 /**
  * 探测端口是否可用
  * @param port 待探测端口
@@ -69,11 +69,14 @@ async function bootstrap() {
   const port = await findAvailablePort(preferredPort);
 
   await app.listen(port);
-  console.log(`Litter-Bear Server running on http://localhost:${port}`);
+  console.log(`${SERVER_NAME} running on http://localhost:${port}`);
   console.log(`API Prefix: http://localhost:${port}/${API_GLOBAL_PREFIX}`);
   console.log(`API Docs: http://localhost:${port}/api-docs`);
 }
 
 bootstrap()
   .then(() => {})
-  .catch(() => {});
+  .catch((error: unknown) => {
+    console.error(`${SERVER_NAME} 启动失败`, error);
+    process.exitCode = 1;
+  });
