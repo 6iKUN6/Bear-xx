@@ -9,7 +9,6 @@ import {
   appGlassCardStrongClass,
   appGradientSurfaceClass,
   appGradientSurfaceWarmClass,
-  appGradientTextClass,
   appIconTileClass,
 } from "../../utils/style";
 
@@ -162,7 +161,7 @@ export default function LoginPage() {
               <View
                 className={`${appIconTileClass} h-[4.75rem] w-[4.75rem] text-[2.5rem]`}
               >
-                <Text className="leading-none">🐻</Text>
+                <Text className="leading-none">办</Text>
               </View>
               <View
                 className={`${appGradientSurfaceWarmClass} absolute -right-[0.25rem] -top-[0.25rem] flex h-[1.75rem] w-[1.75rem] items-center justify-center rounded-[var(--lb-radius-sm)] text-[0.75rem]`}
@@ -172,13 +171,11 @@ export default function LoginPage() {
             </View>
           </View>
 
-          <Text
-            className={`${appGradientTextClass} mb-[0.625rem] block text-center text-[1.75rem] font-bold leading-[1.2]`}
-          >
-            Litter Bear
+          <Text className="mb-[0.625rem] block text-center text-[1.75rem] font-bold leading-[1.2] text-[var(--lb-text-primary)]">
+            办伴 Banban
           </Text>
           <Text className="mb-[1.75rem] block text-center text-[1rem] leading-[1.5] text-[var(--lb-text-secondary)]">
-            手机号密码登录后自动绑定微信
+            与 AI 一起，把事办成
           </Text>
 
           <View className="mb-[0.5rem]">

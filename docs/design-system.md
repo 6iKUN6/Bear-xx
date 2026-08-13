@@ -3,6 +3,7 @@
 跨端设计系统（主题 / 设计 token / 共享组件）的**单一约定源**。所有前端遵循本文：当前仅 `apps/mobile`；后续 `web` / `admin` / `desktop` 落地时一并遵守。
 
 > 状态：主题模块已落地，当前消费端为 `apps/mobile`；共享 UI 组件仍处于 spike 阶段。
+> 品牌定位、文案语气与视觉表达见 [brand-foundation.md](./brand-foundation.md)；本文只约束跨端 token 与组件实现。
 
 ## 已确立原则
 
@@ -84,3 +85,4 @@ Web 接入时优先直接消费 `@litter-bear/theme`。不要把 Taro `PageShell
 - [AGENTS.md](../AGENTS.md) — 根编排约定与「维护本文」流程
 - [skills-setup.md](./skills-setup.md) — 设计/打磨 skill 安装
 - `apps/mobile/AGENTS.md` — 移动端细则（组件目录、命名、样式约定）
+- [brand-foundation.md](./brand-foundation.md) — 办伴的品牌表达与视觉方向

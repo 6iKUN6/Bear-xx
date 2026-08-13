@@ -38,7 +38,7 @@ export function AppShell() {
       <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[80rem] items-center gap-4 px-6">
           <span className="text-base font-semibold text-foreground">
-            🐻 Litter Bear Admin
+            办伴 Banban 管理后台
           </span>
 
           <nav className="ml-4 flex items-center gap-1 overflow-x-auto">

@@ -2453,8 +2453,8 @@
     }
   },
   "info": {
-    "title": "Litter Bear API",
-    "description": "Litter Bear 后端接口文档",
+    "title": "办伴 Banban API",
+    "description": "办伴 Banban 后端接口文档",
     "version": "1.0",
     "contact": {}
   },
@@ -3865,7 +3865,7 @@
           "fullContent": {
             "type": "string",
             "description": "当前累计生成内容",
-            "example": "你好，我是 Litter Bear"
+            "example": "你好，我是办伴，有什么可以协助你？"
           },
           "errorMessage": {
             "type": "object",

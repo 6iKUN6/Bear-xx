@@ -81,14 +81,14 @@ export default function MessageList({
               <View
                 className={`${appIconTileClass} h-[2.75rem] w-[2.75rem] shrink-0 text-[1.375rem]`}
               >
-                <Text className="leading-none">🐻</Text>
+                <Text className="leading-none">办</Text>
               </View>
               <View className="min-w-0 flex-1">
                 <Text className="block text-[1.25rem] font-bold leading-[1.25] text-[var(--lb-text-primary)]">
                   新对话
                 </Text>
                 <Text className="mt-[0.25rem] block text-[0.8125rem] leading-[1.4] text-[var(--lb-text-muted)]">
-                  Litter Bear 已准备好
+                  办伴已准备好
                 </Text>
               </View>
             </View>

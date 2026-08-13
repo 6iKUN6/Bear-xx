@@ -15,7 +15,7 @@ export default defineAppConfig({
   window: {
     backgroundTextStyle: "light",
     navigationBarBackgroundColor: "#F3F5F9",
-    navigationBarTitleText: "Litter Bear",
+    navigationBarTitleText: "办伴",
     navigationBarTextStyle: "black",
     navigationStyle: "custom",
   },

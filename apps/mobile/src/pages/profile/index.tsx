@@ -97,7 +97,7 @@ export default function ProfilePage() {
                   <View
                     className={`${appIconTileClass} h-[4rem] w-[4rem] text-[1.75rem]`}
                   >
-                    <Text className="leading-none">🐻</Text>
+                    <Text className="leading-none">我</Text>
                   </View>
                 )}
 
@@ -112,7 +112,7 @@ export default function ProfilePage() {
 
               <View className="ml-[1.125rem] min-w-0 flex-1">
                 <Text className="block text-[1.375rem] font-bold leading-[1.2] text-[var(--lb-text-primary)]">
-                  {isLoggedIn ? userInfo?.nickname || "小熊用户" : "未登录"}
+                  {isLoggedIn ? userInfo?.nickname || "办伴用户" : "未登录"}
                 </Text>
                 {isLoggedIn && (
                   <View className="mt-[0.625rem] inline-flex rounded-[var(--lb-radius-xs)] bg-[var(--lb-accent-soft)] px-[0.75rem] py-[0.375rem]">
@@ -280,10 +280,10 @@ export default function ProfilePage() {
 
         <View className="pt-[1.75rem] text-center">
           <Text className="block text-[0.8125rem] leading-[1.4] text-[var(--lb-text-muted)]">
-            Litter Bear v1.0.0
+            办伴 Banban v1.0.0
           </Text>
           <Text className="mt-[0.25rem] block text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)] opacity-80">
-            Powered by AI
+            AI 协作执行工作台
           </Text>
         </View>
       </View>

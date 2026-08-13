@@ -37,7 +37,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-xl">🐻 Litter Bear 管理后台</CardTitle>
+          <CardTitle className="text-xl">办伴 Banban 管理后台</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -2,7 +2,7 @@ import defaultAgentAvatar from "@litter-bear/assets/agents/default-avatar.png";
 import type { AgentSummary } from "../api/agents";
 
 /** 默认助手的兜底显示名（取不到默认 agent 配置时使用） */
-export const FALLBACK_AGENT_NAME = "Litter Bear";
+export const FALLBACK_AGENT_NAME = "办伴";
 
 /** 头像地址；空值回退内置默认头像 */
 export function agentAvatarSrc(avatar?: string | null): string {

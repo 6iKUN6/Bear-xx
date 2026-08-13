@@ -1,4 +1,4 @@
 export default definePageConfig({
-  navigationBarTitleText: "Litter Bear",
+  navigationBarTitleText: "办伴",
   navigationStyle: "custom",
 });

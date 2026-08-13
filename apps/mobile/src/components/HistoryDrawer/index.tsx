@@ -114,11 +114,11 @@ export default function HistoryDrawer({
           <View className="flex min-w-0 items-center gap-[0.5rem]">
             <View className="flex h-[1.5rem] w-[1.5rem] shrink-0 items-center justify-center rounded-[0.375rem] bg-[var(--lb-accent)]">
               <Text className="text-[0.75rem] font-bold leading-none text-[var(--lb-on-accent)]">
-                L
+                办
               </Text>
             </View>
             <Text className="block overflow-hidden text-ellipsis whitespace-nowrap text-[1rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
-              Litter Bear
+              办伴
             </Text>
           </View>
           <View

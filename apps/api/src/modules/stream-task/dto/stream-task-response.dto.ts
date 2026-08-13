@@ -50,7 +50,7 @@ export class StreamTaskStatusDto {
 
   @ApiProperty({
     description: '当前累计生成内容',
-    example: '你好，我是 Litter Bear',
+    example: '你好，我是办伴，有什么可以协助你？',
   })
   fullContent: string;
 

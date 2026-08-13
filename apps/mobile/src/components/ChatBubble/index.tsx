@@ -224,7 +224,7 @@ function BubbleAvatar({
     <View
       className={`${appIconTileClass} h-[2.5rem] w-[2.5rem] shrink-0 text-[1.125rem]`}
     >
-      <Text className='leading-none'>🐻</Text>
+      <Text className='leading-none'>办</Text>
     </View>
   );
 }
