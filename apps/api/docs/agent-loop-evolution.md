@@ -85,6 +85,22 @@
 - 分步执行通过 state 通道下发步骤提示词与可见工具集；审批工具只有在 planner 对应步骤的 `suggestedTools` 明确标注时才会被隔离，防止生图、下单等副作用工具提前或重复执行。
 - 完整图形状、实测约束与恢复语义见 [plan-graph-migration.md](./plan-graph-migration.md) 和 [hitl.md](./hitl.md)。
 
+### P2-1 · 麦当劳 MCP 工具接入（2026-08-12）
+
+- `McpClientManager` 是 MCP client、tools/list 缓存、审核白名单与健康快照的唯一所有者。对 Streamable HTTP，健康表示最近一次 tools/list 是否通过鉴权和 schema 校验，并非维持常驻 socket。麦当劳配置缺失或不完整时该 server 标记为不可用并跳过工具注册，不影响其他 API 模块启动；完整启用后的远端失败仍阻断启动。
+- 启动时仅登记空的 `mcd-order` 工具组；它不加入 `default`。用户在登录后绑定自己的 MCP Token，系统以 `tools/list` 审核远端 8 个工具并加密保存凭据。聊天任务创建时锁定凭据 ID，路由、Agent 配置与能力解析仅在该任务具备活跃凭据时装配 MCP 工具；解绑、失效或 HITL 等待期换绑后均不会静默切换账号。
+- `create-order` 是唯一 `requiresApproval` 工具：计划执行时先经过计划审批，再在真正创建订单前经过工具审批。`conversation_trace` 在工具调用与工具审批节点通过注册表元数据写入 `mcpServer=mcdonalds` 与 MCP 原始工具名。
+- `strategy.selected` 持久化 `{ strategy, toolGroups, skills, maxSteps }` 到既有 `StreamTask.executionState`；HITL 恢复直接用该快照装配，保证 `mcd-order` 和 `create-order` 审批集不会在默认 agent 的计划审批后丢失。
+- P2-1 本身不创建订单业务表；P2-2 已接管订单持久化与官方支付跳转。两阶段都不接微信支付。真实连通性可用 `node apps/api/scripts/debug-mcdonalds-mcp.cjs` 验证；该脚本只调用 tools/list。
+
+### P2-2 · 订单持久化、回显与官方支付跳转（2026-08-13）
+
+- `McDonaldsOrder` 是用户订单的唯一业务事实，`McDonaldsOrderRefresh` 只审计订单页显式触发的官方状态查询；两者都不替代或反向依赖 `conversation_trace`。`create-order` 包装工具从任务级 AsyncLocalStorage 上下文取得 `taskId/userId`，并按 `(userId, externalOrderId)` 幂等写入。
+- `McpClientManager` 的职责没有扩张：它仍只负责 client、审核后的 tools/list 缓存、白名单与健康快照。订单服务按原工具名取得已审核工具，薄包装 `create-order` / `query-order`，保持 runtime name、schema、描述和 MCP 来源元数据不漂移。
+- 工具完成后，`StreamTaskService` 从订单任务上下文读取本地 ID，发布只含安全卡片字段的 `order.created`；会话历史按 assistant `messageId` 从订单表回填。支付密文、支付 URL 和原始 MCP 结果不进入该事件、模型或 trace。
+- `payH5Url` 在入库前从安全快照递归剥离，以 `MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY` AEAD 加密保存，最长保留 30 分钟。H5 在用户点击时即时解密并跳转官方 URL；小程序仅请求即时 PNG 二维码并写入临时文件。没有微信支付直连、自动轮询或支付 URL 的前端持久化。
+- 订单刷新是受属主和全局 MCP token 属主双重校验的确定性 `query-order` 调用，不经过 Agent/LLM/HITL；成功更新订单快照和刷新审计，失败保留上次有效状态并抛出明确错误。
+
 ---
 
 ## 四、最终核心链路
@@ -119,6 +135,7 @@ POST /api/chat/message (@Sse)
 - [x] P5b：Plan/Hybrid 中途审批 —— 已迁为 `StateGraph`，由外层 checkpointer 托管编排状态与子图中断恢复。
 - [ ] 结构化路由快路径：明显直答的短消息跳过 LLM 路由，省一次调用延迟。
 - [ ] skills / subagents 落实例（registry 已留接口）。
+- [x] McDonalds MCP P2-1/P2-2：审核工具组、HITL、trace 来源、订单入库与刷新审计、`order.created`/历史回显以及官方支付跳转均已接入；不接微信支付。
 
 **前端 / 工程**
 
@@ -135,4 +152,4 @@ POST /api/chat/message (@Sse)
 - [hitl.md](./hitl.md) — P5 人工审批细节
 - [stream-task-architecture.md](./stream-task-architecture.md) — 任务/SSE/恢复
 - [MONOREPO-MIGRATION.md](../../../MONOREPO-MIGRATION.md) — monorepo 迁移
-- 诊断脚本：`scripts/debug-{tool-call,agent,hitl,planner,router}.cjs`
+- 诊断脚本：`scripts/debug-{tool-call,agent,hitl,planner,router,mcdonalds-mcp}.cjs`

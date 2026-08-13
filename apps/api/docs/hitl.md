@@ -125,11 +125,11 @@
 
 恢复**不重新路由**，但必须交回**首轮那个策略图**——检查点里存的是它的图状态（ReAct 存 agent 图、plan/hybrid 存编排图），换个形状的图就对不上。
 
-为此首轮策略需要持久化：`strategy.selected` 事件到达时，`StreamTaskService.persistExecutionStrategy()` 把 `{ strategy }` 写进 `StreamTask.executionState`（既有 Json 列，无需迁移）。恢复时 `readExecutionStrategy()` 取策略交给 `AgentLoopRunnerService.resume()` 分发到对应策略图。
+为此首轮的策略与能力快照要持久化：`strategy.selected` 事件到达时，`StreamTaskService.persistExecutionStrategy()` 把 `{ strategy, toolGroups, skills, maxSteps }` 写进 `StreamTask.executionState`（既有 Json 列，无需迁移）。恢复时 `readExecutionStrategy()` 取策略交给 `AgentLoopRunnerService.resume()` 分发到对应策略图；`resolveResumeCapabilities()` 用快照重建首轮同一套工具、技能和审批集。
 
 > 该列缺失或非法时回退 `react`：本字段上线前创建的老任务只可能是 ReAct 挂起的（当时只有 ReAct 支持审批）。若策略与实际不符导致图找不到 `resume`，**直接抛错**而不是静默重跑——这是必须暴露的状态不一致。
 
-工具与提示词由 `AgentLoopRunnerService.resolveResumeCapabilities()` 按 agent 配置/default 装配（与受限主链路一致，不用全量工具）。
+工具与提示词由 `AgentLoopRunnerService.resolveResumeCapabilities()` 按首轮快照装配（与受限主链路一致，不用全量工具）；老任务快照缺失时才回退旧的 agent 配置/default 装配逻辑。
 
 其它边界：
 - **检查点降级**：`AgentCheckpointerService` 正常使用 Postgres（`langgraph` schema，见下）；仅当 `DATABASE_URL` 缺失或 `setup()` 失败时才退回进程内 `MemorySaver`，此时重启会丢挂起状态——启动日志会以 error 级别告警，不要忽略。

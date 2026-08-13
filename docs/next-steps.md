@@ -1,6 +1,6 @@
 # 下一步计划
 
-> 更新于 2026-08-12。承接「群聊多智能体」+「策略图迁移 / HITL」几轮改造之后的待办。
+> 更新于 2026-08-13。承接「群聊多智能体」+「策略图迁移 / HITL」几轮改造之后的待办。
 > 相关文档：[plan-graph-migration.md](../apps/api/docs/plan-graph-migration.md)、[hitl.md](../apps/api/docs/hitl.md)、[agent-loop-evolution.md](../apps/api/docs/agent-loop-evolution.md)、[agent-chat-chain.md](../apps/api/docs/agent-chat-chain.md)
 
 ## 进度总览（新会话先读这里）
@@ -15,7 +15,7 @@
 | 计划审批 HITL（plan_execute 默认开）  | 见 [hitl.md](../apps/api/docs/hitl.md) P5c                          | 出计划后暂停：通过 / 编辑步骤（改文字+追加）/ 带意见打回重规划 / 终止                             |
 | 分步工具隔离                          | `agent-loop/execution/step-tool-scope.ts`（`StepContext` 中间件）   | 修「generateImage 每步都调」；审批工具只在计划安排它的步骤可见                                    |
 | 端到端验证                            | —                                                                   | 小程序真机跑通（用户 2026-08-12 确认）：计划审批四决定 + 生图只弹一次                             |
-| P2-1 麦当劳 MCP 工具接入              | `ai/mcp/mcp-client-manager.service.ts` + `CapabilityRegistry`       | 8 个审核工具注册到 `mcd-order`；`create-order` 唯一需审批；trace 记录 MCP 来源；未做订单入库/支付 |
+| P2-1/P2-2 麦当劳 MCP 与订单闭环       | `ai/mcp/*` + `mcdonalds-order/*` + 移动端订单页                    | 审核工具、HITL、订单入库、聊天/历史回显、手动刷新与官方支付跳转均已接入 |
 
 > 关键实测结论沉淀在 [plan-graph-migration.md](../apps/api/docs/plan-graph-migration.md)：`custom` streamMode + `config.writer`（顶层 `writer()` 静默失效）、多模式块是 3 元组、resume 不重放、**子图收不到 messages 注入的步骤提示词 → 只能走 state 通道**（这条踩了很久，务必记住）。
 
@@ -23,7 +23,6 @@
 
 | 优先 | 项                                                        | 依赖                          | 规模                    |
 | ---- | --------------------------------------------------------- | ----------------------------- | ----------------------- |
-| A    | **P2-2 点餐订单入库与回显**                               | P2-1 已完成；需定订单数据模型 | 中                      |
 | A'   | 结构化审批卡（`ApprovalCardData` 接线）                   | 无                            | 中，与 MCP 配合体验更好 |
 | B    | **L1 并行多答**（一问多答）                               | 只卡消息模型，可与 A 并行     | 中                      |
 | C    | P0-2 剩余：审批/计划审批入 trace 的回归 + `enhanceWithAi` | 无                            | 小                      |
@@ -117,12 +116,19 @@ plan/hybrid 已跑在 `StateGraph` 上（`plan-execute` 默认还带计划审批
 - 仅将 8 个审核工具注册到 `mcd-order`：配送地址查询、附近门店、菜单/详情、门店优惠、计价、订单查询与创建订单。地址创建、自动领券、积分商城下单等外部账户写操作没有暴露。
 - 工具保留 `mcdonalds__<原始工具名>` 运行时前缀，以避免多 MCP 同名冲突；白名单、审批和 trace 都基于原始 MCP 工具名，不依赖字符串猜测。
 - **只有 `create-order` 需要人工审批**；它不在 `default` 组，普通聊天不会意外拥有下单权限。实际多步下单还会先经过 plan 的计划审批。
-- 全局 `MCDONALDS_MCP_TOKEN` 代表一个会员身份，必须同时设置 `MCDONALDS_MCP_OWNER_USER_ID`；`mcd-order` 在路由、agent 配置和能力解析三层均只向该用户开放，避免地址、优惠与订单跨用户泄露。多用户开放前必须改为用户级 MCP 授权凭据。
+- 用户在登录后自行绑定麦当劳 MCP Token；Token 经 `tools/list` 与白名单校验后以 `MCDONALDS_CREDENTIAL_ENCRYPTION_KEY` 加密保存。`mcd-order` 在路由、Agent 配置和能力解析三层仅向任务创建时锁定的活跃凭据开放，避免地址、优惠与订单跨用户泄露；解绑后历史订单只读。
 - 已在 `conversation_trace` 的工具调用与工具审批节点写入 `mcpServer` / `mcpTool`。来源为后端审计信息，不扩展 SSE 协议。
-- `MCDONALDS_MCP_TOKEN` / `MCDONALDS_MCP_OWNER_USER_ID` 缺失、鉴权失败、远端工具清单缺少审核工具时 API 启动失败，拒绝半可用或越权能力；真实连通性用 `node apps/api/scripts/debug-mcdonalds-mcp.cjs` 检查，脚本仅执行 tools/list。
+- 后端环境只配置 MCP 地址、可选工具名前缀与两把独立的加密密钥（`MCDONALDS_CREDENTIAL_ENCRYPTION_KEY` / `MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY`）。用户 Token 不进环境变量；绑定时鉴权失败、密钥无效或远端工具清单缺少审核工具均明确拒绝。真实连通性可用 `node apps/api/scripts/debug-mcdonalds-mcp.cjs <MCP_TOKEN>` 检查，脚本仅执行 tools/list。
 - 首轮 `strategy.selected` 会把 `{ strategy, toolGroups, skills, maxSteps }` 写入 `StreamTask.executionState`；审批恢复以快照重建同一套工具、技能和审批集，默认 agent 的 `mcd-order` 不再退回 `default`。
 
-**P2-2 待做**：新增规范化的外部订单表和订单结果持久化服务，令 `create-order` / `query-order` 成功结果可在消息列表完整回显；`payH5Url` 暂不持久化也不接微信支付。面向多用户开放前先实现用户级 MCP 授权凭据绑定。
+### 点餐订单入库与回显（P2-2 ✅）
+
+- `McDonaldsOrder` 与 `McDonaldsOrderRefresh` 是订单业务事实与手动刷新审计；`conversation_trace` 继续只记录 Agent 选择、MCP 调用和审批，绝不从 trace/SSE 摘要反解析订单。
+- `create-order` 的受控包装器在任务级上下文取得属主并以 `(userId, externalOrderId)` 幂等入库；`StreamTask` 在工具完成后仅发布安全的 `order.created` 订单卡，历史会话按 `messageId` 回填同一张卡。
+- `payH5Url` 使用 `MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY` 加密保存，默认最长 30 分钟；它不进入模型上下文、SSE、trace、常规 DTO、`rawSnapshot`、日志、Zustand 或本地存储。麦当劳功能完整启用时，缺失或无效加密密钥会使该功能拒绝注册并阻断启动。
+- 不接微信支付。H5 仅在用户点击后读取一次链接并立即跳转麦当劳官方页面；小程序即时取 PNG 二维码并只保存临时文件路径，复制链接也必须由用户点击触发的新请求完成。
+- 用户只可显式点击“刷新订单状态”，没有轮询。刷新直接调用 `query-order`、更新订单事实与刷新审计，不经过 Agent、LLM 或 HITL；失败保留上一份有效快照并返回错误。
+- 订单列表和详情始终可按本地用户归属只读查看；刷新、支付和新下单必须使用订单或任务锁定的活跃凭据，解绑后明确禁用这些外部动作。
 
 ### HITL 扩到 Plan/Hybrid（P5b）✅ 已完成
 
@@ -146,7 +152,7 @@ P0-1 载荷强类型 ✅
    └─► 策略图迁移 + HITL(工具/计划) + 分步工具隔离 ✅（含端到端验证）
           │
           ├──► P2-1 麦当劳 MCP 工具接入 ✅
-          │        ├─► P2-2 订单入库与消息回显
+          │        ├─► P2-2 订单入库与消息回显 ✅
           │        └─► 结构化审批卡（配合 MCP 金额/餐品展示）
           │
           ├──► L1 并行多答（只卡消息模型，可与 MCP 并行开工）
@@ -154,6 +160,6 @@ P0-1 载荷强类型 ✅
           └──► L2 拓扑编排（父子 task）──► L3 校验闭环（图前置已就绪）
 ```
 
-- **两条可并行**：P2-2 与 L1 互不依赖。P2-2 门槛在「订单规范化数据模型与前端回显」，L1 门槛在「消息模型一问多答改造 + 前端多气泡」。
+- **下一条主线**：L1 并行多答只卡消息模型与多气泡；订单链路已独立完成，不再是其前置依赖。
 - **L2/L3 的图前置已就绪**（plan/hybrid 已在 StateGraph 上），但成本大、token 贵，务实建议见上：先把 L1 跑一段看真实依赖编排的比例。
 - 收尾小项（doc、`executionState` 补字段）随手可做，不阻塞主线。
