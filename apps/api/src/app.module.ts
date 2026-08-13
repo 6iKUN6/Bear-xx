@@ -20,6 +20,8 @@ import { StorageModule } from './modules/storage/storage.module';
 import { ImagesModule } from './modules/images/images.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { McDonaldsOrderModule } from './modules/mcdonalds-order/mcdonalds-order.module';
+import { McDonaldsCredentialModule } from './modules/mcdonalds-credential/mcdonalds-credential.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     StorageModule,
     ImagesModule,
     HealthModule,
+    McDonaldsCredentialModule,
+    McDonaldsOrderModule,
   ],
   providers: [
     {

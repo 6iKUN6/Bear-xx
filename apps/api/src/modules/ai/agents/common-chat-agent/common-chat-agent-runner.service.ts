@@ -18,6 +18,7 @@ import type {
   AgentDefinition,
   AgentLoopStreamEvent,
   AgentStrategyMode,
+  PersistedAgentStrategySnapshot,
 } from '../../agent-loop/agent-loop.types';
 import { CapabilityRegistry } from '../../agent-loop/capability/capability.registry';
 import { AgentDefinitionService } from '../../../agent/agent-definition.service';
@@ -29,6 +30,10 @@ export interface CommonChatConversationAgentRequest {
   llm?: LlmTextRequest | ResolvedLlmTextRequest;
   /** 数据化智能体 id；缺省用默认 agent */
   agentId?: string | null;
+  /** 当前发起任务的 Litter-Bear 用户ID。 */
+  userId?: string;
+  /** 本轮任务锁定的麦当劳 MCP 凭据ID，仅用于服务端动态工具装配。 */
+  mcdonaldsCredentialId?: string;
   /** 任务标识；用作 HITL checkpointer 的 thread_id（存在需审批工具时启用中断/恢复） */
   taskId?: string;
   abortSignal?: AbortSignal;
@@ -90,6 +95,8 @@ export class CommonChatAgentRunnerService {
       tools: this.capabilityRegistry.listTools(),
       context,
       events: this.agentLoopRunnerService.stream({
+        userId: request.userId,
+        mcdonaldsCredentialId: request.mcdonaldsCredentialId,
         messages: contextMessages,
         systemPrompt,
         llm,
@@ -112,6 +119,8 @@ export class CommonChatAgentRunnerService {
       decision: ApprovalDecision | PlanReviewDecision;
       /** 首轮实际生效的策略（任务层从 StreamTask.executionState 取回） */
       strategy: AgentStrategyMode;
+      /** 首轮经闭集校验后的能力快照；老任务缺失时保持原恢复策略。 */
+      strategySnapshot?: PersistedAgentStrategySnapshot;
     },
   ): Promise<PreparedCommonChatAgentRun> {
     const agentConfig = await this.agentDefinitionService.resolve(
@@ -123,11 +132,18 @@ export class CommonChatAgentRunnerService {
       this.pickLlmRequest(request, agentConfig),
     );
     const { tools, approvalToolNames, systemPrompt } =
-      this.agentLoopRunnerService.resolveResumeCapabilities({
-        messages: context.messages,
-        systemPrompt: baseSystemPrompt,
-        agentConfig,
-      });
+      await this.agentLoopRunnerService.resolveResumeCapabilities(
+        {
+          userId: request.userId,
+          mcdonaldsCredentialId:
+            request.strategySnapshot?.mcdonaldsCredentialId ??
+            request.mcdonaldsCredentialId,
+          messages: context.messages,
+          systemPrompt: baseSystemPrompt,
+          agentConfig,
+        },
+        request.strategySnapshot,
+      );
 
     return {
       messages: context.messages,
@@ -139,6 +155,10 @@ export class CommonChatAgentRunnerService {
       // 但编排图的节点闭包（prepare_step / synthesize）需要原始对话。
       events: this.agentLoopRunnerService.resume(
         {
+          userId: request.userId,
+          mcdonaldsCredentialId:
+            request.strategySnapshot?.mcdonaldsCredentialId ??
+            request.mcdonaldsCredentialId,
           messages: context.messages,
           systemPrompt,
           llm,

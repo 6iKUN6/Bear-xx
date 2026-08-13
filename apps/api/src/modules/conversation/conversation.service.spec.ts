@@ -19,9 +19,23 @@ describe('ConversationService（单聊/群聊）', () => {
         delete: jest.fn(),
       },
       agent: { findMany: jest.fn() },
+      mcDonaldsOrder: { findMany: jest.fn() },
     };
     return {
-      service: new ConversationService(prisma as unknown as PrismaService),
+      service: new ConversationService(
+        prisma as unknown as PrismaService,
+        {
+          toOrderCard: jest.fn((order) => ({
+            ...order,
+            totalAmount: order.totalAmount?.toString() ?? null,
+            discountAmount: order.discountAmount?.toString() ?? null,
+            estimatedFulfillmentAt:
+              order.estimatedFulfillmentAt?.toISOString() ?? null,
+            lastRefreshedAt: order.lastRefreshedAt?.toISOString() ?? null,
+            createdAt: order.createdAt.toISOString(),
+          })),
+        } as never,
+      ),
       prisma,
     };
   };
@@ -118,6 +132,55 @@ describe('ConversationService（单聊/群聊）', () => {
     );
     await expect(service.addAgent('conv-1', 'user-1', 'a2')).rejects.toThrow(
       '只有群聊可以管理成员',
+    );
+  });
+
+  it('会话历史按 assistant messageId 回填安全订单卡片', async () => {
+    const { service, prisma } = createService();
+    prisma.conversation.findMany.mockResolvedValue([
+      conversationRow({
+        messages: [
+          {
+            id: 'message-1',
+            role: 'ASSISTANT',
+            content: '订单已创建',
+            agentId: null,
+            status: 'DONE',
+            createdAt: new Date('2026-08-12T10:00:00.000Z'),
+            turnTraceItems: [],
+          },
+        ],
+      }),
+    ]);
+    prisma.agent.findMany.mockResolvedValue([]);
+    prisma.mcDonaldsOrder.findMany.mockResolvedValue([
+      {
+        id: 'order-1',
+        messageId: 'message-1',
+        externalOrderId: 'external-1',
+        status: 'UNPAID',
+        statusLabel: null,
+        storeName: '上海人民广场店',
+        fulfillmentType: null,
+        totalAmount: { toString: () => '24.50' },
+        discountAmount: null,
+        currency: 'CNY',
+        items: [],
+        estimatedFulfillmentAt: null,
+        lastRefreshedAt: null,
+        createdAt: new Date('2026-08-12T10:00:00.000Z'),
+      },
+    ]);
+
+    const conversations = await service.findAllByUser('user-1');
+
+    expect(conversations[0]?.messages[0]?.orders).toEqual([
+      expect.objectContaining({ id: 'order-1', externalOrderId: 'external-1' }),
+    ]);
+    expect(prisma.mcDonaldsOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1', messageId: { not: null } },
+      }),
     );
   });
 });

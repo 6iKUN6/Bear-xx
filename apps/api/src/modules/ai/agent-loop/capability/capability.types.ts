@@ -3,6 +3,14 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 /** 可被 agent 装载的工具（LangChain tool 对象） */
 export type CapabilityTool = StructuredToolInterface;
 
+/** MCP 工具来源，用于调用轨迹和外部能力审计。 */
+export interface CapabilityToolMetadata {
+  /** MCP server 标识 */
+  mcpServer: string;
+  /** MCP tools/list 中的原始工具名 */
+  mcpTool: string;
+}
+
 /**
  * 技能定义
  * @description 一段注入到系统提示词的能力说明，可选绑定一组工具子集。P2 仅定义接口，暂不注册实例。

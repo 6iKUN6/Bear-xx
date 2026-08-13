@@ -1,16 +1,43 @@
 import { StrategyRouterService } from './strategy-router.service';
 import { AgentStrategyMode, type AgentDefinition } from './agent-loop.types';
-import { DEFAULT_TOOL_GROUP } from './capability/capability.registry';
+import {
+  DEFAULT_TOOL_GROUP,
+  MCDONALDS_ORDER_TOOL_GROUP,
+} from './capability/capability.registry';
 
 function buildRouter() {
   const registry = {
-    listToolGroups: jest.fn().mockReturnValue([DEFAULT_TOOL_GROUP, 'search']),
+    listToolGroups: jest
+      .fn()
+      .mockReturnValue([
+        DEFAULT_TOOL_GROUP,
+        'search',
+        MCDONALDS_ORDER_TOOL_GROUP,
+      ]),
     listToolNames: jest.fn().mockReturnValue(['getWeather', 'webSearch']),
     listSkillNames: jest.fn().mockReturnValue(['coder']),
     hasTools: jest.fn().mockReturnValue(true),
+    canUseToolGroup: jest.fn(
+      (group: string, userId: string | undefined) =>
+        group !== MCDONALDS_ORDER_TOOL_GROUP || userId === 'mcd-owner',
+    ),
   };
   const llmService = { generateChatText: jest.fn() };
   const configService = { get: jest.fn().mockReturnValue('false') }; // 关掉 LLM 路由，走规则
+  const router = new StrategyRouterService(
+    registry as never,
+    llmService as never,
+    configService as never,
+  );
+  return { router, registry, llmService };
+}
+
+function buildModelRouter(modelDecision: unknown) {
+  const { registry } = buildRouter();
+  const llmService = {
+    generateStructured: jest.fn().mockResolvedValue(modelDecision),
+  };
+  const configService = { get: jest.fn().mockReturnValue('true') };
   const router = new StrategyRouterService(
     registry as never,
     llmService as never,
@@ -81,6 +108,72 @@ describe('StrategyRouterService agent overrides', () => {
   it('buildResumeDecision falls back to the default group for the default agent', () => {
     const { router } = buildRouter();
     const decision = router.buildResumeDecision(baseCfg());
+    expect(decision.toolGroups).toEqual([DEFAULT_TOOL_GROUP]);
+  });
+
+  it('规则降级时只为明确的麦当劳请求选择 mcd-order', async () => {
+    const { router } = buildRouter();
+
+    const decision = await router.route({
+      messages: userMsg('帮我点麦当劳，先看看附近门店有什么套餐'),
+      userId: 'mcd-owner',
+    });
+
+    expect(decision.mode).toBe(AgentStrategyMode.PlanExecute);
+    expect(decision.toolGroups).toEqual([MCDONALDS_ORDER_TOOL_GROUP]);
+  });
+
+  it('LLM 路由不能把非麦当劳请求派给 mcd-order', async () => {
+    const { router } = buildModelRouter({
+      mode: 'plan_execute',
+      toolGroups: [MCDONALDS_ORDER_TOOL_GROUP],
+      skills: [],
+      maxSteps: 4,
+      confidence: 0.9,
+      reason: '点餐请求',
+    });
+
+    const decision = await router.route({
+      messages: userMsg('帮我点肯德基'),
+      userId: 'mcd-owner',
+    });
+
+    expect(decision.toolGroups).toEqual([DEFAULT_TOOL_GROUP]);
+  });
+
+  it('LLM 路由保留 token 所有者明确请求的 mcd-order', async () => {
+    const { router } = buildModelRouter({
+      mode: 'plan_execute',
+      toolGroups: [MCDONALDS_ORDER_TOOL_GROUP],
+      skills: [],
+      maxSteps: 4,
+      confidence: 0.9,
+      reason: '点餐请求',
+    });
+
+    const decision = await router.route({
+      messages: userMsg('帮我点麦当劳'),
+      userId: 'mcd-owner',
+    });
+
+    expect(decision.toolGroups).toEqual([MCDONALDS_ORDER_TOOL_GROUP]);
+  });
+
+  it('非 token 所有者即使明确请求麦当劳也不能拿到 mcd-order', async () => {
+    const { router } = buildModelRouter({
+      mode: 'plan_execute',
+      toolGroups: [MCDONALDS_ORDER_TOOL_GROUP],
+      skills: [],
+      maxSteps: 4,
+      confidence: 0.9,
+      reason: '点餐请求',
+    });
+
+    const decision = await router.route({
+      messages: userMsg('帮我点麦当劳'),
+      userId: 'another-user',
+    });
+
     expect(decision.toolGroups).toEqual([DEFAULT_TOOL_GROUP]);
   });
 });

@@ -232,6 +232,62 @@ export interface ToolCallErrorPayload extends ToolCallPayloadBase {
   error: { message: string };
 }
 
+/* ── 麦当劳订单 ─────────────────────────────────────────────── */
+
+/** 麦当劳订单卡中的单个餐品。 */
+export interface McDonaldsOrderItemPayload {
+  /** 餐品名称 */
+  name: string;
+  /** 数量；官方未返回时为 null */
+  quantity: number | null;
+  /** 规格、特制或备注 */
+  specification: string | null;
+  /** 单价，采用字符串避免金额精度漂移 */
+  unitPrice: string | null;
+  /** 小计，采用字符串避免金额精度漂移 */
+  subtotal: string | null;
+  /** 餐品图片 URL；官方未返回时为 null */
+  imageUrl: string | null;
+}
+
+/** 麦当劳订单的安全卡片载荷。 */
+export interface McDonaldsOrderCardPayload {
+  /** 本地订单 ID */
+  id: string;
+  /** 麦当劳官方订单号 */
+  externalOrderId: string;
+  /** 官方原始订单状态 */
+  status: string | null;
+  /** 面向展示的状态名称 */
+  statusLabel: string | null;
+  /** 门店名称 */
+  storeName: string | null;
+  /** 履约方式 */
+  fulfillmentType: string | null;
+  /** 实付金额字符串 */
+  totalAmount: string | null;
+  /** 优惠金额字符串 */
+  discountAmount: string | null;
+  /** 货币代码 */
+  currency: string | null;
+  /** 餐品快照 */
+  items: McDonaldsOrderItemPayload[];
+  /** 官方预计履约时间 */
+  estimatedFulfillmentAt: string | null;
+  /** 最近一次成功刷新时间 */
+  lastRefreshedAt: string | null;
+  /** 本地订单创建时间 */
+  createdAt: string;
+  /** 关联账号仍有效时才允许刷新状态或打开官方支付入口 */
+  externalActionsAvailable: boolean;
+}
+
+/** `order.created` 载荷。 */
+export interface OrderCreatedPayload {
+  /** 新创建的安全订单卡片 */
+  order: McDonaldsOrderCardPayload;
+}
+
 /* ── 消息 ───────────────────────────────────────────────────── */
 
 /** `message.delta` 载荷（高频帧，只走 Redis 不入库） */
@@ -477,6 +533,7 @@ export interface StreamTaskPayloadMap {
   [StreamTaskEventType.ToolCallDelta]: ToolCallDeltaPayload;
   [StreamTaskEventType.ToolCallDone]: ToolCallDonePayload;
   [StreamTaskEventType.ToolCallError]: ToolCallErrorPayload;
+  [StreamTaskEventType.OrderCreated]: OrderCreatedPayload;
   [StreamTaskEventType.MessageDelta]: MessageDeltaPayload;
   [StreamTaskEventType.MessageDone]: MessageDonePayload;
   [StreamTaskEventType.TaskCreated]: TaskCreatedPayload;

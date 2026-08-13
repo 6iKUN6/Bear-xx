@@ -9,6 +9,7 @@ import {
   type AgentLoopInput,
   type AgentLoopStreamEvent,
   type AgentStrategyDecision,
+  type PersistedAgentStrategySnapshot,
 } from './agent-loop.types';
 import { StrategyRegistryService } from './strategy-registry.service';
 import { StrategyRouterService } from './strategy-router.service';
@@ -32,7 +33,11 @@ export class AgentLoopRunnerService {
     input: AgentLoopInput,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
     const decision = await this.strategyRouter.route(input);
-    const capabilities = this.capabilityResolver.resolve(decision);
+    const capabilities = await this.capabilityResolver.resolve(
+      decision,
+      input.userId,
+      input.mcdonaldsCredentialId,
+    );
 
     yield {
       type: StreamTaskEventType.StrategySelected,
@@ -74,17 +79,33 @@ export class AgentLoopRunnerService {
    * @description 恢复不重新路由，故用 config 派生 decision（强制或 config-only）经 CapabilityResolver 装配，
    * 与 stream 路径产出同一套工具/审批集/系统提示词，避免恢复用全量工具、与受限主链路不一致。
    */
-  resolveResumeCapabilities(input: AgentLoopInput): {
+  async resolveResumeCapabilities(
+    input: AgentLoopInput,
+    snapshot?: PersistedAgentStrategySnapshot,
+  ): Promise<{
     tools: unknown[];
     approvalToolNames: string[];
     systemPrompt: string | undefined;
-  } {
+  }> {
     const cfg = input.agentConfig;
-    const decision =
-      cfg && cfg.defaultStrategy !== 'auto'
-        ? this.strategyRouter.buildForcedDecision(cfg)
-        : this.strategyRouter.buildResumeDecision(cfg);
-    const capabilities = this.capabilityResolver.resolve(decision);
+    const decision = snapshot
+      ? this.buildDecisionFromSnapshot(snapshot)
+      : cfg && cfg.defaultStrategy !== 'auto'
+        ? this.strategyRouter.buildForcedDecision(
+            cfg,
+            input.userId,
+            input.mcdonaldsCredentialId,
+          )
+        : this.strategyRouter.buildResumeDecision(
+            cfg,
+            input.userId,
+            input.mcdonaldsCredentialId,
+          );
+    const capabilities = await this.capabilityResolver.resolve(
+      decision,
+      input.userId,
+      snapshot?.mcdonaldsCredentialId ?? input.mcdonaldsCredentialId,
+    );
 
     return {
       tools: [...capabilities.tools, ...capabilities.subagentTools],
@@ -93,6 +114,28 @@ export class AgentLoopRunnerService {
         input.systemPrompt,
         capabilities.systemPromptAdditions,
       ),
+    };
+  }
+
+  /**
+   * 将持久化快照恢复为能力装配决策
+   * @param snapshot 首轮经闭集校验后的策略快照
+   * @returns 只用于恢复期能力解析的策略决策
+   * @description 快照来自首轮 strategy.selected，不能在恢复时重新路由或重套 agent 配置，
+   * 以保证 LangGraph 检查点对应的工具集和 HITL 审批集不发生漂移。
+   */
+  private buildDecisionFromSnapshot(
+    snapshot: PersistedAgentStrategySnapshot,
+  ): AgentStrategyDecision {
+    return {
+      mode: snapshot.strategy,
+      confidence: 1,
+      reason: 'HITL 恢复：复用首轮策略能力快照',
+      skills: snapshot.skills,
+      toolGroups: snapshot.toolGroups,
+      maxSteps: snapshot.maxSteps,
+      publicStatus: '正在恢复已确认的任务',
+      source: 'resume',
     };
   }
 

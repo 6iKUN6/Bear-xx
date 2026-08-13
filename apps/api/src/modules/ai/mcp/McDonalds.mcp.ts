@@ -14,8 +14,8 @@ import {
 } from '@langchain/mcp-adapters';
 import type { DynamicStructuredTool } from '@langchain/core/tools';
 
-const MCDONALDS_MCP_SERVER_NAME = 'mcdonalds';
-const MCDONALDS_MCP_URL = 'https://mcp.mcd.cn/mcp-servers/mcd-mcp';
+export const MCDONALDS_MCP_SERVER_NAME = 'mcdonalds';
+export const MCDONALDS_MCP_URL = 'https://mcp.mcd.cn/mcp-servers/mcd-mcp';
 const DEFAULT_MCDONALDS_MCP_TIMEOUT_MS = 30_000;
 
 /**
@@ -30,7 +30,7 @@ const DEFAULT_MCDONALDS_MCP_TIMEOUT_MS = 30_000;
  * 协议与鉴权：
  * - Transport：Streamable HTTP
  * - Header：Authorization: Bearer <TOKEN>
- * - Token：登录麦当劳 MCP 平台后激活获取，代表麦当劳会员身份，不能写入代码或暴露给前端
+ * - Token：用户登录麦当劳 MCP 平台后自行激活获取；只在本服务端绑定请求内提交并加密保存，不能写入代码或暴露给前端
  * - 适用区域：中国大陆地区服务，不含港澳台
  *
  * 推荐点餐链路：
@@ -87,6 +87,32 @@ export interface McDonaldsMcpToolBundle {
 }
 
 /**
+ * 从运行时工具名中读取麦当劳 MCP 原始工具名
+ * @param runtimeToolName LangChain adapter 加前缀后的运行时工具名
+ * @param additionalToolNamePrefix 可选的额外工具名前缀
+ * @returns 返回 MCP tools/list 原始工具名；不属于麦当劳 server 时返回 undefined
+ * @description adapter 开启 prefixToolNameWithServerName 后会生成
+ * `mcdonalds__<原始工具名>`；配置额外前缀时会变成
+ * `<额外前缀>__mcdonalds__<原始工具名>`。白名单与审计必须基于原始工具名，
+ * 不能把运行时前缀当作 MCP 协议名称。
+ */
+export function getMcDonaldsMcpToolName(
+  runtimeToolName: string,
+  additionalToolNamePrefix = '',
+): string | undefined {
+  const prefix = additionalToolNamePrefix
+    ? `${additionalToolNamePrefix}__${MCDONALDS_MCP_SERVER_NAME}__`
+    : `${MCDONALDS_MCP_SERVER_NAME}__`;
+
+  if (!runtimeToolName.startsWith(prefix)) {
+    return undefined;
+  }
+
+  const toolName = runtimeToolName.slice(prefix.length);
+  return toolName || undefined;
+}
+
+/**
  * 创建麦当劳 MCP 客户端配置
  * @param options 麦当劳 MCP 连接配置
  * @returns 返回 MultiServerMCPClient 可消费的配置对象
@@ -96,16 +122,13 @@ export function createMcDonaldsMcpClientConfig(
   options: McDonaldsMcpOptions = {},
 ): ClientConfig {
   const url = options.url ?? MCDONALDS_MCP_URL;
-  const token = options.token ?? process.env.MCDONALDS_MCP_TOKEN;
+  const token = options.token;
   const headers = buildMcDonaldsMcpHeaders(token, options.headers);
 
   return {
     throwOnLoadError: true,
     prefixToolNameWithServerName: options.prefixToolNameWithServerName ?? true,
-    additionalToolNamePrefix:
-      options.additionalToolNamePrefix ??
-      process.env.MCDONALDS_MCP_TOOL_PREFIX ??
-      '',
+      additionalToolNamePrefix: options.additionalToolNamePrefix ?? '',
     useStandardContentBlocks: true,
     onConnectionError: options.onConnectionError ?? 'throw',
     mcpServers: {

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CapabilityRegistry } from '../ai/agent-loop/capability/capability.registry';
 import { mapStreamEventToTraceCommand } from './conversation-trace.mapper';
 import {
   ConversationTraceItemStatus,
@@ -10,6 +11,7 @@ import {
   type RecordStreamEventInput,
   type RecordStreamEventInputOf,
   type StartTraceItemInput,
+  type TraceCommand,
 } from './conversation-trace.types';
 import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
 
@@ -17,7 +19,10 @@ import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
 export class ConversationTraceService {
   private readonly logger = new Logger(ConversationTraceService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly capabilityRegistry?: CapabilityRegistry,
+  ) {}
 
   /**
    * 记录流式事件对应的单轮对话轨迹
@@ -40,24 +45,28 @@ export class ConversationTraceService {
     if (!command) {
       return;
     }
+    const enrichedCommand = this.enrichMcpMetadata(
+      input as RecordStreamEventInput,
+      command,
+    );
 
     try {
-      if (command.action === 'start') {
-        await this.startItem(command.input);
+      if (enrichedCommand.action === 'start') {
+        await this.startItem(enrichedCommand.input);
         return;
       }
 
-      if (command.action === 'complete') {
-        await this.completeItem(command.input);
+      if (enrichedCommand.action === 'complete') {
+        await this.completeItem(enrichedCommand.input);
         return;
       }
 
-      if (command.action === 'fail') {
-        await this.failItem(command.input);
+      if (enrichedCommand.action === 'fail') {
+        await this.failItem(enrichedCommand.input);
         return;
       }
 
-      await this.createSuccessItem(command.input);
+      await this.createSuccessItem(enrichedCommand.input);
     } catch (error) {
       this.logger.warn(
         `Record conversation trace failed: ${(error as Error).message}`,
@@ -102,6 +111,8 @@ export class ConversationTraceService {
         title: input.title,
         summary: input.summary,
         detail: input.detail,
+        mcpServer: input.mcpServer,
+        mcpTool: input.mcpTool,
         outputSummary: this.toJsonValue(input.outputSummary),
         metrics: this.toJsonValue(input.metrics),
         metadata: this.toJsonValue(input.metadata),
@@ -140,6 +151,8 @@ export class ConversationTraceService {
         title: input.title,
         summary: input.summary,
         detail: input.detail,
+        mcpServer: input.mcpServer,
+        mcpTool: input.mcpTool,
         error: this.toJsonValue(input.error),
         metadata: this.toJsonValue(input.metadata),
         endedAt,
@@ -279,6 +292,89 @@ export class ConversationTraceService {
       },
       orderBy: { sequence: 'desc' },
     });
+  }
+
+  /**
+   * 为 MCP 工具调用补充来源元数据
+   * @param eventInput 原始流式事件输入
+   * @param command 已由事件映射出的 trace 命令
+   * @returns 返回补充了 MCP 来源的 trace 命令；非 MCP 工具原样返回
+   * @description MCP 来源属于后端执行审计，不需要透传 SSE 协议。这里用运行时工具名查询
+   * CapabilityRegistry 的注册元数据，因此多 server 与自定义工具名前缀下都不依赖字符串猜测。
+   * start 帧可能没有名称，后续 delta/done/error 帧仍会补齐到同一 traceKey。
+   */
+  private enrichMcpMetadata(
+    eventInput: RecordStreamEventInput,
+    command: TraceCommand,
+  ): TraceCommand {
+    if (
+      eventInput.eventName !== StreamTaskEventType.ToolCallStart &&
+      eventInput.eventName !== StreamTaskEventType.ToolCallDelta &&
+      eventInput.eventName !== StreamTaskEventType.ToolCallDone &&
+      eventInput.eventName !== StreamTaskEventType.ToolCallError &&
+      eventInput.eventName !== StreamTaskEventType.ApprovalRequired &&
+      eventInput.eventName !== StreamTaskEventType.ApprovalResolved
+    ) {
+      return command;
+    }
+
+    const payload = eventInput.payload;
+    const toolName =
+      payload && 'toolName' in payload
+        ? payload.toolName
+        : payload && 'name' in payload
+          ? payload.name
+          : undefined;
+    if (!toolName) {
+      return command;
+    }
+
+    const metadata = this.capabilityRegistry?.getToolMetadata(toolName);
+    if (!metadata) {
+      return command;
+    }
+
+    if (command.action === 'start') {
+      return {
+        action: 'start',
+        input: {
+          ...command.input,
+          mcpServer: metadata.mcpServer,
+          mcpTool: metadata.mcpTool,
+        },
+      };
+    }
+
+    if (command.action === 'complete') {
+      return {
+        action: 'complete',
+        input: {
+          ...command.input,
+          mcpServer: metadata.mcpServer,
+          mcpTool: metadata.mcpTool,
+        },
+      };
+    }
+
+    if (command.action === 'fail') {
+      return {
+        action: 'fail',
+        input: {
+          ...command.input,
+          mcpServer: metadata.mcpServer,
+          mcpTool: metadata.mcpTool,
+        },
+      };
+    }
+
+    return {
+      action: 'create-success',
+      input: {
+        ...command.input,
+        mcpServer: metadata.mcpServer,
+        mcpTool: metadata.mcpTool,
+      },
+    };
   }
 
   /**

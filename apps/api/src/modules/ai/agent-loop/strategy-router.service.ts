@@ -14,6 +14,7 @@ import {
 import {
   CapabilityRegistry,
   DEFAULT_TOOL_GROUP,
+  MCDONALDS_ORDER_TOOL_GROUP,
 } from './capability/capability.registry';
 
 const DEFAULT_MAX_STEPS = 6;
@@ -50,6 +51,9 @@ const TOOL_INTENT_KEYWORDS = [
   '查询',
   '调用工具',
 ];
+
+/** 麦当劳点餐意图：只匹配明确品牌词，避免把通用点餐请求误派给单一外部服务。 */
+const MCDONALDS_ORDER_INTENT_KEYWORDS = ['麦当劳', '麦记'];
 
 const PLAN_INTENT_KEYWORDS = [
   '计划',
@@ -102,7 +106,16 @@ export class StrategyRouterService {
 
     // agent 强制指定具体策略：跳过 LLM/规则路由，确定性 + 省一次调用。
     if (cfg && cfg.defaultStrategy !== 'auto') {
-      return this.applyAgentOverrides(this.buildForcedDecision(cfg), cfg);
+      return this.applyAgentOverrides(
+        this.buildForcedDecision(
+          cfg,
+          input.userId,
+          input.mcdonaldsCredentialId,
+        ),
+        cfg,
+        input.userId,
+        input.mcdonaldsCredentialId,
+      );
     }
 
     let decision: AgentStrategyDecision | null = null;
@@ -121,7 +134,14 @@ export class StrategyRouterService {
     }
 
     decision = decision ?? this.routeByRules(input);
-    return cfg ? this.applyAgentOverrides(decision, cfg) : decision;
+    return cfg
+      ? this.applyAgentOverrides(
+          decision,
+          cfg,
+          input.userId,
+          input.mcdonaldsCredentialId,
+        )
+      : decision;
   }
 
   /**
@@ -131,7 +151,11 @@ export class StrategyRouterService {
    * @description mode 取配置的具体策略并 clamp 到 allowedStrategies；工具组用 forcedDefaultToolGroups 兜底，
    * 避免带工具的策略拿不到工具。供 route() 与 resume 复用（故为 public）。
    */
-  buildForcedDecision(cfg: AgentDefinition): AgentStrategyDecision {
+  buildForcedDecision(
+    cfg: AgentDefinition,
+    userId?: string,
+    mcdonaldsCredentialId?: string,
+  ): AgentStrategyDecision {
     const requested =
       this.strategyToMode(cfg.defaultStrategy) ?? AgentStrategyMode.Direct;
     const mode = this.clampModeToAllowed(requested, cfg);
@@ -140,7 +164,12 @@ export class StrategyRouterService {
       confidence: 1,
       reason: 'agent 配置强制指定执行策略',
       skills: [],
-      toolGroups: this.forcedDefaultToolGroups(mode, cfg),
+      toolGroups: this.forcedDefaultToolGroups(
+        mode,
+        cfg,
+        userId,
+        mcdonaldsCredentialId,
+      ),
       maxSteps: DEFAULT_MAX_STEPS,
       publicStatus: PUBLIC_STATUS_BY_MODE[mode],
       source: 'forced',
@@ -154,13 +183,17 @@ export class StrategyRouterService {
    * @description resume 不跑策略图，只需 toolGroups/skills 供 CapabilityResolver 装配。工具组按配置取，
    * 空则兜底默认组（恢复本质是执行工具）；对默认 agent 与旧的"全量工具"行为等价（两工具同属默认组）。
    */
-  buildResumeDecision(cfg?: AgentDefinition): AgentStrategyDecision {
+  buildResumeDecision(
+    cfg?: AgentDefinition,
+    userId?: string,
+    mcdonaldsCredentialId?: string,
+  ): AgentStrategyDecision {
     return {
       mode: AgentStrategyMode.ReAct,
       confidence: 1,
       reason: 'HITL 恢复：按 agent 配置装配能力',
       skills: cfg ? this.filterKnownSkills(cfg.skills) : [],
-      toolGroups: this.resumeToolGroups(cfg),
+      toolGroups: this.resumeToolGroups(cfg, userId, mcdonaldsCredentialId),
       maxSteps:
         cfg && cfg.maxSteps != null
           ? this.clampMaxSteps(cfg.maxSteps)
@@ -181,11 +214,17 @@ export class StrategyRouterService {
   private applyAgentOverrides(
     decision: AgentStrategyDecision,
     cfg: AgentDefinition,
+    userId?: string,
+    mcdonaldsCredentialId?: string,
   ): AgentStrategyDecision {
     const next: AgentStrategyDecision = { ...decision };
 
     if (cfg.toolGroups.length > 0) {
-      next.toolGroups = this.filterKnownToolGroups(cfg.toolGroups);
+      next.toolGroups = this.filterKnownToolGroups(
+        cfg.toolGroups,
+        userId,
+        mcdonaldsCredentialId,
+      );
     }
     if (cfg.skills.length > 0) {
       next.skills = this.filterKnownSkills(cfg.skills);
@@ -233,9 +272,17 @@ export class StrategyRouterService {
   }
 
   /** 过滤到注册表已存在的工具组闭集 */
-  private filterKnownToolGroups(groups: string[]): string[] {
+  private filterKnownToolGroups(
+    groups: string[],
+    userId?: string,
+    mcdonaldsCredentialId?: string,
+  ): string[] {
     const known = new Set(this.registry.listToolGroups());
-    return groups.filter((group) => known.has(group));
+    return groups.filter(
+      (group) =>
+        known.has(group) &&
+        this.registry.canUseToolGroup(group, userId, mcdonaldsCredentialId),
+    );
   }
 
   /**
@@ -245,9 +292,15 @@ export class StrategyRouterService {
   private forcedDefaultToolGroups(
     mode: AgentStrategyMode,
     cfg: AgentDefinition,
+    userId?: string,
+    mcdonaldsCredentialId?: string,
   ): string[] {
     if (cfg.toolGroups.length > 0) {
-      return this.filterKnownToolGroups(cfg.toolGroups);
+      return this.filterKnownToolGroups(
+        cfg.toolGroups,
+        userId,
+        mcdonaldsCredentialId,
+      );
     }
     const known = new Set(this.registry.listToolGroups());
     if (
@@ -261,9 +314,17 @@ export class StrategyRouterService {
   }
 
   /** 恢复路径工具组：配置优先，空则兜底默认组（恢复即执行工具） */
-  private resumeToolGroups(cfg?: AgentDefinition): string[] {
+  private resumeToolGroups(
+    cfg?: AgentDefinition,
+    userId?: string,
+    mcdonaldsCredentialId?: string,
+  ): string[] {
     if (cfg && cfg.toolGroups.length > 0) {
-      return this.filterKnownToolGroups(cfg.toolGroups);
+      return this.filterKnownToolGroups(
+        cfg.toolGroups,
+        userId,
+        mcdonaldsCredentialId,
+      );
     }
     const known = new Set(this.registry.listToolGroups());
     return this.registry.hasTools() && known.has(DEFAULT_TOOL_GROUP)
@@ -285,7 +346,15 @@ export class StrategyRouterService {
       return null;
     }
 
-    const toolGroups = this.registry.listToolGroups();
+    const toolGroups = this.registry
+      .listToolGroups()
+      .filter((group) =>
+        this.registry.canUseToolGroup(
+          group,
+          input.userId,
+          input.mcdonaldsCredentialId,
+        ),
+      );
     const toolNames = this.registry.listToolNames();
     const skillNames = this.registry.listSkillNames();
 
@@ -311,7 +380,12 @@ export class StrategyRouterService {
       },
     );
 
-    return this.buildDecisionFromModel(parsed);
+    return this.buildDecisionFromModel(
+      parsed,
+      latestUserText,
+      input.userId,
+      input.mcdonaldsCredentialId,
+    );
   }
 
   private buildRouterUserPrompt(
@@ -336,6 +410,9 @@ export class StrategyRouterService {
    */
   private buildDecisionFromModel(
     parsed: StrategyDecisionOutput | null,
+    latestUserText: string,
+    userId: string | undefined,
+    mcdonaldsCredentialId: string | undefined,
   ): AgentStrategyDecision | null {
     if (!parsed) {
       return null;
@@ -353,7 +430,13 @@ export class StrategyRouterService {
       reason:
         this.readString(parsed.reason) ?? '由结构化路由模型决策得到的执行策略',
       skills: this.filterKnownSkills(parsed.skills),
-      toolGroups: this.resolveToolGroups(mode, parsed.toolGroups),
+      toolGroups: this.resolveToolGroups(
+        mode,
+        parsed.toolGroups,
+        latestUserText,
+        userId,
+        mcdonaldsCredentialId,
+      ),
       maxSteps: this.clampMaxSteps(parsed.maxSteps),
       publicStatus: PUBLIC_STATUS_BY_MODE[mode],
       source: 'model',
@@ -383,13 +466,28 @@ export class StrategyRouterService {
    * 收敛工具组到闭集，并对非 direct 模式做兜底
    * @description 过滤掉注册表中不存在的工具组；react/plan/hybrid 若最终为空且存在可用工具，则兜底为默认工具组，避免带工具的策略拿不到工具。
    */
-  private resolveToolGroups(mode: AgentStrategyMode, value: unknown): string[] {
+  private resolveToolGroups(
+    mode: AgentStrategyMode,
+    value: unknown,
+    latestUserText: string,
+    userId: string | undefined,
+    mcdonaldsCredentialId: string | undefined,
+  ): string[] {
     const known = new Set(this.registry.listToolGroups());
-    const requested = Array.isArray(value)
+    let requested = Array.isArray(value)
       ? value.filter(
-          (item): item is string => typeof item === 'string' && known.has(item),
+          (item): item is string =>
+            typeof item === 'string' &&
+            known.has(item) &&
+            this.registry.canUseToolGroup(item, userId, mcdonaldsCredentialId),
         )
       : [];
+
+    if (!this.includesAny(latestUserText, MCDONALDS_ORDER_INTENT_KEYWORDS)) {
+      requested = requested.filter(
+        (group) => group !== MCDONALDS_ORDER_TOOL_GROUP,
+      );
+    }
 
     if (
       requested.length === 0 &&
@@ -458,6 +556,28 @@ export class StrategyRouterService {
       latestUserText,
       HYBRID_INTENT_KEYWORDS,
     );
+    const hasMcDonaldsOrderIntent = this.includesAny(
+      latestUserText,
+      MCDONALDS_ORDER_INTENT_KEYWORDS,
+    );
+
+    if (
+      hasMcDonaldsOrderIntent &&
+      new Set(this.registry.listToolGroups()).has(MCDONALDS_ORDER_TOOL_GROUP) &&
+      this.registry.canUseToolGroup(
+        MCDONALDS_ORDER_TOOL_GROUP,
+        input.userId,
+        input.mcdonaldsCredentialId,
+      )
+    ) {
+      return this.buildDecision({
+        mode: AgentStrategyMode.PlanExecute,
+        confidence: 0.86,
+        reason: '请求明确指定麦当劳点餐，需要按门店、菜单、计价和下单步骤执行',
+        publicStatus: PUBLIC_STATUS_BY_MODE[AgentStrategyMode.PlanExecute],
+        toolGroups: [MCDONALDS_ORDER_TOOL_GROUP],
+      });
+    }
 
     if (hasTools && hasPlanIntent && hasHybridIntent) {
       return this.buildDecision({

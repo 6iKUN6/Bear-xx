@@ -4,6 +4,7 @@ export {
   type AgentLoopStreamEvent,
   type AgentStrategyDecision,
   type AgentStrategyGraph,
+  type PersistedAgentStrategySnapshot,
 } from './agent-loop.types';
 export { AgentLoopRunnerService } from './agent-loop-runner.service';
 export { StrategyRegistryService } from './strategy-registry.service';
@@ -15,10 +16,12 @@ export { HybridPlanReactGraph } from './graphs/hybrid-plan-react.graph';
 export {
   CapabilityRegistry,
   DEFAULT_TOOL_GROUP,
+  MCDONALDS_ORDER_TOOL_GROUP,
 } from './capability/capability.registry';
 export { CapabilityResolver } from './capability/capability.resolver';
 export type {
   CapabilityTool,
+  CapabilityToolMetadata,
   ResolvedCapabilities,
   SkillDefinition,
   SubagentDefinition,

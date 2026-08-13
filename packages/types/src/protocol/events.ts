@@ -31,6 +31,8 @@ export enum StreamTaskEventType {
   ToolCallDone = 'tool.call.done',
   /** 工具调用失败 */
   ToolCallError = 'tool.call.error',
+  /** 麦当劳订单已创建，可安全回显订单卡片 */
+  OrderCreated = 'order.created',
   /** 助手消息文本增量 */
   MessageDelta = 'message.delta',
   /** 助手消息生成完成 */
@@ -96,6 +98,7 @@ export const STREAM_TASK_EVENT_LABELS: Record<StreamTaskEventType, string> = {
   [StreamTaskEventType.ToolCallDelta]: '工具调用中',
   [StreamTaskEventType.ToolCallDone]: '工具调用完成',
   [StreamTaskEventType.ToolCallError]: '工具调用失败',
+  [StreamTaskEventType.OrderCreated]: '订单已创建',
   [StreamTaskEventType.MessageDelta]: '正在生成回复',
   [StreamTaskEventType.MessageDone]: '回复生成完成',
   [StreamTaskEventType.TaskCreated]: '任务已创建',

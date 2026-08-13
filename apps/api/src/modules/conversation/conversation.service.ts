@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { ConversationType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { McDonaldsOrderService } from '../mcdonalds-order/mcdonalds-order.service';
 
 @Injectable()
 export class ConversationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mcdonaldsOrderService: McDonaldsOrderService,
+  ) {}
 
   /**
    * 查询指定用户的全部会话列表
@@ -52,6 +56,38 @@ export class ConversationService {
         : [],
     );
 
+    const orders = await this.prisma.mcDonaldsOrder.findMany({
+      where: { userId, messageId: { not: null } },
+      select: {
+        id: true,
+        messageId: true,
+        externalOrderId: true,
+        status: true,
+        statusLabel: true,
+        storeName: true,
+        fulfillmentType: true,
+        totalAmount: true,
+        discountAmount: true,
+        currency: true,
+        items: true,
+        estimatedFulfillmentAt: true,
+        lastRefreshedAt: true,
+        createdAt: true,
+      },
+    });
+    const ordersByMessageId = new Map<
+      string,
+      ReturnType<McDonaldsOrderService['toOrderCard']>[]
+    >();
+    for (const order of orders) {
+      if (!order.messageId) {
+        continue;
+      }
+      const messageOrders = ordersByMessageId.get(order.messageId) ?? [];
+      messageOrders.push(this.mcdonaldsOrderService.toOrderCard(order));
+      ordersByMessageId.set(order.messageId, messageOrders);
+    }
+
     return conversations.map((c) => ({
       id: c.id,
       title: c.title,
@@ -81,6 +117,7 @@ export class ConversationService {
           inputSummary: item.inputSummary,
           outputSummary: item.outputSummary,
         })),
+        orders: ordersByMessageId.get(m.id) ?? [],
       })),
       createdAt: c.createdAt.getTime(),
       updatedAt: c.updatedAt.getTime(),

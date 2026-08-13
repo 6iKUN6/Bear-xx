@@ -42,6 +42,10 @@ export interface AgentDefinition {
 }
 
 export interface AgentLoopInput {
+  /** 当前发起任务的 Litter-Bear 用户ID。 */
+  userId?: string;
+  /** 当前任务锁定的麦当劳 MCP 凭据ID；只在服务端能力装配中使用，不进入 SSE 或模型上下文。 */
+  mcdonaldsCredentialId?: string;
   messages: LlmMessage[];
   systemPrompt?: string;
   llm?: ResolvedLlmTextRequest;
@@ -91,6 +95,20 @@ export interface AgentStrategyDecision {
   maxSteps: number;
   publicStatus: string;
   source: AgentStrategySource;
+}
+
+/**
+ * 可恢复任务持久化的首轮策略快照
+ * @description 审批恢复必须使用与首轮完全一致的策略形状、工具组、技能和步数预算；
+ * 否则默认 agent 会退回 default 工具组，导致 MCP 工具及其审批策略从恢复链路丢失。
+ */
+export interface PersistedAgentStrategySnapshot {
+  strategy: AgentStrategyMode;
+  toolGroups: string[];
+  skills: string[];
+  maxSteps: number;
+  /** 首轮点餐工具实际使用的用户级凭据ID；HITL 恢复必须复用，不可因换绑而切换账号。 */
+  mcdonaldsCredentialId?: string;
 }
 
 export interface AgentStrategyGraph {

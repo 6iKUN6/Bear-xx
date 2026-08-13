@@ -44,6 +44,7 @@ import { AiService } from '../ai/ai.service';
 import { CommonChatAgentRunnerService } from '../ai/agents';
 import type {
   AgentLoopStreamEvent,
+  PersistedAgentStrategySnapshot,
 } from '../ai/agent-loop';
 import type {
   LlmMessage,
@@ -62,6 +63,14 @@ import { ConversationTraceService } from '../conversation-trace';
 import type { ChatContextBundle } from '../memory/chat-context.service';
 import { ConversationSummaryService } from '../memory/conversation-summary.service';
 import { ConversationTitleService } from '../memory/conversation-title.service';
+import { McDonaldsOrderService } from '../mcdonalds-order/mcdonalds-order.service';
+import { McDonaldsCredentialService } from '../mcdonalds-credential/mcdonalds-credential.service';
+import { CapabilityRegistry } from '../ai/agent-loop/capability/capability.registry';
+import { MCDONALDS_MCP_SERVER_NAME } from '../ai/mcp/McDonalds.mcp';
+import {
+  consumeCreatedMcDonaldsOrderIds,
+  runWithMcDonaldsOrderContext,
+} from '../mcdonalds-order/mcdonalds-order-context';
 import {
   STREAM_TASK_TERMINAL_EVENT_TYPES,
   StreamTaskEventType,
@@ -73,6 +82,8 @@ interface ChatTaskPayload {
   content: string;
   llm?: ResolvedLlmTextRequest;
   agentId?: string;
+  /** 创建任务时锁定的用户级麦当劳凭据；只用于动态 MCP 工具装配。 */
+  mcdonaldsCredentialId?: string;
 }
 
 interface CreatedTaskResult {
@@ -133,6 +144,9 @@ export class StreamTaskService {
     private readonly conversationTitleService: ConversationTitleService,
     private readonly registry: StreamTaskRegistry,
     private readonly snapshotService: StreamTaskSnapshotService,
+    private readonly mcdonaldsOrderService: McDonaldsOrderService,
+    private readonly capabilityRegistry: CapabilityRegistry,
+    private readonly mcdonaldsCredentialService: McDonaldsCredentialService,
   ) {
     this.bufferTtl =
       this.configService.get<number>('STREAM_TASK_BUFFER_TTL') ??
@@ -486,11 +500,14 @@ export class StreamTaskService {
   ) {
     const resolvedLlmRequest =
       this.commonChatAgentRunnerService.resolveTextRequest(llmRequest);
+    const mcdonaldsCredentialId =
+      await this.mcdonaldsCredentialService.getActiveCredentialId(userId);
     const requestPayload = JSON.parse(
       JSON.stringify({
         content,
         llm: resolvedLlmRequest,
         agentId,
+        mcdonaldsCredentialId,
       }),
     ) as Prisma.JsonObject;
 
@@ -1221,6 +1238,7 @@ export class StreamTaskService {
             conversationId,
             messageId,
             requestPayload: task.requestPayload,
+            executionState: task.executionState,
           },
           executionSignal,
         );
@@ -1308,6 +1326,7 @@ export class StreamTaskService {
       conversationId: string;
       messageId: string;
       requestPayload: Prisma.JsonValue;
+      executionState: Prisma.JsonValue;
     },
     executionSignal: AbortSignal,
   ) {
@@ -1334,8 +1353,13 @@ export class StreamTaskService {
           llm: payload.llm,
           agentId: payload.agentId,
           taskId: task.id,
+          userId: task.userId,
+          mcdonaldsCredentialId: payload.mcdonaldsCredentialId,
           decision: pendingDecision,
           strategy: this.readExecutionStrategy(task.executionState),
+          strategySnapshot: this.readExecutionStrategySnapshot(
+            task.executionState,
+          ),
           abortSignal: executionSignal,
         })
       : await this.commonChatAgentRunnerService.prepareConversationRun({
@@ -1344,6 +1368,8 @@ export class StreamTaskService {
           llm: payload.llm,
           agentId: payload.agentId,
           taskId: task.id,
+          userId: task.userId,
+          mcdonaldsCredentialId: payload.mcdonaldsCredentialId,
           abortSignal: executionSignal,
         });
 
@@ -1375,62 +1401,76 @@ export class StreamTaskService {
     // 挂的回调在此上下文累计，循环结束后读取（trace 无法覆盖折叠在消息流里的往返）。
     await runWithModelCallContext(
       task.id,
-      async () => {
-        for await (const event of agentRun.events) {
-          if (event.type === StreamTaskEventType.ToolCallDelta) {
-            await this.handleToolCallDeltaEvent(task, event);
-            continue;
-          }
+      () =>
+        runWithMcDonaldsOrderContext(
+          task.id,
+          task.userId,
+          async () => {
+            for await (const event of agentRun.events) {
+              if (event.type === StreamTaskEventType.ToolCallDelta) {
+                await this.handleToolCallDeltaEvent(task, event);
+                continue;
+              }
 
-          if (event.type !== StreamTaskEventType.MessageDelta) {
-            if (
-              event.type === StreamTaskEventType.ApprovalRequired ||
-              event.type === StreamTaskEventType.PlanReviewRequired
-            ) {
-              pendingApproval = true;
+              if (event.type !== StreamTaskEventType.MessageDelta) {
+                if (
+                  event.type === StreamTaskEventType.ApprovalRequired ||
+                  event.type === StreamTaskEventType.PlanReviewRequired
+                ) {
+                  pendingApproval = true;
+                }
+                if (event.type === StreamTaskEventType.StrategySelected) {
+                  await this.persistExecutionStrategy(
+                    task.id,
+                    event.payload,
+                    payload.mcdonaldsCredentialId,
+                  );
+                }
+                await this.handleAgentLoopStatusEvent(task, event);
+                continue;
+              }
+
+              if (!event.delta) {
+                emptyDeltaCount++;
+                continue;
+              }
+
+              deltaCount++;
+              fullContent += event.delta;
+              const deltaEvent = await this.publishFrame(
+                task.id,
+                StreamTaskEventType.MessageDelta,
+                this.serializeTaskEventData({
+                  type: StreamTaskEventType.MessageDelta,
+                  taskId: task.id,
+                  streamId: task.streamId,
+                  conversationId: task.conversationId,
+                  messageId: task.messageId,
+                  status: StreamTaskStatus.STREAMING.toLowerCase(),
+                  payload: {
+                    delta: event.delta,
+                  },
+                }),
+              );
+              const flushResult = await this.maybeFlushFullContent({
+                taskId: task.id,
+                fullContent,
+                lastFlushAt: lastFullContentFlushAt,
+                lastFlushedLength: lastFlushedFullContentLength,
+              });
+              lastFullContentFlushAt = flushResult.lastFlushAt;
+              lastFlushedFullContentLength = flushResult.lastFlushedLength;
+              this.registry.publish(task.id, deltaEvent);
             }
-            if (event.type === StreamTaskEventType.StrategySelected) {
-              await this.persistExecutionStrategy(task.id, event.payload.mode);
-            }
-            await this.handleAgentLoopStatusEvent(task, event);
-            continue;
-          }
 
-          if (!event.delta) {
-            emptyDeltaCount++;
-            continue;
-          }
-
-          deltaCount++;
-          fullContent += event.delta;
-          const deltaEvent = await this.publishFrame(
-            task.id,
-            StreamTaskEventType.MessageDelta,
-            this.serializeTaskEventData({
-              type: StreamTaskEventType.MessageDelta,
-              taskId: task.id,
-              streamId: task.streamId,
-              conversationId: task.conversationId,
-              messageId: task.messageId,
-              status: StreamTaskStatus.STREAMING.toLowerCase(),
-              payload: {
-                delta: event.delta,
-              },
-            }),
-          );
-          const flushResult = await this.maybeFlushFullContent({
-            taskId: task.id,
-            fullContent,
-            lastFlushAt: lastFullContentFlushAt,
-            lastFlushedLength: lastFlushedFullContentLength,
-          });
-          lastFullContentFlushAt = flushResult.lastFlushAt;
-          lastFlushedFullContentLength = flushResult.lastFlushedLength;
-          this.registry.publish(task.id, deltaEvent);
-        }
-
-        modelCallCount = getModelCallCount();
-      },
+            modelCallCount = getModelCallCount();
+          },
+          {
+            conversationId: task.conversationId,
+            messageId: task.messageId,
+          },
+          { mcdonaldsCredentialId: payload.mcdonaldsCredentialId },
+        ),
       task.userId,
     );
 
@@ -1738,16 +1778,68 @@ export class StreamTaskService {
    */
   private async persistExecutionStrategy(
     taskId: string,
-    strategy: AgentStrategyMode,
+    payload: Extract<
+      AgentLoopStreamEvent,
+      { type: StreamTaskEventType.StrategySelected }
+    >['payload'],
+    mcdonaldsCredentialId?: string,
   ) {
     await this.prisma.streamTask.update({
       where: { id: taskId },
       data: {
         executionState: {
-          strategy,
+          strategy: payload.mode,
+          toolGroups: payload.toolGroups,
+          skills: payload.skills,
+          maxSteps: payload.maxSteps,
+          mcdonaldsCredentialId,
         },
       },
     });
+  }
+
+  /**
+   * 读取首轮能力快照
+   * @param executionState 任务的执行状态列
+   * @returns 快照完整且合法时返回；旧任务或非法数据返回 undefined
+   * @description `strategy` 只能保证图形状一致，`toolGroups`、`skills` 与 `maxSteps` 才能让恢复图
+   * 重建同一套 MCP 工具、系统提示词和审批策略。老任务无快照时保留既有 config/default 恢复逻辑。
+   */
+  private readExecutionStrategySnapshot(
+    executionState: Prisma.JsonValue,
+  ): PersistedAgentStrategySnapshot | undefined {
+    if (!executionState || typeof executionState !== 'object') {
+      return undefined;
+    }
+    const state = executionState as {
+      strategy?: unknown;
+      toolGroups?: unknown;
+      skills?: unknown;
+      maxSteps?: unknown;
+      mcdonaldsCredentialId?: unknown;
+    };
+    const known = Object.values(AgentStrategyMode) as string[];
+    if (
+      typeof state.strategy !== 'string' ||
+      !known.includes(state.strategy) ||
+      !Array.isArray(state.toolGroups) ||
+      !state.toolGroups.every((value) => typeof value === 'string') ||
+      !Array.isArray(state.skills) ||
+      !state.skills.every((value) => typeof value === 'string') ||
+      typeof state.maxSteps !== 'number' ||
+      !Number.isFinite(state.maxSteps)
+    ) {
+      return undefined;
+    }
+    return {
+      strategy: state.strategy as AgentStrategyMode,
+      toolGroups: state.toolGroups,
+      skills: state.skills,
+      maxSteps: state.maxSteps,
+      ...(typeof state.mcdonaldsCredentialId === 'string'
+        ? { mcdonaldsCredentialId: state.mcdonaldsCredentialId }
+        : {}),
+    };
   }
 
   /**
@@ -1813,6 +1905,66 @@ export class StreamTaskService {
       payload: event.payload,
     });
     this.registry.publish(task.id, statusEvent.sseEvent);
+
+    const toolName =
+      event.type === StreamTaskEventType.ToolCallDone
+        ? (event.payload.toolName ?? event.payload.name)
+        : undefined;
+    if (toolName && this.isMcDonaldsCreateOrderTool(toolName)) {
+      await this.publishCreatedMcDonaldsOrders(task);
+    }
+  }
+
+  /**
+   * 在下单工具成功后发布本任务新建的订单卡片
+   * @param task 当前流式聊天任务上下文
+   * @returns 无返回值
+   * @description 订单ID来自任务级 AsyncLocalStorage，避免从工具文字或 trace 摘要反解析业务事实；事件不写 conversation trace，因为工具调用审计已存在。
+   */
+  private async publishCreatedMcDonaldsOrders(task: {
+    id: string;
+    userId: string;
+    streamId: string;
+    conversationId: string;
+    messageId: string;
+  }): Promise<void> {
+    const orderIds = consumeCreatedMcDonaldsOrderIds();
+    const orders = await this.mcdonaldsOrderService.getCardsByIds(
+      orderIds,
+      task.userId,
+    );
+    for (const order of orders) {
+      const orderEvent = await this.persistEvent(
+        task.id,
+        task.streamId,
+        StreamTaskEventType.OrderCreated,
+        this.serializeTaskEventData({
+          type: StreamTaskEventType.OrderCreated,
+          taskId: task.id,
+          streamId: task.streamId,
+          conversationId: task.conversationId,
+          messageId: task.messageId,
+          status: StreamTaskStatus.STREAMING.toLowerCase(),
+          payload: { order },
+        }),
+        { status: StreamTaskStatus.STREAMING },
+      );
+      this.registry.publish(task.id, orderEvent.sseEvent);
+    }
+  }
+
+  /**
+   * 判断运行时工具是否为麦当劳下单工具
+   * @param toolName Agent 内运行时工具名
+   * @returns 麦当劳 create-order 返回 true
+   * @description 使用稳定的 MCP 前缀后缀组合识别；实际来源审计仍由 CapabilityRegistry 元数据完成。
+   */
+  private isMcDonaldsCreateOrderTool(toolName: string): boolean {
+    const metadata = this.capabilityRegistry.getToolMetadata(toolName);
+    return (
+      metadata?.mcpServer === MCDONALDS_MCP_SERVER_NAME &&
+      metadata.mcpTool === 'create-order'
+    );
   }
 
   /**

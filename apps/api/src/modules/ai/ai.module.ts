@@ -26,9 +26,20 @@ import {
   StrategyRouterService,
 } from './agent-loop';
 import { AiService } from './ai.service';
+import { McpModule } from './mcp/mcp.module';
+import { McDonaldsOrderModule } from '../mcdonalds-order/mcdonalds-order.module';
+import { McDonaldsCredentialModule } from '../mcdonalds-credential/mcdonalds-credential.module';
 
 @Module({
-  imports: [LlmModule, MemoryModule, AgentModule, ImagesModule],
+  imports: [
+    LlmModule,
+    MemoryModule,
+    AgentModule,
+    ImagesModule,
+    McpModule,
+    McDonaldsCredentialModule,
+    McDonaldsOrderModule,
+  ],
   providers: [
     AiService,
     CommonChatAgentFactory,

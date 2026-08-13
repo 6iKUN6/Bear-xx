@@ -1,4 +1,11 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsEnum,
+  IsOptional,
+  Matches,
+  ValidateIf,
+} from 'class-validator';
 
 export class EnvConfig {
   @IsOptional()
@@ -197,4 +204,32 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   IMAGE_GEN_SEEDREAM_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  MCDONALDS_MCP_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  MCDONALDS_MCP_TOOL_PREFIX?: string;
+
+  @ValidateIf(
+    (config: EnvConfig) =>
+      config.MCDONALDS_CREDENTIAL_ENCRYPTION_KEY !== undefined &&
+      config.MCDONALDS_CREDENTIAL_ENCRYPTION_KEY !== '',
+  )
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[A-Za-z0-9+/]+={0,2}$/)
+  MCDONALDS_CREDENTIAL_ENCRYPTION_KEY?: string;
+
+  @ValidateIf(
+    (config: EnvConfig) =>
+      config.MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY !== undefined &&
+      config.MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY !== '',
+  )
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[A-Za-z0-9+/]+={0,2}$/)
+  MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY?: string;
 }

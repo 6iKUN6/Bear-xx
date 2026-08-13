@@ -47,6 +47,8 @@ export interface CompleteTraceItemInput {
   title?: string;
   summary?: string | null;
   detail?: string | null;
+  mcpServer?: string | null;
+  mcpTool?: string | null;
   outputSummary?: unknown;
   metrics?: unknown;
   metadata?: unknown;

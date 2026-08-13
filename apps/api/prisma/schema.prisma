@@ -26,8 +26,55 @@ model User {
   turnTraceItems    ConversationTurnTraceItem[]
   createdAgents     Agent[]
   storageAssets     StorageAsset[]
+  mcdonaldsOrders   McDonaldsOrder[]
+  mcdonaldsCredentials McDonaldsCredential[]
+  mcpConnectionAudits McpConnectionAudit[]
 
   @@map("users")
+}
+
+/// 用户自行在麦当劳 MCP 平台生成并绑定的凭据。明文 Token 只在服务端请求范围内解密使用。
+model McDonaldsCredential {
+  id               String                     @id @default(cuid())
+  userId           String                     @map("user_id")
+  tokenCiphertext  String                     @map("token_ciphertext") @db.Text
+  tokenFingerprint String                     @map("token_fingerprint")
+  status           McDonaldsCredentialStatus @default(ACTIVE)
+  verifiedAt       DateTime?                  @map("verified_at")
+  lastError        String?                    @map("last_error") @db.Text
+  revokedAt        DateTime?                  @map("revoked_at")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders McDonaldsOrder[]
+  connectionAudits McpConnectionAudit[]
+
+  @@index([userId, status])
+  @@index([userId, tokenFingerprint])
+  @@map("mcdonalds_credentials")
+}
+
+/// 会话外 MCP 连接操作的安全审计。用于用户授权、连接健康等没有 Conversation/StreamTask 上下文的调用。
+model McpConnectionAudit {
+  id           String                      @id @default(cuid())
+  userId       String                      @map("user_id")
+  credentialId String?                     @map("credential_id")
+  mcpServer    String                      @map("mcp_server")
+  operation    McpConnectionAuditOperation
+  mcpTool      String?                     @map("mcp_tool")
+  status       McpConnectionAuditStatus
+  durationMs   Int?                        @map("duration_ms")
+  errorMessage String?                     @map("error_message") @db.Text
+  createdAt    DateTime                    @default(now()) @map("created_at")
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential McDonaldsCredential?  @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([credentialId, createdAt])
+  @@index([mcpServer, status, createdAt])
+  @@map("mcp_connection_audits")
 }
 
 /// 对象存储资源登记：一处上传、多处复用；失效走软标记而非物理删行
@@ -137,6 +184,7 @@ model Conversation {
   sseTasks       SseTask[]
   streamTasks    StreamTask[]
   turnTraceItems ConversationTurnTraceItem[]
+  mcdonaldsOrders McDonaldsOrder[]
   createdAt      DateTime                    @default(now()) @map("created_at")
   updatedAt      DateTime                    @updatedAt @map("updated_at")
 
@@ -172,6 +220,7 @@ model Message {
   sseTasks       SseTask[]
   streamTasks    StreamTask[]
   turnTraceItems ConversationTurnTraceItem[]
+  mcdonaldsOrders McDonaldsOrder[]
 
   @@index([conversationId])
   @@map("messages")
@@ -235,6 +284,7 @@ model StreamTask {
   runs            StreamTaskRun[]             @relation("StreamTaskRuns")
   events          StreamTaskEvent[]
   turnTraceItems  ConversationTurnTraceItem[]
+  mcdonaldsOrders McDonaldsOrder[]
 
   @@index([userId, status])
   @@index([conversationId])
@@ -337,6 +387,65 @@ model ConversationTurnTraceItem {
   @@map("conversation_turn_trace_items")
 }
 
+/// 麦当劳 MCP 成功创建的订单业务事实。支付链接独立加密保存，绝不进入 rawSnapshot 或普通 DTO。
+model McDonaldsOrder {
+  id                     String    @id @default(cuid())
+  userId                 String    @map("user_id")
+  credentialId           String?   @map("credential_id")
+  conversationId         String?   @map("conversation_id")
+  messageId              String?   @map("message_id")
+  taskId                 String?   @map("task_id")
+  externalOrderId        String    @map("external_order_id")
+  status                 String?
+  statusLabel            String?   @map("status_label")
+  storeCode              String?   @map("store_code")
+  storeName              String?   @map("store_name")
+  orderType              Int?      @map("order_type")
+  fulfillmentType        String?   @map("fulfillment_type")
+  estimatedFulfillmentAt DateTime? @map("estimated_fulfillment_at")
+  totalAmount            Decimal?  @map("total_amount") @db.Decimal(12, 2)
+  discountAmount         Decimal?  @map("discount_amount") @db.Decimal(12, 2)
+  currency               String?   @default("CNY")
+  items                  Json?
+  rawSnapshot            Json?     @map("raw_snapshot")
+  paymentUrlCiphertext   String?   @map("payment_url_ciphertext") @db.Text
+  paymentUrlExpiresAt    DateTime? @map("payment_url_expires_at")
+  lastRefreshedAt        DateTime? @map("last_refreshed_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential   McDonaldsCredential?  @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  conversation Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message      Message?              @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  task         StreamTask?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  refreshes    McDonaldsOrderRefresh[]
+
+  @@unique([userId, credentialId, externalOrderId])
+  @@index([userId, createdAt])
+  @@index([credentialId])
+  @@index([messageId])
+  @@map("mcdonalds_orders")
+}
+
+/// 用户从订单页主动刷新状态的领域审计；不复用聊天 conversation trace。
+model McDonaldsOrderRefresh {
+  id           String                        @id @default(cuid())
+  orderId      String                        @map("order_id")
+  status       McDonaldsOrderRefreshStatus
+  statusAfter  String?                       @map("status_after")
+  errorMessage String?                       @map("error_message") @db.Text
+  safeSnapshot Json?                         @map("safe_snapshot")
+  startedAt    DateTime                      @default(now()) @map("started_at")
+  completedAt  DateTime?                     @map("completed_at")
+  createdAt    DateTime                      @default(now()) @map("created_at")
+
+  order McDonaldsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("mcdonalds_order_refreshes")
+}
+
 enum MessageRole {
   USER
   ASSISTANT
@@ -390,6 +499,26 @@ enum ConversationTraceItemStatus {
   ERROR
   SKIPPED
   CANCELED
+}
+
+enum McDonaldsOrderRefreshStatus {
+  SUCCESS
+  ERROR
+}
+
+enum McDonaldsCredentialStatus {
+  ACTIVE
+  INVALID
+  REVOKED
+}
+
+enum McpConnectionAuditOperation {
+  CREDENTIAL_BIND_VERIFICATION
+}
+
+enum McpConnectionAuditStatus {
+  SUCCESS
+  ERROR
 }
 
 enum SseTaskType {

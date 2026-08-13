@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { McDonaldsOrderResponseDto } from '../../mcdonalds-order/dto/mcdonalds-order-response.dto';
 
 export class ConversationMessageTraceItemDto {
   @ApiProperty({ description: '轨迹项 ID', example: 'cmf_trace_123' })
@@ -154,6 +155,14 @@ export class ConversationMessageDto {
     required: false,
   })
   trace?: ConversationMessageTraceItemDto[];
+
+  @ApiProperty({
+    description: '该助手消息创建的麦当劳订单卡片',
+    type: McDonaldsOrderResponseDto,
+    isArray: true,
+    required: false,
+  })
+  orders?: McDonaldsOrderResponseDto[];
 }
 
 export class ConversationDto {

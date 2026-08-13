@@ -13,6 +13,11 @@ function applyOpenApiEnvFallbacks() {
     JWT_ACCESS_SECRET: 'docs-access-secret',
     JWT_REFRESH_SECRET: 'docs-refresh-secret',
     OPENAI_API_KEY: 'docs-openai-key',
+    // 仅供构建 Swagger 实例时满足配置校验；不会加密真实订单数据。
+    MCDONALDS_CREDENTIAL_ENCRYPTION_KEY:
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY:
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
   };
 
   for (const [key, value] of Object.entries(fallbackEntries)) {
@@ -36,9 +41,9 @@ async function exportOpenApi() {
   require('reflect-metadata');
 
   const { NestFactory } = require('@nestjs/core');
-  const { AppModule } = require('../dist/app.module');
-  const { API_GLOBAL_PREFIX } = require('../dist/app.constants');
-  const { createSwaggerDocument } = require('../dist/swagger');
+  const { AppModule } = require('../dist/src/app.module');
+  const { API_GLOBAL_PREFIX } = require('../dist/src/app.constants');
+  const { createSwaggerDocument } = require('../dist/src/swagger');
 
   const app = await NestFactory.create(AppModule, { logger: false });
 

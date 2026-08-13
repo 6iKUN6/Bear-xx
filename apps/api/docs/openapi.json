@@ -295,6 +295,1639 @@
         ]
       }
     },
+    "/api/agents": {
+      "get": {
+        "description": "供客户端选择智能体",
+        "operationId": "AgentController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取智能体列表",
+        "tags": [
+          "智能体"
+        ]
+      },
+      "post": {
+        "operationId": "AgentController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建智能体（管理员）",
+        "tags": [
+          "智能体"
+        ]
+      }
+    },
+    "/api/agents/{id}": {
+      "get": {
+        "operationId": "AgentController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取智能体详情",
+        "tags": [
+          "智能体"
+        ]
+      },
+      "patch": {
+        "operationId": "AgentController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新智能体（管理员）",
+        "tags": [
+          "智能体"
+        ]
+      },
+      "delete": {
+        "operationId": "AgentController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除智能体（管理员）",
+        "tags": [
+          "智能体"
+        ]
+      }
+    },
+    "/api/admin/observability/overview": {
+      "get": {
+        "operationId": "AdminController_overview",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "统计时间窗口天数（默认 7，最大 90）",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "example": 7,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservabilityOverviewDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "总览：任务量/状态分布/成功率/平均时长（管理员）",
+        "tags": [
+          "管理-观测"
+        ]
+      }
+    },
+    "/api/admin/observability/agents": {
+      "get": {
+        "operationId": "AdminController_agents",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "统计时间窗口天数（默认 7，最大 90）",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "example": 7,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentUsageDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "按智能体聚合用量（管理员）",
+        "tags": [
+          "管理-观测"
+        ]
+      }
+    },
+    "/api/admin/observability/tools": {
+      "get": {
+        "operationId": "AdminController_tools",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "统计时间窗口天数（默认 7，最大 90）",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "example": 7,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ToolUsageDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "按工具聚合调用（管理员）",
+        "tags": [
+          "管理-观测"
+        ]
+      }
+    },
+    "/api/admin/observability/errors": {
+      "get": {
+        "operationId": "AdminController_errors",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "统计时间窗口天数（默认 7，最大 90）",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "example": 7,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ErrorCategoryCountDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "失败任务按错误类别聚合（管理员）",
+        "tags": [
+          "管理-观测"
+        ]
+      }
+    },
+    "/api/admin/observability/tasks": {
+      "get": {
+        "operationId": "AdminController_tasks",
+        "parameters": [
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "统计时间窗口天数（默认 7，最大 90）",
+            "schema": {
+              "minimum": 1,
+              "maximum": 90,
+              "example": 7,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "返回条数（默认 20，最大 100）",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "游标：上一页最后一条任务的 id（按创建时间倒序分页）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentTasksDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "近期任务分页列表（管理员）",
+        "tags": [
+          "管理-观测"
+        ]
+      }
+    },
+    "/api/admin/observability/tasks/{id}": {
+      "get": {
+        "operationId": "AdminController_taskDetail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "单任务详情 + 执行轨迹（管理员）",
+        "tags": [
+          "管理-观测"
+        ]
+      }
+    },
+    "/api/admin/capabilities": {
+      "get": {
+        "operationId": "AdminCapabilityController_capabilities",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCapabilitiesDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "工具组与工具闭集（管理员）",
+        "tags": [
+          "管理-能力"
+        ]
+      }
+    },
+    "/api/admin/agent-tests/sessions": {
+      "get": {
+        "operationId": "AdminAgentTestController_listSessions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TestSessionDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "测试会话列表（管理员，按 userId 隔离）",
+        "tags": [
+          "管理-智能体测试"
+        ]
+      }
+    },
+    "/api/admin/agent-tests/sessions/{id}": {
+      "get": {
+        "operationId": "AdminAgentTestController_sessionDetail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestSessionDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "测试会话详情：消息 + 执行轨迹（管理员）",
+        "tags": [
+          "管理-智能体测试"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminAgentTestController_deleteSession",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除测试会话（管理员）",
+        "tags": [
+          "管理-智能体测试"
+        ]
+      }
+    },
+    "/api/admin/agent-tests": {
+      "post": {
+        "description": "每次新建独立会话跑一轮，实时回传执行事件；任务标记 isTest，不计入观测统计",
+        "operationId": "runAgentTest",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentTestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "测试流式响应",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "发起一次智能体流式测试（管理员）",
+        "tags": [
+          "管理-智能体测试"
+        ]
+      }
+    },
+    "/api/admin/model-presets": {
+      "get": {
+        "operationId": "AdminModelPresetController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelPresetResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "模型预设列表（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      },
+      "post": {
+        "operationId": "AdminModelPresetController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateModelPresetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPresetResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "新建模型预设（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      }
+    },
+    "/api/admin/model-presets/{id}": {
+      "get": {
+        "operationId": "AdminModelPresetController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPresetResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "模型预设详情（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminModelPresetController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateModelPresetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPresetResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新模型预设（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminModelPresetController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除模型预设（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      }
+    },
+    "/api/stream-tasks/{taskId}": {
+      "get": {
+        "operationId": "StreamTaskController_getTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "流式任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamTaskStatusDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "查询流式任务状态",
+        "tags": [
+          "流式任务"
+        ]
+      }
+    },
+    "/api/stream-tasks/{taskId}/stream": {
+      "get": {
+        "operationId": "StreamTaskController_streamTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "流式事件响应，data 为序列化后的任务事件载荷",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "id: 1751450000000-0\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"streamId\":\"cmf_stream_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "浏览器流式任务建链/恢复",
+        "tags": [
+          "流式任务"
+        ]
+      }
+    },
+    "/api/stream-tasks/{taskId}/resume": {
+      "post": {
+        "operationId": "StreamTaskController_resumeTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeStreamTaskDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "流式事件响应，data 为序列化后的任务事件载荷",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "id: 1751450000000-0\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"streamId\":\"cmf_stream_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "微信小程序/通用客户端恢复流式任务",
+        "tags": [
+          "流式任务"
+        ]
+      }
+    },
+    "/api/stream-tasks/{taskId}/approval": {
+      "post": {
+        "description": "对处于 WAITING_HUMAN 的任务提交 approve/reject/edit 决定，并从中断处继续流式返回。",
+        "operationId": "StreamTaskController_submitApproval",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitApprovalDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "恢复后的流式事件响应",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "提交人工审批决定并恢复流式任务（HITL）",
+        "tags": [
+          "流式任务"
+        ]
+      }
+    },
+    "/api/stream-tasks/{taskId}/plan-review": {
+      "post": {
+        "description": "对处于 WAITING_HUMAN 且挂起在计划审批的任务提交 approve/edit/reject_replan/reject_terminate，并从中断处继续流式返回。",
+        "operationId": "StreamTaskController_submitPlanReview",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitPlanReviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "恢复后的流式事件响应",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "提交计划审批决定并恢复流式任务（plan_execute HITL）",
+        "tags": [
+          "流式任务"
+        ]
+      }
+    },
+    "/api/stream-tasks/{taskId}/cancel": {
+      "post": {
+        "operationId": "StreamTaskController_cancelTask",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "取消后的任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelStreamTaskResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "取消流式任务",
+        "tags": [
+          "流式任务"
+        ]
+      }
+    },
+    "/api/images/generations": {
+      "post": {
+        "description": "同步生成一张图并转存七牛（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。",
+        "operationId": "ImagesController_generate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateImageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedImageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "直调生图",
+        "tags": [
+          "AI 生图"
+        ]
+      }
+    },
+    "/api/images/edits": {
+      "post": {
+        "description": "基于 1-4 张参考图（七牛 key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。",
+        "operationId": "ImagesController_edit",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditImageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedImageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "参考图生图（图生图/改图）",
+        "tags": [
+          "AI 生图"
+        ]
+      }
+    },
+    "/api/storage/upload-credential": {
+      "post": {
+        "description": "客户端拿 token/key 直传七牛（表单带 token、key），文件不经过本服务；上传成功后调 POST /storage/assets 登记。",
+        "operationId": "StorageController_createUploadCredential",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadCredentialDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadCredentialResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "签发直传凭证",
+        "tags": [
+          "对象存储"
+        ]
+      }
+    },
+    "/api/storage/access-url": {
+      "get": {
+        "description": "私有空间返回带签名的临时 URL；公开空间返回固定 URL。",
+        "operationId": "StorageController_resolveAccessUrl",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessUrlResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取对象访问 URL",
+        "tags": [
+          "对象存储"
+        ]
+      }
+    },
+    "/api/storage/assets": {
+      "post": {
+        "description": "幂等：同 key 重复登记返回既有记录并补全元数据。",
+        "operationId": "StorageController_registerAsset",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterAssetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageAssetDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "登记直传成功的资产",
+        "tags": [
+          "对象存储"
+        ]
+      },
+      "get": {
+        "description": "复用选择器数据源；默认只列 ACTIVE，按创建时间倒序。",
+        "operationId": "StorageController_listAssets",
+        "parameters": [
+          {
+            "name": "usage",
+            "required": false,
+            "in": "query",
+            "description": "按业务用途过滤",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "agent-avatar",
+                "chat-image",
+                "voice-input",
+                "ai-image"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "资产状态；默认只列可用",
+            "schema": {
+              "default": "ACTIVE",
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "BROKEN",
+                "DELETED"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "返回条数上限",
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StorageAssetDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "资产列表（管理员）",
+        "tags": [
+          "对象存储"
+        ]
+      }
+    },
+    "/api/storage/assets/{id}/status": {
+      "patch": {
+        "operationId": "StorageController_updateAssetStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssetStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageAssetDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "标记资产状态（管理员）：BROKEN/DELETED/ACTIVE",
+        "tags": [
+          "对象存储"
+        ]
+      }
+    },
+    "/api/mcdonalds-credential": {
+      "get": {
+        "operationId": "McDonaldsCredentialController_getActive",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "已绑定时返回安全凭据摘要，未绑定时 data 为 null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/McDonaldsCredentialResponseDto"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取我的麦当劳账号绑定状态",
+        "tags": [
+          "麦当劳账号"
+        ]
+      },
+      "put": {
+        "operationId": "McDonaldsCredentialController_bind",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindMcDonaldsCredentialDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McDonaldsCredentialResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "绑定麦当劳 MCP Token",
+        "tags": [
+          "麦当劳账号"
+        ]
+      },
+      "delete": {
+        "operationId": "McDonaldsCredentialController_unbind",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "已解绑或当前未绑定"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "解绑麦当劳 MCP Token",
+        "tags": [
+          "麦当劳账号"
+        ]
+      }
+    },
+    "/api/mcdonalds-orders": {
+      "get": {
+        "operationId": "McDonaldsOrderController_list",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "上一页最后一条订单的本地 ID",
+            "schema": {
+              "example": "cmf_mcd_order_123",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "返回条数，默认 20，最大 50",
+            "schema": {
+              "minimum": 1,
+              "maximum": 50,
+              "example": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McDonaldsOrderPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取我的麦当劳订单",
+        "tags": [
+          "麦当劳订单"
+        ]
+      }
+    },
+    "/api/mcdonalds-orders/{id}": {
+      "get": {
+        "operationId": "McDonaldsOrderController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McDonaldsOrderResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取麦当劳订单详情",
+        "tags": [
+          "麦当劳订单"
+        ]
+      }
+    },
+    "/api/mcdonalds-orders/{id}/refresh": {
+      "post": {
+        "operationId": "McDonaldsOrderController_refresh",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McDonaldsOrderResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "刷新麦当劳订单状态",
+        "tags": [
+          "麦当劳订单"
+        ]
+      }
+    },
+    "/api/mcdonalds-orders/{id}/payment-link": {
+      "post": {
+        "operationId": "McDonaldsOrderController_paymentLink",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McDonaldsPaymentLinkDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取官方支付链接（H5）",
+        "tags": [
+          "麦当劳订单"
+        ]
+      }
+    },
+    "/api/mcdonalds-orders/{id}/payment-qr": {
+      "get": {
+        "operationId": "McDonaldsOrderController_paymentQr",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "官方支付 URL 编码后的 PNG，不可缓存",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取官方支付二维码（小程序）",
+        "tags": [
+          "麦当劳订单"
+        ]
+      }
+    },
     "/api/conversations": {
       "get": {
         "description": "返回当前用户的所有会话及消息列表",
@@ -326,6 +1959,7 @@
         ]
       },
       "post": {
+        "description": "SINGLE 绑定单个智能体（重复创建幂等返回既有单聊）；GROUP 需 agentIds ≥2 初始成员。",
         "operationId": "ConversationController_create",
         "parameters": [],
         "requestBody": {
@@ -340,7 +1974,7 @@
         },
         "responses": {
           "200": {
-            "description": "新建会话",
+            "description": "会话信息",
             "content": {
               "application/json": {
                 "schema": {
@@ -355,13 +1989,57 @@
             "bearer": []
           }
         ],
-        "summary": "创建新会话",
+        "summary": "创建会话（单聊/群聊）",
         "tags": [
           "会话"
         ]
       }
     },
     "/api/conversations/{id}": {
+      "patch": {
+        "operationId": "ConversationController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConversationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新会话（群名/默认回答者）",
+        "tags": [
+          "会话"
+        ]
+      },
       "delete": {
         "description": "删除指定会话及其所有消息",
         "operationId": "ConversationController_delete",
@@ -393,6 +2071,97 @@
           }
         ],
         "summary": "删除会话",
+        "tags": [
+          "会话"
+        ]
+      }
+    },
+    "/api/conversations/{id}/agents": {
+      "post": {
+        "operationId": "ConversationController_addAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddConversationAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "群聊添加智能体成员（幂等）",
+        "tags": [
+          "会话"
+        ]
+      }
+    },
+    "/api/conversations/{id}/agents/{agentId}": {
+      "delete": {
+        "description": "仅影响可 @ 列表与路由候选，历史消息完整保留。",
+        "operationId": "ConversationController_removeAgent",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "群聊移除智能体成员",
         "tags": [
           "会话"
         ]
@@ -509,170 +2278,6 @@
         "summary": "AI 图片生成",
         "tags": [
           "聊天"
-        ]
-      }
-    },
-    "/api/stream-tasks/{taskId}": {
-      "get": {
-        "operationId": "StreamTaskController_getTask",
-        "parameters": [
-          {
-            "name": "taskId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "流式任务状态",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StreamTaskStatusDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "查询流式任务状态",
-        "tags": [
-          "流式任务"
-        ]
-      }
-    },
-    "/api/stream-tasks/{taskId}/stream": {
-      "get": {
-        "operationId": "StreamTaskController_streamTask",
-        "parameters": [
-          {
-            "name": "taskId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "流式事件响应，data 为序列化后的任务事件载荷",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string",
-                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"streamId\":\"cmf_stream_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "浏览器流式任务建链/恢复",
-        "tags": [
-          "流式任务"
-        ]
-      }
-    },
-    "/api/stream-tasks/{taskId}/resume": {
-      "post": {
-        "operationId": "StreamTaskController_resumeTask",
-        "parameters": [
-          {
-            "name": "taskId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResumeStreamTaskDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "流式事件响应，data 为序列化后的任务事件载荷",
-            "content": {
-              "text/event-stream": {
-                "schema": {
-                  "type": "string",
-                  "example": "id: 1\nevent: message.delta\ndata: {\"type\":\"message.delta\",\"taskId\":\"cmf_task_123\",\"streamId\":\"cmf_stream_123\",\"conversationId\":\"cmf_conv_123\",\"messageId\":\"cmf_msg_123\",\"status\":\"streaming\",\"payload\":{\"delta\":\"你好\"}}\n\n"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "微信小程序/通用客户端恢复流式任务",
-        "tags": [
-          "流式任务"
-        ]
-      }
-    },
-    "/api/stream-tasks/{taskId}/cancel": {
-      "post": {
-        "operationId": "StreamTaskController_cancelTask",
-        "parameters": [
-          {
-            "name": "taskId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "取消后的任务状态",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CancelStreamTaskResultDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "取消流式任务",
-        "tags": [
-          "流式任务"
         ]
       }
     },
@@ -984,7 +2589,7 @@
           },
           "nickname": {
             "type": "string",
-            "description": "首次自动注册时使用的昵称，不传则默认使用账号名",
+            "description": "首次自动注册时使用的昵称，不传则默认生成“用户+随机字符”",
             "example": "Sparkle"
           }
         },
@@ -1065,6 +2670,1943 @@
           }
         }
       },
+      "AgentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cmf_agent_123"
+          },
+          "name": {
+            "type": "string",
+            "example": "通用助手"
+          },
+          "description": {
+            "type": "string",
+            "example": "默认对话助手"
+          },
+          "avatar": {
+            "type": "object",
+            "nullable": true,
+            "description": "头像 URL；null=客户端用内置默认头像"
+          },
+          "systemPrompt": {
+            "type": "object",
+            "nullable": true,
+            "description": "系统提示词；null=用内置默认"
+          },
+          "modelPreset": {
+            "type": "object",
+            "nullable": true,
+            "example": "kimi"
+          },
+          "defaultStrategy": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "DIRECT",
+              "REACT",
+              "PLAN_EXECUTE",
+              "HYBRID"
+            ]
+          },
+          "allowedStrategies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AUTO",
+                "DIRECT",
+                "REACT",
+                "PLAN_EXECUTE",
+                "HYBRID"
+              ]
+            }
+          },
+          "toolGroups": {
+            "example": [
+              "default"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skills": {
+            "example": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "maxSteps": {
+            "type": "object",
+            "nullable": true,
+            "example": 6
+          },
+          "enabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "isDefault": {
+            "type": "boolean",
+            "example": false
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
+          },
+          "updatedAt": {
+            "type": "number",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "avatar",
+          "systemPrompt",
+          "modelPreset",
+          "defaultStrategy",
+          "allowedStrategies",
+          "toolGroups",
+          "skills",
+          "maxSteps",
+          "enabled",
+          "isDefault",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreateAgentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "智能体名称",
+            "example": "通用助手"
+          },
+          "description": {
+            "type": "string",
+            "description": "描述",
+            "example": "默认对话助手"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "头像 URL；留空则客户端用内置默认头像",
+            "example": "https://example.com/avatar.png"
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "系统提示词；留空则回退到内置默认提示词"
+          },
+          "modelPreset": {
+            "type": "string",
+            "description": "模型预设 id；留空则用请求指定或全局默认模型",
+            "example": "kimi"
+          },
+          "defaultStrategy": {
+            "type": "string",
+            "description": "默认/强制策略；AUTO=自动路由，具体值=强制",
+            "enum": [
+              "AUTO",
+              "DIRECT",
+              "REACT",
+              "PLAN_EXECUTE",
+              "HYBRID"
+            ],
+            "default": "AUTO"
+          },
+          "allowedStrategies": {
+            "type": "array",
+            "description": "允许使用的策略集合；空=不限制（全部已安装）",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AUTO",
+                "DIRECT",
+                "REACT",
+                "PLAN_EXECUTE",
+                "HYBRID"
+              ]
+            }
+          },
+          "toolGroups": {
+            "description": "允许的工具组；空=不覆盖",
+            "example": [
+              "default"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skills": {
+            "description": "附加技能名；空=不覆盖",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "maxSteps": {
+            "type": "number",
+            "description": "步数预算；留空=不覆盖",
+            "example": 6,
+            "minimum": 1,
+            "maximum": 10
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateAgentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "智能体名称",
+            "example": "通用助手"
+          },
+          "description": {
+            "type": "string",
+            "description": "描述",
+            "example": "默认对话助手"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "头像 URL；留空则客户端用内置默认头像",
+            "example": "https://example.com/avatar.png"
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "系统提示词；留空则回退到内置默认提示词"
+          },
+          "modelPreset": {
+            "type": "string",
+            "description": "模型预设 id；留空则用请求指定或全局默认模型",
+            "example": "kimi"
+          },
+          "defaultStrategy": {
+            "type": "string",
+            "description": "默认/强制策略；AUTO=自动路由，具体值=强制",
+            "enum": [
+              "AUTO",
+              "DIRECT",
+              "REACT",
+              "PLAN_EXECUTE",
+              "HYBRID"
+            ],
+            "default": "AUTO"
+          },
+          "allowedStrategies": {
+            "type": "array",
+            "description": "允许使用的策略集合；空=不限制（全部已安装）",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AUTO",
+                "DIRECT",
+                "REACT",
+                "PLAN_EXECUTE",
+                "HYBRID"
+              ]
+            }
+          },
+          "toolGroups": {
+            "description": "允许的工具组；空=不覆盖",
+            "example": [
+              "default"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skills": {
+            "description": "附加技能名；空=不覆盖",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "maxSteps": {
+            "type": "number",
+            "description": "步数预算；留空=不覆盖",
+            "example": 6,
+            "minimum": 1,
+            "maximum": 10
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          }
+        }
+      },
+      "StatusCountDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "count": {
+            "type": "number",
+            "example": 42
+          }
+        },
+        "required": [
+          "status",
+          "count"
+        ]
+      },
+      "ObservabilityOverviewDto": {
+        "type": "object",
+        "properties": {
+          "rangeDays": {
+            "type": "number",
+            "description": "统计窗口天数",
+            "example": 7
+          },
+          "totalTasks": {
+            "type": "number",
+            "description": "任务总数",
+            "example": 128
+          },
+          "completedTasks": {
+            "type": "number",
+            "description": "成功任务数",
+            "example": 110
+          },
+          "erroredTasks": {
+            "type": "number",
+            "description": "失败任务数",
+            "example": 12
+          },
+          "successRate": {
+            "type": "number",
+            "description": "成功率（0-1）",
+            "example": 0.86
+          },
+          "avgDurationMs": {
+            "type": "object",
+            "description": "平均任务时长（毫秒，仅完成任务）",
+            "example": 3200,
+            "nullable": true
+          },
+          "statusBreakdown": {
+            "description": "按状态分布",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StatusCountDto"
+            }
+          }
+        },
+        "required": [
+          "rangeDays",
+          "totalTasks",
+          "completedTasks",
+          "erroredTasks",
+          "successRate",
+          "avgDurationMs",
+          "statusBreakdown"
+        ]
+      },
+      "AgentUsageDto": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "object",
+            "description": "智能体 id；null=用默认 agent",
+            "nullable": true
+          },
+          "taskCount": {
+            "type": "number",
+            "example": 30
+          },
+          "completedCount": {
+            "type": "number",
+            "example": 27
+          },
+          "successRate": {
+            "type": "number",
+            "example": 0.9
+          },
+          "avgDurationMs": {
+            "type": "object",
+            "example": 3100,
+            "nullable": true
+          }
+        },
+        "required": [
+          "agentId",
+          "taskCount",
+          "completedCount",
+          "successRate",
+          "avgDurationMs"
+        ]
+      },
+      "ToolUsageDto": {
+        "type": "object",
+        "properties": {
+          "toolName": {
+            "type": "object",
+            "example": "webSearch",
+            "nullable": true
+          },
+          "callCount": {
+            "type": "number",
+            "description": "调用次数（已结束）",
+            "example": 54
+          },
+          "successCount": {
+            "type": "number",
+            "description": "成功次数",
+            "example": 50
+          },
+          "successRate": {
+            "type": "number",
+            "example": 0.93
+          },
+          "avgDurationMs": {
+            "type": "object",
+            "example": 820,
+            "nullable": true
+          }
+        },
+        "required": [
+          "toolName",
+          "callCount",
+          "successCount",
+          "successRate",
+          "avgDurationMs"
+        ]
+      },
+      "ErrorCategoryCountDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "错误类别（TaskErrorCategory）",
+            "example": "rate_limit"
+          },
+          "count": {
+            "type": "number",
+            "example": 5
+          }
+        },
+        "required": [
+          "category",
+          "count"
+        ]
+      },
+      "TaskSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cmf_task_123"
+          },
+          "agentId": {
+            "type": "object",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "example": "CHAT_COMPLETION"
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "durationMs": {
+            "type": "object",
+            "example": 3200,
+            "nullable": true
+          },
+          "totalTokens": {
+            "type": "object",
+            "example": 1500,
+            "nullable": true,
+            "description": "总 token（估算）"
+          },
+          "toolCallCount": {
+            "type": "object",
+            "example": 2,
+            "nullable": true
+          },
+          "modelCallCount": {
+            "type": "object",
+            "example": 3,
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "agentId",
+          "type",
+          "status",
+          "durationMs",
+          "totalTokens",
+          "toolCallCount",
+          "modelCallCount",
+          "errorMessage",
+          "createdAt"
+        ]
+      },
+      "RecentTasksDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskSummaryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "object",
+            "description": "下一页游标（最后一条任务 id）；无更多时为 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "TaskTraceItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "example": "TOOL_CALL"
+          },
+          "status": {
+            "type": "string",
+            "example": "SUCCESS"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "nullable": true
+          },
+          "toolName": {
+            "type": "object",
+            "nullable": true
+          },
+          "durationMs": {
+            "type": "object",
+            "example": 820,
+            "nullable": true
+          },
+          "sequence": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "title",
+          "summary",
+          "toolName",
+          "durationMs",
+          "sequence"
+        ]
+      },
+      "TaskDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cmf_task_123"
+          },
+          "agentId": {
+            "type": "object",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "example": "CHAT_COMPLETION"
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "durationMs": {
+            "type": "object",
+            "example": 3200,
+            "nullable": true
+          },
+          "totalTokens": {
+            "type": "object",
+            "example": 1500,
+            "nullable": true,
+            "description": "总 token（估算）"
+          },
+          "toolCallCount": {
+            "type": "object",
+            "example": 2,
+            "nullable": true
+          },
+          "modelCallCount": {
+            "type": "object",
+            "example": 3,
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
+          },
+          "trace": {
+            "description": "本轮执行轨迹",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskTraceItemDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "agentId",
+          "type",
+          "status",
+          "durationMs",
+          "totalTokens",
+          "toolCallCount",
+          "modelCallCount",
+          "errorMessage",
+          "createdAt",
+          "trace"
+        ]
+      },
+      "CapabilityToolDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "webSearch"
+          },
+          "description": {
+            "type": "string",
+            "description": "工具功能说明（来自工具定义）"
+          },
+          "requiresApproval": {
+            "type": "boolean",
+            "description": "执行前是否需要人工审批",
+            "example": false
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "requiresApproval"
+        ]
+      },
+      "ToolGroupDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "default"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityToolDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "tools"
+        ]
+      },
+      "AgentCapabilitiesDto": {
+        "type": "object",
+        "properties": {
+          "toolGroups": {
+            "description": "可分配给智能体的工具组闭集（来自能力注册表）",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolGroupDto"
+            }
+          }
+        },
+        "required": [
+          "toolGroups"
+        ]
+      },
+      "TestSessionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "lastMessage": {
+            "type": "string",
+            "description": "最后一条消息预览"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "lastMessage",
+          "messageCount",
+          "updatedAt"
+        ]
+      },
+      "TestSessionMessageDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "object",
+            "description": "发言智能体 id；null=用户/默认助手",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "streaming",
+              "done",
+              "error"
+            ]
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
+          },
+          "trace": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskTraceItemDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "agentId",
+          "status",
+          "createdAt",
+          "trace"
+        ]
+      },
+      "TestSessionDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "number",
+            "example": 1735689600000
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestSessionMessageDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "updatedAt",
+          "messages"
+        ]
+      },
+      "AgentTestDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "测试输入内容",
+            "example": "深圳今天天气怎么样"
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "测试会话 id；传入则续接该会话（多轮记忆），不传则新建测试会话",
+            "example": "conv_test_123"
+          },
+          "agentId": {
+            "type": "string",
+            "description": "指定测试的智能体 id；不传用默认智能体",
+            "example": "agent_abc123"
+          },
+          "modelPreset": {
+            "type": "string",
+            "description": "指定模型预设 id（覆盖 agent 的模型）",
+            "example": "openai:gpt-5.5"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "ModelPresetResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "presetId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "baseURL": {
+            "type": "object",
+            "nullable": true
+          },
+          "temperature": {
+            "type": "object",
+            "nullable": true
+          },
+          "maxOutputTokens": {
+            "type": "object",
+            "nullable": true
+          },
+          "topP": {
+            "type": "object",
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "apiKeyConfigured": {
+            "type": "boolean",
+            "description": "该 platform 对应的 env 密钥是否已配置（apiKey 不落库）",
+            "example": true
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "presetId",
+          "name",
+          "description",
+          "provider",
+          "platform",
+          "model",
+          "baseURL",
+          "temperature",
+          "maxOutputTokens",
+          "topP",
+          "enabled",
+          "isDefault",
+          "apiKeyConfigured",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreateModelPresetDto": {
+        "type": "object",
+        "properties": {
+          "presetId": {
+            "type": "string",
+            "description": "业务预设 id（供 agent 引用）",
+            "example": "openai:gpt-5.5"
+          },
+          "name": {
+            "type": "string",
+            "description": "显示名",
+            "example": "GPT-5.5"
+          },
+          "description": {
+            "type": "string",
+            "description": "描述"
+          },
+          "provider": {
+            "type": "string",
+            "description": "provider",
+            "enum": [
+              "openai",
+              "anthropic"
+            ]
+          },
+          "platform": {
+            "type": "string",
+            "description": "platform",
+            "enum": [
+              "openai",
+              "anthropic",
+              "deepseek",
+              "kimi",
+              "doubao"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "description": "模型名",
+            "example": "gpt-5.5"
+          },
+          "baseURL": {
+            "type": "string",
+            "description": "自定义 baseURL；留空用 env 默认"
+          },
+          "temperature": {
+            "type": "number",
+            "description": "temperature"
+          },
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 token"
+          },
+          "topP": {
+            "type": "number",
+            "description": "topP"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "是否默认预设",
+            "default": false
+          }
+        },
+        "required": [
+          "presetId",
+          "name",
+          "provider",
+          "platform",
+          "model"
+        ]
+      },
+      "UpdateModelPresetDto": {
+        "type": "object",
+        "properties": {
+          "presetId": {
+            "type": "string",
+            "description": "业务预设 id（供 agent 引用）",
+            "example": "openai:gpt-5.5"
+          },
+          "name": {
+            "type": "string",
+            "description": "显示名",
+            "example": "GPT-5.5"
+          },
+          "description": {
+            "type": "string",
+            "description": "描述"
+          },
+          "provider": {
+            "type": "string",
+            "description": "provider",
+            "enum": [
+              "openai",
+              "anthropic"
+            ]
+          },
+          "platform": {
+            "type": "string",
+            "description": "platform",
+            "enum": [
+              "openai",
+              "anthropic",
+              "deepseek",
+              "kimi",
+              "doubao"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "description": "模型名",
+            "example": "gpt-5.5"
+          },
+          "baseURL": {
+            "type": "string",
+            "description": "自定义 baseURL；留空用 env 默认"
+          },
+          "temperature": {
+            "type": "number",
+            "description": "temperature"
+          },
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 token"
+          },
+          "topP": {
+            "type": "number",
+            "description": "topP"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "是否默认预设",
+            "default": false
+          }
+        }
+      },
+      "StreamTaskEventType": {
+        "type": "string",
+        "enum": [
+          "agent.routed",
+          "agent.loop.start",
+          "strategy.selected",
+          "skill.selected",
+          "workflow.step.start",
+          "workflow.step.done",
+          "model.call.start",
+          "model.call.done",
+          "tool.call.start",
+          "tool.call.delta",
+          "tool.call.done",
+          "tool.call.error",
+          "order.created",
+          "message.delta",
+          "message.done",
+          "task.created",
+          "task.started",
+          "task.completed",
+          "task.error",
+          "task.expired",
+          "task.canceled",
+          "approval.required",
+          "approval.resolved",
+          "plan.review.required",
+          "plan.review.resolved",
+          "conversation.title.updated"
+        ],
+        "description": "事件类型"
+      },
+      "StreamTaskEventPayloadDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "description": "事件类型",
+            "example": "message.delta",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StreamTaskEventType"
+              }
+            ]
+          },
+          "taskId": {
+            "type": "string",
+            "description": "流式任务 ID",
+            "example": "cmf_task_123"
+          },
+          "streamId": {
+            "type": "string",
+            "description": "事件所属执行流片段 ID",
+            "example": "cmf_stream_123"
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "assistant 消息 ID",
+            "example": "cmf_msg_123"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务状态",
+            "example": "streaming"
+          },
+          "payload": {
+            "type": "object",
+            "description": "事件业务载荷，结构随事件类型变化",
+            "example": {
+              "delta": "你好"
+            }
+          },
+          "errorMessage": {
+            "type": "string",
+            "description": "错误事件中的错误信息",
+            "example": "聊天任务执行失败"
+          }
+        },
+        "required": [
+          "type",
+          "taskId",
+          "conversationId",
+          "messageId",
+          "status"
+        ]
+      },
+      "StreamTaskStatusDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "流式任务 ID",
+            "example": "cmf_task_123"
+          },
+          "streamId": {
+            "type": "object",
+            "description": "当前执行流片段 ID",
+            "example": "cmf_stream_123",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "description": "任务类型",
+            "enum": [
+              "chat_completion",
+              "voice_completion",
+              "agent_workflow"
+            ],
+            "example": "chat_completion"
+          },
+          "status": {
+            "type": "string",
+            "description": "任务状态",
+            "enum": [
+              "pending",
+              "streaming",
+              "paused",
+              "waiting_human",
+              "completed",
+              "error",
+              "expired",
+              "canceled"
+            ],
+            "example": "streaming"
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "assistant 消息 ID",
+            "example": "cmf_msg_123"
+          },
+          "lastEventId": {
+            "type": "number",
+            "description": "服务端已持久化的最后语义事件 ID；流式恢复请使用 SSE id / lastEventId 字符串游标",
+            "example": 12
+          },
+          "fullContent": {
+            "type": "string",
+            "description": "当前累计生成内容",
+            "example": "你好，我是 Litter Bear"
+          },
+          "errorMessage": {
+            "type": "object",
+            "description": "任务错误信息",
+            "example": "模型服务请求失败",
+            "nullable": true
+          },
+          "canResume": {
+            "type": "boolean",
+            "description": "当前任务是否可恢复",
+            "example": true
+          },
+          "expiresAt": {
+            "type": "object",
+            "description": "任务过期时间戳（毫秒）",
+            "example": 1735689600000,
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "number",
+            "description": "任务更新时间戳（毫秒）",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "taskId",
+          "type",
+          "status",
+          "conversationId",
+          "messageId",
+          "lastEventId",
+          "fullContent",
+          "canResume",
+          "updatedAt"
+        ]
+      },
+      "ResumeStreamTaskDto": {
+        "type": "object",
+        "properties": {
+          "lastEventId": {
+            "type": "string",
+            "description": "客户端已收到的最后一个 Redis Stream 帧 ID，用于断线后从该帧之后继续恢复",
+            "example": "1751450000000-0"
+          }
+        }
+      },
+      "SubmitApprovalDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "description": "人工审批决定",
+            "enum": [
+              "approve",
+              "reject",
+              "edit"
+            ],
+            "example": "approve"
+          },
+          "editedArgs": {
+            "type": "object",
+            "description": "edit 决定时用于替换的工具入参",
+            "additionalProperties": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "reject 决定时的说明"
+          },
+          "lastEventId": {
+            "type": "string",
+            "description": "客户端已收到的最后一个事件 ID，用于恢复续跑时只接收新帧",
+            "example": "1751450000000-0"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "PlanReviewStepDto": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "description": "步骤目标文字"
+          }
+        },
+        "required": [
+          "goal"
+        ]
+      },
+      "SubmitPlanReviewDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "description": "计划审批决定",
+            "enum": [
+              "approve",
+              "edit",
+              "reject_replan",
+              "reject_terminate"
+            ],
+            "example": "approve"
+          },
+          "editedSteps": {
+            "description": "edit 决定时的完整步骤列表（改后的文字 + 末尾追加的）",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanReviewStepDto"
+            }
+          },
+          "feedback": {
+            "type": "string",
+            "description": "reject_replan 决定时的意见"
+          },
+          "lastEventId": {
+            "type": "string",
+            "description": "客户端已收到的最后一个事件 ID，用于恢复续跑时只接收新帧",
+            "example": "1751450000000-0"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "CancelStreamTaskResultDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "流式任务 ID",
+            "example": "cmf_task_123"
+          },
+          "status": {
+            "type": "string",
+            "description": "取消后的任务状态",
+            "enum": [
+              "pending",
+              "streaming",
+              "paused",
+              "waiting_human",
+              "completed",
+              "error",
+              "expired",
+              "canceled"
+            ],
+            "example": "canceled"
+          }
+        },
+        "required": [
+          "taskId",
+          "status"
+        ]
+      },
+      "CreateImageDto": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "生图提示词",
+            "example": "一只在太空里的小熊"
+          },
+          "size": {
+            "type": "string",
+            "description": "图片尺寸",
+            "enum": [
+              "1024x1024",
+              "1024x1536",
+              "1536x1024"
+            ]
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "GeneratedImageDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "转存后的访问 URL"
+          },
+          "key": {
+            "type": "string",
+            "description": "七牛对象 key（已登记 StorageAsset）"
+          },
+          "revisedPrompt": {
+            "type": "string",
+            "description": "模型润色后的提示词"
+          }
+        },
+        "required": [
+          "url",
+          "key"
+        ]
+      },
+      "EditImageDto": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "生图提示词",
+            "example": "一只在太空里的小熊"
+          },
+          "size": {
+            "type": "string",
+            "description": "图片尺寸",
+            "enum": [
+              "1024x1024",
+              "1024x1536",
+              "1536x1024"
+            ]
+          },
+          "sourceKeys": {
+            "description": "参考图对象 key（七牛资产）；与 sourceUrls 合计 1-4 张",
+            "example": [
+              "image/202608/user123/9f8b.png"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sourceUrls": {
+            "description": "参考图完整 URL；与 sourceKeys 合计 1-4 张",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "UploadCredentialDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "上传媒体类型（决定存储目录、大小与 MIME 限制）",
+            "enum": [
+              "image",
+              "audio"
+            ],
+            "example": "image"
+          },
+          "ext": {
+            "type": "string",
+            "description": "文件扩展名（不含点），仅字母数字",
+            "example": "png"
+          },
+          "usage": {
+            "type": "string",
+            "description": "业务用途；agent-avatar 会收紧大小限制到 2MB",
+            "enum": [
+              "agent-avatar",
+              "chat-image",
+              "voice-input",
+              "ai-image"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "ext"
+        ]
+      },
+      "UploadCredentialResponseDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "七牛直传凭证（uploadFile 表单的 token 字段）"
+          },
+          "key": {
+            "type": "string",
+            "description": "对象 key（uploadFile 表单的 key 字段；业务落库存它）",
+            "example": "image/202608/user123/9f8b7a.png"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "description": "直传入口地址（按存储区域解析）",
+            "example": "https://up-z2.qiniup.com"
+          },
+          "accessUrl": {
+            "type": "string",
+            "description": "上传成功后的访问 URL（私有空间为带签名的临时 URL）"
+          },
+          "expiresAt": {
+            "type": "number",
+            "description": "凭证过期时间戳（毫秒）"
+          }
+        },
+        "required": [
+          "token",
+          "key",
+          "uploadUrl",
+          "accessUrl",
+          "expiresAt"
+        ]
+      },
+      "AccessUrlResponseDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "对象访问 URL（私有空间为带签名的临时 URL）"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "RegisterAssetDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "直传成功的对象 key（来自 upload-credential 响应）",
+            "example": "image/202608/user123/9f8b7a.png"
+          },
+          "usage": {
+            "type": "string",
+            "description": "业务用途",
+            "enum": [
+              "agent-avatar",
+              "chat-image",
+              "voice-input",
+              "ai-image"
+            ]
+          },
+          "size": {
+            "type": "number",
+            "description": "文件字节数",
+            "example": 102400
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME 类型",
+            "example": "image/png"
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "StorageAssetDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "访问 URL（私有空间为临时签名 URL）"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "AUDIO"
+            ]
+          },
+          "usage": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "object",
+            "nullable": true
+          },
+          "size": {
+            "type": "object",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "BROKEN",
+              "DELETED"
+            ]
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "url",
+          "kind",
+          "usage",
+          "mimeType",
+          "size",
+          "status",
+          "createdAt"
+        ]
+      },
+      "UpdateAssetStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "目标状态：BROKEN=远端失效；DELETED=逻辑删除",
+            "enum": [
+              "BROKEN",
+              "DELETED",
+              "ACTIVE"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "McDonaldsCredentialResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "本地凭据 ID",
+            "example": "cmf_mcd_credential_123"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INVALID",
+              "REVOKED"
+            ],
+            "example": "ACTIVE"
+          },
+          "hint": {
+            "type": "string",
+            "description": "仅用于识别当前 Token 的脱敏标识"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-08-13T12:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "example": "2026-08-13T12:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "hint",
+          "updatedAt"
+        ]
+      },
+      "BindMcDonaldsCredentialDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "用户在麦当劳 MCP 平台自行生成的 Token，仅本次请求使用",
+            "example": "请粘贴你在麦当劳 MCP 平台生成的 Token"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "McDonaldsOrderItemDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "餐品名称",
+            "example": "巨无霸"
+          },
+          "quantity": {
+            "type": "number",
+            "nullable": true,
+            "example": 1
+          },
+          "specification": {
+            "type": "string",
+            "nullable": true,
+            "example": "去洋葱"
+          },
+          "unitPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "24.50"
+          },
+          "subtotal": {
+            "type": "string",
+            "nullable": true,
+            "example": "24.50"
+          },
+          "imageUrl": {
+            "type": "string",
+            "nullable": true,
+            "example": "https://example.com/burger.png"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "McDonaldsOrderResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "本地订单 ID",
+            "example": "cmf_mcd_order_123"
+          },
+          "externalOrderId": {
+            "type": "string",
+            "description": "麦当劳官方订单号",
+            "example": "1234567890123456789012345678901234"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "example": "UNPAID"
+          },
+          "statusLabel": {
+            "type": "string",
+            "nullable": true,
+            "example": "待支付"
+          },
+          "storeName": {
+            "type": "string",
+            "nullable": true,
+            "example": "上海人民广场店"
+          },
+          "fulfillmentType": {
+            "type": "string",
+            "nullable": true,
+            "example": "到店取餐"
+          },
+          "totalAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "24.50"
+          },
+          "discountAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "5.00"
+          },
+          "currency": {
+            "type": "string",
+            "nullable": true,
+            "example": "CNY"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McDonaldsOrderItemDto"
+            }
+          },
+          "estimatedFulfillmentAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-08-12T12:30:00.000Z"
+          },
+          "lastRefreshedAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-08-12T12:10:00.000Z"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-08-12T12:00:00.000Z"
+          },
+          "externalActionsAvailable": {
+            "type": "boolean",
+            "description": "关联麦当劳凭据仍有效时为 true；false 时订单仅支持只读查看",
+            "example": true
+          }
+        },
+        "required": [
+          "id",
+          "externalOrderId",
+          "items",
+          "createdAt",
+          "externalActionsAvailable"
+        ]
+      },
+      "McDonaldsOrderPageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McDonaldsOrderResponseDto"
+            }
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "是否还有下一页",
+            "example": false
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "下一页游标"
+          }
+        },
+        "required": [
+          "items",
+          "hasMore"
+        ]
+      },
+      "McDonaldsPaymentLinkDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "官方支付 URL，仅当前请求使用",
+            "format": "uri"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "支付链接过期时间",
+            "example": "2026-08-12T12:30:00.000Z"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt"
+        ]
+      },
+      "ConversationMessageTraceItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "轨迹项 ID",
+            "example": "cmf_trace_123"
+          },
+          "type": {
+            "type": "string",
+            "description": "轨迹项类型",
+            "example": "TOOL_CALL"
+          },
+          "status": {
+            "type": "string",
+            "description": "轨迹项状态",
+            "example": "SUCCESS"
+          },
+          "title": {
+            "type": "string",
+            "description": "展示标题",
+            "example": "调用工具：getWeather"
+          },
+          "summary": {
+            "type": "object",
+            "description": "展示摘要",
+            "example": "工具调用成功",
+            "nullable": true
+          },
+          "durationMs": {
+            "type": "object",
+            "description": "耗时毫秒",
+            "example": 1250,
+            "nullable": true
+          },
+          "depth": {
+            "type": "number",
+            "description": "轨迹层级",
+            "example": 0
+          },
+          "sequence": {
+            "type": "number",
+            "description": "排序序号",
+            "example": 1
+          },
+          "toolName": {
+            "type": "object",
+            "description": "工具名（仅工具调用类节点有值），供前端展示工具图标",
+            "example": "getWeather",
+            "nullable": true
+          },
+          "parentId": {
+            "type": "object",
+            "description": "父轨迹项 ID，用于层级树展示",
+            "example": "cmf_trace_100",
+            "nullable": true
+          },
+          "inputSummary": {
+            "type": "object",
+            "description": "入参摘要，供前端展示「调用了什么」的参数卡片",
+            "nullable": true,
+            "additionalProperties": true,
+            "example": {
+              "city": "深圳"
+            }
+          },
+          "outputSummary": {
+            "type": "object",
+            "description": "出参摘要，供前端展开查看节点结果详情",
+            "nullable": true,
+            "additionalProperties": true,
+            "example": {
+              "temperature": 30,
+              "condition": "晴"
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "description": "轨迹指标信息，例如 token 消耗、缓存命中、耗时等",
+            "nullable": true,
+            "additionalProperties": true,
+            "example": {
+              "tokenUsage": {
+                "inputTokens": 1200,
+                "outputTokens": 300,
+                "totalTokens": 1500,
+                "cachedInputTokens": 800,
+                "estimated": true
+              },
+              "cache": {
+                "memorySummaryHit": true,
+                "contextCacheHit": true
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "title",
+          "depth",
+          "sequence"
+        ]
+      },
       "ConversationMessageDto": {
         "type": "object",
         "properties": {
@@ -1087,6 +4629,16 @@
             "description": "消息文本内容",
             "example": "你好"
           },
+          "agentId": {
+            "type": "object",
+            "description": "发言智能体 id；null = 用户消息或默认助手",
+            "nullable": true
+          },
+          "agentName": {
+            "type": "object",
+            "description": "发言智能体名称（群聊展示用）",
+            "nullable": true
+          },
           "status": {
             "type": "string",
             "description": "消息状态",
@@ -1101,6 +4653,20 @@
             "type": "number",
             "description": "消息创建时间戳（毫秒）",
             "example": 1735689600000
+          },
+          "trace": {
+            "description": "助手消息对应的单轮执行轨迹",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessageTraceItemDto"
+            }
+          },
+          "orders": {
+            "description": "该助手消息创建的麦当劳订单卡片",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McDonaldsOrderResponseDto"
+            }
           }
         },
         "required": [
@@ -1123,6 +4689,23 @@
             "type": "string",
             "description": "会话标题",
             "example": "新对话"
+          },
+          "type": {
+            "type": "string",
+            "description": "会话形态：SINGLE 单聊 / GROUP 群聊",
+            "example": "SINGLE"
+          },
+          "agentIds": {
+            "description": "GROUP=可 @ 的成员列表；SINGLE=绑定的智能体",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultAgentId": {
+            "type": "object",
+            "description": "默认回答者；GROUP 下 null = 自动路由",
+            "nullable": true
           },
           "messages": {
             "description": "会话消息列表",
@@ -1157,6 +4740,47 @@
             "type": "string",
             "description": "会话标题",
             "example": "新对话"
+          },
+          "type": {
+            "type": "string",
+            "description": "会话形态；默认 SINGLE。GROUP 需带 agentIds 初始成员",
+            "enum": [
+              "SINGLE",
+              "GROUP"
+            ]
+          },
+          "agentIds": {
+            "description": "SINGLE：绑定的智能体（单个，重复创建返回既有单聊）；GROUP：初始成员（2-10 个）",
+            "example": [
+              "agent_abc"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UpdateConversationDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "会话/群聊标题"
+          },
+          "defaultAgentId": {
+            "type": "string",
+            "description": "群聊默认回答者 agent id；空串 = 恢复自动路由",
+            "nullable": true
+          }
+        }
+      },
+      "AddConversationAgentDto": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "要加入群聊的智能体 id"
           }
         }
       },
@@ -1207,6 +4831,11 @@
             "type": "string",
             "description": "用户消息内容",
             "example": "你好，请帮我写一首诗"
+          },
+          "agentId": {
+            "type": "string",
+            "description": "指定使用的智能体 id；不传则用默认智能体",
+            "example": "agent_abc123"
           }
         },
         "required": [
@@ -1356,222 +4985,6 @@
           "messageId",
           "imageUrl",
           "revisedPrompt"
-        ]
-      },
-      "StreamTaskEventType": {
-        "type": "string",
-        "enum": [
-          "agent.loop.start",
-          "strategy.selected",
-          "skill.selected",
-          "workflow.step.start",
-          "workflow.step.done",
-          "model.call.start",
-          "model.call.done",
-          "tool.call.start",
-          "tool.call.delta",
-          "tool.call.done",
-          "tool.call.error",
-          "message.delta",
-          "message.done",
-          "task.created",
-          "task.started",
-          "task.completed",
-          "task.error",
-          "task.expired",
-          "task.canceled"
-        ],
-        "description": "事件类型"
-      },
-      "StreamTaskEventPayloadDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "description": "事件类型",
-            "example": "message.delta",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/StreamTaskEventType"
-              }
-            ]
-          },
-          "taskId": {
-            "type": "string",
-            "description": "流式任务 ID",
-            "example": "cmf_task_123"
-          },
-          "streamId": {
-            "type": "string",
-            "description": "事件所属执行流片段 ID",
-            "example": "cmf_stream_123"
-          },
-          "conversationId": {
-            "type": "string",
-            "description": "会话 ID",
-            "example": "cmf_conv_123"
-          },
-          "messageId": {
-            "type": "string",
-            "description": "assistant 消息 ID",
-            "example": "cmf_msg_123"
-          },
-          "status": {
-            "type": "string",
-            "description": "任务状态",
-            "example": "streaming"
-          },
-          "payload": {
-            "type": "object",
-            "description": "事件业务载荷，结构随事件类型变化",
-            "example": {
-              "delta": "你好"
-            }
-          },
-          "errorMessage": {
-            "type": "string",
-            "description": "错误事件中的错误信息",
-            "example": "聊天任务执行失败"
-          }
-        },
-        "required": [
-          "type",
-          "taskId",
-          "conversationId",
-          "messageId",
-          "status"
-        ]
-      },
-      "StreamTaskStatusDto": {
-        "type": "object",
-        "properties": {
-          "taskId": {
-            "type": "string",
-            "description": "流式任务 ID",
-            "example": "cmf_task_123"
-          },
-          "streamId": {
-            "type": "object",
-            "description": "当前执行流片段 ID",
-            "example": "cmf_stream_123",
-            "nullable": true
-          },
-          "type": {
-            "type": "string",
-            "description": "任务类型",
-            "enum": [
-              "chat_completion",
-              "voice_completion",
-              "agent_workflow"
-            ],
-            "example": "chat_completion"
-          },
-          "status": {
-            "type": "string",
-            "description": "任务状态",
-            "enum": [
-              "pending",
-              "streaming",
-              "paused",
-              "waiting_human",
-              "completed",
-              "error",
-              "expired",
-              "canceled"
-            ],
-            "example": "streaming"
-          },
-          "conversationId": {
-            "type": "string",
-            "description": "会话 ID",
-            "example": "cmf_conv_123"
-          },
-          "messageId": {
-            "type": "string",
-            "description": "assistant 消息 ID",
-            "example": "cmf_msg_123"
-          },
-          "lastEventId": {
-            "type": "number",
-            "description": "服务端已持久化的最后事件 ID",
-            "example": 12
-          },
-          "fullContent": {
-            "type": "string",
-            "description": "当前累计生成内容",
-            "example": "你好，我是 Litter Bear"
-          },
-          "errorMessage": {
-            "type": "object",
-            "description": "任务错误信息",
-            "example": "模型服务请求失败",
-            "nullable": true
-          },
-          "canResume": {
-            "type": "boolean",
-            "description": "当前任务是否可恢复",
-            "example": true
-          },
-          "expiresAt": {
-            "type": "object",
-            "description": "任务过期时间戳（毫秒）",
-            "example": 1735689600000,
-            "nullable": true
-          },
-          "updatedAt": {
-            "type": "number",
-            "description": "任务更新时间戳（毫秒）",
-            "example": 1735689600000
-          }
-        },
-        "required": [
-          "taskId",
-          "type",
-          "status",
-          "conversationId",
-          "messageId",
-          "lastEventId",
-          "fullContent",
-          "canResume",
-          "updatedAt"
-        ]
-      },
-      "ResumeStreamTaskDto": {
-        "type": "object",
-        "properties": {
-          "lastEventId": {
-            "type": "number",
-            "description": "客户端已收到的最后一个事件 ID",
-            "example": 12
-          }
-        }
-      },
-      "CancelStreamTaskResultDto": {
-        "type": "object",
-        "properties": {
-          "taskId": {
-            "type": "string",
-            "description": "流式任务 ID",
-            "example": "cmf_task_123"
-          },
-          "status": {
-            "type": "string",
-            "description": "取消后的任务状态",
-            "enum": [
-              "pending",
-              "streaming",
-              "paused",
-              "waiting_human",
-              "completed",
-              "error",
-              "expired",
-              "canceled"
-            ],
-            "example": "canceled"
-          }
-        },
-        "required": [
-          "taskId",
-          "status"
         ]
       }
     }

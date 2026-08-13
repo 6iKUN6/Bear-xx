@@ -3,6 +3,7 @@ import {
   ConversationTraceItemStatus,
   ConversationTraceItemType,
 } from './conversation-trace.types';
+import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
 
 const expectObjectContaining = <T extends Record<string, unknown>>(value: T) =>
   expect.objectContaining(value) as unknown;
@@ -106,6 +107,97 @@ describe('ConversationTraceService', () => {
           sequence: 3,
           status: ConversationTraceItemStatus.ERROR,
           error: { message: 'timeout' },
+        }),
+      }),
+    );
+  });
+
+  it('记录 MCP 工具调用时写入 MCP 来源字段', async () => {
+    const prisma = createPrismaMock();
+    const registry = {
+      getToolMetadata: jest.fn().mockReturnValue({
+        mcpServer: 'mcdonalds',
+        mcpTool: 'create-order',
+      }),
+    };
+    const service = new ConversationTraceService(
+      prisma as never,
+      registry as never,
+    );
+
+    prisma.conversationTurnTraceItem.findFirst.mockResolvedValue(null);
+    prisma.conversationTurnTraceItem.count.mockResolvedValue(0);
+    prisma.conversationTurnTraceItem.create.mockResolvedValue({
+      id: 'trace-1',
+    });
+
+    await service.recordStreamEvent({
+      userId: 'user-1',
+      taskId: 'task-1',
+      runId: 'run-1',
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      eventName: StreamTaskEventType.ToolCallStart,
+      payload: {
+        toolName: 'mcdonalds__create-order',
+        index: 0,
+        nodeKey: 'common_chat_tool',
+        traceKey: 'tool:call-1',
+        publicStatus: '正在调用工具：mcdonalds__create-order',
+      },
+    });
+
+    expect(prisma.conversationTurnTraceItem.create).toHaveBeenCalledWith(
+      expectObjectContaining({
+        data: expectObjectContaining({
+          toolName: 'mcdonalds__create-order',
+          mcpServer: 'mcdonalds',
+          mcpTool: 'create-order',
+        }),
+      }),
+    );
+  });
+
+  it('记录 MCP 工具审批时写入 MCP 来源字段', async () => {
+    const prisma = createPrismaMock();
+    const registry = {
+      getToolMetadata: jest.fn().mockReturnValue({
+        mcpServer: 'mcdonalds',
+        mcpTool: 'create-order',
+      }),
+    };
+    const service = new ConversationTraceService(
+      prisma as never,
+      registry as never,
+    );
+
+    prisma.conversationTurnTraceItem.findFirst.mockResolvedValue(null);
+    prisma.conversationTurnTraceItem.count.mockResolvedValue(0);
+    prisma.conversationTurnTraceItem.create.mockResolvedValue({
+      id: 'trace-approval-1',
+    });
+
+    await service.recordStreamEvent({
+      userId: 'user-1',
+      taskId: 'task-1',
+      runId: 'run-1',
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      eventName: StreamTaskEventType.ApprovalRequired,
+      payload: {
+        toolName: 'mcdonalds__create-order',
+        traceKey: 'approval:call-1',
+        nodeKey: 'plan_graph_approval',
+        allowedDecisions: ['approve', 'reject', 'edit'],
+      },
+    });
+
+    expect(prisma.conversationTurnTraceItem.create).toHaveBeenCalledWith(
+      expectObjectContaining({
+        data: expectObjectContaining({
+          toolName: 'mcdonalds__create-order',
+          mcpServer: 'mcdonalds',
+          mcpTool: 'create-order',
         }),
       }),
     );
