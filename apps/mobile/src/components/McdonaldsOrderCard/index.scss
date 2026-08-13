@@ -1,0 +1,214 @@
+.mcd-order-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--lb-line-soft);
+  border-radius: var(--lb-radius-md);
+  background: var(--lb-surface);
+  padding: 0.875rem;
+  box-shadow: var(--lb-shadow-card);
+}
+
+.mcd-order-card-head,
+.mcd-order-brand,
+.mcd-order-total,
+.mcd-order-actions,
+.mcd-order-item,
+.mcd-order-time-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.mcd-order-card-head {
+  justify-content: space-between;
+  gap: 0.625rem;
+}
+
+.mcd-order-brand {
+  flex: 1;
+  gap: 0.5rem;
+}
+
+.mcd-order-brand-mark {
+  display: flex;
+  width: 1.875rem;
+  height: 1.875rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lb-radius-xs);
+  background: #d7282f;
+  color: #ffd928;
+  font-family: Georgia, serif;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.mcd-order-status {
+  max-width: 7rem;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcd-order-status-pending {
+  background: var(--lb-warning-soft);
+  color: var(--lb-warning);
+}
+
+.mcd-order-status-active {
+  background: var(--lb-info-soft);
+  color: var(--lb-info);
+}
+
+.mcd-order-status-complete {
+  background: var(--lb-success-soft);
+  color: var(--lb-success);
+}
+
+.mcd-order-status-neutral {
+  background: var(--lb-surface-hover);
+  color: var(--lb-text-secondary);
+}
+
+.mcd-order-progress {
+  height: 0.1875rem;
+  margin-top: 0.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--lb-line-soft);
+}
+
+.mcd-order-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.mcd-order-progress-pending {
+  width: 28%;
+  background: var(--lb-warning);
+}
+
+.mcd-order-progress-active {
+  width: 62%;
+  background: var(--lb-info);
+}
+
+.mcd-order-progress-complete {
+  width: 100%;
+  background: var(--lb-success);
+}
+
+.mcd-order-progress-neutral {
+  width: 42%;
+  background: var(--lb-text-muted);
+}
+
+.mcd-order-time-line {
+  gap: 0.3125rem;
+  margin-top: 0.625rem;
+  color: var(--lb-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1.35;
+}
+
+.mcd-order-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.875rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--lb-line-soft);
+  border-bottom: 1px solid var(--lb-line-soft);
+}
+
+.mcd-order-item {
+  gap: 0.625rem;
+}
+
+.mcd-order-item-image,
+.mcd-order-item-placeholder {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  border-radius: var(--lb-radius-xs);
+  background: var(--lb-surface-muted);
+}
+
+.mcd-order-item-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lb-text-muted);
+}
+
+.mcd-order-total {
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.mcd-order-actions {
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+}
+
+.mcd-order-secondary-action,
+.mcd-order-primary-action {
+  display: flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: var(--lb-radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.mcd-order-readonly-status {
+  display: flex;
+  min-height: 2.5rem;
+  flex: 1.35;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid var(--lb-line-soft);
+  border-radius: var(--lb-radius-sm);
+  background: var(--lb-surface-muted);
+  color: var(--lb-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.mcd-order-secondary-action {
+  flex: 1;
+  border: 1px solid var(--lb-line-strong);
+  color: var(--lb-text-secondary);
+}
+
+.mcd-order-secondary-action:active {
+  background: var(--lb-surface-hover);
+}
+
+.mcd-order-primary-action {
+  flex: 1.35;
+  background: var(--lb-accent-surface);
+  color: var(--lb-on-accent);
+}
+
+.mcd-order-primary-action:active {
+  opacity: 0.82;
+}
+
+.mcd-order-action-disabled {
+  opacity: 0.55;
+}

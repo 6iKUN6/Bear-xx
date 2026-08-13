@@ -5,6 +5,7 @@ import type {
 import * as storage from "../utils/storage";
 import { STORAGE_KEYS } from "../utils/constants";
 import * as chatApi from "../api/chat";
+import type { McDonaldsOrder } from "../api/mcdonaldsOrder";
 import { createBoundStore } from "./createBoundStore";
 import { buildStreamFeedbackFromTrace } from "../utils/streamFeedback";
 
@@ -55,6 +56,8 @@ interface ChatState {
     msgId: string,
     payload: PlanReviewRequiredPayload | null,
   ) => void;
+  /** 向指定助手消息追加或更新一张订单卡片。 */
+  upsertMessageOrder: (msgId: string, order: McDonaldsOrder) => void;
 
   persistConversations: () => void;
   hydrateConversations: () => void;
@@ -455,6 +458,37 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
       const conversations = state.conversations.map((c) =>
         c.id === updatedConv.id ? updatedConv : c,
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
+  upsertMessageOrder(msgId: string, order: McDonaldsOrder) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((message) => {
+        if (message.id !== msgId) {
+          return message;
+        }
+
+        const orders = message.orders ?? [];
+        const exists = orders.some((item) => item.id === order.id);
+        return {
+          ...message,
+          orders: exists
+            ? orders.map((item) => (item.id === order.id ? order : item))
+            : [...orders, order],
+        };
+      });
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
+      const conversations = state.conversations.map((conversation) =>
+        conversation.id === updatedConv.id ? updatedConv : conversation,
       );
 
       return { currentConversation: updatedConv, conversations };

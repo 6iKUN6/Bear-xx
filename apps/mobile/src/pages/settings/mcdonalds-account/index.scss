@@ -1,0 +1,20 @@
+.mcd-account-spinner {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 0.15625rem solid var(--lb-line-soft);
+  border-top-color: var(--lb-accent);
+  border-radius: 50%;
+  animation: mcd-account-spin 760ms linear infinite;
+}
+
+@keyframes mcd-account-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcd-account-spinner {
+    animation: none;
+  }
+}

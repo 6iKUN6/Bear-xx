@@ -10,6 +10,7 @@ import {
   type StreamTaskEvent,
   type StreamTaskEventPayload,
 } from "./stream-event.types";
+import type { OrderCreatedPayload } from "@litter-bear/types/protocol";
 import type { StreamTaskLifecycle } from "./stream.types";
 
 export function normalizeStreamTaskEvent(
@@ -78,6 +79,17 @@ export function dispatchStreamTaskEvent(
 
   if (event.type === StreamTaskEventType.PlanReviewRequired) {
     lifecycle.onPlanReviewRequired?.(event);
+    return;
+  }
+
+  if (event.type === StreamTaskEventType.OrderCreated) {
+    const payload = event.data.payload as OrderCreatedPayload | undefined;
+    if (payload) {
+      lifecycle.onOrderCreated?.(
+        payload,
+        event as StreamTaskEvent<OrderCreatedPayload>,
+      );
+    }
     return;
   }
 

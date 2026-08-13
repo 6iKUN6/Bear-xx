@@ -81,6 +81,8 @@ interface Message {
   pendingApproval?: import("@litter-bear/types/protocol").ApprovalRequiredPayload;
   /** HITL：待人工确认的执行计划（plan.review.required 载荷）；处理后清空 */
   pendingPlanReview?: import("@litter-bear/types/protocol").PlanReviewRequiredPayload;
+  /** 由 order.created 实时下发或会话历史回填的安全订单卡片。 */
+  orders?: import("../api/mcdonaldsOrder").McDonaldsOrder[];
 }
 
 type ConversationType = "SINGLE" | "GROUP";

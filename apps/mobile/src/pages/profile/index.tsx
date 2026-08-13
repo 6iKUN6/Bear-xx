@@ -33,6 +33,14 @@ export default function ProfilePage() {
     Taro.navigateTo({ url: "/pages/settings/theme/index" });
   };
 
+  const handleOpenOrders = () => {
+    Taro.navigateTo({ url: "/pages/orders/index" });
+  };
+
+  const handleOpenMcDonaldsAccount = () => {
+    Taro.navigateTo({ url: "/pages/settings/mcdonalds-account/index" });
+  };
+
   const handleLoginOrLogout = () => {
     if (isLoggedIn) {
       Taro.showModal({
@@ -175,6 +183,46 @@ export default function ProfilePage() {
           <View className={`${appGlassCardClass} overflow-hidden`}>
             {isLoggedIn && (
               <>
+                <View
+                  className="flex items-center justify-between px-[1.25rem] py-[1rem] active:bg-[var(--lb-surface-hover)]"
+                  onClick={handleOpenOrders}
+                >
+                  <View className="flex items-center gap-[0.875rem]">
+                    <View className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-sm)] bg-[var(--lb-warning-soft)] text-[1.125rem] text-[var(--lb-warning)]">
+                      <Text className="at-icon at-icon-shopping-bag leading-none [&::before]:block" />
+                    </View>
+                    <View>
+                      <Text className="block text-[1rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]">
+                        我的订单
+                      </Text>
+                      <Text className="mt-[0.125rem] block text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]">
+                        查看麦当劳订单与履约状态
+                      </Text>
+                    </View>
+                  </View>
+                  <Text className="at-icon at-icon-chevron-right text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
+                </View>
+                <View className={`${appHairlineClass} mx-[1.25rem]`} />
+                <View
+                  className="flex items-center justify-between px-[1.25rem] py-[1rem] active:bg-[var(--lb-surface-hover)]"
+                  onClick={handleOpenMcDonaldsAccount}
+                >
+                  <View className="flex items-center gap-[0.875rem]">
+                    <View className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-sm)] bg-[#fff2cc] font-serif text-[1.25rem] font-bold leading-none text-[#d7282f]">
+                      <Text>M</Text>
+                    </View>
+                    <View>
+                      <Text className="block text-[1rem] font-medium leading-[1.4] text-[var(--lb-text-primary)]">
+                        麦当劳账号
+                      </Text>
+                      <Text className="mt-[0.125rem] block text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]">
+                        管理点餐使用的 MCP Token
+                      </Text>
+                    </View>
+                  </View>
+                  <Text className="at-icon at-icon-chevron-right text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
+                </View>
+                <View className={`${appHairlineClass} mx-[1.25rem]`} />
                 <View
                   className="flex items-center justify-between px-[1.25rem] py-[1rem]"
                   onClick={handleClearChat}

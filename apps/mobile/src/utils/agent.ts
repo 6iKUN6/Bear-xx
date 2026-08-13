@@ -34,6 +34,7 @@ const TOOL_GROUP_LABELS: Record<string, string> = {
   weather: "天气",
   search: "联网搜索",
   "image-gen": "AI 生图",
+  "mcd-order": "麦当劳点餐",
 };
 
 export function toolGroupLabel(group: string): string {

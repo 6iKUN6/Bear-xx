@@ -89,6 +89,7 @@ export default function ChatWorkspace({
     toggleMessageStreamFeedback,
     setMessageApproval,
     setMessagePlanReview,
+    upsertMessageOrder,
     persistConversations,
   } = useChatStore();
 
@@ -353,6 +354,11 @@ export default function ChatWorkspace({
           aiMsgId,
           (event.data.payload as PlanReviewRequiredPayload | undefined) ?? null,
         );
+      },
+      onOrderCreated: ({ order }, event) => {
+        recordStreamEvent(event);
+        upsertMessageOrder(aiMsgId, order);
+        persistConversations();
       },
       onChunk: (chunk) => {
         updateMessageContent(aiMsgId, chunk);

@@ -1,0 +1,150 @@
+.mcd-payment-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(35, 28, 23, 0.48);
+}
+
+.mcd-payment-sheet {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 24.375rem;
+  border-radius: 0.75rem 0.75rem 0 0;
+  background: var(--lb-surface);
+  padding: 0.625rem 1rem calc(env(safe-area-inset-bottom) + 1.125rem);
+  box-shadow: 0 -0.5rem 1.75rem rgba(46, 36, 28, 0.18);
+}
+
+.mcd-payment-sheet-handle {
+  width: 2.25rem;
+  height: 0.25rem;
+  margin: 0 auto 1rem;
+  border-radius: 999px;
+  background: var(--lb-line-strong);
+}
+
+.mcd-payment-sheet-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mcd-payment-brand-mark {
+  display: flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lb-radius-sm);
+  background: #d7282f;
+  color: #ffd928;
+  font-family: Georgia, serif;
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.mcd-payment-close {
+  display: flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--lb-radius-sm);
+  color: var(--lb-text-secondary);
+}
+
+.mcd-payment-close:active {
+  background: var(--lb-surface-hover);
+}
+
+.mcd-payment-qr-area {
+  display: flex;
+  min-height: 15rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1rem;
+  border: 1px solid var(--lb-line-soft);
+  border-radius: var(--lb-radius-md);
+  background: var(--lb-surface-muted);
+}
+
+.mcd-payment-qr-image {
+  width: 13.5rem;
+  height: 13.5rem;
+  background: var(--lb-surface);
+}
+
+.mcd-payment-placeholder {
+  display: flex;
+  max-width: 13rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--lb-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.mcd-payment-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0.1875rem solid var(--lb-line-soft);
+  border-top-color: var(--lb-accent);
+  border-radius: 50%;
+  animation: mcd-payment-spin 760ms linear infinite;
+}
+
+.mcd-payment-secondary-action,
+.mcd-payment-primary-action {
+  display: flex;
+  min-height: 2.75rem;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: var(--lb-radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.mcd-payment-secondary-action {
+  border: 1px solid var(--lb-line-strong);
+  color: var(--lb-text-secondary);
+}
+
+.mcd-payment-secondary-action:active {
+  background: var(--lb-surface-hover);
+}
+
+.mcd-payment-primary-action {
+  background: var(--lb-accent-surface);
+  color: var(--lb-on-accent);
+}
+
+.mcd-payment-primary-action:active {
+  opacity: 0.82;
+}
+
+.mcd-payment-action-disabled {
+  opacity: 0.45;
+}
+
+@keyframes mcd-payment-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcd-payment-spinner {
+    animation: none;
+  }
+}

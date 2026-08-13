@@ -7,10 +7,12 @@ import type {
 } from "@litter-bear/types/protocol";
 import StreamFeedback from "../StreamFeedback";
 import ApprovalCard from "../ApprovalCard";
+import McdonaldsOrderCard from "../McdonaldsOrderCard";
 import PlanReviewCard from "../PlanReviewCard";
 import StreamingMarkdownContent from "../StreamingMarkdownContent";
 import { useUserStore } from "../../store/userStore";
 import { useAgentStore } from "../../store/agentStore";
+import { useChatStore } from "../../store/chatStore";
 import { agentAvatarSrc, FALLBACK_AGENT_NAME } from "../../utils/agent";
 import {
   appGradientSurfaceClass,
@@ -59,6 +61,10 @@ function ChatBubble({
 }: ChatBubbleProps) {
   const userInfo = useUserStore((state) => state.userInfo);
   const agents = useAgentStore((state) => state.agents);
+  const upsertMessageOrder = useChatStore((state) => state.upsertMessageOrder);
+  const persistConversations = useChatStore(
+    (state) => state.persistConversations,
+  );
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   // 群聊归属：assistant 名字/头像跟随发言智能体；取不到回退默认助手
@@ -122,6 +128,21 @@ function ChatBubble({
             streaming={!isUser && isStreaming}
           />
         </View>
+
+        {!isUser && message.orders?.length ? (
+          <View className='mt-[0.75rem] flex min-w-0 flex-col gap-[0.625rem]'>
+            {message.orders.map((order) => (
+              <McdonaldsOrderCard
+                key={order.id}
+                order={order}
+                onOrderChange={(next) => {
+                  upsertMessageOrder(message.id, next);
+                  persistConversations();
+                }}
+              />
+            ))}
+          </View>
+        ) : null}
 
         {!isUser && message.pendingApproval && (
           <View className='mt-[0.5rem] min-w-0'>

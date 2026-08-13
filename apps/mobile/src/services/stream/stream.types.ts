@@ -4,6 +4,7 @@ import type {
   MessageDonePayload,
   StreamTaskEvent,
 } from "./stream-event.types";
+import type { OrderCreatedPayload } from "@litter-bear/types/protocol";
 
 export type ChatStreamInput = ChatCompletionsDto & { agentId?: string };
 
@@ -46,6 +47,10 @@ export interface StreamTaskLifecycle {
   ) => void;
   onApprovalRequired?: (event: StreamTaskEvent) => void;
   onPlanReviewRequired?: (event: StreamTaskEvent) => void;
+  onOrderCreated?: (
+    payload: OrderCreatedPayload,
+    event: StreamTaskEvent<OrderCreatedPayload>,
+  ) => void;
   onMessageDone?: (
     content: string | undefined,
     event: StreamTaskEvent<MessageDonePayload>,

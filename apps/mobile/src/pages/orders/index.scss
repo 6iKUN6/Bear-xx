@@ -1,0 +1,20 @@
+.mcd-orders-loading-spinner {
+  width: 1.625rem;
+  height: 1.625rem;
+  border: 0.1875rem solid var(--lb-line-soft);
+  border-top-color: var(--lb-accent);
+  border-radius: 50%;
+  animation: mcd-orders-spin 760ms linear infinite;
+}
+
+@keyframes mcd-orders-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcd-orders-loading-spinner {
+    animation: none;
+  }
+}
