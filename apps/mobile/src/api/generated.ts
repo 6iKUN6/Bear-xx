@@ -136,10 +136,10 @@ export class Api extends BaseApiClient {
 
   streamTask(args: {
     taskId: string;
-    cursor?: number;
+    cursor?: string;
   }): Promise<unknown> {
     const params: StreamTaskControllerStreamTaskParams = {
-      cursor: args.cursor ?? 0,
+      cursor: args.cursor ?? "0",
     };
 
     return streamTaskControllerStreamTask(args.taskId, params) as Promise<unknown>;

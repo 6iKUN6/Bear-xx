@@ -32,4 +32,6 @@ export interface McDonaldsOrderResponseDto {
   /** @nullable */
   lastRefreshedAt?: string | null;
   createdAt: string;
+  /** 关联麦当劳凭据仍有效时为 true；false 时订单仅支持只读查看 */
+  externalActionsAvailable: boolean;
 }
