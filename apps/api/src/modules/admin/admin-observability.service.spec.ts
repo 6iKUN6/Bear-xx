@@ -15,6 +15,9 @@ describe('AdminObservabilityService', () => {
         ]),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      agent: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     const service = buildService(prisma);
     const usage = await service.agentUsage(7);
@@ -26,6 +29,75 @@ describe('AdminObservabilityService', () => {
     expect(def).toMatchObject({ taskCount: 5, completedCount: 5 });
     // 按 taskCount 倒序
     expect(usage[0].agentId).toBe('a1');
+  });
+
+  it('enriches agent usage with the agent display profile', async () => {
+    const prisma = {
+      streamTask: {
+        groupBy: jest
+          .fn()
+          .mockResolvedValue([
+            { agentId: 'a1', status: 'COMPLETED', _count: { _all: 3 } },
+          ]),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      agent: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'a1',
+            name: '研究助手',
+            avatar: 'https://cdn.example.com/research.png',
+          },
+        ]),
+      },
+    };
+
+    const usage = await buildService(prisma).agentUsage(7);
+
+    expect(usage[0]).toMatchObject({
+      agentId: 'a1',
+      agentName: '研究助手',
+      agentAvatar: 'https://cdn.example.com/research.png',
+    });
+  });
+
+  it('enriches recent tasks with the agent display profile', async () => {
+    const startedAt = new Date('2026-07-28T00:00:00.000Z');
+    const completedAt = new Date('2026-07-28T00:00:01.000Z');
+    const prisma = {
+      streamTask: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'task-1',
+            agentId: 'a1',
+            type: 'CHAT_COMPLETION',
+            status: 'COMPLETED',
+            errorMessage: null,
+            startedAt,
+            completedAt,
+            createdAt: startedAt,
+            resultPayload: null,
+          },
+        ]),
+      },
+      agent: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'a1',
+            name: '研究助手',
+            avatar: 'https://cdn.example.com/research.png',
+          },
+        ]),
+      },
+    };
+
+    const tasks = await buildService(prisma).recentTasks(7);
+
+    expect(tasks.items[0]).toMatchObject({
+      agentId: 'a1',
+      agentName: '研究助手',
+      agentAvatar: 'https://cdn.example.com/research.png',
+    });
   });
 
   it('aggregates tool usage with success rate and weighted avg duration', async () => {
@@ -105,6 +177,9 @@ describe('AdminObservabilityService', () => {
       conversationTurnTraceItem: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      agent: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     const service = buildService(prisma);
     const detail = await service.taskDetail('t1');
@@ -115,5 +190,75 @@ describe('AdminObservabilityService', () => {
       durationMs: 3200,
     });
     expect(detail.trace).toEqual([]);
+  });
+
+  it('returns structured trace fields for the provenance viewer', async () => {
+    const startedAt = new Date('2026-07-28T00:00:00.000Z');
+    const endedAt = new Date('2026-07-28T00:00:01.200Z');
+    const createdAt = new Date('2026-07-28T00:00:00.000Z');
+    const prisma = {
+      streamTask: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 't1',
+          agentId: 'a1',
+          type: 'CHAT_COMPLETION',
+          status: 'COMPLETED',
+          errorMessage: null,
+          startedAt,
+          completedAt: endedAt,
+          createdAt,
+          resultPayload: null,
+        }),
+      },
+      conversationTurnTraceItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'trace-1',
+            type: 'TOOL_CALL',
+            status: 'SUCCESS',
+            title: '查询天气',
+            summary: '已获取深圳天气',
+            detail: '调用 getWeather',
+            toolName: 'getWeather',
+            parentId: 'trace-root',
+            depth: 2,
+            nodeKey: 'weather_lookup',
+            mcpServer: 'weather',
+            mcpTool: 'getWeather',
+            inputSummary: { city: '深圳' },
+            outputSummary: { condition: '晴' },
+            error: null,
+            metrics: { durationMs: 1200 },
+            startedAt,
+            endedAt,
+            createdAt,
+            durationMs: 1200,
+            sequence: 3,
+          },
+        ]),
+      },
+      agent: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+
+    const detail = await buildService(prisma).taskDetail('t1');
+
+    expect(detail.trace).toEqual([
+      expect.objectContaining({
+        parentId: 'trace-root',
+        depth: 2,
+        detail: '调用 getWeather',
+        nodeKey: 'weather_lookup',
+        mcpServer: 'weather',
+        mcpTool: 'getWeather',
+        inputSummary: { city: '深圳' },
+        outputSummary: { condition: '晴' },
+        metrics: { durationMs: 1200 },
+        startedAt: startedAt.getTime(),
+        endedAt: endedAt.getTime(),
+        createdAt: createdAt.getTime(),
+      }),
+    ]);
   });
 });

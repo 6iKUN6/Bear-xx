@@ -43,6 +43,12 @@ export class AgentUsageDto {
   @ApiProperty({ description: '智能体 id；null=用默认 agent', nullable: true })
   agentId: string | null;
 
+  @ApiProperty({ description: '智能体展示名称' })
+  agentName: string;
+
+  @ApiProperty({ description: '智能体头像 URL', nullable: true })
+  agentAvatar: string | null;
+
   @ApiProperty({ example: 30 })
   taskCount: number;
 
@@ -90,6 +96,12 @@ export class TaskSummaryDto {
 
   @ApiProperty({ nullable: true })
   agentId: string | null;
+
+  @ApiProperty({ description: '智能体展示名称' })
+  agentName: string;
+
+  @ApiProperty({ description: '智能体头像 URL', nullable: true })
+  agentAvatar: string | null;
 
   @ApiProperty({ example: 'CHAT_COMPLETION' })
   type: string;
@@ -148,6 +160,9 @@ export class TaskTraceItemDto {
   summary: string | null;
 
   @ApiProperty({ nullable: true })
+  detail: string | null;
+
+  @ApiProperty({ nullable: true })
   toolName: string | null;
 
   @ApiProperty({ example: 820, nullable: true })
@@ -155,6 +170,58 @@ export class TaskTraceItemDto {
 
   @ApiProperty({ example: 1 })
   sequence: number;
+
+  @ApiProperty({ example: 0 })
+  depth: number;
+
+  @ApiProperty({ nullable: true })
+  parentId: string | null;
+
+  @ApiProperty({ nullable: true })
+  nodeKey: string | null;
+
+  @ApiProperty({ nullable: true })
+  mcpServer: string | null;
+
+  @ApiProperty({ nullable: true })
+  mcpTool: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: Object,
+    additionalProperties: true,
+  })
+  inputSummary: Record<string, unknown> | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: Object,
+    additionalProperties: true,
+  })
+  outputSummary: Record<string, unknown> | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: Object,
+    additionalProperties: true,
+  })
+  error: Record<string, unknown> | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: Object,
+    additionalProperties: true,
+  })
+  metrics: Record<string, unknown> | null;
+
+  @ApiProperty({ nullable: true, example: 1735689600000 })
+  startedAt: number | null;
+
+  @ApiProperty({ nullable: true, example: 1735689601200 })
+  endedAt: number | null;
+
+  @ApiProperty({ example: 1735689600000 })
+  createdAt: number;
 }
 
 export class TaskDetailDto extends TaskSummaryDto {

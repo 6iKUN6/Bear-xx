@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   TestSessionDetailDto,
@@ -74,7 +75,20 @@ export class AgentTestSessionService {
           status: item.status,
           title: item.title,
           summary: item.summary,
+          detail: item.detail,
           toolName: item.toolName,
+          parentId: item.parentId,
+          depth: item.depth,
+          nodeKey: item.nodeKey,
+          mcpServer: item.mcpServer,
+          mcpTool: item.mcpTool,
+          inputSummary: this.readJsonObject(item.inputSummary),
+          outputSummary: this.readJsonObject(item.outputSummary),
+          error: this.readJsonObject(item.error),
+          metrics: this.readJsonObject(item.metrics),
+          startedAt: item.startedAt?.getTime() ?? null,
+          endedAt: item.endedAt?.getTime() ?? null,
+          createdAt: item.createdAt.getTime(),
           durationMs: item.durationMs,
           sequence: item.sequence,
         })),
@@ -92,5 +106,21 @@ export class AgentTestSessionService {
       throw new NotFoundException('测试会话不存在');
     }
     await this.prisma.conversation.delete({ where: { id } });
+  }
+
+  /**
+   * 将 Prisma JSON 值收敛为可安全透出的对象
+   * @param value trace 字段中持久化的 Prisma JSON 值
+   * @returns 返回浅拷贝后的对象；标量、数组和空值返回 null
+   * @description 测试台与任务详情共享 trace 语义，只允许对象结构进入详情面板。
+   */
+  private readJsonObject(
+    value: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    return Object.fromEntries(Object.entries(value));
   }
 }

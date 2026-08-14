@@ -20,6 +20,11 @@ import type {
 const DEFAULT_RANGE_DAYS = 7;
 const DEFAULT_RECENT_LIMIT = 20;
 
+interface AgentDisplayProfile {
+  name: string;
+  avatar: string | null;
+}
+
 /**
  * 管理端观测聚合（只读）
  * @description 复用已落库的 StreamTask / ConversationTurnTraceItem 数据做跨用户聚合，
@@ -109,10 +114,16 @@ export class AdminObservabilityService {
       byAgent.set(key, entry);
     }
 
+    const agentDisplayById = await this.findAgentDisplays(
+      [...byAgent.values()].map((entry) => entry.agentId),
+    );
     const result: AgentUsageDto[] = [];
     for (const entry of byAgent.values()) {
+      const agent = this.resolveAgentDisplay(entry.agentId, agentDisplayById);
       result.push({
         agentId: entry.agentId,
+        agentName: agent.name,
+        agentAvatar: agent.avatar,
         taskCount: entry.taskCount,
         completedCount: entry.completedCount,
         successRate:
@@ -237,9 +248,17 @@ export class AdminObservabilityService {
 
     const hasMore = rows.length > take;
     const page = hasMore ? rows.slice(0, take) : rows;
+    const agentDisplayById = await this.findAgentDisplays(
+      page.map((task) => task.agentId),
+    );
 
     return {
-      items: page.map((task) => this.toTaskSummary(task)),
+      items: page.map((task) =>
+        this.toTaskSummary(
+          task,
+          this.resolveAgentDisplay(task.agentId, agentDisplayById),
+        ),
+      ),
       nextCursor: hasMore ? page[page.length - 1].id : null,
     };
   }
@@ -255,30 +274,62 @@ export class AdminObservabilityService {
       throw new NotFoundException('任务不存在');
     }
 
-    const trace = await this.prisma.conversationTurnTraceItem.findMany({
-      where: { taskId },
-      orderBy: { sequence: 'asc' },
-      select: {
-        id: true,
-        type: true,
-        status: true,
-        title: true,
-        summary: true,
-        toolName: true,
-        durationMs: true,
-        sequence: true,
-      },
-    });
+    const [trace, agentDisplayById] = await Promise.all([
+      this.prisma.conversationTurnTraceItem.findMany({
+        where: { taskId },
+        orderBy: { sequence: 'asc' },
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          title: true,
+          summary: true,
+          detail: true,
+          toolName: true,
+          parentId: true,
+          depth: true,
+          nodeKey: true,
+          mcpServer: true,
+          mcpTool: true,
+          inputSummary: true,
+          outputSummary: true,
+          error: true,
+          metrics: true,
+          startedAt: true,
+          endedAt: true,
+          createdAt: true,
+          durationMs: true,
+          sequence: true,
+        },
+      }),
+      this.findAgentDisplays([task.agentId]),
+    ]);
 
     return {
-      ...this.toTaskSummary(task),
+      ...this.toTaskSummary(
+        task,
+        this.resolveAgentDisplay(task.agentId, agentDisplayById),
+      ),
       trace: trace.map((item) => ({
         id: item.id,
         type: item.type,
         status: item.status,
         title: item.title,
         summary: item.summary,
+        detail: item.detail,
         toolName: item.toolName,
+        parentId: item.parentId,
+        depth: item.depth,
+        nodeKey: item.nodeKey,
+        mcpServer: item.mcpServer,
+        mcpTool: item.mcpTool,
+        inputSummary: this.readJsonObject(item.inputSummary),
+        outputSummary: this.readJsonObject(item.outputSummary),
+        error: this.readJsonObject(item.error),
+        metrics: this.readJsonObject(item.metrics),
+        startedAt: item.startedAt?.getTime() ?? null,
+        endedAt: item.endedAt?.getTime() ?? null,
+        createdAt: item.createdAt.getTime(),
         durationMs: item.durationMs,
         sequence: item.sequence,
       })),
@@ -288,17 +339,20 @@ export class AdminObservabilityService {
   /**
    * StreamTask 行 → 任务摘要（提取 resultPayload.metrics 里的 token / 计数）
    */
-  private toTaskSummary(task: {
-    id: string;
-    agentId: string | null;
-    type: string;
-    status: string;
-    errorMessage: string | null;
-    startedAt: Date | null;
-    completedAt: Date | null;
-    createdAt: Date;
-    resultPayload: Prisma.JsonValue | null;
-  }): TaskSummaryDto {
+  private toTaskSummary(
+    task: {
+      id: string;
+      agentId: string | null;
+      type: string;
+      status: string;
+      errorMessage: string | null;
+      startedAt: Date | null;
+      completedAt: Date | null;
+      createdAt: Date;
+      resultPayload: Prisma.JsonValue | null;
+    },
+    agent: AgentDisplayProfile,
+  ): TaskSummaryDto {
     const metrics = this.readMetrics(task.resultPayload);
     const durationMs =
       task.startedAt && task.completedAt
@@ -308,6 +362,8 @@ export class AdminObservabilityService {
     return {
       id: task.id,
       agentId: task.agentId,
+      agentName: agent.name,
+      agentAvatar: agent.avatar,
       type: task.type,
       status: task.status,
       durationMs,
@@ -336,6 +392,57 @@ export class AdminObservabilityService {
 
   private readNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  /**
+   * 批量读取智能体的展示资料
+   * @param agentIds 任务或聚合记录关联的智能体 ID 集合，允许含 null
+   * @returns 返回以智能体 ID 为键的展示资料映射
+   * @description StreamTask 只保存 agentId 字段而非关系；在观测接口中一次查询补齐名称与头像，避免列表逐行查询。
+   */
+  private async findAgentDisplays(
+    agentIds: Array<string | null>,
+  ): Promise<Map<string, AgentDisplayProfile>> {
+    const ids = [
+      ...new Set(agentIds.filter((id): id is string => Boolean(id))),
+    ];
+    if (ids.length === 0) {
+      return new Map();
+    }
+
+    const agents = await this.prisma.agent.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, avatar: true },
+    });
+    return new Map(
+      agents.map((agent) => [
+        agent.id,
+        { name: agent.name, avatar: agent.avatar },
+      ]),
+    );
+  }
+
+  /**
+   * 解析任务关联的智能体展示资料
+   * @param agentId 任务记录上的智能体 ID；null 表示默认智能体
+   * @param agentDisplayById 已批量查询到的展示资料映射
+   * @returns 返回可直接展示的名称和头像
+   * @description 已删除智能体不回退展示内部 ID，避免列表把内部标识误作用户名称。
+   */
+  private resolveAgentDisplay(
+    agentId: string | null,
+    agentDisplayById: Map<string, AgentDisplayProfile>,
+  ): AgentDisplayProfile {
+    if (!agentId) {
+      return { name: '默认智能体', avatar: null };
+    }
+
+    return (
+      agentDisplayById.get(agentId) ?? {
+        name: '已删除智能体',
+        avatar: null,
+      }
+    );
   }
 
   // ---- 私有辅助 ----
@@ -388,5 +495,21 @@ export class AdminObservabilityService {
       return sum + Math.max(0, end - start);
     }, 0);
     return Math.round(total / rows.length);
+  }
+
+  /**
+   * 将 Prisma JSON 值收敛为可安全透出的对象
+   * @param value trace 字段中持久化的 Prisma JSON 值
+   * @returns 返回浅拷贝后的对象；标量、数组和空值返回 null
+   * @description trace Viewer 只展示命名字段，拒绝将意外的标量或数组伪装成键值详情。
+   */
+  private readJsonObject(
+    value: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+
+    return Object.fromEntries(Object.entries(value));
   }
 }
