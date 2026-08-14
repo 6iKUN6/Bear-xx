@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -15,15 +15,15 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/kpi-card";
 import { AgentFormSheet } from "@/components/agent-form-sheet";
+import { AgentAvatar } from "@/components/agent-identity";
 import { useAgents, useAgentMutations } from "@/hooks/queries";
 import { ApiError } from "@/api/client";
 import type { Agent } from "@/api/types";
 import { strategyName, toolGroupName } from "@/lib/agent-meta";
-import defaultAgentAvatar from "@litter-bear/assets/agents/default-avatar.png";
 
 export function AgentManagePage() {
   const { data, isLoading } = useAgents();
-  const { remove } = useAgentMutations();
+  const { remove, setDefault } = useAgentMutations();
   const [editing, setEditing] = useState<Agent | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -49,6 +49,16 @@ export function AgentManagePage() {
       toast.success("已删除");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "删除失败");
+    }
+  };
+
+  const handleSetDefault = async (agent: Agent) => {
+    if (!window.confirm(`将「${agent.name}」设为默认回复智能体？`)) return;
+    try {
+      await setDefault.mutateAsync(agent.id);
+      toast.success("已设为默认回复智能体");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "设置失败");
     }
   };
 
@@ -81,20 +91,16 @@ export function AgentManagePage() {
                   <TableRow key={a.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <img
-                          src={a.avatar || defaultAgentAvatar}
-                          alt={a.name}
-                          className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              defaultAgentAvatar;
-                          }}
+                        <AgentAvatar
+                          name={a.name}
+                          avatar={a.avatar}
+                          className="h-9 w-9"
                         />
                         <div>
                           <div className="flex items-center gap-2 font-medium">
                             {a.name}
                             {a.isDefault ? (
-                              <Badge variant="secondary">默认</Badge>
+                              <Badge variant="secondary">默认回复</Badge>
                             ) : null}
                           </div>
                           {a.description ? (
@@ -122,6 +128,22 @@ export function AgentManagePage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        {!a.isDefault ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleSetDefault(a)}
+                            disabled={!a.enabled || setDefault.isPending}
+                            title={
+                              a.enabled
+                                ? "设为默认回复智能体"
+                                : "停用的智能体不可设为默认"
+                            }
+                            aria-label="设为默认回复智能体"
+                          >
+                            <Star className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                         <Button
                           variant="ghost"
                           size="icon"

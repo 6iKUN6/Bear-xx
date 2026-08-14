@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Image, View, Text } from "@tarojs/components";
+import { View, Text } from "@tarojs/components";
+import AgentAvatar from "../AgentAvatar";
 import AgentSheet from "../AgentSheet";
 import { useAgentStore } from "../../store/agentStore";
 import { useUserStore } from "../../store/userStore";
-import { agentAvatarSrc, findAgent } from "../../utils/agent";
+import { findAgent } from "../../utils/agent";
 import {
   appGlassCardStrongClass,
   appHeroClass,
@@ -69,10 +70,11 @@ export default function NewChatPanel({ onPickPrompt }: NewChatPanelProps) {
         >
           {canPick ? (
             <>
-              <Image
+              <AgentAvatar
                 className='h-[3rem] w-[3rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
-                src={agentAvatarSrc(currentAgent?.avatar)}
-                mode='aspectFill'
+                name={currentAgent?.name}
+                avatar={currentAgent?.avatar}
+                size='md'
               />
               <View className='min-w-0 flex-1'>
                 <Text className='block overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>

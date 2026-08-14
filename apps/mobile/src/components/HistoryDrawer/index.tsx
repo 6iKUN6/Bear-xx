@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Image, Text, View } from "@tarojs/components";
+import { Text, View } from "@tarojs/components";
 import Taro from "@tarojs/taro";
+import AgentAvatar from "../AgentAvatar";
 import { useNavBarMetrics } from "../../hooks/useNavBarMetrics";
 import { useAgentStore } from "../../store/agentStore";
 import { useUserStore } from "../../store/userStore";
 import { groupConversationsByTime } from "../../utils/conversation";
-import { agentAvatarSrc } from "../../utils/agent";
+import { findAgent } from "../../utils/agent";
 import { appTextTruncateClass } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
 
@@ -290,33 +291,38 @@ function ConversationAvatar({
   agents: AgentSummary[];
 }) {
   const memberIds = conversation.agentIds ?? [];
-  const findAvatar = (id: string) =>
-    agentAvatarSrc(agents.find((agent) => agent.id === id)?.avatar);
+  const findMember = (id: string) =>
+    agents.find((agent) => agent.id === id);
 
   if (conversation.type === "GROUP" && memberIds.length > 1) {
     return (
       <View className="grid h-[2rem] w-[2rem] shrink-0 grid-cols-2 gap-[0.0625rem] overflow-hidden rounded-[0.5rem] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] p-[0.125rem] box-border">
-        {memberIds.slice(0, 4).map((id) => (
-          <Image
-            key={id}
-            className="h-full w-full rounded-[0.1875rem] bg-[var(--lb-surface)]"
-            src={findAvatar(id)}
-            mode="aspectFill"
-          />
-        ))}
+        {memberIds.slice(0, 4).map((id) => {
+          const member = findMember(id);
+          return (
+            <AgentAvatar
+              key={id}
+              className="h-full w-full rounded-[0.1875rem] bg-[var(--lb-surface)]"
+              name={member?.name}
+              avatar={member?.avatar}
+              size="sm"
+            />
+          );
+        })}
       </View>
     );
   }
 
+  const member = memberIds[0]
+    ? findMember(memberIds[0])
+    : findAgent(agents, null);
+
   return (
-    <Image
+    <AgentAvatar
       className="h-[2rem] w-[2rem] shrink-0 rounded-[0.5rem] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]"
-      src={agentAvatarSrc(
-        memberIds[0]
-          ? (agents.find((agent) => agent.id === memberIds[0])?.avatar ?? null)
-          : null,
-      )}
-      mode="aspectFill"
+      name={member?.name}
+      avatar={member?.avatar}
+      size="sm"
     />
   );
 }

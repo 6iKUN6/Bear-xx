@@ -1,22 +1,27 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
 import { Image, View, Text } from "@tarojs/components";
-import type {
-  ApprovalDecision,
-  PlanReviewDecision,
+import {
+  StreamTaskEventType,
+  type ApprovalDecision,
+  type PlanReviewDecision,
 } from "@litter-bear/types/protocol";
 import StreamFeedback from "../StreamFeedback";
 import ApprovalCard from "../ApprovalCard";
+import AgentAvatar from "../AgentAvatar";
 import McdonaldsOrderCard from "../McdonaldsOrderCard";
 import PlanReviewCard from "../PlanReviewCard";
 import StreamingMarkdownContent from "../StreamingMarkdownContent";
 import { useUserStore } from "../../store/userStore";
 import { useAgentStore } from "../../store/agentStore";
 import { useChatStore } from "../../store/chatStore";
-import { agentAvatarSrc, FALLBACK_AGENT_NAME } from "../../utils/agent";
+import {
+  FALLBACK_AGENT_NAME,
+  findAgent,
+  getUnassignedAssistantNotice,
+} from "../../utils/agent";
 import {
   appGradientSurfaceClass,
-  appIconTileClass,
   appLoadingDotClass,
 } from "../../utils/style";
 import "./index.scss";
@@ -65,27 +70,44 @@ function ChatBubble({
   const persistConversations = useChatStore(
     (state) => state.persistConversations,
   );
+  const conversationType = useChatStore(
+    (state) => state.currentConversation?.type,
+  );
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
-  // 群聊归属：assistant 名字/头像跟随发言智能体；取不到回退默认助手
-  const speakerAgent = !isUser
-    ? agents.find((agent) => agent.id === message.agentId)
-    : undefined;
-  // 群聊自动路由尚未落定：这条消息没有任何真实身份可展示
-  const isUnassigned = !isUser && !message.agentName && !speakerAgent;
-  const isRouting = isUnassigned && Boolean(message.routing);
-  // 指派没走完就失败了（请求根本没建起任务）。此时回退成默认助手身份是错的——
-  // 没有任何智能体接过这轮，不该显示成「某人回答失败」。
-  const isUnassignedFailure = isUnassigned && message.status === "error";
+  // 群聊自动路由尚未落定：尚无服务端写入的 agentId 或 agentName。
+  // 必须在默认智能体解析前判断，否则 null agentId 会错误命中默认助手。
+  const isAssistantWithoutExplicitIdentity =
+    !isUser && !message.agentId && !message.agentName;
+  const hasCreatedTask =
+    message.currentStreamEvent?.type === StreamTaskEventType.TaskCreated ||
+    message.streamFeedback?.events.some(
+      (event) => event.type === StreamTaskEventType.TaskCreated,
+    ) === true;
+  const unassignedAssistantNotice = getUnassignedAssistantNotice(
+    message.status,
+    conversationType === "GROUP",
+    !isAssistantWithoutExplicitIdentity,
+    Boolean(message.routing),
+    hasCreatedTask,
+  );
 
   // 没有归属的这两种状态，头像、名字、正文全是占位，撑起一整个气泡
   // 反而像「某人已经在回答」。统一收成一行灰字。
-  if (isRouting || isUnassignedFailure) {
+  if (unassignedAssistantNotice) {
     return (
-      <UnassignedNotice text={isRouting ? "正在指派…" : "发送失败"} />
+      <UnassignedNotice
+        text={
+          unassignedAssistantNotice === "routing" ? "正在指派…" : "发送失败"
+        }
+      />
     );
   }
 
+  // 正常助手消息才按 id 解析；null 代表后端默认智能体，可显示其配置头像。
+  const speakerAgent = !isUser
+    ? findAgent(agents, message.agentId)
+    : undefined;
   const displayName = isUser
     ? userInfo?.nickname || "用户"
     : message.agentName || speakerAgent?.name || FALLBACK_AGENT_NAME;
@@ -100,11 +122,16 @@ function ChatBubble({
 
   return (
     <View className='mb-[1.25rem] flex w-full min-w-0 items-start gap-[0.75rem] px-[1rem] box-border'>
-      <BubbleAvatar
-        isUser={isUser}
-        avatarUrl={isUser ? userInfo?.avatarUrl : agentAvatarSrc(speakerAgent?.avatar)}
-        name={displayName}
-      />
+      {isUser ? (
+        <BubbleAvatar avatarUrl={userInfo?.avatarUrl} name={displayName} />
+      ) : (
+        <AgentAvatar
+          name={displayName}
+          avatar={speakerAgent?.avatar}
+          size='sm'
+          className='h-[2.5rem] w-[2.5rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
+        />
+      )}
 
       <View className='flex min-w-0 flex-1 flex-col items-stretch'>
         <View className='flex min-w-0 items-center gap-[0.5rem]'>
@@ -190,11 +217,9 @@ function UnassignedNotice({ text }: { text: string }) {
 }
 
 function BubbleAvatar({
-  isUser,
   avatarUrl,
   name,
 }: {
-  isUser: boolean;
   avatarUrl?: string;
   name: string;
 }) {
@@ -208,23 +233,13 @@ function BubbleAvatar({
     );
   }
 
-  if (isUser) {
-    return (
-      <View
-        className={`${appGradientSurfaceClass} flex h-[2.5rem] w-[2.5rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-md)] text-[1rem] font-bold`}
-      >
-        <Text className='leading-none text-[var(--lb-on-accent)]'>
-          {readInitial(name)}
-        </Text>
-      </View>
-    );
-  }
-
   return (
     <View
-      className={`${appIconTileClass} h-[2.5rem] w-[2.5rem] shrink-0 text-[1.125rem]`}
+      className={`${appGradientSurfaceClass} flex h-[2.5rem] w-[2.5rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-md)] text-[1rem] font-bold`}
     >
-      <Text className='leading-none'>办</Text>
+      <Text className='leading-none text-[var(--lb-on-accent)]'>
+        {readInitial(name)}
+      </Text>
     </View>
   );
 }

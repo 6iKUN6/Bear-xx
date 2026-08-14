@@ -21,6 +21,7 @@ import {
   listAssets,
   listModelPresets,
   listTestSessions,
+  setDefaultAgent,
   updateAgent,
   updateModelPreset,
 } from "@/api/endpoints";
@@ -75,9 +76,11 @@ export const useAgentCapabilities = () =>
 
 export function useAgentMutations() {
   const qc = useQueryClient();
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: ["agents"] });
-    void qc.invalidateQueries({ queryKey: ["agentUsage"] });
+  const invalidate = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["agents"] }),
+      qc.invalidateQueries({ queryKey: ["agentUsage"] }),
+    ]);
   };
 
   const create = useMutation({
@@ -89,12 +92,16 @@ export function useAgentMutations() {
       updateAgent(id, body),
     onSuccess: invalidate,
   });
+  const setDefault = useMutation({
+    mutationFn: (id: string) => setDefaultAgent(id),
+    onSuccess: invalidate,
+  });
   const remove = useMutation({
     mutationFn: (id: string) => deleteAgent(id),
     onSuccess: invalidate,
   });
 
-  return { create, update, remove };
+  return { create, update, setDefault, remove };
 }
 
 export const useTestSessions = () =>

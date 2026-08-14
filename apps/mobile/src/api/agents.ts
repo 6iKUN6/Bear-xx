@@ -5,7 +5,7 @@ export interface AgentSummary {
   id: string;
   name: string;
   description: string;
-  /** 头像 URL；null = 用内置默认头像 */
+  /** 头像 URL；null = 显示名称首字 */
   avatar: string | null;
   /** 工具组（通讯录能力标签展示用） */
   toolGroups: string[];

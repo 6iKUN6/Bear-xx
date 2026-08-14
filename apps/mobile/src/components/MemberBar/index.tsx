@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Image, View, Text } from "@tarojs/components";
+import { View, Text } from "@tarojs/components";
+import AgentAvatar from "../AgentAvatar";
 import AgentSheet from "../AgentSheet";
-import { agentAvatarSrc } from "../../utils/agent";
 import type { AgentSummary } from "../../api/agents";
 
 const MAX_STACKED_AVATARS = 4;
@@ -35,13 +35,14 @@ export default function MemberBar({
       >
         <View className='flex items-center'>
           {stacked.map((agent, index) => (
-            <Image
+            <AgentAvatar
               key={agent.id}
               className={`h-[1.5rem] w-[1.5rem] rounded-full border border-[var(--lb-surface)] bg-[var(--lb-page-background)] box-border ${
                 index > 0 ? "ml-[-0.375rem]" : ""
               }`}
-              src={agentAvatarSrc(agent.avatar)}
-              mode='aspectFill'
+              name={agent.name}
+              avatar={agent.avatar}
+              size='xs'
             />
           ))}
           {restCount > 0 ? (

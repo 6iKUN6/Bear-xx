@@ -12,8 +12,9 @@ export class AgentResponseDto {
   description: string;
 
   @ApiProperty({
+    type: String,
     nullable: true,
-    description: '头像 URL；null=客户端用内置默认头像',
+    description: '头像 URL；null = 客户端显示名称首字',
   })
   avatar: string | null;
 

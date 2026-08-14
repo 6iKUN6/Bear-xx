@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Image, View, Text } from "@tarojs/components";
+import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
+import AgentAvatar from "../../components/AgentAvatar";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
 import { useAgentStore } from "../../store/agentStore";
 import { useChatStore } from "../../store/chatStore";
 import { createConversation } from "../../api/chat";
-import { agentAvatarSrc } from "../../utils/agent";
 import { safeAreaBottom } from "../../utils/style";
 
 /**
@@ -74,10 +74,11 @@ export default function AgentPickerPage() {
               className='flex items-center gap-[0.75rem] px-[1rem] py-[0.625rem] active:bg-[var(--lb-surface-hover)]'
               onClick={() => toggle(agent.id)}
             >
-              <Image
+              <AgentAvatar
                 className='h-[2.625rem] w-[2.625rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]'
-                src={agentAvatarSrc(agent.avatar)}
-                mode='aspectFill'
+                name={agent.name}
+                avatar={agent.avatar}
+                size='md'
               />
               <View className='min-w-0 flex-1'>
                 <Text className='block overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-medium leading-[1.35] text-[var(--lb-text-primary)]'>
@@ -111,13 +112,14 @@ export default function AgentPickerPage() {
       >
         <View className='flex min-w-0 flex-1 items-center'>
           {selectedAgents.slice(0, 6).map((agent, index) => (
-            <Image
+            <AgentAvatar
               key={agent.id}
               className={`h-[2rem] w-[2rem] rounded-full border-2 border-[var(--lb-surface)] bg-[var(--lb-page-background)] ${
                 index > 0 ? "ml-[-0.5rem]" : ""
               }`}
-              src={agentAvatarSrc(agent.avatar)}
-              mode='aspectFill'
+              name={agent.name}
+              avatar={agent.avatar}
+              size='sm'
             />
           ))}
           <Text className='ml-[0.5rem] shrink-0 text-[0.75rem] leading-[1.3] text-[var(--lb-text-secondary)]'>

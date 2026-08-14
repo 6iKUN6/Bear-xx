@@ -82,6 +82,9 @@ export const createAgent = (body: AgentInput) =>
 export const updateAgent = (id: string, body: AgentInput) =>
   request<Agent>(`/agents/${id}`, { method: "PATCH", body });
 
+export const setDefaultAgent = (id: string) =>
+  request<Agent>(`/agents/${id}/default`, { method: "PATCH" });
+
 export const deleteAgent = (id: string) =>
   request<{ success: boolean }>(`/agents/${id}`, { method: "DELETE" });
 

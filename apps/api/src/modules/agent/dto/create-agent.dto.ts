@@ -25,13 +25,15 @@ export class CreateAgentDto {
   description?: string;
 
   @ApiPropertyOptional({
-    description: '头像 URL；留空则客户端用内置默认头像',
+    type: String,
+    nullable: true,
+    description: '头像 URL；留空则客户端显示名称首字',
     example: 'https://example.com/avatar.png',
   })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  avatar?: string;
+  avatar?: string | null;
 
   @ApiPropertyOptional({
     description: '系统提示词；留空则回退到内置默认提示词',

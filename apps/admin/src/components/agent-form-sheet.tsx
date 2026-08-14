@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import defaultAgentAvatar from "@litter-bear/assets/agents/default-avatar.png";
+import { AgentAvatar } from "@/components/agent-identity";
 import {
   Sheet,
   SheetContent,
@@ -169,16 +169,12 @@ export function AgentFormSheet({
               }
             />
           </Field>
-          <Field label="头像（可上传 ≤2MB 图片，或复用已上传，留空用默认）">
+          <Field label="头像（可上传 ≤2MB 图片，或复用已上传，留空显示名称首字）">
             <div className="flex items-center gap-3">
-              <img
-                src={form.avatar?.trim() || defaultAgentAvatar}
-                alt="头像预览"
-                className="h-10 w-10 shrink-0 rounded-full border border-border bg-muted object-cover"
-                onError={(e) => {
-                  // 外链失效时回退默认头像，避免碎图
-                  (e.target as HTMLImageElement).src = defaultAgentAvatar;
-                }}
+              <AgentAvatar
+                name={form.name}
+                avatar={form.avatar}
+                className="h-10 w-10"
               />
               <Input
                 value={form.avatar ?? ""}

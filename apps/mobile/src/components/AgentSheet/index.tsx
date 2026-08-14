@@ -1,6 +1,6 @@
-import { Image, View, Text } from "@tarojs/components";
+import { View, Text } from "@tarojs/components";
+import AgentAvatar from "../AgentAvatar";
 import { appGlassCardClass } from "../../utils/style";
-import { agentAvatarSrc } from "../../utils/agent";
 import type { AgentSummary } from "../../api/agents";
 
 /**
@@ -60,10 +60,11 @@ export default function AgentSheet({
                 }`}
                 onClick={() => onSelect(agent)}
               >
-                <Image
+                <AgentAvatar
                   className='h-[2.25rem] w-[2.25rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
-                  src={agentAvatarSrc(agent.avatar)}
-                  mode='aspectFill'
+                  name={agent.name}
+                  avatar={agent.avatar}
+                  size='sm'
                 />
                 <View className='min-w-0 flex-1'>
                   <Text className='block overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>

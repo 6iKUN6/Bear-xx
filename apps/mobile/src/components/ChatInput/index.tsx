@@ -4,12 +4,18 @@ import {
   useImperativeHandle,
   useState,
 } from "react";
-import { Image, View, Text, Textarea } from "@tarojs/components";
+import { View, Text, Textarea } from "@tarojs/components";
+import AgentAvatar from "../AgentAvatar";
 import IconButton from "../IconButton";
 import VoiceButton from "../VoiceButton";
 import AgentSheet from "../AgentSheet";
 import { useAgentStore } from "../../store/agentStore";
-import { agentAvatarSrc, findAgent, resolveAgentName } from "../../utils/agent";
+import {
+  findAgent,
+  resolveAgentName,
+  resolveOutgoingAgentId,
+  type ChatAgentSelectionMode,
+} from "../../utils/agent";
 import { appSoftInputClass, safeAreaBottom } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
 
@@ -26,7 +32,7 @@ export interface ChatInputHandle {
  * - group：群聊（无粘性胶囊，仅 @ 提及；不 @ 则后端自动路由）
  * - flex：未定型会话（本地草稿/旧数据），保留粘性胶囊 + 全量 @
  */
-export type ChatInputMode = "single" | "group" | "flex";
+export type ChatInputMode = ChatAgentSelectionMode;
 
 interface ChatInputProps {
   /** agentId：本条消息的回答者；undefined = 交给后端（绑定/路由/默认） */
@@ -45,8 +51,8 @@ interface ChatInputProps {
 
 /** 一次性 @ 提及：仅对下一条消息生效 */
 interface MentionTarget {
-  /** null = 默认智能体 */
-  agentId: string | null;
+  /** 显式提及必须保留智能体真实 id（包括默认智能体）。 */
+  agentId: string;
   name: string;
 }
 
@@ -121,7 +127,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     setValue((prev) =>
       prev.endsWith("@") ? `${prev}${agent.name} ` : `${prev}@${agent.name} `,
     );
-    setMention({ agentId: agent.isDefault ? null : agent.id, name: agent.name });
+    setMention({ agentId: agent.id, name: agent.name });
   };
 
   useImperativeHandle(ref, () => ({
@@ -157,15 +163,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     const content = value.trim();
     if (!content || disabled || isStreaming) return;
     // single：回答者由后端按会话绑定解析；group：仅 @ 生效（不 @ = 自动路由）；
-    // flex：本条 @ 优先于粘性选择
-    const effectiveAgentId =
-      mode === "single"
-        ? undefined
-        : mode === "group"
-          ? (mention?.agentId ?? undefined)
-          : mention
-            ? (mention.agentId ?? undefined)
-            : (selectedAgentId ?? undefined);
+    // flex：本条 @ 优先于粘性选择。
+    const effectiveAgentId = resolveOutgoingAgentId(
+      mode,
+      mention?.agentId,
+      selectedAgentId,
+    );
     onSend(content, effectiveAgentId);
     setValue("");
     setMention(null);
@@ -248,10 +251,11 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
           className='flex min-w-0 max-w-[60%] items-center gap-[0.375rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-page-background)] py-[0.25rem] pl-[0.25rem] pr-[0.625rem] box-border'
           onClick={() => canOpenSwitch && setSheetMode("switch")}
         >
-          <Image
+          <AgentAvatar
             className='h-[1.375rem] w-[1.375rem] shrink-0 rounded-full bg-[var(--lb-surface)]'
-            src={agentAvatarSrc(currentAgent?.avatar)}
-            mode='aspectFill'
+            name={currentName}
+            avatar={currentAgent?.avatar}
+            size='xs'
           />
           <Text className='block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium leading-[1.3] text-[var(--lb-text-primary)]'>
             {currentName}

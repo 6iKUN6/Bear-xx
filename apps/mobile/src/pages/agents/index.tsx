@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Image, View, Text } from "@tarojs/components";
+import { View, Text } from "@tarojs/components";
 import Taro, { useDidShow } from "@tarojs/taro";
+import AgentAvatar from "../../components/AgentAvatar";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
 import { useAgentStore } from "../../store/agentStore";
 import { useChatStore } from "../../store/chatStore";
 import { createConversation } from "../../api/chat";
-import { agentAvatarSrc, toolGroupLabel } from "../../utils/agent";
+import { toolGroupLabel } from "../../utils/agent";
 import { appGlassCardClass } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
 
@@ -57,10 +58,11 @@ export default function AgentsPage() {
               key={agent.id}
               className={`${appGlassCardClass} box-border flex flex-col items-center px-[0.75rem] py-[0.875rem] text-center`}
             >
-              <Image
+              <AgentAvatar
                 className="h-[3.25rem] w-[3.25rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]"
-                src={agentAvatarSrc(agent.avatar)}
-                mode="aspectFill"
+                name={agent.name}
+                avatar={agent.avatar}
+                size="lg"
               />
               <Text className="mt-[0.5rem] block w-full overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
                 {agent.name}

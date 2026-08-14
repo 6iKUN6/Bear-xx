@@ -59,6 +59,21 @@ export class AgentController {
     return this.agentService.create(dto, userId);
   }
 
+  /**
+   * 设置全局默认智能体
+   * @param id 要设为默认智能体的智能体 ID
+   * @returns 返回设置成功后的智能体信息
+   * @description 仅管理员可调用；该默认项只用于未指定 agentId 的普通聊天。
+   */
+  @Patch(':id/default')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: '设置全局默认智能体（管理员）' })
+  @ApiOkResponse({ type: AgentResponseDto })
+  async setDefault(@Param('id') id: string) {
+    return this.agentService.setDefault(id);
+  }
+
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
