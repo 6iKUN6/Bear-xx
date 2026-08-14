@@ -28,6 +28,7 @@ export class ObservabilityOverviewDto {
     description: '平均任务时长（毫秒，仅完成任务）',
     example: 3200,
     nullable: true,
+    type: Number,
   })
   avgDurationMs: number | null;
 
@@ -40,13 +41,17 @@ export class ObservabilityOverviewDto {
 }
 
 export class AgentUsageDto {
-  @ApiProperty({ description: '智能体 id；null=用默认 agent', nullable: true })
+  @ApiProperty({
+    description: '智能体 id；null=用默认 agent',
+    nullable: true,
+    type: String,
+  })
   agentId: string | null;
 
   @ApiProperty({ description: '智能体展示名称' })
   agentName: string;
 
-  @ApiProperty({ description: '智能体头像 URL', nullable: true })
+  @ApiProperty({ description: '智能体头像 URL', nullable: true, type: String })
   agentAvatar: string | null;
 
   @ApiProperty({ example: 30 })
@@ -58,12 +63,12 @@ export class AgentUsageDto {
   @ApiProperty({ example: 0.9 })
   successRate: number;
 
-  @ApiProperty({ example: 3100, nullable: true })
+  @ApiProperty({ example: 3100, nullable: true, type: Number })
   avgDurationMs: number | null;
 }
 
 export class ToolUsageDto {
-  @ApiProperty({ example: 'webSearch', nullable: true })
+  @ApiProperty({ example: 'webSearch', nullable: true, type: String })
   toolName: string | null;
 
   @ApiProperty({ description: '调用次数（已结束）', example: 54 })
@@ -75,7 +80,7 @@ export class ToolUsageDto {
   @ApiProperty({ example: 0.93 })
   successRate: number;
 
-  @ApiProperty({ example: 820, nullable: true })
+  @ApiProperty({ example: 820, nullable: true, type: Number })
   avgDurationMs: number | null;
 }
 
@@ -94,13 +99,13 @@ export class TaskSummaryDto {
   @ApiProperty({ example: 'cmf_task_123' })
   id: string;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   agentId: string | null;
 
   @ApiProperty({ description: '智能体展示名称' })
   agentName: string;
 
-  @ApiProperty({ description: '智能体头像 URL', nullable: true })
+  @ApiProperty({ description: '智能体头像 URL', nullable: true, type: String })
   agentAvatar: string | null;
 
   @ApiProperty({ example: 'CHAT_COMPLETION' })
@@ -109,23 +114,24 @@ export class TaskSummaryDto {
   @ApiProperty({ example: 'COMPLETED' })
   status: string;
 
-  @ApiProperty({ example: 3200, nullable: true })
+  @ApiProperty({ example: 3200, nullable: true, type: Number })
   durationMs: number | null;
 
   @ApiProperty({
     example: 1500,
     nullable: true,
     description: '总 token（估算）',
+    type: Number,
   })
   totalTokens: number | null;
 
-  @ApiProperty({ example: 2, nullable: true })
+  @ApiProperty({ example: 2, nullable: true, type: Number })
   toolCallCount: number | null;
 
-  @ApiProperty({ example: 3, nullable: true })
+  @ApiProperty({ example: 3, nullable: true, type: Number })
   modelCallCount: number | null;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   errorMessage: string | null;
 
   @ApiProperty({ example: 1735689600000 })
@@ -139,6 +145,7 @@ export class RecentTasksDto {
   @ApiProperty({
     description: '下一页游标（最后一条任务 id）；无更多时为 null',
     nullable: true,
+    type: String,
   })
   nextCursor: string | null;
 }
@@ -156,16 +163,16 @@ export class TaskTraceItemDto {
   @ApiProperty()
   title: string;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   summary: string | null;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   detail: string | null;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   toolName: string | null;
 
-  @ApiProperty({ example: 820, nullable: true })
+  @ApiProperty({ example: 820, nullable: true, type: Number })
   durationMs: number | null;
 
   @ApiProperty({ example: 1 })
@@ -174,16 +181,16 @@ export class TaskTraceItemDto {
   @ApiProperty({ example: 0 })
   depth: number;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   parentId: string | null;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   nodeKey: string | null;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   mcpServer: string | null;
 
-  @ApiProperty({ nullable: true })
+  @ApiProperty({ nullable: true, type: String })
   mcpTool: string | null;
 
   @ApiProperty({
@@ -214,10 +221,10 @@ export class TaskTraceItemDto {
   })
   metrics: Record<string, unknown> | null;
 
-  @ApiProperty({ nullable: true, example: 1735689600000 })
+  @ApiProperty({ nullable: true, example: 1735689600000, type: Number })
   startedAt: number | null;
 
-  @ApiProperty({ nullable: true, example: 1735689601200 })
+  @ApiProperty({ nullable: true, example: 1735689601200, type: Number })
   endedAt: number | null;
 
   @ApiProperty({ example: 1735689600000 })

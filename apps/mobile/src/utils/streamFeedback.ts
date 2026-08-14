@@ -56,6 +56,10 @@ export function toMessageStreamFeedback(
     event.data.errorMessage ||
     readString(payload.summary) ||
     readEventDetail(type, payload);
+  const toolSummary =
+    type === StreamTaskEventType.ToolCallDone
+      ? readString(payloadOf(payload, StreamTaskEventType.ToolCallDone).summary)
+      : undefined;
 
   return {
     id: resolveFeedbackId(event, type, payload),
@@ -65,6 +69,7 @@ export function toMessageStreamFeedback(
     tone: EVENT_TONES[type] || "info",
     display: isTextDisplayEvent(type) ? "text" : "panel",
     stage: traceStageFromEvent(type),
+    toolSummary,
     updatedAt: Date.now(),
   };
 }
@@ -115,10 +120,56 @@ export function toMessageStreamFeedbackFromTrace(
         : "panel",
     stage: traceStageFromTraceItem(traceItem),
     toolName: traceItem.toolName ?? undefined,
+    toolSummary:
+      traceItem.type === "TOOL_CALL" &&
+      traceItem.status.toUpperCase() === "SUCCESS"
+        ? traceItem.summary ?? undefined
+        : undefined,
     inputSummary: traceItem.inputSummary,
     outputSummary: traceItem.outputSummary,
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * 生成收起态的流式状态文案
+ * @param current 当前正在处理的轨迹节点
+ * @param events 本轮已接收的全部轨迹节点
+ * @returns 返回当前节点文案，并在存在时附加最近一次工具安全摘要
+ * @description 收起态仅保留用户可读的 loop/任务描述和工具完成摘要，
+ * 不拼接工具入参，避免泄露冗长且难读的调用参数。
+ */
+export function formatStreamFeedbackStatus(
+  current: MessageStreamEventFeedback,
+  events: MessageStreamEventFeedback[],
+) {
+  const currentDetail = shouldHideToolArguments(current)
+    ? current.toolSummary
+    : current.detail;
+  const latestToolSummary = [...events]
+    .reverse()
+    .find((event) => event.id !== current.id && event.toolSummary)?.toolSummary;
+
+  return joinParts([
+    current.title,
+    currentDetail,
+    latestToolSummary && `工具反馈：${shortenStatusText(latestToolSummary)}`,
+  ]);
+}
+
+function shouldHideToolArguments(event: MessageStreamEventFeedback) {
+  return (
+    event.tone !== "error" &&
+    (event.type === "TOOL_CALL" ||
+      event.type === StreamTaskEventType.ToolCallStart ||
+      event.type === StreamTaskEventType.ToolCallDone)
+  );
+}
+
+function shortenStatusText(value: string, maxLength = 48) {
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength)}…`
+    : value;
 }
 
 /**

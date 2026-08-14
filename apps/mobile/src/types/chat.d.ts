@@ -14,6 +14,8 @@ interface MessageStreamEventFeedback {
   display: MessageStreamEventDisplay;
   stage?: MessageTraceStage;
   toolName?: string;
+  /** 工具完成后由服务端提供的安全摘要，不包含工具入参。 */
+  toolSummary?: string;
   inputSummary?: Record<string, unknown> | null;
   outputSummary?: Record<string, unknown> | null;
   updatedAt: number;

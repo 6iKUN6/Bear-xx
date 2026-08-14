@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { Text, View } from "@tarojs/components";
+import { formatStreamFeedbackStatus } from "../../utils/streamFeedback";
 import "./index.scss";
 
 interface StreamFeedbackProps {
@@ -25,36 +26,13 @@ function StreamFeedback({
   const events = normalizedFeedback.events;
   const expanded = normalizedFeedback.expanded;
 
-  // 指派、收尾这类一句话信息不套卡片：卡片带状态点和展开箭头，
-  // 会让它们看起来比实际重要，也和气泡上方的灰字提示风格割裂。
-  if (current.display === "text") {
-    return (
-      <View className="mb-[0.625rem] w-full max-w-full">
-        <Text className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.35] text-[var(--lb-text-muted)]">
-          {current.detail
-            ? `${current.title} · ${current.detail}`
-            : current.title}
-        </Text>
-      </View>
-    );
-  }
-
   return (
     <View className="mb-[0.625rem] w-full max-w-full">
-      <View
-        className={`stream-feedback-shell ${toneClass(current.tone)} ${expanded ? "stream-feedback-shell-expanded" : ""}`}
-        onClick={onToggle}
-      >
-        <View className="stream-feedback-dot-wrap">
-          <View
-            className={`stream-feedback-dot ${streaming ? "stream-feedback-dot-live" : ""}`}
-          />
-        </View>
-        <View className="min-w-0 flex-1 overflow-hidden">
-          <CurrentStatus event={current} streaming={streaming} />
-        </View>
-        <Text
-          className={`at-icon at-icon-chevron-down stream-feedback-chevron ${expanded ? "stream-feedback-chevron-expanded" : ""}`}
+      <View className="stream-feedback-trigger" onClick={onToggle}>
+        <CurrentStatus
+          event={current}
+          events={events}
+          streaming={streaming}
         />
       </View>
 
@@ -75,28 +53,21 @@ function StreamFeedback({
 
 function CurrentStatus({
   event,
+  events,
   streaming,
 }: {
   event: MessageStreamEventFeedback;
+  events: MessageStreamEventFeedback[];
   streaming: boolean;
 }) {
-  const text = event.detail ? `${event.title} · ${event.detail}` : event.title;
+  const text = formatStreamFeedbackStatus(event, events);
 
   return (
-    <View
-      className={`stream-feedback-current ${streaming ? "stream-feedback-current-live" : ""}`}
+    <Text
+      className={`stream-feedback-current-text ${streaming ? "stream-feedback-current-text-live" : ""}`}
     >
-      {streaming && (
-        <View className="stream-feedback-skeleton" aria-hidden>
-          <View className="stream-feedback-skeleton-flow" />
-        </View>
-      )}
-      <Text className="stream-feedback-stage">
-        {traceStageLabel(event.stage)}
-      </Text>
-      <Text className="stream-feedback-current-text">{text}</Text>
-      <View className="stream-feedback-current-fade" aria-hidden />
-    </View>
+      {text}
+    </Text>
   );
 }
 
@@ -111,7 +82,6 @@ function HistoryItem({
     <View
       className={`stream-feedback-history-item ${toneClass(event.tone)} ${active ? "stream-feedback-history-item-active" : ""}`}
     >
-      <View className="stream-feedback-history-dot" />
       <View className="min-w-0 flex-1">
         <View className="flex min-w-0 items-center gap-[0.375rem]">
           <Text className="stream-feedback-stage">
