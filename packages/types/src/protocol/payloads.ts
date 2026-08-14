@@ -305,18 +305,21 @@ export interface MessageDoneMetrics {
   /**
    * token 用量
    * @description 内层字段全可选，与 apps/api 的 `LlmTokenUsageMetrics` 声明保持一致
-   * （正常路径下 `buildEstimatedTokenUsage` 会全部赋值，但类型层不作保证）。
+   * （正常路径下优先使用供应商逐调用 usage，类型层仍不作保证）。
    */
   tokenUsage?: {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
     cachedInputTokens?: number;
-    /** 当前恒为 true：估算路径，非供应商回传 */
+    /** 推理模型在输出 token 中消耗的 reasoning token 数 */
+    reasoningTokens?: number;
+    /** 有任一次模型调用缺失供应商 usage 并改走估算时为 true */
     estimated?: boolean;
   };
   cache?: {
     memorySummaryHit?: boolean;
+    providerPromptCacheHit?: boolean;
     contextCacheHit?: boolean;
     cachedInputTokens?: number;
   };

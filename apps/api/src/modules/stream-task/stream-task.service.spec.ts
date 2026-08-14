@@ -146,4 +146,89 @@ describe('StreamTaskService', () => {
     );
     expect(orderCreatedCall?.[2]).not.toContain('paymentUrl');
   });
+
+  it('优先记录任务聚合的供应商 token usage，并区分摘要与供应商缓存', () => {
+    const { service } = createService();
+
+    const metrics = service['buildChatRunMetrics'](
+      [{ role: 'user', content: '请帮我查询订单' }],
+      '已为你查询完成。',
+      {
+        messages: [{ role: 'user', content: '请帮我查询订单' }],
+        summary: {
+          content: '用户曾查询过订单。',
+          messageCount: 6,
+        },
+        recentWindow: { limit: 12, messageCount: 3 },
+      },
+      320,
+      {
+        inputTokens: 300,
+        outputTokens: 80,
+        totalTokens: 380,
+        cachedInputTokens: 240,
+        reasoningTokens: 30,
+        estimated: false,
+      },
+    );
+
+    expect(metrics).toEqual({
+      tokenUsage: {
+        inputTokens: 300,
+        outputTokens: 80,
+        totalTokens: 380,
+        cachedInputTokens: 240,
+        reasoningTokens: 30,
+        estimated: false,
+      },
+      cache: {
+        memorySummaryHit: true,
+        providerPromptCacheHit: true,
+        contextCacheHit: true,
+        cachedInputTokens: 240,
+      },
+      durationMs: 320,
+      messageCount: 1,
+      summaryMessageCount: 6,
+      recentMessageCount: 3,
+    });
+  });
+
+  it('跨审批恢复时累加已暂停执行段的模型用量', () => {
+    const { service } = createService();
+
+    const metrics = service['mergeModelRunMetrics'](
+      {
+        modelCallCount: 1,
+        tokenUsage: {
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          cachedInputTokens: 40,
+          estimated: false,
+        },
+      },
+      {
+        modelCallCount: 1,
+        tokenUsage: {
+          inputTokens: 30,
+          outputTokens: 10,
+          totalTokens: 40,
+          cachedInputTokens: 0,
+          estimated: true,
+        },
+      },
+    );
+
+    expect(metrics).toEqual({
+      modelCallCount: 2,
+      tokenUsage: {
+        inputTokens: 130,
+        outputTokens: 30,
+        totalTokens: 160,
+        cachedInputTokens: 40,
+        estimated: true,
+      },
+    });
+  });
 });

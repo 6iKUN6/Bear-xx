@@ -384,14 +384,13 @@ export class LlmService {
    * 构建估算 token 用量
    * @param inputMessages 输入消息列表
    * @param outputText 输出文本
-   * @param cachedInputTokens 命中的输入缓存 token 数
    * @returns 返回统一 token 用量指标
-   * @description 在模型 provider 没有返回真实 usage 时，为单轮 trace 和前端反馈提供稳定的估算指标。
+   * @description 在模型回调没有采集到真实 usage 时，为旧链路提供保守估算；
+   * 供应商 Prompt Cache 的 token 数无法由本地推断，因此固定为 0。
    */
   buildEstimatedTokenUsage(
     inputMessages: LlmMessage[],
     outputText: string,
-    cachedInputTokens = 0,
   ): LlmTokenUsageMetrics {
     const inputTokens = this.estimateMessagesTokenCount(inputMessages);
     const outputTokens = this.estimateTextTokenCount(outputText);
@@ -400,7 +399,7 @@ export class LlmService {
       inputTokens,
       outputTokens,
       totalTokens: inputTokens + outputTokens,
-      cachedInputTokens,
+      cachedInputTokens: 0,
       estimated: true,
     };
   }

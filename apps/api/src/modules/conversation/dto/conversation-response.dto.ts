@@ -96,10 +96,12 @@ export class ConversationMessageTraceItemDto {
         outputTokens: 300,
         totalTokens: 1500,
         cachedInputTokens: 800,
-        estimated: true,
+        reasoningTokens: 120,
+        estimated: false,
       },
       cache: {
         memorySummaryHit: true,
+        providerPromptCacheHit: true,
         contextCacheHit: true,
       },
     },

@@ -247,7 +247,6 @@ function MessageMetricsMeta({ message }: { message: Message }) {
   const cachedTokens =
     tokenUsage?.cachedInputTokens ?? metrics?.cache?.cachedInputTokens;
   const cacheHit =
-    Boolean(metrics?.cache?.memorySummaryHit) ||
     Boolean(metrics?.cache?.providerPromptCacheHit) ||
     Boolean(metrics?.cache?.contextCacheHit) ||
     Boolean(cachedTokens && cachedTokens > 0);

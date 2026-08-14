@@ -1,18 +1,31 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { LLMResult } from '@langchain/core/outputs';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAICompletions } from '@langchain/openai';
 import type { ResolvedLlmTextRequest } from '../llm.types';
-import { incrementModelCall } from '../../ai/telemetry/model-call-context';
+import {
+  recordModelCallEnd,
+  recordModelCallStart,
+} from '../../ai/telemetry/model-call-context';
 
 /**
- * 模型调用计数回调
- * @description 每次真实模型调用开始时累加到当前任务的计数上下文（不在上下文中则静默）。
+ * 模型调用用量采集回调
+ * @description 在每次模型调用开始和结束时将输入、输出与供应商 usage 写入当前任务上下文。
  * agent 路径与直连路径都经模型构造，此回调是唯一交汇点，能覆盖 ReAct 内部多次往返。
  */
-const MODEL_CALL_COUNTER_CALLBACK = {
-  handleChatModelStart: () => incrementModelCall(),
+const MODEL_CALL_USAGE_CALLBACK = {
+  handleChatModelStart: (
+    _model: unknown,
+    messages: BaseMessage[][],
+    runId: string,
+    _parentRunId?: string,
+    extraParams?: Record<string, unknown>,
+  ) => recordModelCallStart(runId, messages, extraParams),
+  handleLLMEnd: (output: LLMResult, runId: string) =>
+    recordModelCallEnd(runId, output),
 };
 
 /** LLM 调用健壮性默认值：重试次数与单次请求超时 */
@@ -102,7 +115,7 @@ export class LlmChatModelFactory {
       topP: generation.topP,
       maxRetries,
       timeout: timeoutMs,
-      callbacks: [MODEL_CALL_COUNTER_CALLBACK],
+      callbacks: [MODEL_CALL_USAGE_CALLBACK],
       configuration: {
         baseURL:
           model.baseURL ?? this.configService.get<string>('OPENAI_BASE_URL'),
@@ -132,7 +145,7 @@ export class LlmChatModelFactory {
       maxTokens: generation.maxOutputTokens,
       topP: generation.topP,
       maxRetries,
-      callbacks: [MODEL_CALL_COUNTER_CALLBACK],
+      callbacks: [MODEL_CALL_USAGE_CALLBACK],
       // Anthropic SDK 的超时通过 clientOptions 透传（无顶层 timeout 参数）。
       clientOptions: { timeout: timeoutMs },
     });

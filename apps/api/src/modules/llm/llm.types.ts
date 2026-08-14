@@ -70,6 +70,7 @@ export interface LlmTokenUsageMetrics {
   outputTokens?: number;
   totalTokens?: number;
   cachedInputTokens?: number;
+  reasoningTokens?: number;
   estimated?: boolean;
 }
 

@@ -34,6 +34,7 @@ import {
 } from '@prisma/client';
 import {
   getModelCallCount,
+  getModelCallTokenUsage,
   runWithModelCallContext,
 } from '../ai/telemetry/model-call-context';
 import { randomUUID } from 'crypto';
@@ -50,6 +51,7 @@ import type {
   LlmMessage,
   LlmRunMetrics,
   LlmTextRequest,
+  LlmTokenUsageMetrics,
   ResolvedLlmTextRequest,
 } from '../llm/llm.types';
 import { LlmService } from '../llm/llm.service';
@@ -108,6 +110,11 @@ interface StreamTaskEventData<TPayload = undefined> {
 interface PersistedSemanticEvent {
   eventId: number;
   sseEvent: SseEvent;
+}
+
+interface PersistedModelRunMetrics {
+  modelCallCount: number;
+  tokenUsage?: LlmTokenUsageMetrics;
 }
 
 export interface TaskStreamResult {
@@ -1380,6 +1387,10 @@ export class StreamTaskService {
     let lastFullContentFlushAt = Date.now();
     let lastFlushedFullContentLength = 0;
     let modelCallCount = 0;
+    let modelTokenUsage: LlmTokenUsageMetrics | undefined;
+    let executionState = task.executionState;
+    const persistedModelRunMetrics =
+      this.readPersistedModelRunMetrics(executionState);
     const startedAt = Date.now();
 
     this.debugTaskLog('stream_task.chat.agent_start', {
@@ -1420,10 +1431,11 @@ export class StreamTaskService {
                   pendingApproval = true;
                 }
                 if (event.type === StreamTaskEventType.StrategySelected) {
-                  await this.persistExecutionStrategy(
+                  executionState = await this.persistExecutionStrategy(
                     task.id,
                     event.payload,
                     payload.mcdonaldsCredentialId,
+                    executionState,
                   );
                 }
                 await this.handleAgentLoopStatusEvent(task, event);
@@ -1463,7 +1475,19 @@ export class StreamTaskService {
               this.registry.publish(task.id, deltaEvent);
             }
 
-            modelCallCount = getModelCallCount();
+            const mergedModelRunMetrics = this.mergeModelRunMetrics(
+              persistedModelRunMetrics,
+              {
+                modelCallCount: getModelCallCount(),
+                tokenUsage: getModelCallTokenUsage(),
+              },
+            );
+            modelCallCount = mergedModelRunMetrics.modelCallCount;
+            modelTokenUsage = mergedModelRunMetrics.tokenUsage;
+            executionState = this.withPersistedModelRunMetrics(
+              executionState,
+              mergedModelRunMetrics,
+            );
           },
           {
             conversationId: task.conversationId,
@@ -1488,6 +1512,7 @@ export class StreamTaskService {
           fullContent,
           currentStep: 'waiting_human',
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
+          executionState: this.toExecutionStateObject(executionState),
         },
       });
       this.debugTaskLog('stream_task.chat.waiting_human', {
@@ -1511,6 +1536,7 @@ export class StreamTaskService {
         finalContent,
         agentRun.context,
         Date.now() - startedAt,
+        modelTokenUsage,
       ),
       // 单轮调用计数：tool 从 trace 聚合（准确），model 从计数上下文累计（含 ReAct 内部往返）。
       toolCallCount,
@@ -1664,7 +1690,7 @@ export class StreamTaskService {
   /**
    * 生成并下发新会话标题
    * @param task 聊天任务上下文
-   * @returns 无返回值
+   * @returns 返回合并策略快照后的执行状态
    * @description 委托标题服务判定首轮并生成落库；成功后把标题作为语义事件写入
    * 本任务的事件流（入库 + Redis 帧，断线重放可达）。任何失败只打日志，不影响主链路。
    */
@@ -1771,6 +1797,7 @@ export class StreamTaskService {
    * 记录本轮实际生效的执行策略
    * @param taskId 任务ID
    * @param strategy 路由决策选中的策略
+   * @param executionState 当前任务的执行状态
    * @returns 无返回值
    * @description HITL 恢复必须交回**首轮那个策略图**——检查点里存的是它的图状态
    * （ReAct 存 agent 图、plan/hybrid 存编排图），换个形状就对不上。
@@ -1783,19 +1810,228 @@ export class StreamTaskService {
       { type: StreamTaskEventType.StrategySelected }
     >['payload'],
     mcdonaldsCredentialId?: string,
-  ) {
+    executionState: Prisma.JsonValue = {},
+  ): Promise<Prisma.JsonObject> {
+    const nextExecutionState: Prisma.JsonObject = {
+      ...this.toExecutionStateObject(executionState),
+      strategy: payload.mode,
+      toolGroups: payload.toolGroups,
+      skills: payload.skills,
+      maxSteps: payload.maxSteps,
+      ...(mcdonaldsCredentialId ? { mcdonaldsCredentialId } : {}),
+    };
     await this.prisma.streamTask.update({
       where: { id: taskId },
       data: {
-        executionState: {
-          strategy: payload.mode,
-          toolGroups: payload.toolGroups,
-          skills: payload.skills,
-          maxSteps: payload.maxSteps,
-          mcdonaldsCredentialId,
-        },
+        executionState: nextExecutionState,
       },
     });
+    return nextExecutionState;
+  }
+
+  /**
+   * 读取暂停任务已累计的模型运行指标
+   * @param executionState 任务持久化的执行状态
+   * @returns 返回已完成执行段的模型次数与 token 用量
+   * @description HITL 会把一次聊天拆成多段执行；本方法只读取本模块写入的
+   * modelRunMetrics，旧任务或字段非法时按未累计处理，避免阻断人工审批恢复。
+   */
+  private readPersistedModelRunMetrics(
+    executionState: Prisma.JsonValue,
+  ): PersistedModelRunMetrics {
+    const metrics = this.toExecutionStateObject(executionState).modelRunMetrics;
+    const record = this.toExecutionStateObject(metrics);
+    const modelCallCount = this.readNonNegativeMetricNumber(
+      record.modelCallCount,
+    );
+    const tokenUsage = this.readPersistedTokenUsage(record.tokenUsage);
+
+    return {
+      modelCallCount: modelCallCount ?? 0,
+      ...(tokenUsage ? { tokenUsage } : {}),
+    };
+  }
+
+  /**
+   * 合并先前暂停段与当前执行段的模型运行指标
+   * @param persisted 已持久化的历史执行段指标
+   * @param current 当前执行段指标
+   * @returns 返回整个任务截至当前的累计指标
+   * @description 每次 HITL 恢复都会产生新的 AsyncLocalStorage 上下文，必须在任务边界
+   * 显式合并，才能让最终 message.done 覆盖审批前后的全部模型调用。
+   */
+  private mergeModelRunMetrics(
+    persisted: PersistedModelRunMetrics,
+    current: PersistedModelRunMetrics,
+  ): PersistedModelRunMetrics {
+    const tokenUsage = this.mergeTokenUsage(
+      persisted.tokenUsage,
+      current.tokenUsage,
+    );
+    return {
+      modelCallCount: persisted.modelCallCount + current.modelCallCount,
+      ...(tokenUsage ? { tokenUsage } : {}),
+    };
+  }
+
+  /**
+   * 将累计模型指标写入执行状态
+   * @param executionState 当前任务执行状态
+   * @param metrics 截至当前执行段的累计模型指标
+   * @returns 返回保留策略快照后的新执行状态
+   * @description 不覆盖 strategy、toolGroups、skills 等恢复所需字段，只追加本模块
+   * 的 modelRunMetrics，供下一次 HITL 恢复继续累计。
+   */
+  private withPersistedModelRunMetrics(
+    executionState: Prisma.JsonValue,
+    metrics: PersistedModelRunMetrics,
+  ): Prisma.JsonObject {
+    return {
+      ...this.toExecutionStateObject(executionState),
+      modelRunMetrics: {
+        modelCallCount: metrics.modelCallCount,
+        ...(metrics.tokenUsage
+          ? { tokenUsage: this.toPersistedTokenUsage(metrics.tokenUsage) }
+          : {}),
+      },
+    };
+  }
+
+  /**
+   * 合并两段 token 用量
+   * @param persisted 已持久化的 token 用量
+   * @param current 当前执行段 token 用量
+   * @returns 返回累计 token 用量；两段均不存在时返回 undefined
+   * @description 任一段使用估算时，累计结果必须保留 estimated=true；缓存和推理 token
+   * 同样按供应商逐次返回值求和。
+   */
+  private mergeTokenUsage(
+    persisted?: LlmTokenUsageMetrics,
+    current?: LlmTokenUsageMetrics,
+  ): LlmTokenUsageMetrics | undefined {
+    if (!persisted) {
+      return current;
+    }
+    if (!current) {
+      return persisted;
+    }
+
+    const reasoningTokens =
+      (persisted.reasoningTokens ?? 0) + (current.reasoningTokens ?? 0);
+    return {
+      inputTokens: (persisted.inputTokens ?? 0) + (current.inputTokens ?? 0),
+      outputTokens: (persisted.outputTokens ?? 0) + (current.outputTokens ?? 0),
+      totalTokens: (persisted.totalTokens ?? 0) + (current.totalTokens ?? 0),
+      cachedInputTokens:
+        (persisted.cachedInputTokens ?? 0) + (current.cachedInputTokens ?? 0),
+      ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
+      estimated: Boolean(persisted.estimated) || Boolean(current.estimated),
+    };
+  }
+
+  /**
+   * 将执行状态转换为 JSON 对象
+   * @param executionState 待读取的 Prisma JSON 值
+   * @returns 对象值；非对象或数组时返回空对象
+   * @description 执行状态可能来自历史任务，读取前先收敛为对象，避免旧数据破坏
+   * HITL 恢复与指标累计。
+   */
+  private toExecutionStateObject(
+    executionState: Prisma.JsonValue | undefined,
+  ): Prisma.JsonObject {
+    return executionState &&
+      typeof executionState === 'object' &&
+      !Array.isArray(executionState)
+      ? executionState
+      : {};
+  }
+
+  /**
+   * 解析已持久化的 token 用量
+   * @param value executionState 中的 tokenUsage 字段
+   * @returns 字段合法时返回 token 用量，否则返回 undefined
+   * @description 数据库 JSON 不可信；只接受非负数字与布尔 estimated，避免异常
+   * 历史数据被标为真实 usage。
+   */
+  private readPersistedTokenUsage(
+    value: Prisma.JsonValue | undefined,
+  ): LlmTokenUsageMetrics | undefined {
+    const record = this.toExecutionStateObject(value);
+    const inputTokens = this.readNonNegativeMetricNumber(record.inputTokens);
+    const outputTokens = this.readNonNegativeMetricNumber(record.outputTokens);
+    const totalTokens = this.readNonNegativeMetricNumber(record.totalTokens);
+    const cachedInputTokens = this.readNonNegativeMetricNumber(
+      record.cachedInputTokens,
+    );
+    const reasoningTokens = this.readNonNegativeMetricNumber(
+      record.reasoningTokens,
+    );
+    const estimated =
+      typeof record.estimated === 'boolean' ? record.estimated : undefined;
+
+    if (
+      inputTokens === undefined &&
+      outputTokens === undefined &&
+      totalTokens === undefined &&
+      cachedInputTokens === undefined &&
+      reasoningTokens === undefined &&
+      estimated === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      ...(inputTokens !== undefined ? { inputTokens } : {}),
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
+      ...(totalTokens !== undefined ? { totalTokens } : {}),
+      ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+      ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+      ...(estimated !== undefined ? { estimated } : {}),
+    };
+  }
+
+  /**
+   * 将 token 用量转换为可持久化 JSON
+   * @param tokenUsage 待写入的 token 用量
+   * @returns 返回移除 undefined 字段后的 JSON 对象
+   * @description Prisma JSON 不接受 undefined，本方法只保留实际存在的指标字段。
+   */
+  private toPersistedTokenUsage(
+    tokenUsage: LlmTokenUsageMetrics,
+  ): Prisma.JsonObject {
+    return {
+      ...(tokenUsage.inputTokens !== undefined
+        ? { inputTokens: tokenUsage.inputTokens }
+        : {}),
+      ...(tokenUsage.outputTokens !== undefined
+        ? { outputTokens: tokenUsage.outputTokens }
+        : {}),
+      ...(tokenUsage.totalTokens !== undefined
+        ? { totalTokens: tokenUsage.totalTokens }
+        : {}),
+      ...(tokenUsage.cachedInputTokens !== undefined
+        ? { cachedInputTokens: tokenUsage.cachedInputTokens }
+        : {}),
+      ...(tokenUsage.reasoningTokens !== undefined
+        ? { reasoningTokens: tokenUsage.reasoningTokens }
+        : {}),
+      ...(tokenUsage.estimated !== undefined
+        ? { estimated: tokenUsage.estimated }
+        : {}),
+    };
+  }
+
+  /**
+   * 读取非负指标数值
+   * @param value 待解析的 JSON 字段
+   * @returns 有效数字时返回数值，否则返回 undefined
+   */
+  private readNonNegativeMetricNumber(
+    value: Prisma.JsonValue | undefined,
+  ): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? value
+      : undefined;
   }
 
   /**
@@ -1991,29 +2227,31 @@ export class StreamTaskService {
    * @param finalContent 最终回复内容
    * @param context 会话上下文包
    * @param durationMs 本轮生成耗时
+   * @param modelTokenUsage 本任务内逐次模型调用汇总的 token 用量
    * @returns 返回 token 和缓存命中指标
-   * @description 当前流式 provider usage 尚未稳定透出时，先记录估算 token 与 memory summary 命中，供 trace 入库和前端展示。
+   * @description 优先使用供应商逐调用返回的 usage；未采集到任何调用时才回退会话级估算。
+   * 会话摘要只代表上下文压缩，不能被标记为供应商 Prompt Cache 命中。
    */
   private buildChatRunMetrics(
     messages: LlmMessage[],
     finalContent: string,
     context: ChatContextBundle,
     durationMs: number,
+    modelTokenUsage?: LlmTokenUsageMetrics,
   ): LlmRunMetrics {
     const memorySummaryHit = Boolean(context.summary);
-    const cachedInputTokens = memorySummaryHit
-      ? this.llmService.estimateTextTokenCount(context.summary?.content ?? '')
-      : 0;
+    const tokenUsage =
+      modelTokenUsage ??
+      this.llmService.buildEstimatedTokenUsage(messages, finalContent);
+    const cachedInputTokens = tokenUsage.cachedInputTokens ?? 0;
+    const providerPromptCacheHit = cachedInputTokens > 0;
 
     return {
-      tokenUsage: this.llmService.buildEstimatedTokenUsage(
-        messages,
-        finalContent,
-        cachedInputTokens,
-      ),
+      tokenUsage,
       cache: {
         memorySummaryHit,
-        contextCacheHit: memorySummaryHit,
+        providerPromptCacheHit,
+        contextCacheHit: providerPromptCacheHit,
         cachedInputTokens,
       },
       durationMs,

@@ -24,6 +24,7 @@ interface MessageTokenUsageMetrics {
   outputTokens?: number;
   totalTokens?: number;
   cachedInputTokens?: number;
+  reasoningTokens?: number;
   estimated?: boolean;
 }
 
