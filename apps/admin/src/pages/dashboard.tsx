@@ -9,6 +9,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard, EmptyState } from "@/components/kpi-card";
+import { AgentIdentity } from "@/components/agent-identity";
 import { useAgentUsage, useOverview, useToolUsage } from "@/hooks/queries";
 import { useUiStore } from "@/stores/ui-store";
 import {
@@ -134,9 +135,11 @@ export function DashboardPage() {
                 className="rounded-md border border-border px-4 py-3"
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">
-                    {a.agentId ?? "默认智能体"}
-                  </span>
+                  <AgentIdentity
+                    name={a.agentName}
+                    avatar={a.agentAvatar}
+                    compact
+                  />
                   <Badge variant="secondary">{a.taskCount} 任务</Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">

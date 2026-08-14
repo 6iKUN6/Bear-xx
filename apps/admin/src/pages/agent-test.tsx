@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { MessageSquarePlus, PanelRightClose, PanelRightOpen, Send, Square, Trash2 } from "lucide-react";
+import {
+  MessageSquarePlus,
+  PanelRightClose,
+  PanelRightOpen,
+  Send,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   StreamTaskEventType,
@@ -11,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TraceViewer } from "@/components/trace-viewer";
 import {
   Select,
   SelectContent,
@@ -26,7 +34,7 @@ import {
   useTestSessions,
 } from "@/hooks/queries";
 import { streamAgentTest } from "@/api/stream";
-import type { TaskTraceItem, TestSessionMessage } from "@/api/types";
+import type { TestSessionMessage } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { formatTime, statusBadgeVariant } from "@/lib/format";
 
@@ -56,8 +64,11 @@ export function AgentTestPage() {
   const deleteSession = useDeleteTestSession();
 
   const [activeId, setActiveId] = useState<string | null>(null);
-  const { data: detail, isLoading: detailLoading, refetch } =
-    useTestSession(activeId);
+  const {
+    data: detail,
+    isLoading: detailLoading,
+    refetch,
+  } = useTestSession(activeId);
 
   const [agentId, setAgentId] = useState("");
   const [modelPreset, setModelPreset] = useState("");
@@ -121,7 +132,11 @@ export function AgentTestPage() {
       {
         onEvent: (eventName, data) => handleEvent(eventName, data),
         onError: (err) => {
-          pushEvent({ label: "错误", detail: err.message, tone: "destructive" });
+          pushEvent({
+            label: "错误",
+            detail: err.message,
+            tone: "destructive",
+          });
           toast.error(err.message);
           finishRun();
         },
@@ -155,7 +170,9 @@ export function AgentTestPage() {
       // AI 标题已生成：刷新侧边栏会话列表即可看到新标题
       void queryClient.invalidateQueries({ queryKey: ["testSessions"] });
       pushEvent({
-        label: getStreamTaskEventLabel(StreamTaskEventType.ConversationTitleUpdated),
+        label: getStreamTaskEventLabel(
+          StreamTaskEventType.ConversationTitleUpdated,
+        ),
         detail: (payload.title as string) || undefined,
         tone: "success",
       });
@@ -194,9 +211,15 @@ export function AgentTestPage() {
   const traceMessage = traceMessageId
     ? messages.find((m) => m.id === traceMessageId)
     : null;
-  const panelItems: TimelineItem[] = traceMessage
-    ? traceMessage.trace.map((t) => traceToTimeline(t))
-    : liveEvents;
+  const panelItems = liveEvents;
+  const traceTurn = traceMessage
+    ? messages
+        .slice(
+          0,
+          messages.findIndex((message) => message.id === traceMessage.id) + 1,
+        )
+        .filter((message) => message.role === "assistant").length
+    : 0;
 
   return (
     <div className="flex h-[calc(100vh-8.5rem)] gap-4">
@@ -373,7 +396,7 @@ export function AgentTestPage() {
 
       {/* 右·事件面板 */}
       {eventsOpen ? (
-        <aside className="flex w-80 shrink-0 flex-col rounded-lg border border-border bg-card">
+        <aside className="flex w-[min(100%,36rem)] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <Label className="text-sm">
               {traceMessage ? "消息执行轨迹" : "实时执行事件"}
@@ -389,7 +412,13 @@ export function AgentTestPage() {
             ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {panelItems.length > 0 ? (
+            {traceMessage ? (
+              <TraceViewer
+                trace={traceMessage.trace}
+                turnLabel={`第 ${traceTurn} 轮`}
+                className="h-full"
+              />
+            ) : panelItems.length > 0 ? (
               <ol className="relative space-y-3 border-l border-border pl-4">
                 {panelItems.map((item) => (
                   <li key={item.key} className="relative">
@@ -482,22 +511,6 @@ function PendingBubble({
   );
 }
 
-/** 历史 trace 项 → 时间线项 */
-function traceToTimeline(item: TaskTraceItem): TimelineItem {
-  const tone =
-    item.status === "SUCCESS"
-      ? "success"
-      : item.status === "ERROR"
-        ? "destructive"
-        : "info";
-  return {
-    key: item.id,
-    label: item.title,
-    detail: item.summary ?? undefined,
-    tone,
-  };
-}
-
 /** 从事件 payload 提炼一行中文详情 */
 function describeEvent(
   eventName: string,
@@ -526,9 +539,9 @@ function describeEvent(
     const metrics = payload.metrics as Record<string, unknown> | undefined;
     if (metrics) {
       const tokenUsage = metrics.tokenUsage as
-        | Record<string, unknown>
-        | undefined;
-      if (tokenUsage?.totalTokens) parts.push(`${tokenUsage.totalTokens} token`);
+        Record<string, unknown> | undefined;
+      if (tokenUsage?.totalTokens)
+        parts.push(`${tokenUsage.totalTokens} token`);
       if (metrics.toolCallCount != null)
         parts.push(`工具 ${metrics.toolCallCount as number} 次`);
       if (metrics.modelCallCount != null)

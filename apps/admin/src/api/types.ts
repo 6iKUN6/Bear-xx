@@ -29,6 +29,8 @@ export interface ObservabilityOverview {
 
 export interface AgentUsage {
   agentId: string | null;
+  agentName: string;
+  agentAvatar: string | null;
   taskCount: number;
   completedCount: number;
   successRate: number;
@@ -51,6 +53,8 @@ export interface ErrorCategoryCount {
 export interface TaskSummary {
   id: string;
   agentId: string | null;
+  agentName: string;
+  agentAvatar: string | null;
   type: string;
   status: string;
   durationMs: number | null;
@@ -72,7 +76,20 @@ export interface TaskTraceItem {
   status: string;
   title: string;
   summary: string | null;
+  detail: string | null;
   toolName: string | null;
+  parentId: string | null;
+  depth: number;
+  nodeKey: string | null;
+  mcpServer: string | null;
+  mcpTool: string | null;
+  inputSummary: Record<string, unknown> | null;
+  outputSummary: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
+  metrics: Record<string, unknown> | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  createdAt: number;
   durationMs: number | null;
   sequence: number;
 }
@@ -146,7 +163,6 @@ export interface ToolGroup {
 export interface AgentCapabilities {
   toolGroups: ToolGroup[];
 }
-
 
 export type AgentStrategy =
   | "AUTO"

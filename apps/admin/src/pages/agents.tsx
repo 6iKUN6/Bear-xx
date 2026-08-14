@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AgentIdentity } from "@/components/agent-identity";
 import { useAgentUsage } from "@/hooks/queries";
 import { useUiStore } from "@/stores/ui-store";
 import { chartColors, formatDuration, formatPercent } from "@/lib/format";
@@ -29,7 +30,7 @@ export function AgentsPage() {
   const colors = chartColors();
 
   const chartData = rows.map((r) => ({
-    name: r.agentId ?? "默认",
+    name: r.agentName,
     任务数: r.taskCount,
   }));
 
@@ -76,8 +77,8 @@ export function AgentsPage() {
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.agentId ?? "default"}>
-                  <TableCell className="font-medium">
-                    {r.agentId ?? "默认智能体"}
+                  <TableCell>
+                    <AgentIdentity name={r.agentName} avatar={r.agentAvatar} />
                   </TableCell>
                   <TableCell>{r.taskCount}</TableCell>
                   <TableCell>{r.completedCount}</TableCell>

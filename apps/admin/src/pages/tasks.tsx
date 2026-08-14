@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskDetailSheet } from "@/components/task-detail-sheet";
+import { AgentIdentity } from "@/components/agent-identity";
 import { useRecentTasks } from "@/hooks/queries";
 import { useUiStore } from "@/stores/ui-store";
 import {
@@ -75,8 +76,11 @@ export function TasksPage() {
                       className="cursor-pointer"
                       onClick={() => setSelectedId(t.id)}
                     >
-                      <TableCell className="font-medium">
-                        {t.agentId ?? "默认"}
+                      <TableCell>
+                        <AgentIdentity
+                          name={t.agentName}
+                          avatar={t.agentAvatar}
+                        />
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusBadgeVariant(t.status)}>
