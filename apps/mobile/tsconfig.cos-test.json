@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "outDir": ".temp/cos-test",
+    "noEmit": false
+  },
+  "include": [
+    "./src/utils/cos-upload-file.ts",
+    "./src/utils/cos-upload.test.ts",
+    "./types"
+  ]
+}

@@ -5,33 +5,34 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { TaskDetailDtoAgentId } from './taskDetailDtoAgentId';
-import type { TaskDetailDtoDurationMs } from './taskDetailDtoDurationMs';
-import type { TaskDetailDtoErrorMessage } from './taskDetailDtoErrorMessage';
-import type { TaskDetailDtoModelCallCount } from './taskDetailDtoModelCallCount';
-import type { TaskDetailDtoToolCallCount } from './taskDetailDtoToolCallCount';
-import type { TaskDetailDtoTotalTokens } from './taskDetailDtoTotalTokens';
 import type { TaskTraceItemDto } from './taskTraceItemDto';
 
 export interface TaskDetailDto {
   id: string;
   /** @nullable */
-  agentId: TaskDetailDtoAgentId;
+  agentId: string | null;
+  /** 智能体展示名称 */
+  agentName: string;
+  /**
+     * 智能体头像 URL
+     * @nullable
+     */
+  agentAvatar: string | null;
   type: string;
   status: string;
   /** @nullable */
-  durationMs: TaskDetailDtoDurationMs;
+  durationMs: number | null;
   /**
      * 总 token（估算）
      * @nullable
      */
-  totalTokens: TaskDetailDtoTotalTokens;
+  totalTokens: number | null;
   /** @nullable */
-  toolCallCount: TaskDetailDtoToolCallCount;
+  toolCallCount: number | null;
   /** @nullable */
-  modelCallCount: TaskDetailDtoModelCallCount;
+  modelCallCount: number | null;
   /** @nullable */
-  errorMessage: TaskDetailDtoErrorMessage;
+  errorMessage: string | null;
   createdAt: number;
   /** 本轮执行轨迹 */
   trace: TaskTraceItemDto[];

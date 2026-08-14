@@ -13,6 +13,8 @@
     "new": "taro new",
     "generate:api": "orval --config ./orval.config.ts",
     "generate:api:local": "node ../api/scripts/export-openapi.cjs && orval --config ./orval.config.ts",
+    "test:agent": "tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --rootDir src --outDir /tmp/litter-bear-agent-avatar-test src/utils/agent.ts src/utils/agent.test.ts && node /tmp/litter-bear-agent-avatar-test/utils/agent.test.js",
+    "test:cos": "tsc -p tsconfig.cos-test.json && node .temp/cos-test/src/utils/cos-upload.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "build:weapp": "taro build --type weapp",
     "build:swan": "taro build --type swan",
@@ -63,8 +65,7 @@
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "taro-ui": "^3.3.0",
-    "zustand": "^5.0.11",
-    "@litter-bear/assets": "workspace:*"
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@babel/core": "^7.24.4",

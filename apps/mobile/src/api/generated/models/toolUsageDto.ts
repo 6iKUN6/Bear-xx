@@ -5,17 +5,15 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { ToolUsageDtoAvgDurationMs } from './toolUsageDtoAvgDurationMs';
-import type { ToolUsageDtoToolName } from './toolUsageDtoToolName';
 
 export interface ToolUsageDto {
   /** @nullable */
-  toolName: ToolUsageDtoToolName;
+  toolName: string | null;
   /** 调用次数（已结束） */
   callCount: number;
   /** 成功次数 */
   successCount: number;
   successRate: number;
   /** @nullable */
-  avgDurationMs: ToolUsageDtoAvgDurationMs;
+  avgDurationMs: number | null;
 }

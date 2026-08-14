@@ -9,4 +9,4 @@
 /**
  * @nullable
  */
-export type TaskTraceItemDtoToolName = { [key: string]: unknown } | null;
+export type TaskTraceItemDtoMetrics = { [key: string]: unknown } | null;

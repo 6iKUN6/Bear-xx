@@ -23,6 +23,8 @@ import type {
   ChatCompletionsDto,
   ChatTaskResultDto,
   ConversationDto,
+  CosUploadCredentialDto,
+  CosUploadCredentialResponseDto,
   CreateAgentDto,
   CreateConversationDto,
   CreateImageDto,
@@ -412,6 +414,30 @@ export const agentControllerRemove = async (id: string, options?: RequestInit): 
   {
     ...options,
     method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAgentControllerSetDefaultUrl = (id: string,) => {
+
+
+
+
+  return `/api/agents/${id}/default`
+}
+
+/**
+ * @summary 设置全局默认智能体（管理员）
+ */
+export const agentControllerSetDefault = async (id: string, options?: RequestInit): Promise<AgentResponseDto> => {
+
+  return taroRequest<AgentResponseDto>(getAgentControllerSetDefaultUrl(id),
+  {
+    ...options,
+    method: 'PATCH'
 
 
   }
@@ -1068,6 +1094,31 @@ export const storageControllerCreateUploadCredential = async (uploadCredentialDt
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(uploadCredentialDto)
+  }
+);}
+
+
+
+export const getStorageControllerCreateCosUploadCredentialUrl = () => {
+
+
+
+
+  return `/api/storage/cos/upload-credential`
+}
+
+/**
+ * 单对象、短期 PUT 直传，不经过 API 服务。
+ * @summary 签发腾讯云 COS 小程序直传凭证
+ */
+export const storageControllerCreateCosUploadCredential = async (cosUploadCredentialDto: CosUploadCredentialDto, options?: RequestInit): Promise<CosUploadCredentialResponseDto> => {
+
+  return taroRequest<CosUploadCredentialResponseDto>(getStorageControllerCreateCosUploadCredentialUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(cosUploadCredentialDto)
   }
 );}
 

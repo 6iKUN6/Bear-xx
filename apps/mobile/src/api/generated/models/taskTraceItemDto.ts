@@ -5,9 +5,10 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { TaskTraceItemDtoDurationMs } from './taskTraceItemDtoDurationMs';
-import type { TaskTraceItemDtoSummary } from './taskTraceItemDtoSummary';
-import type { TaskTraceItemDtoToolName } from './taskTraceItemDtoToolName';
+import type { TaskTraceItemDtoError } from './taskTraceItemDtoError';
+import type { TaskTraceItemDtoInputSummary } from './taskTraceItemDtoInputSummary';
+import type { TaskTraceItemDtoMetrics } from './taskTraceItemDtoMetrics';
+import type { TaskTraceItemDtoOutputSummary } from './taskTraceItemDtoOutputSummary';
 
 export interface TaskTraceItemDto {
   id: string;
@@ -15,10 +16,34 @@ export interface TaskTraceItemDto {
   status: string;
   title: string;
   /** @nullable */
-  summary: TaskTraceItemDtoSummary;
+  summary: string | null;
   /** @nullable */
-  toolName: TaskTraceItemDtoToolName;
+  detail: string | null;
   /** @nullable */
-  durationMs: TaskTraceItemDtoDurationMs;
+  toolName: string | null;
+  /** @nullable */
+  durationMs: number | null;
   sequence: number;
+  depth: number;
+  /** @nullable */
+  parentId: string | null;
+  /** @nullable */
+  nodeKey: string | null;
+  /** @nullable */
+  mcpServer: string | null;
+  /** @nullable */
+  mcpTool: string | null;
+  /** @nullable */
+  inputSummary: TaskTraceItemDtoInputSummary;
+  /** @nullable */
+  outputSummary: TaskTraceItemDtoOutputSummary;
+  /** @nullable */
+  error: TaskTraceItemDtoError;
+  /** @nullable */
+  metrics: TaskTraceItemDtoMetrics;
+  /** @nullable */
+  startedAt: number | null;
+  /** @nullable */
+  endedAt: number | null;
+  createdAt: number;
 }

@@ -13,8 +13,11 @@ export interface CreateAgentDto {
   name: string;
   /** 描述 */
   description?: string;
-  /** 头像 URL；留空则客户端用内置默认头像 */
-  avatar?: string;
+  /**
+     * 头像 URL；留空则客户端显示名称首字
+     * @nullable
+     */
+  avatar?: string | null;
   /** 系统提示词；留空则回退到内置默认提示词 */
   systemPrompt?: string;
   /** 模型预设 id；留空则用请求指定或全局默认模型 */

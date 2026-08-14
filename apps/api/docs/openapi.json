@@ -475,6 +475,42 @@
         ]
       }
     },
+    "/api/agents/{id}/default": {
+      "patch": {
+        "operationId": "AgentController_setDefault",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "设置全局默认智能体（管理员）",
+        "tags": [
+          "智能体"
+        ]
+      }
+    },
     "/api/admin/observability/overview": {
       "get": {
         "operationId": "AdminController_overview",
@@ -1452,6 +1488,44 @@
           }
         ],
         "summary": "签发直传凭证",
+        "tags": [
+          "对象存储"
+        ]
+      }
+    },
+    "/api/storage/cos/upload-credential": {
+      "post": {
+        "description": "单对象、短期 PUT 直传，不经过 API 服务。",
+        "operationId": "StorageController_createCosUploadCredential",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CosUploadCredentialDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CosUploadCredentialResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "签发腾讯云 COS 小程序直传凭证",
         "tags": [
           "对象存储"
         ]
@@ -2686,9 +2760,9 @@
             "example": "默认对话助手"
           },
           "avatar": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
-            "description": "头像 URL；null=客户端用内置默认头像"
+            "description": "头像 URL；null = 客户端显示名称首字"
           },
           "systemPrompt": {
             "type": "object",
@@ -2794,7 +2868,8 @@
           },
           "avatar": {
             "type": "string",
-            "description": "头像 URL；留空则客户端用内置默认头像",
+            "nullable": true,
+            "description": "头像 URL；留空则客户端显示名称首字",
             "example": "https://example.com/avatar.png"
           },
           "systemPrompt": {
@@ -2881,7 +2956,8 @@
           },
           "avatar": {
             "type": "string",
-            "description": "头像 URL；留空则客户端用内置默认头像",
+            "nullable": true,
+            "description": "头像 URL；留空则客户端显示名称首字",
             "example": "https://example.com/avatar.png"
           },
           "systemPrompt": {
@@ -2996,7 +3072,7 @@
             "example": 0.86
           },
           "avgDurationMs": {
-            "type": "object",
+            "type": "number",
             "description": "平均任务时长（毫秒，仅完成任务）",
             "example": 3200,
             "nullable": true
@@ -3023,8 +3099,17 @@
         "type": "object",
         "properties": {
           "agentId": {
-            "type": "object",
+            "type": "string",
             "description": "智能体 id；null=用默认 agent",
+            "nullable": true
+          },
+          "agentName": {
+            "type": "string",
+            "description": "智能体展示名称"
+          },
+          "agentAvatar": {
+            "type": "string",
+            "description": "智能体头像 URL",
             "nullable": true
           },
           "taskCount": {
@@ -3040,13 +3125,15 @@
             "example": 0.9
           },
           "avgDurationMs": {
-            "type": "object",
+            "type": "number",
             "example": 3100,
             "nullable": true
           }
         },
         "required": [
           "agentId",
+          "agentName",
+          "agentAvatar",
           "taskCount",
           "completedCount",
           "successRate",
@@ -3057,7 +3144,7 @@
         "type": "object",
         "properties": {
           "toolName": {
-            "type": "object",
+            "type": "string",
             "example": "webSearch",
             "nullable": true
           },
@@ -3076,7 +3163,7 @@
             "example": 0.93
           },
           "avgDurationMs": {
-            "type": "object",
+            "type": "number",
             "example": 820,
             "nullable": true
           }
@@ -3115,7 +3202,16 @@
             "example": "cmf_task_123"
           },
           "agentId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true
+          },
+          "agentName": {
+            "type": "string",
+            "description": "智能体展示名称"
+          },
+          "agentAvatar": {
+            "type": "string",
+            "description": "智能体头像 URL",
             "nullable": true
           },
           "type": {
@@ -3127,28 +3223,28 @@
             "example": "COMPLETED"
           },
           "durationMs": {
-            "type": "object",
+            "type": "number",
             "example": 3200,
             "nullable": true
           },
           "totalTokens": {
-            "type": "object",
+            "type": "number",
             "example": 1500,
             "nullable": true,
             "description": "总 token（估算）"
           },
           "toolCallCount": {
-            "type": "object",
+            "type": "number",
             "example": 2,
             "nullable": true
           },
           "modelCallCount": {
-            "type": "object",
+            "type": "number",
             "example": 3,
             "nullable": true
           },
           "errorMessage": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "createdAt": {
@@ -3159,6 +3255,8 @@
         "required": [
           "id",
           "agentId",
+          "agentName",
+          "agentAvatar",
           "type",
           "status",
           "durationMs",
@@ -3179,7 +3277,7 @@
             }
           },
           "nextCursor": {
-            "type": "object",
+            "type": "string",
             "description": "下一页游标（最后一条任务 id）；无更多时为 null",
             "nullable": true
           }
@@ -3207,21 +3305,79 @@
             "type": "string"
           },
           "summary": {
-            "type": "object",
+            "type": "string",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
             "nullable": true
           },
           "toolName": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "durationMs": {
-            "type": "object",
+            "type": "number",
             "example": 820,
             "nullable": true
           },
           "sequence": {
             "type": "number",
             "example": 1
+          },
+          "depth": {
+            "type": "number",
+            "example": 0
+          },
+          "parentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "nodeKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "mcpServer": {
+            "type": "string",
+            "nullable": true
+          },
+          "mcpTool": {
+            "type": "string",
+            "nullable": true
+          },
+          "inputSummary": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "outputSummary": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "error": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "metrics": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "startedAt": {
+            "type": "number",
+            "nullable": true,
+            "example": 1735689600000
+          },
+          "endedAt": {
+            "type": "number",
+            "nullable": true,
+            "example": 1735689601200
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
           }
         },
         "required": [
@@ -3230,9 +3386,22 @@
           "status",
           "title",
           "summary",
+          "detail",
           "toolName",
           "durationMs",
-          "sequence"
+          "sequence",
+          "depth",
+          "parentId",
+          "nodeKey",
+          "mcpServer",
+          "mcpTool",
+          "inputSummary",
+          "outputSummary",
+          "error",
+          "metrics",
+          "startedAt",
+          "endedAt",
+          "createdAt"
         ]
       },
       "TaskDetailDto": {
@@ -3243,7 +3412,16 @@
             "example": "cmf_task_123"
           },
           "agentId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true
+          },
+          "agentName": {
+            "type": "string",
+            "description": "智能体展示名称"
+          },
+          "agentAvatar": {
+            "type": "string",
+            "description": "智能体头像 URL",
             "nullable": true
           },
           "type": {
@@ -3255,28 +3433,28 @@
             "example": "COMPLETED"
           },
           "durationMs": {
-            "type": "object",
+            "type": "number",
             "example": 3200,
             "nullable": true
           },
           "totalTokens": {
-            "type": "object",
+            "type": "number",
             "example": 1500,
             "nullable": true,
             "description": "总 token（估算）"
           },
           "toolCallCount": {
-            "type": "object",
+            "type": "number",
             "example": 2,
             "nullable": true
           },
           "modelCallCount": {
-            "type": "object",
+            "type": "number",
             "example": 3,
             "nullable": true
           },
           "errorMessage": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "createdAt": {
@@ -3294,6 +3472,8 @@
         "required": [
           "id",
           "agentId",
+          "agentName",
+          "agentAvatar",
           "type",
           "status",
           "durationMs",
@@ -4169,6 +4349,72 @@
           "expiresAt"
         ]
       },
+      "CosUploadCredentialDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "上传媒体类型（决定 COS 对象目录与 MIME 类型）",
+            "enum": [
+              "image",
+              "audio"
+            ],
+            "example": "image"
+          },
+          "ext": {
+            "type": "string",
+            "description": "文件扩展名（不含点），仅字母数字",
+            "example": "png",
+            "pattern": "^[a-zA-Z0-9]{1,8}$",
+            "minLength": 1,
+            "maxLength": 8
+          }
+        },
+        "required": [
+          "type",
+          "ext"
+        ]
+      },
+      "CosUploadCredentialResponseDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "对象 key（仅本次预签名 PUT URL 可写入该对象）",
+            "example": "image/202608/user123/9f8b7a.png"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "description": "短期有效的 COS HTTPS PUT 直传地址",
+            "example": "https://example.cos.ap-guangzhou.myqcloud.com/object"
+          },
+          "accessUrl": {
+            "type": "string",
+            "description": "上传成功后的 COS 或 CDN 访问地址"
+          },
+          "headers": {
+            "type": "object",
+            "description": "PUT 直传时必须原样携带的请求头",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "Content-Type": "image/png"
+            }
+          },
+          "expiresAt": {
+            "type": "number",
+            "description": "凭证过期时间戳（毫秒）"
+          }
+        },
+        "required": [
+          "key",
+          "uploadUrl",
+          "accessUrl",
+          "headers",
+          "expiresAt"
+        ]
+      },
       "AccessUrlResponseDto": {
         "type": "object",
         "properties": {
@@ -4589,10 +4835,12 @@
                 "outputTokens": 300,
                 "totalTokens": 1500,
                 "cachedInputTokens": 800,
-                "estimated": true
+                "reasoningTokens": 120,
+                "estimated": false
               },
               "cache": {
                 "memorySummaryHit": true,
+                "providerPromptCacheHit": true,
                 "contextCacheHit": true
               }
             }

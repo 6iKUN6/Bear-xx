@@ -5,7 +5,6 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { RecentTasksDtoNextCursor } from './recentTasksDtoNextCursor';
 import type { TaskSummaryDto } from './taskSummaryDto';
 
 export interface RecentTasksDto {
@@ -14,5 +13,5 @@ export interface RecentTasksDto {
      * 下一页游标（最后一条任务 id）；无更多时为 null
      * @nullable
      */
-  nextCursor: RecentTasksDtoNextCursor;
+  nextCursor: string | null;
 }

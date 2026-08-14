@@ -9,4 +9,4 @@
 /**
  * @nullable
  */
-export type TaskTraceItemDtoDurationMs = { [key: string]: unknown } | null;
+export type TaskTraceItemDtoInputSummary = { [key: string]: unknown } | null;

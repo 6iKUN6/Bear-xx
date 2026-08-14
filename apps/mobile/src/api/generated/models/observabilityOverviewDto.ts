@@ -5,7 +5,6 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { ObservabilityOverviewDtoAvgDurationMs } from './observabilityOverviewDtoAvgDurationMs';
 import type { StatusCountDto } from './statusCountDto';
 
 export interface ObservabilityOverviewDto {
@@ -23,7 +22,7 @@ export interface ObservabilityOverviewDto {
      * 平均任务时长（毫秒，仅完成任务）
      * @nullable
      */
-  avgDurationMs: ObservabilityOverviewDtoAvgDurationMs;
+  avgDurationMs: number | null;
   /** 按状态分布 */
   statusBreakdown: StatusCountDto[];
 }

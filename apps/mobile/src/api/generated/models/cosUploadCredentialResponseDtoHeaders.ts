@@ -7,6 +7,6 @@
  */
 
 /**
- * @nullable
+ * PUT 直传时必须原样携带的请求头
  */
-export type TaskDetailDtoDurationMs = { [key: string]: unknown } | null;
+export type CosUploadCredentialResponseDtoHeaders = {[key: string]: string};

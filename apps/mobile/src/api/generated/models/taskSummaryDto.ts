@@ -5,31 +5,32 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { TaskSummaryDtoAgentId } from './taskSummaryDtoAgentId';
-import type { TaskSummaryDtoDurationMs } from './taskSummaryDtoDurationMs';
-import type { TaskSummaryDtoErrorMessage } from './taskSummaryDtoErrorMessage';
-import type { TaskSummaryDtoModelCallCount } from './taskSummaryDtoModelCallCount';
-import type { TaskSummaryDtoToolCallCount } from './taskSummaryDtoToolCallCount';
-import type { TaskSummaryDtoTotalTokens } from './taskSummaryDtoTotalTokens';
 
 export interface TaskSummaryDto {
   id: string;
   /** @nullable */
-  agentId: TaskSummaryDtoAgentId;
+  agentId: string | null;
+  /** 智能体展示名称 */
+  agentName: string;
+  /**
+     * 智能体头像 URL
+     * @nullable
+     */
+  agentAvatar: string | null;
   type: string;
   status: string;
   /** @nullable */
-  durationMs: TaskSummaryDtoDurationMs;
+  durationMs: number | null;
   /**
      * 总 token（估算）
      * @nullable
      */
-  totalTokens: TaskSummaryDtoTotalTokens;
+  totalTokens: number | null;
   /** @nullable */
-  toolCallCount: TaskSummaryDtoToolCallCount;
+  toolCallCount: number | null;
   /** @nullable */
-  modelCallCount: TaskSummaryDtoModelCallCount;
+  modelCallCount: number | null;
   /** @nullable */
-  errorMessage: TaskSummaryDtoErrorMessage;
+  errorMessage: string | null;
   createdAt: number;
 }

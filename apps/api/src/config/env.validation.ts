@@ -170,6 +170,26 @@ export class EnvConfig {
 
   @IsOptional()
   @IsString()
+  COS_SECRET_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  COS_SECRET_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  COS_BUCKET?: string;
+
+  @IsOptional()
+  @IsString()
+  COS_REGION?: string;
+
+  @IsOptional()
+  @IsString()
+  COS_BUCKET_DOMAIN?: string;
+
+  @IsOptional()
+  @IsString()
   AI_WHISPER_MODEL?: string;
 
   @IsOptional()

@@ -9,4 +9,4 @@
 /**
  * @nullable
  */
-export type TaskSummaryDtoErrorMessage = { [key: string]: unknown } | null;
+export type TaskTraceItemDtoError = { [key: string]: unknown } | null;

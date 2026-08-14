@@ -5,18 +5,23 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { AgentUsageDtoAgentId } from './agentUsageDtoAgentId';
-import type { AgentUsageDtoAvgDurationMs } from './agentUsageDtoAvgDurationMs';
 
 export interface AgentUsageDto {
   /**
      * 智能体 id；null=用默认 agent
      * @nullable
      */
-  agentId: AgentUsageDtoAgentId;
+  agentId: string | null;
+  /** 智能体展示名称 */
+  agentName: string;
+  /**
+     * 智能体头像 URL
+     * @nullable
+     */
+  agentAvatar: string | null;
   taskCount: number;
   completedCount: number;
   successRate: number;
   /** @nullable */
-  avgDurationMs: AgentUsageDtoAvgDurationMs;
+  avgDurationMs: number | null;
 }

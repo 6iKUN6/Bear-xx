@@ -6,7 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 import type { AgentResponseDtoAllowedStrategiesItem } from './agentResponseDtoAllowedStrategiesItem';
-import type { AgentResponseDtoAvatar } from './agentResponseDtoAvatar';
 import type { AgentResponseDtoDefaultStrategy } from './agentResponseDtoDefaultStrategy';
 import type { AgentResponseDtoMaxSteps } from './agentResponseDtoMaxSteps';
 import type { AgentResponseDtoModelPreset } from './agentResponseDtoModelPreset';
@@ -17,10 +16,10 @@ export interface AgentResponseDto {
   name: string;
   description: string;
   /**
-     * 头像 URL；null=客户端用内置默认头像
+     * 头像 URL；null = 客户端显示名称首字
      * @nullable
      */
-  avatar: AgentResponseDtoAvatar;
+  avatar: string | null;
   /**
      * 系统提示词；null=用内置默认
      * @nullable

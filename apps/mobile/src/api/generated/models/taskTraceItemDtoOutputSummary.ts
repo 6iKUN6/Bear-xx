@@ -9,4 +9,4 @@
 /**
  * @nullable
  */
-export type ToolUsageDtoAvgDurationMs = { [key: string]: unknown } | null;
+export type TaskTraceItemDtoOutputSummary = { [key: string]: unknown } | null;
