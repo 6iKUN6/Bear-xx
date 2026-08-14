@@ -64,6 +64,7 @@ export function toMessageStreamFeedback(
     detail,
     tone: EVENT_TONES[type] || "info",
     display: isTextDisplayEvent(type) ? "text" : "panel",
+    stage: traceStageFromEvent(type),
     updatedAt: Date.now(),
   };
 }
@@ -112,6 +113,10 @@ export function toMessageStreamFeedbackFromTrace(
       traceItem.type === "AGENT_ROUTING"
         ? "text"
         : "panel",
+    stage: traceStageFromTraceItem(traceItem),
+    toolName: traceItem.toolName ?? undefined,
+    inputSummary: traceItem.inputSummary,
+    outputSummary: traceItem.outputSummary,
     updatedAt: Date.now(),
   };
 }
@@ -222,10 +227,7 @@ function readEventDetail(
     case StreamTaskEventType.ToolCallDone:
     case StreamTaskEventType.ToolCallError: {
       const payload = payloadOf(raw, StreamTaskEventType.ToolCallDelta);
-      return joinParts([
-        payload.name && `工具 ${payload.name}`,
-        payload.args,
-      ]);
+      return joinParts([payload.name && `工具 ${payload.name}`, payload.args]);
     }
     case StreamTaskEventType.ApprovalRequired: {
       const payload = payloadOf(raw, StreamTaskEventType.ApprovalRequired);
@@ -295,4 +297,76 @@ function formatTraceDuration(durationMs?: number | null) {
   }
 
   return `耗时 ${durationMs}ms`;
+}
+
+function traceStageFromTraceItem(
+  traceItem: MessageTraceItem,
+): MessageTraceStage {
+  if (traceItem.status === "ERROR" || traceItem.type === "ERROR") {
+    return "error";
+  }
+  if (traceItem.type === "MODEL_CALL") {
+    return "model";
+  }
+  if (traceItem.type === "TOOL_CALL") {
+    return "tool";
+  }
+  if (traceItem.type === "APPROVAL") {
+    return "approval";
+  }
+  if (traceItem.type === "MESSAGE_FINALIZE") {
+    return "output";
+  }
+  if (
+    traceItem.type === "AGENT_ROUTING" ||
+    traceItem.type === "STRATEGY_DECISION" ||
+    traceItem.type === "SKILL_SELECTION"
+  ) {
+    return "context";
+  }
+  return "workflow";
+}
+
+function traceStageFromEvent(type: StreamTaskEventType): MessageTraceStage {
+  if (
+    type === StreamTaskEventType.TaskError ||
+    type === StreamTaskEventType.ToolCallError
+  ) {
+    return "error";
+  }
+  if (
+    type === StreamTaskEventType.ModelCallStart ||
+    type === StreamTaskEventType.ModelCallDone
+  ) {
+    return "model";
+  }
+  if (
+    type === StreamTaskEventType.ToolCallStart ||
+    type === StreamTaskEventType.ToolCallDelta ||
+    type === StreamTaskEventType.ToolCallDone
+  ) {
+    return "tool";
+  }
+  if (
+    type === StreamTaskEventType.ApprovalRequired ||
+    type === StreamTaskEventType.ApprovalResolved ||
+    type === StreamTaskEventType.PlanReviewRequired ||
+    type === StreamTaskEventType.PlanReviewResolved
+  ) {
+    return "approval";
+  }
+  if (
+    type === StreamTaskEventType.MessageDone ||
+    type === StreamTaskEventType.TaskCompleted
+  ) {
+    return "output";
+  }
+  if (
+    type === StreamTaskEventType.AgentRouted ||
+    type === StreamTaskEventType.StrategySelected ||
+    type === StreamTaskEventType.SkillSelected
+  ) {
+    return "context";
+  }
+  return "workflow";
 }

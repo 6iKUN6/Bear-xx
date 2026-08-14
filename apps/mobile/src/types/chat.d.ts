@@ -2,6 +2,8 @@ type MessageRole = "user" | "assistant";
 type MessageStatus = "sending" | "streaming" | "done" | "error";
 type MessageStreamEventTone = "info" | "success" | "warning" | "error";
 type MessageStreamEventDisplay = "panel" | "text";
+type MessageTraceStage =
+  "context" | "model" | "tool" | "approval" | "output" | "error" | "workflow";
 
 interface MessageStreamEventFeedback {
   id: string;
@@ -10,6 +12,10 @@ interface MessageStreamEventFeedback {
   detail?: string;
   tone: MessageStreamEventTone;
   display: MessageStreamEventDisplay;
+  stage?: MessageTraceStage;
+  toolName?: string;
+  inputSummary?: Record<string, unknown> | null;
+  outputSummary?: Record<string, unknown> | null;
   updatedAt: number;
 }
 
@@ -55,6 +61,10 @@ interface MessageTraceItem {
   depth: number;
   sequence: number;
   metrics?: MessageRunMetrics | null;
+  toolName?: string | null;
+  parentId?: string | null;
+  inputSummary?: Record<string, unknown> | null;
+  outputSummary?: Record<string, unknown> | null;
 }
 
 interface Message {
