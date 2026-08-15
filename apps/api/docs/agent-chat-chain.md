@@ -17,23 +17,18 @@ POST /api/chat/message  (@Sse, JWT, 限流 10/min)                 chat.controll
                  ├─ resolveTextRequest(llm)                 解析模型预设
                  ├─ tools = capabilityRegistry.listTools()  仅供 trace 日志
                  └─ AgentLoopRunnerService.stream(...)   ← 返回事件流
-                     ├─ StrategyRouter.route()               规则路由选 mode
+                     ├─ StrategyRouter.route()               结构化 LLM 路由，失败时规则降级
                      ├─ CapabilityResolver.resolve(decision) 按 toolGroups/skills 装配真实工具+提示词
                      ├─ emit strategy.selected / skill.selected
                      ├─ executionInput = { ...input, tools, maxSteps, systemPrompt(合并技能) }
                      └─ StrategyRegistry.resolve(mode).stream(executionInput)
-                         ├ Direct → CommonChatAgentService.streamEvents(tools:[]) + ModelCall* 书签
-                         ├ ReAct  → CommonChatAgentService.streamEvents(tools)   + AgentLoopStart 书签
-                         ├ Plan   → AgentLoopController.stream(input, PlanExecute)   静态
-                         └ Hybrid → AgentLoopController.stream(input, Hybrid)        动态
-                             └─ CommonChatAgentService.streamEvents → createEventStream
-                                 ├─ llmService.createChatModel()  ← LlmChatModelFactory
-                                 │      openai → ChatOpenAICompletions / anthropic → ChatAnthropic
-                                 └─ CommonChatAgentLoopService.stream
-                                     ├─ agentFactory.createAgent({model,systemPrompt,tools})
-                                     ├─ agent.stream({messages},{streamMode:'messages'})
-                                     └─ 映射: ai.text→MessageDelta / tool_call_chunks→ToolCall* / ToolMessage→Done|Error
-                                         └─ 大模型 /chat/completions (经代理) → gpt-5.5
+                         ├ Direct / ReAct → CommonChatAgentService → CommonChatAgentLoopService
+                         └ Plan / Hybrid → PlanGraphRunner(StateGraph)
+                             ├─ create_plan → review_plan（仅 plan_execute）→ prepare_step / execute / evaluate
+                             ├─ execute 节点复用 CommonChatAgentLoopService 的 ReAct 子图
+                             └─ synthesize 统一生成最终回复；HITL 由外层 checkpointer 恢复
+                                 └─ LlmChatModelFactory
+                                     openai → ChatOpenAICompletions / anthropic → ChatAnthropic
 ```
 
 ## 分层职责
@@ -47,7 +42,7 @@ POST /api/chat/message  (@Sse, JWT, 限流 10/min)                 chat.controll
 | 决策+装配 | `ai/agent-loop/agent-loop-runner.service.ts` | 路由选 mode → 解析能力 → 注入真实 tools/maxSteps/提示词 → 选策略图 |
 | 能力面 | `ai/agent-loop/capability/*` | Registry（闭集：tools/skills/subagents）+ Resolver（decision → 真实装配） |
 | 策略图 | `ai/agent-loop/graphs/*` | Direct / ReAct / Plan / Hybrid 四种编排 |
-| 监督循环 | `ai/agent-loop/execution/*` | Plan/Hybrid 的 planner + controller + 评估器 |
+| 监督循环 | `ai/agent-loop/execution/plan-graph.runner.ts` 及相邻 execution 文件 | `PlanGraphRunner` 构建 Plan/Hybrid 的 StateGraph，负责 planner、计划审批、分步执行、评估与最终综合 |
 | 事件映射 | `ai/agents/common-chat-agent/common-chat-agent-loop.service.ts` | **唯一** LangChain→StreamTask 事件映射器（四种模式共用） |
 | Provider | `ai/../llm/providers/chat-model.factory.ts` | provider 收敛，业务层不碰具体 SDK |
 
@@ -57,8 +52,8 @@ POST /api/chat/message  (@Sse, JWT, 限流 10/min)                 chat.controll
 
 - **Direct**：无工具，直接生成。走统一 executor（`createAgent`，tools 为空）。
 - **ReAct**：带工具，模型按需调用。走统一 executor。
-- **Plan（静态）**：`AgentLoopController` 先用 **Kimi** 规划出步骤（真实 step 事件）→ 逐步执行（每步一次 ReAct，转发工具事件、收集文本为观察，不直接作为答案）→ 跑完所有步骤 → 最后一次不带工具的**综合调用**流式输出最终答案。
-- **Hybrid（动态）**：同 Plan，但每步后用 `StepEvaluator`（默认启发式）判断"信息是否足够"以**提前收尾**（"收集够了就停，否则继续 loop"）。
+- **Plan（静态）**：`PlanGraphRunner` 的 `StateGraph` 先用 **Kimi** 规划步骤，计划审批通过后逐步执行（每步一次 ReAct，工具事件照常透传、过程文本只作为 observation），跑完后由 `synthesize` 节点流式输出最终答案。
+- **Hybrid（动态）**：复用同一张图，但每步后由 `StepEvaluator`（默认启发式）判断“信息是否足够”以提前收尾。
 
 `maxSteps`（决策给出，默认 6）作为步骤/迭代预算上限。
 
@@ -70,8 +65,11 @@ POST /api/chat/message  (@Sse, JWT, 限流 10/min)                 chat.controll
 - `model.call.start|done` — 模型调用书签
 - `tool.call.start|delta|done|error` — 工具调用生命周期
 - `message.delta` / `message.done` — 助手文本
-- `approval.required` — 工具执行前需人工审批（HITL，见下）
+- `approval.required` / `approval.resolved` — 工具审批的请求与处理结果
+- `plan.review.required` / `plan.review.resolved` — plan_execute 的计划审批请求与处理结果
 - `task.created|started|completed|error|expired|canceled` — 任务终态
+
+事件类型与载荷唯一源是 `@litter-bear/types/protocol`；后端的 `stream-task-event.types.ts` 仅为历史相对路径 re-export。
 
 ## 关键设计说明
 

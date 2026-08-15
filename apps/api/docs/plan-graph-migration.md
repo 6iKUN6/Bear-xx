@@ -1,6 +1,6 @@
 # plan/hybrid 迁 StateGraph — 实施方案
 
-> 更新于 2026-08-10。承接 `docs/next-steps.md` 的「策略图迁移」。
+> 更新于 2026-08-10。记录策略图迁移的实现与验证；当前演进总览见 [agent-loop-evolution.md](./agent-loop-evolution.md)。
 > 相关：[hitl.md](./hitl.md)（P5b 即本迁移的产物）、[agent-loop-evolution.md](./agent-loop-evolution.md)、[agent-chat-chain.md](./agent-chat-chain.md)
 
 ## 为什么做
@@ -133,7 +133,7 @@ workflow.step.start#synthesize → model.call.start → message.delta x45 → mo
 - **编排图接入**：外层图 `compile({ checkpointer })`（`thread_id = taskId`），内层子图挂 `humanInTheLoopMiddleware` 但**不挂 checkpointer**；流结束后读 `getState()` 发 `approval.required`（`nodeKey = plan_graph_approval`，与 ReAct 的 `common_chat_approval` 区分来源）。
 - **`PlanGraphRunner.resume()`**：重建同形状的图 → 读中断值 → `Command({resume})` 续跑 → 再检测一次挂起。首轮与恢复共用 `consume()` 消费流，两条路径事件必然一致。
 - **`AgentStrategyGraph.resume?()`**：ReAct / plan / hybrid 三个图实现，direct 不实现（无工具，永不挂起）。`AgentLoopRunnerService.resume()` 按持久化的策略分发；找不到 `resume` 直接抛错，不静默重跑。
-- **策略持久化**：`strategy.selected` 到达时把 `{ strategy }` 写进 `StreamTask.executionState`（既有 Json 列，**无需 Prisma 迁移**）；恢复时读回。缺失/非法回退 `react`（老任务只可能是 ReAct 挂起的）。
+- **策略持久化**：`strategy.selected` 到达时把 `{ strategy, toolGroups, skills, maxSteps, mcdonaldsCredentialId }` 写进 `StreamTask.executionState`（既有 Json 列，**无需 Prisma 迁移**）；恢复时按快照重建同一图形状、工具集、技能提示词与审批集。缺失/非法快照仅为上线前的旧 ReAct 任务回退 `react`。
 - **`resumeConversationRun`** 改为经 `AgentLoopRunnerService.resume()` 分发，不再直连 agent 层；并把 `messages` 从 `[]` 改为真实上下文——ReAct 恢复只用检查点会忽略它，但编排图的节点闭包（`prepare_step` / `synthesize`）需要原始对话。
 
 **实测（`scripts/debug-plan-graph.cjs` 场景 B，真实模型 + 生产代码）**：
@@ -147,14 +147,13 @@ resume #2 : tool.call.done → step.done#step-2 → synthesize → 最终答案
 
 两轮 `WAITING_HUMAN` 正是步骤 0 预测的常态——每个调用受审批工具的步骤各中断一次。
 
-**遗留**：`toolGroups` / `skills` 未持久化，多工具组场景下恢复时重建的工具集仍可能与首轮不一致（`hitl.md` 已记录）。
+**已补齐**：`toolGroups` / `skills` / `maxSteps` 和任务锁定的麦当劳凭据均随 `strategy.selected` 持久化；恢复不重新路由，避免多工具组场景的能力集漂移。
 
 ### 步骤 5 · 清理与文档
 
 - ~~删除 `execution/agent-loop-controller.service.ts`~~ → 已随步骤 2 删除（含 DI 注册与 barrel 导出）。
 - ✅ 更新 `hitl.md`：P5b 从「延后」改为已实现，补 plan/hybrid 的差异与恢复路径。
-- ✅ 更新 `docs/next-steps.md` 进度。
-- 待办：更新 `agent-loop-evolution.md`。
+- ✅ 更新 `agent-loop-evolution.md`：记录 `PlanGraphRunner`、StateGraph 和计划审批的现状。
 
 ## 分步工具隔离（修复「每步都调 generateImage」）
 
@@ -175,8 +174,6 @@ resume #2 : tool.call.done → step.done#step-2 → synthesize → 最终答案
 ## 剩余收尾
 
 1. **端到端验证**（唯一的实质缺口）：过 HTTP + DB 跑一次真实会话，确认 `stream_task_events` 序列、`WAITING_HUMAN` 多轮进出、前端审批卡片渲染都正常。需要起服务。
-2. `agent-loop-evolution.md` 补一节。
-3. `toolGroups` / `skills` 一并写进 `executionState`（见步骤 4 遗留）。
 
 ## 已定决策
 

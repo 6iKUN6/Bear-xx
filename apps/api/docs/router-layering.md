@@ -14,6 +14,10 @@
 | `/chat/*` | chat | `POST /chat/message`（SSE 首轮）等；绑真实会话、落库 |
 | `/stream-tasks/*` | stream-task | 任务查询/续跑/取消/审批（SSE 恢复） |
 | `/agents`（GET） | agent | 列表/详情（登录可读，供端侧选择智能体） |
+| `/mcdonalds-credential/*` | mcdonalds-credential | 用户 MCP Token 绑定、查询与解绑 |
+| `/mcdonalds-orders/*` | mcdonalds-order | 用户订单历史、刷新及官方支付跳转/二维码 |
+| `/images/*` | images | 同步直调生图与改图 |
+| `/storage/*` | storage | 上传凭证、资源登记和安全访问 URL |
 
 ## 管理端（admin）
 
@@ -23,6 +27,7 @@
 |---|---|---|
 | `/admin/observability/*` | admin | 只读观测聚合（overview/agents/tools/errors/tasks/tasks/:id），默认排除 `isTest` 任务 |
 | `/admin/agent-tests` | admin-agent-test | `POST`（SSE）流式测试 agent；任务打 `isTest` 标记，不进观测统计 |
+| `/admin/capabilities` | admin-capability | 工具组与工具闭集，供 admin 配置表单读取风险标记 |
 | `/admin/model-presets` | admin-model-preset | 模型预设 CRUD；**apiKey 不落库/不返回**，仅元数据 + env 密钥就绪标记 |
 
 写操作（`/agents` 的 POST/PATCH/DELETE、`/admin/*` 全部）额外 `RolesGuard + @Roles('ADMIN')`。

@@ -35,6 +35,7 @@
 
 ③ POST /api/stream-tasks/:taskId/approval  { decision, editedArgs?, reason?, lastEventId? }
    resumeTaskWithDecision：校验 WAITING_HUMAN + 归属 → 决定写入 Redis(hitl:approval:<taskId>)
+     → 持久化 approval.resolved 并收敛同一条审批 trace
      → 复用 createTaskStream → ensureTaskExecution → runTask → runChatTask
    runChatTask 读到待处理决定 → 走 resumeConversationRun：
      同 thread_id + 全量 tools + 审批策略重建 agent
@@ -82,8 +83,20 @@
 当前策略：
 - **免审批**（只读、无副作用）：`getWeather`、`webSearch`。
 - **需审批**：`generateImage`（`image-gen` 组）——单次调用产生真实模型费用且耗时，approve 前用户可在卡片里改 `prompt`/`size`，reject 则不产生任何模型调用与七牛资产。
+- **需审批（用户级 MCP）**：麦当劳 `create-order`。它只在任务锁定了活跃凭据且通过工具审核后动态装配；无论运行时前缀为何，`CapabilityRegistry` 均按原始 MCP 工具名识别并要求审批。
 
 > 早期曾临时给只读的 `getWeather` 开审批用于跑通链路（P5a 演示），已还原——审批语义应落在真正有副作用/有成本的工具上。
+
+## 当前持久化边界
+
+审批等待的业务事实不只在 Redis：
+
+1. Agent 发出 `approval.required` 或 `plan.review.required` 后，`StreamTaskService` 持久化低频 `StreamTaskEvent`；trace mapper 创建同一任务下 `ConversationTurnTraceItem(APPROVAL, RUNNING)`。
+2. 事件流结束后，任务才投影为 `StreamTask.status=WAITING_HUMAN`。LangGraph checkpoint 存在 PostgreSQL 的 `langgraph` schema，可按 `thread_id=taskId` 找回中断点。
+3. 审批端点先把决定写入 Redis 的 `hitl:approval:<taskId>` 或 `hitl:plan-review:<taskId>`（TTL 与 SSE 缓冲期一致），再持久化 `*.resolved` 事件并将同一条 trace 收敛为 `SUCCESS`。
+4. 后台续跑消费一次 Redis 决定后以 `Command({ resume })` 恢复；如果再次中断，重复上述过程。
+
+当前这些步骤是同步顺序调用，不是跨 `StreamTask`、`StreamTaskEvent`、trace 与 Redis 的单一事务；trace 写入失败只告警而不阻断续跑。因此当前 `WAITING_HUMAN` 是已落 PostgreSQL 的 HITL 等待态，但“哪个决定尚待消费”仍由 Redis 临时保存。这也是 AgentFlow/Temporal 设计改为“数据库决议与 trace 先落库，再经 outbox Signal 恢复”的原因。
 
 ## 计划审批（P5c，plan_execute 默认开）
 
@@ -125,7 +138,7 @@
 
 恢复**不重新路由**，但必须交回**首轮那个策略图**——检查点里存的是它的图状态（ReAct 存 agent 图、plan/hybrid 存编排图），换个形状的图就对不上。
 
-为此首轮的策略与能力快照要持久化：`strategy.selected` 事件到达时，`StreamTaskService.persistExecutionStrategy()` 把 `{ strategy, toolGroups, skills, maxSteps }` 写进 `StreamTask.executionState`（既有 Json 列，无需迁移）。恢复时 `readExecutionStrategy()` 取策略交给 `AgentLoopRunnerService.resume()` 分发到对应策略图；`resolveResumeCapabilities()` 用快照重建首轮同一套工具、技能和审批集。
+为此首轮的策略与能力快照要持久化：`strategy.selected` 事件到达时，`StreamTaskService.persistExecutionStrategy()` 把 `{ strategy, toolGroups, skills, maxSteps, mcdonaldsCredentialId }` 写进 `StreamTask.executionState`（既有 Json 列，无需迁移）。恢复时 `readExecutionStrategy()` 取策略交给 `AgentLoopRunnerService.resume()` 分发到对应策略图；`resolveResumeCapabilities()` 用快照重建首轮同一套工具、技能、审批集以及任务锁定的 MCP 凭据。
 
 > 该列缺失或非法时回退 `react`：本字段上线前创建的老任务只可能是 ReAct 挂起的（当时只有 ReAct 支持审批）。若策略与实际不符导致图找不到 `resume`，**直接抛错**而不是静默重跑——这是必须暴露的状态不一致。
 
