@@ -12,6 +12,7 @@
  * 冗余与不一致在各处注释标出，留待收紧阶段处理——先让契约可见，再谈整理。
  */
 
+import type { FlowNodeType } from "../agent-flow/definition.js";
 import type { AgentStrategyMode } from "./strategy.js";
 import type {
   ApprovalDecisionType,
@@ -464,9 +465,9 @@ export interface ApprovalResolvedPayload extends StreamNodePayloadBase {
  * @description 用 Record 保证新增决定类型时必须补文案（编译期穷尽校验）。
  */
 export const APPROVAL_DECISION_LABELS: Record<ApprovalDecisionType, string> = {
-  approve: '已通过',
-  reject: '已拒绝',
-  edit: '已修改参数后通过',
+  approve: "已通过",
+  reject: "已拒绝",
+  edit: "已修改参数后通过",
 };
 
 /**
@@ -502,6 +503,119 @@ export interface PlanReviewResolvedPayload extends StreamNodePayloadBase {
   stepCount?: number;
   /** 打回意见（仅 decision=reject_replan 且用户填写时） */
   feedback?: string;
+}
+
+/* ── AgentFlow ─────────────────────────────────────────────── */
+
+/** `flow.run.started` 载荷。 */
+export interface FlowRunStartedPayload {
+  /** 逻辑 Flow 标识。 */
+  flowId: string;
+  /** 本任务锁定的不可变 Flow 版本标识。 */
+  flowVersionId: string;
+  /** 忽略画布 layout 后计算的 Definition 摘要。 */
+  digest: string;
+}
+
+/** `flow.node.started` 载荷。 */
+export interface FlowNodeStartedPayload {
+  /** Flow 节点标识。 */
+  nodeKey: string;
+  /** 节点类型；仅允许 V1 闭集。 */
+  nodeType: FlowNodeType;
+  /** 面向用户和 trace 展示的节点标题。 */
+  title: string;
+  /** 同一节点生命周期事件共享的 trace 标识。 */
+  traceKey: string;
+}
+
+/** `flow.node.completed` 载荷。 */
+export interface FlowNodeCompletedPayload {
+  /** Flow 节点标识。 */
+  nodeKey: string;
+  /** 节点类型；仅允许 V1 闭集。 */
+  nodeType: FlowNodeType;
+  /** 与开始事件关联的 trace 标识。 */
+  traceKey: string;
+  /** 不含敏感数据的完成摘要。 */
+  summary: string;
+  /** 节点本次执行耗时，单位毫秒。 */
+  durationMs: number;
+}
+
+/** `flow.node.failed` 载荷。 */
+export interface FlowNodeFailedPayload {
+  /** Flow 节点标识。 */
+  nodeKey: string;
+  /** 节点类型；仅允许 V1 闭集。 */
+  nodeType: FlowNodeType;
+  /** 与开始事件关联的 trace 标识。 */
+  traceKey: string;
+  /** 可供端侧展示与重试策略判断的错误分类。 */
+  category: TaskErrorCategory;
+  /** 是否允许由运行时按照策略自动重试。 */
+  retryable: boolean;
+}
+
+/** Flow 工具审批批次中的单个安全展示请求。 */
+export interface FlowToolApprovalRequest {
+  /** 已经由后端脱敏的工具名称。 */
+  toolName: string;
+  /** 已脱敏的序列化工具入参。 */
+  args?: string;
+  /** 面向用户的风险或操作说明。 */
+  description?: string;
+  /** 当前审批批次中的动作序号。 */
+  index: number;
+}
+
+/** Flow 工具审批批次的安全展示载荷。 */
+export interface FlowToolApprovalPayload {
+  kind: "tool";
+  /** 同一轮 LangGraph interrupt 中必须一起决议的工具请求。 */
+  requests: FlowToolApprovalRequest[];
+  /** 后端固定的可提交决定。 */
+  allowedDecisions: ApprovalDecisionType[];
+}
+
+/** Flow 计划审批的安全展示载荷。 */
+export interface FlowPlanReviewApprovalPayload {
+  kind: "plan-review";
+  /** 待人工确认的计划步骤。 */
+  steps: PlanReviewStep[];
+  /** 当前计划的修订轮次。 */
+  revision: number;
+  /** 后端固定的可提交决定。 */
+  allowedDecisions: PlanReviewDecisionType[];
+}
+
+/** Flow 人工审批的可判别展示载荷。 */
+export type FlowApprovalPayload =
+  FlowToolApprovalPayload | FlowPlanReviewApprovalPayload;
+
+/** `flow.waiting_human` 载荷。 */
+export interface FlowWaitingHumanPayload {
+  /** 审批业务事实的稳定标识；后续 Temporal Signal 只传该标识。 */
+  approvalId: string;
+  /** 命中人工等待的 Flow 节点标识。 */
+  nodeKey: string;
+  /** 关联审批 trace 的稳定标识。 */
+  traceKey: string;
+  /** 供审批卡片直接渲染的安全展示信息。 */
+  approval: FlowApprovalPayload;
+  /** 审批到期时间的 ISO 8601 字符串。 */
+  expiresAt: string;
+}
+
+/** Flow 恢复的触发来源。 */
+export type FlowRunResumeReason = "approval" | "retry" | "manual" | "recovery";
+
+/** `flow.run.resumed` 载荷。 */
+export interface FlowRunResumedPayload {
+  /** 面向客户端的可见恢复序号；不等同于 Temporal 的内部 attempt。 */
+  runSequence: number;
+  /** 本次恢复的受限来源。 */
+  reason: FlowRunResumeReason;
 }
 
 /**
@@ -550,6 +664,12 @@ export interface StreamTaskPayloadMap {
   [StreamTaskEventType.PlanReviewRequired]: PlanReviewRequiredPayload;
   [StreamTaskEventType.PlanReviewResolved]: PlanReviewResolvedPayload;
   [StreamTaskEventType.ConversationTitleUpdated]: ConversationTitleUpdatedPayload;
+  [StreamTaskEventType.FlowRunStarted]: FlowRunStartedPayload;
+  [StreamTaskEventType.FlowNodeStarted]: FlowNodeStartedPayload;
+  [StreamTaskEventType.FlowNodeCompleted]: FlowNodeCompletedPayload;
+  [StreamTaskEventType.FlowNodeFailed]: FlowNodeFailedPayload;
+  [StreamTaskEventType.FlowWaitingHuman]: FlowWaitingHumanPayload;
+  [StreamTaskEventType.FlowRunResumed]: FlowRunResumedPayload;
 }
 
 /**

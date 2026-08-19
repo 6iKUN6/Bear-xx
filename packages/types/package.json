@@ -16,6 +16,11 @@
       "types": "./dist/protocol/index.d.ts",
       "import": "./dist/protocol/index.js",
       "default": "./dist/protocol/index.js"
+    },
+    "./agent-flow": {
+      "types": "./dist/agent-flow/index.d.ts",
+      "import": "./dist/agent-flow/index.js",
+      "default": "./dist/agent-flow/index.js"
     }
   },
   "files": [

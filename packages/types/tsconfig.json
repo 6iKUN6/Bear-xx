@@ -11,5 +11,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // spec 由 apps/api 的 jest 执行（其 roots 含 packages/types/src），不属于发布产物；
+  // 本包不依赖 @types/jest，纳入编译会缺 describe/expect 类型而报错。
+  "exclude": ["src/**/*.spec.ts"]
 }

@@ -8,57 +8,69 @@
 /** 流式任务事件类型 */
 export enum StreamTaskEventType {
   /** 已指派本轮回答者（群聊自动路由的结果） */
-  AgentRouted = 'agent.routed',
+  AgentRouted = "agent.routed",
   /** Agent Loop 开始执行 */
-  AgentLoopStart = 'agent.loop.start',
+  AgentLoopStart = "agent.loop.start",
   /** 已选择本次任务的执行策略 */
-  StrategySelected = 'strategy.selected',
+  StrategySelected = "strategy.selected",
   /** 已选择本次任务需要使用的业务能力 */
-  SkillSelected = 'skill.selected',
+  SkillSelected = "skill.selected",
   /** 工作流步骤开始执行 */
-  WorkflowStepStart = 'workflow.step.start',
+  WorkflowStepStart = "workflow.step.start",
   /** 工作流步骤执行完成 */
-  WorkflowStepDone = 'workflow.step.done',
+  WorkflowStepDone = "workflow.step.done",
   /** 模型调用开始 */
-  ModelCallStart = 'model.call.start',
+  ModelCallStart = "model.call.start",
   /** 模型调用完成 */
-  ModelCallDone = 'model.call.done',
+  ModelCallDone = "model.call.done",
   /** 工具调用开始 */
-  ToolCallStart = 'tool.call.start',
+  ToolCallStart = "tool.call.start",
   /** 工具调用参数或过程增量 */
-  ToolCallDelta = 'tool.call.delta',
+  ToolCallDelta = "tool.call.delta",
   /** 工具调用完成 */
-  ToolCallDone = 'tool.call.done',
+  ToolCallDone = "tool.call.done",
   /** 工具调用失败 */
-  ToolCallError = 'tool.call.error',
+  ToolCallError = "tool.call.error",
   /** 麦当劳订单已创建，可安全回显订单卡片 */
-  OrderCreated = 'order.created',
+  OrderCreated = "order.created",
   /** 助手消息文本增量 */
-  MessageDelta = 'message.delta',
+  MessageDelta = "message.delta",
   /** 助手消息生成完成 */
-  MessageDone = 'message.done',
+  MessageDone = "message.done",
   /** 流式任务已创建 */
-  TaskCreated = 'task.created',
+  TaskCreated = "task.created",
   /** 流式任务开始执行 */
-  TaskStarted = 'task.started',
+  TaskStarted = "task.started",
   /** 流式任务执行完成 */
-  TaskCompleted = 'task.completed',
+  TaskCompleted = "task.completed",
   /** 流式任务执行失败 */
-  TaskError = 'task.error',
+  TaskError = "task.error",
   /** 流式任务已过期 */
-  TaskExpired = 'task.expired',
+  TaskExpired = "task.expired",
   /** 流式任务已取消 */
-  TaskCanceled = 'task.canceled',
+  TaskCanceled = "task.canceled",
   /** 需要人工审批（P5 HITL 预留） */
-  ApprovalRequired = 'approval.required',
+  ApprovalRequired = "approval.required",
   /** 人工审批已处理（通过/拒绝/改参后通过） */
-  ApprovalResolved = 'approval.resolved',
+  ApprovalResolved = "approval.resolved",
   /** 需要人工确认执行计划（plan_execute 出计划后、执行前） */
-  PlanReviewRequired = 'plan.review.required',
+  PlanReviewRequired = "plan.review.required",
   /** 计划确认已处理（通过/改计划/打回/终止） */
-  PlanReviewResolved = 'plan.review.resolved',
+  PlanReviewResolved = "plan.review.resolved",
   /** 会话标题已生成（新会话首轮与主回答并行生成后下发） */
-  ConversationTitleUpdated = 'conversation.title.updated',
+  ConversationTitleUpdated = "conversation.title.updated",
+  /** AgentFlow 运行已开始 */
+  FlowRunStarted = "flow.run.started",
+  /** AgentFlow 节点开始执行 */
+  FlowNodeStarted = "flow.node.started",
+  /** AgentFlow 节点执行完成 */
+  FlowNodeCompleted = "flow.node.completed",
+  /** AgentFlow 节点执行失败 */
+  FlowNodeFailed = "flow.node.failed",
+  /** AgentFlow 等待人工审批 */
+  FlowWaitingHuman = "flow.waiting_human",
+  /** AgentFlow 已从等待或恢复点继续执行 */
+  FlowRunResumed = "flow.run.resumed",
 }
 
 /** 终态事件集合 */
@@ -86,32 +98,38 @@ export interface StreamTaskEventEnvelope<TPayload = Record<string, unknown>> {
  * 必须补充对应文案（编译期穷尽校验，漏一个即报错）。
  */
 export const STREAM_TASK_EVENT_LABELS: Record<StreamTaskEventType, string> = {
-  [StreamTaskEventType.AgentRouted]: '已指派回答者',
-  [StreamTaskEventType.AgentLoopStart]: '正在分析任务',
-  [StreamTaskEventType.StrategySelected]: '已选择执行策略',
-  [StreamTaskEventType.SkillSelected]: '已选择能力',
-  [StreamTaskEventType.WorkflowStepStart]: '正在执行步骤',
-  [StreamTaskEventType.WorkflowStepDone]: '步骤已完成',
-  [StreamTaskEventType.ModelCallStart]: '正在请求模型',
-  [StreamTaskEventType.ModelCallDone]: '模型响应完成',
-  [StreamTaskEventType.ToolCallStart]: '正在调用工具',
-  [StreamTaskEventType.ToolCallDelta]: '工具调用中',
-  [StreamTaskEventType.ToolCallDone]: '工具调用完成',
-  [StreamTaskEventType.ToolCallError]: '工具调用失败',
-  [StreamTaskEventType.OrderCreated]: '订单已创建',
-  [StreamTaskEventType.MessageDelta]: '正在生成回复',
-  [StreamTaskEventType.MessageDone]: '回复生成完成',
-  [StreamTaskEventType.TaskCreated]: '任务已创建',
-  [StreamTaskEventType.TaskStarted]: '任务已开始',
-  [StreamTaskEventType.TaskCompleted]: '已完成',
-  [StreamTaskEventType.TaskError]: '任务执行失败',
-  [StreamTaskEventType.TaskExpired]: '任务已过期',
-  [StreamTaskEventType.TaskCanceled]: '任务已取消',
-  [StreamTaskEventType.ApprovalRequired]: '待人工确认',
-  [StreamTaskEventType.ApprovalResolved]: '人工确认已处理',
-  [StreamTaskEventType.PlanReviewRequired]: '待确认计划',
-  [StreamTaskEventType.PlanReviewResolved]: '计划确认已处理',
-  [StreamTaskEventType.ConversationTitleUpdated]: '已生成会话标题',
+  [StreamTaskEventType.AgentRouted]: "已指派回答者",
+  [StreamTaskEventType.AgentLoopStart]: "正在分析任务",
+  [StreamTaskEventType.StrategySelected]: "已选择执行策略",
+  [StreamTaskEventType.SkillSelected]: "已选择能力",
+  [StreamTaskEventType.WorkflowStepStart]: "正在执行步骤",
+  [StreamTaskEventType.WorkflowStepDone]: "步骤已完成",
+  [StreamTaskEventType.ModelCallStart]: "正在请求模型",
+  [StreamTaskEventType.ModelCallDone]: "模型响应完成",
+  [StreamTaskEventType.ToolCallStart]: "正在调用工具",
+  [StreamTaskEventType.ToolCallDelta]: "工具调用中",
+  [StreamTaskEventType.ToolCallDone]: "工具调用完成",
+  [StreamTaskEventType.ToolCallError]: "工具调用失败",
+  [StreamTaskEventType.OrderCreated]: "订单已创建",
+  [StreamTaskEventType.MessageDelta]: "正在生成回复",
+  [StreamTaskEventType.MessageDone]: "回复生成完成",
+  [StreamTaskEventType.TaskCreated]: "任务已创建",
+  [StreamTaskEventType.TaskStarted]: "任务已开始",
+  [StreamTaskEventType.TaskCompleted]: "已完成",
+  [StreamTaskEventType.TaskError]: "任务执行失败",
+  [StreamTaskEventType.TaskExpired]: "任务已过期",
+  [StreamTaskEventType.TaskCanceled]: "任务已取消",
+  [StreamTaskEventType.ApprovalRequired]: "待人工确认",
+  [StreamTaskEventType.ApprovalResolved]: "人工确认已处理",
+  [StreamTaskEventType.PlanReviewRequired]: "待确认计划",
+  [StreamTaskEventType.PlanReviewResolved]: "计划确认已处理",
+  [StreamTaskEventType.ConversationTitleUpdated]: "已生成会话标题",
+  [StreamTaskEventType.FlowRunStarted]: "已开始执行流程",
+  [StreamTaskEventType.FlowNodeStarted]: "正在执行流程节点",
+  [StreamTaskEventType.FlowNodeCompleted]: "流程节点已完成",
+  [StreamTaskEventType.FlowNodeFailed]: "流程节点执行失败",
+  [StreamTaskEventType.FlowWaitingHuman]: "等待人工确认",
+  [StreamTaskEventType.FlowRunResumed]: "已恢复执行流程",
 };
 
 /**
