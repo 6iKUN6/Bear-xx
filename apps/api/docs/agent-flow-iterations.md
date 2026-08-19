@@ -3,7 +3,7 @@
 > **For agentic workers:** 实施时按阶段逐项执行，任何阶段未通过验收不得开始下一阶段。
 > **目标：** 在不破坏现有聊天、SSE、HITL 和 MCP 安全边界的前提下，交付可版本化、可导入导出、由 Temporal 持久化执行的 AgentFlow 后端。
 > **架构：** Flow JSON 与版本是控制面事实源；Temporal 负责 Flow 的长任务编排；LangGraph 保留为 Agent 节点内部执行器；`StreamTask` 保持客户端任务与 SSE 事实源。
-> **目标技术栈：** NestJS、Prisma/PostgreSQL、Redis、Temporal TypeScript SDK、LangChain/LangGraph、Zod、Jest。当前工程尚未安装 Temporal SDK，也没有 Workflow、Worker、AgentFlow 模型或 `flow.*` 事件；它们从阶段 2、4、5 分别引入。
+> **目标技术栈：** NestJS、Prisma/PostgreSQL、Redis、Temporal TypeScript SDK、LangChain/LangGraph、Zod、Jest。阶段 0-4 的协议、Definition、控制面、运行时编译、Temporal SDK、Workflow 和独立 Worker 已落代码；阶段 5 已接入 `StreamTask` 事务事件投影、审批 outbox、取消补偿和独立节点执行器，HTTP/E2E 与客户端消费仍在进行。
 > **提交纪律：** 每阶段保持可独立 review；未经用户明确要求，不执行 `git commit`。
 
 ---
@@ -88,6 +88,8 @@ pnpm --filter ./apps/api run build
 
 **目的：** 将 FlowDefinition 变为版本化领域对象，并让管理员可创建、修改、校验、导入、导出、发布和回滚。
 
+**当前进度：** 领域模型、管理员 API、草稿/发布/导入/导出/回滚事务、审批决议的条件更新和定向单测已完成；必须先由开发者生成并应用 Prisma migration 后才可调用 API。发布与 `validate` 当前执行 Definition 结构校验和 digest 计算，能力闭集校验明确留在阶段 3；草稿执行测试端点留在阶段 5。
+
 **涉及文件：**
 
 - 修改：`apps/api/prisma/schema.prisma`
@@ -107,7 +109,7 @@ pnpm --filter ./apps/api run build
 
 1. 在 Prisma 中定义 `AgentFlow`、`AgentFlowVersion`、`AgentFlowApproval` 和最小审计模型；添加 `Agent.defaultFlowVersionId` 与 `StreamTask` Flow 快照字段。`AgentFlowApproval.id` 即 `approvalId`，保存 task/run/trace 关联、类别、安全请求摘要、决定和状态，并用条件更新保证一个审批只能从 `PENDING` 决定一次。关系删除策略必须防止已被任务引用的发布版本物理删除。
 2. 实现创建 Flow 时同时创建 version 1 DRAFT；DRAFT 修改覆盖同一草稿 JSON，发布后的版本拒绝更新。
-3. 发布前串行化事务执行：读取 DRAFT、执行结构校验、执行能力闭集校验、写 digest、归档旧发布版本、设置新 `publishedVersionId`。
+3. 发布前串行化事务执行：读取 DRAFT、执行结构校验、写 digest、归档旧发布版本、设置新 `publishedVersionId`。能力闭集校验由阶段 3 的 `FlowRuntimeValidator` 补齐。
 4. 导入端点只接受 JSON 文件内容，解析后创建新的 DRAFT；导出端点只返回 Definition JSON，不暴露数据库 ID、审计记录、任务数据或密钥。
 5. 回滚端点仅允许切换该 Flow 的历史 PUBLISHED/ARCHIVED 版本；切换后产生审计记录，历史版本内容不可变。
 6. 所有控制面端点使用 `JwtAuthGuard`、`RolesGuard`、`@Roles('ADMIN')`、DTO 校验和 Swagger 注解。
@@ -165,6 +167,8 @@ node apps/api/scripts/debug-plan-graph.cjs
 
 **目的：** 让长任务拥有进程外持久化调度、Timer、Signal、Activity retry 和 worker 接管能力。
 
+**当前进度：** Temporal SDK、严格惰性配置、纯 Workflow、两个独立 Worker 角色、幂等 Client 与冻结快照 Activity 已完成。Workflow 覆盖审批 Signal、连续审批等待、审批超时、取消及可重试/不可重试 Activity policy；Workflow 固化非敏感的 Activity 队列名，确保业务 Activity 不会错误回退到编排队列。阶段 5 已将节点执行、审批决定读取、任务终态、trace/SSE 幂等投影接入 `StreamTask`。`@temporalio/testing` 的 time-skipping 测试在 ARM 开发机需要通过 `TEMPORAL_TEST_SERVER_PATH` 提供兼容二进制，x86 CI 可正常下载运行。
+
 **涉及文件：**
 
 - 修改：`apps/api/package.json`
@@ -197,11 +201,13 @@ pnpm --filter ./apps/api run build
 pnpm --filter ./apps/api run lint:check
 ```
 
-**完成标准：** 独立 worker 可运行最小 Flow；重启 worker 后 Workflow 不丢失等待审批状态；Temporal History 不含完整聊天内容、密钥或 MCP 原始结果。
+**完成标准：** 独立 Worker 可分别轮询编排与 Activity 队列；Workflow 测试验证重启后可按 History 恢复等待审批状态；Temporal History 不含完整聊天内容、密钥或 MCP 原始结果。真实节点执行及端到端最小 Flow 由阶段 5 的 `StreamTask` 事务投影闭环验收。
 
 ## 阶段 5：StreamTask 接入、SSE 和任务恢复
 
 **目的：** 保持客户端入口不变，将已发布 AgentFlow 的执行从进程内 producer 切换为 Temporal，同时维持 SSE 回放和会话 trace。
+
+**当前进度：** 已完成 admin 测试会话的 FlowVersion 锁定和 Temporal 派发；低频 `flow.*` 事件、trace 和任务状态在 PostgreSQL 事务内投影后追加 Redis SSE 帧，`message.delta` 仅进入 Redis。`agent`、`synthesize`、`condition`、`plan`、`approval`、`plan-loop` 已有独立 Activity 执行器；计划打回在审批节点内部重规划，PlanLoop 每步 checkpoint。一次 LangGraph interrupt 内的多个工具请求已按一个审批批次持久化为一个 `approvalId`，只展示全部请求共同允许的决定，并由原 HITL 恢复逻辑统一应用决定。审批决定通过 `AgentFlowSignalOutbox` 投递，取消通过已取消 `StreamTask` 的补偿派发器投递，超时和取消会收敛 PENDING 审批与 trace。仍待补：HTTP/E2E 覆盖、SSE 断线回放实测、Worker 重启恢复实测以及 admin/移动端 `flow.*` 消费后才可灰度普通聊天。
 
 **涉及文件：**
 
@@ -225,7 +231,7 @@ pnpm --filter ./apps/api run lint:check
 1. `StreamTask` 创建时解析 Agent 的已发布 FlowVersion，在同一业务事务中锁定 `flowVersionId`、`flowDigest` 和初始 nodeKey。
 2. `FlowTaskDispatcher` 启动 Temporal Workflow；成功后 API 只订阅/回放事件，不在 SSE 请求内执行模型。
 3. Activity 在 PostgreSQL 事务内分配语义 `eventId`、更新 `StreamTask` 并创建 `StreamTaskEvent`；事务提交后才追加 Redis 帧。客户端重放游标继续使用 Redis Stream ID（`Last-Event-ID`/`cursor`），它不同于数据库的 `StreamTask.lastEventId`。
-4. 审批 Activity 在进入等待前以事务和稳定 `approvalId` 创建 `AgentFlowApproval(PENDING)`、`ConversationTurnTraceItem(APPROVAL, RUNNING)`、审批请求事件并更新 `StreamTask.status=WAITING_HUMAN`；审批 API 以条件更新锁定待处理审批，在同一事务持久化决定、收敛 trace、写 resolved 事件和 `AgentFlowSignalOutbox`。outbox 派发器只向 Temporal 发送 `approvalId`，恢复 Activity 从 `AgentFlowApproval` 读取决定。相同 `taskId + approvalId` 的同一决定返回既有结果，不同决定返回冲突。
+4. 审批 Activity 在进入等待前以事务和稳定 `approvalId` 创建 `AgentFlowApproval(PENDING)`、`ConversationTurnTraceItem(APPROVAL, RUNNING)`、审批请求事件并更新 `StreamTask.status=WAITING_HUMAN`；同一轮 LangGraph interrupt 的多个工具请求必须聚合为一个审批批次，决定只能取所有请求允许集合的交集，并由底层 HITL 对整批 actionRequests 统一恢复。多工具批次不允许 `edit`，因为现有请求只有一份 `editedArgs`，无法安全表达不同工具各自的编辑参数；单工具批次仍保留 `edit`。审批 API 必须在条件更新前按 `AgentFlowApproval.requestSummary.allowedDecisions` 拒绝不允许的决定，不能只信任客户端卡片。随后在同一事务持久化决定、收敛 trace、写 resolved 事件和 `AgentFlowSignalOutbox`。outbox 派发器只向 Temporal 发送 `approvalId`，恢复 Activity 从 `AgentFlowApproval` 读取决定。相同 `taskId + approvalId` 的同一决定返回既有结果，不同决定返回冲突。
 5. 新 Flow 发送 `flow.*` 协议事件，旧策略任务继续发送既有事件直到旧任务自然完成；trace mapper 依据新事件创建 Flow node trace。此阶段只允许 admin 测试会话运行 Flow，普通用户聊天必须等待移动端与 admin 测试台消费 `flow.*` 事件后再启用。
 6. Workflow 的超时、取消与恢复失败经 Activity 幂等收敛审批与 trace：有效的人为决定为 `SUCCESS`，超时、取消与异常为 `ERROR`。人工恢复或重新派发创建新的 `StreamTaskRun`；内部 Activity retry 使用同一 node execution 的 attempt 记录，不机械新增可见 run。
 7. 增加 HTTP 集成测试：创建任务、断线回放、计划审批、工具审批、取消、worker 重启后的恢复；覆盖重复审批请求、outbox 在 API 崩溃后的 Signal 派发重试、Signal 不含审批决定正文，以及 `flow.waiting_human` 仍能驱动现有审批卡片。
@@ -297,14 +303,14 @@ pnpm --filter ./apps/mobile run build:weapp
 
 ## 最终验收矩阵
 
-| 场景 | 预期结果 |
-| --- | --- |
-| 导入相同 JSON，layout 不同 | 语义 digest 相同，仍创建独立草稿 |
-| 草稿引用未知工具组 | 发布拒绝，错误精确到节点字段 |
-| worker 在审批期间重启 | Workflow 等待状态保留，Signal 后从原 checkpoint 恢复 |
-| worker 在外部写工具前后重启 | 使用同一 idempotencyKey；无法确认时进入 `UNKNOWN` |
-| 管理员发布新版本 | 旧运行任务不受影响，新任务锁定新版本 |
-| SSE 断线 | 客户端按 Redis Stream ID（`Last-Event-ID`/`cursor`）回放，不重复帧；数据库语义 `lastEventId` 保持独立 |
-| Hybrid 提前结束 | 不执行未必要步骤，仍调用一次 synthesize |
-| 计划审批拒绝终止 | 不调用工具或 synthesize，返回明确终止事件 |
-| 非管理员访问 Flow API | 返回权限错误，不泄露 FlowDefinition |
+| 场景                        | 预期结果                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 导入相同 JSON，layout 不同  | 语义 digest 相同，仍创建独立草稿                                                                      |
+| 草稿引用未知工具组          | 发布拒绝，错误精确到节点字段                                                                          |
+| worker 在审批期间重启       | Workflow 等待状态保留，Signal 后从原 checkpoint 恢复                                                  |
+| worker 在外部写工具前后重启 | 使用同一 idempotencyKey；无法确认时进入 `UNKNOWN`                                                     |
+| 管理员发布新版本            | 旧运行任务不受影响，新任务锁定新版本                                                                  |
+| SSE 断线                    | 客户端按 Redis Stream ID（`Last-Event-ID`/`cursor`）回放，不重复帧；数据库语义 `lastEventId` 保持独立 |
+| Hybrid 提前结束             | 不执行未必要步骤，仍调用一次 synthesize                                                               |
+| 计划审批拒绝终止            | 不调用工具或 synthesize，返回明确终止事件                                                             |
+| 非管理员访问 Flow API       | 返回权限错误，不泄露 FlowDefinition                                                                   |

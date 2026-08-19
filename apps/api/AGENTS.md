@@ -191,6 +191,13 @@ Git 提交信息统一使用中文，标题和正文都不使用英文描述核�
 
 不要返回“伪成功”数据来掩盖错误。
 
+### 7. 环境变量与本地容器
+
+- `apps/api/.env.example` 是可提交的环境变量键清单与安全示例；`apps/api/.env` 是仅本机使用的私密配置，不能提交。
+- 新增、重命名或删除 `.env.example` 中的变量时，必须同步检查本地 `.env` 是否缺少对应键；只允许补充缺失键或默认值，绝不覆盖已有本机配置，也不能把真实密钥写入 `.env.example`。
+- AgentFlow 本地联调使用 `docker-compose.yml` 中独立的 Temporal Server、Temporal PostgreSQL、编排 Worker 与 Activity Worker；应用容器内的 `TEMPORAL_ADDRESS` 固定连接 `temporal:7233`，宿主机直接启动应用时使用 `.env` 的 `localhost:7233`。
+- 修改开发 Compose、Temporal Worker 命令或相关环境变量后，至少执行 `pnpm run test:development-compose` 与 `pnpm run build`；E2E 使用的 `docker-compose.agent-flow-e2e.yml` 与开发常驻容器隔离，不能混用数据库或 Redis 数据卷。
+
 ## 接口规范
 
 ### 1. 普通 HTTP 接口
