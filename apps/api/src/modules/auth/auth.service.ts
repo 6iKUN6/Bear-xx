@@ -6,8 +6,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
+import {
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'crypto';
 import type { StringValue } from 'ms';
 import { User } from '@prisma/client';
 import { UserService } from '../user/user.service';
@@ -296,8 +300,8 @@ export class AuthService {
    * @description 为指定用户分别生成访问令牌和刷新令牌，并附带独立的 jti 与过期时间。
    */
   private async generateTokens(userId: string): Promise<TokenPair> {
-    const accessJti = uuidv4();
-    const refreshJti = uuidv4();
+    const accessJti = randomUUID();
+    const refreshJti = randomUUID();
 
     const accessPayload: JwtPayload = {
       sub: userId,
