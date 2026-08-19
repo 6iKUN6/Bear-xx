@@ -3,6 +3,7 @@ dist
 .env
 .env.*
 !.env.example
+!apps/api/.env.agent-flow-e2e.example
 coverage
 .DS_Store
 apps/mobile/UI

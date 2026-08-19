@@ -3,7 +3,7 @@
   "rootDir": "..",
   "testEnvironment": "node",
   "watchman": false,
-  "testRegex": ".e2e-spec.ts$",
+  "testRegex": "agent-flow\\.integration-spec\\.ts$",
   "transform": {
     "^.+\\.(t|j)s$": [
       "ts-jest",
