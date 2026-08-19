@@ -233,6 +233,34 @@ export class EnvConfig {
   @IsString()
   MCDONALDS_MCP_TOOL_PREFIX?: string;
 
+  @IsOptional()
+  @IsString()
+  TEMPORAL_ADDRESS?: string;
+
+  @IsOptional()
+  @IsString()
+  TEMPORAL_NAMESPACE?: string;
+
+  @IsOptional()
+  @IsString()
+  TEMPORAL_TASK_QUEUE?: string;
+
+  @IsOptional()
+  @IsString()
+  TEMPORAL_ORCHESTRATOR_TASK_QUEUE?: string;
+
+  @IsOptional()
+  @IsString()
+  TEMPORAL_ACTIVITY_TASK_QUEUE?: string;
+
+  @IsOptional()
+  @IsString()
+  TEMPORAL_API_KEY?: string;
+
+  @IsOptional()
+  @Matches(/^(true|false)$/)
+  TEMPORAL_TLS?: string;
+
   @ValidateIf(
     (config: EnvConfig) =>
       config.MCDONALDS_CREDENTIAL_ENCRYPTION_KEY !== undefined &&

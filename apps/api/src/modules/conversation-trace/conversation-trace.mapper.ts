@@ -306,6 +306,115 @@ export function mapStreamEventToTraceCommand(
       };
     }
 
+    case StreamTaskEventType.FlowRunStarted: {
+      const payload = input.payload;
+      return {
+        action: 'create-success',
+        input: {
+          ...context,
+          traceKey: `flow:run:${payload?.flowVersionId ?? 'unknown'}`,
+          type: ConversationTraceItemType.WORKFLOW_STEP,
+          title: '开始执行流程',
+          summary: payload?.flowVersionId
+            ? `已锁定流程版本 ${payload.flowVersionId}`
+            : '已锁定流程版本',
+          metadata: safeMetadata(payload),
+        },
+      };
+    }
+
+    case StreamTaskEventType.FlowNodeStarted: {
+      const payload = input.payload;
+      return {
+        action: 'start',
+        input: {
+          ...context,
+          traceKey: payload?.traceKey ?? `flow:${payload?.nodeKey ?? 'node'}`,
+          type: ConversationTraceItemType.WORKFLOW_STEP,
+          title: payload?.title ?? '执行流程节点',
+          nodeKey: payload?.nodeKey,
+          metadata: safeMetadata(payload),
+          startedAt: new Date(),
+        },
+      };
+    }
+
+    case StreamTaskEventType.FlowNodeCompleted: {
+      const payload = input.payload;
+      return {
+        action: 'complete',
+        input: {
+          taskId: input.taskId,
+          traceKey: payload?.traceKey ?? `flow:${payload?.nodeKey ?? 'node'}`,
+          nodeKey: payload?.nodeKey,
+          title: '流程节点已完成',
+          summary: truncate(payload?.summary) ?? '流程节点已完成',
+          metrics: payload ? { durationMs: payload.durationMs } : undefined,
+          metadata: safeMetadata(payload),
+          endedAt: new Date(),
+        },
+      };
+    }
+
+    case StreamTaskEventType.FlowNodeFailed: {
+      const payload = input.payload;
+      return {
+        action: 'fail',
+        input: {
+          ...context,
+          traceKey: payload?.traceKey ?? `flow:${payload?.nodeKey ?? 'node'}`,
+          type: ConversationTraceItemType.WORKFLOW_STEP,
+          title: '流程节点执行失败',
+          summary: payload?.category ?? '流程节点执行失败',
+          nodeKey: payload?.nodeKey,
+          error: {
+            category: payload?.category ?? 'unknown',
+            retryable: payload?.retryable ?? false,
+          },
+          metadata: safeMetadata(payload),
+          endedAt: new Date(),
+        },
+      };
+    }
+
+    case StreamTaskEventType.FlowWaitingHuman: {
+      const payload = input.payload;
+      const approval = payload?.approval;
+      const isToolApproval = approval?.kind === 'tool';
+      const toolRequests = isToolApproval ? approval.requests : [];
+      const toolNames = toolRequests.map((request) => request.toolName);
+      const primaryToolName = toolNames[0];
+      return {
+        action: 'start',
+        input: {
+          ...context,
+          traceKey:
+            payload?.traceKey ??
+            `flow:${payload?.nodeKey ?? 'approval'}:approval`,
+          type: ConversationTraceItemType.APPROVAL,
+          title: isToolApproval
+            ? `待人工确认${formatNameSuffix(primaryToolName)}${
+                toolNames.length > 1 ? `等 ${toolNames.length} 个工具` : ''
+              }`
+            : '待确认计划',
+          summary: isToolApproval
+            ? truncate(
+                toolRequests
+                  .map((request) => request.description)
+                  .filter(Boolean)
+                  .join('；'),
+              )
+            : approval?.kind === 'plan-review'
+              ? `共 ${approval.steps.length} 步待确认`
+              : '等待人工确认',
+          nodeKey: payload?.nodeKey,
+          toolName: primaryToolName,
+          metadata: safeMetadata(payload),
+          startedAt: new Date(),
+        },
+      };
+    }
+
     case StreamTaskEventType.MessageDone: {
       const payload = input.payload;
       return {

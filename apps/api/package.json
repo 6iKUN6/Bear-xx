@@ -18,13 +18,26 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main",
+    "start:temporal-worker": "node dist/src/temporal/worker",
+    "start:temporal-worker:orchestrator": "TEMPORAL_WORKER_ROLE=orchestrator pnpm run start:temporal-worker",
+    "start:temporal-worker:activity": "TEMPORAL_WORKER_ROLE=activity pnpm run start:temporal-worker",
+    "start:temporal-worker:dev": "node -r ts-node/register -r tsconfig-paths/register ./src/temporal/worker.ts",
+    "start:temporal-worker:orchestrator:dev": "TEMPORAL_WORKER_ROLE=orchestrator pnpm run start:temporal-worker:dev",
+    "start:temporal-worker:activity:dev": "TEMPORAL_WORKER_ROLE=activity pnpm run start:temporal-worker:dev",
+    "dev:docker:up": "docker compose up --build",
+    "dev:docker:down": "docker compose down",
+    "dev:docker:reset": "docker compose down --volumes --remove-orphans",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "lint:check": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:agent-flow:e2e": "node ./scripts/run-agent-flow-e2e.cjs",
+    "test:agent-flow:e2e:runner": "node --test ./scripts/run-agent-flow-e2e.spec.cjs",
+    "test:agent-flow:e2e:external": "jest --config ./test/jest-agent-flow-e2e.json --runInBand",
+    "test:development-compose": "node --test ./scripts/development-compose.spec.cjs",
     "db:migrate": "prisma migrate dev",
     "db:migrate:create": "prisma migrate dev --create-only",
     "db:migrate:deploy": "prisma migrate deploy",
@@ -53,6 +66,9 @@
     "@nestjs/terminus": "^11.1.1",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.19.2",
+    "@temporalio/client": "1.22.0",
+    "@temporalio/worker": "1.22.0",
+    "@temporalio/workflow": "1.22.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cos-nodejs-sdk-v5": "^3.0.0",
@@ -68,7 +84,6 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "uuid": "^13.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -77,6 +92,7 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
+    "@temporalio/testing": "1.22.0",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/ms": "^2.1.0",
@@ -85,7 +101,6 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/qrcode": "^1.5.6",
     "@types/supertest": "^6.0.2",
-    "@types/uuid": "^11.0.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
@@ -125,6 +140,7 @@
     },
     "moduleNameMapper": {
       "^@litter-bear/types/protocol$": "<rootDir>/../../packages/types/src/protocol/index.ts",
+      "^@litter-bear/types/agent-flow$": "<rootDir>/../../packages/types/src/agent-flow/index.ts",
       "^@litter-bear/types$": "<rootDir>/../../packages/types/src/index.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
@@ -132,6 +148,7 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "watchman": false
   }
 }

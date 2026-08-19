@@ -167,3 +167,133 @@ describe('mapStreamEventToTraceCommand · 审批', () => {
     });
   });
 });
+
+describe('mapStreamEventToTraceCommand · AgentFlow', () => {
+  const baseInput = {
+    userId: 'user-1',
+    taskId: 'task-1',
+    streamId: 'run-1',
+    conversationId: 'conversation-1',
+    messageId: 'message-1',
+  };
+
+  it('Flow 节点开始和完成使用同一 traceKey 收敛为一个工作流节点', () => {
+    const started = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowNodeStarted,
+      payload: {
+        nodeKey: 'answer',
+        nodeType: 'agent',
+        title: '生成回复',
+        traceKey: 'flow:answer',
+      },
+    });
+    const completed = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowNodeCompleted,
+      payload: {
+        nodeKey: 'answer',
+        nodeType: 'agent',
+        traceKey: 'flow:answer',
+        summary: '已生成回复',
+        durationMs: 120,
+      },
+    });
+
+    expect(started).toMatchObject({
+      action: 'start',
+      input: {
+        type: ConversationTraceItemType.WORKFLOW_STEP,
+        nodeKey: 'answer',
+        traceKey: 'flow:answer',
+        title: '生成回复',
+      },
+    });
+    expect(completed).toMatchObject({
+      action: 'complete',
+      input: {
+        nodeKey: 'answer',
+        traceKey: 'flow:answer',
+        summary: '已生成回复',
+        metrics: { durationMs: 120 },
+      },
+    });
+  });
+
+  it('flow.waiting_human 创建可收敛的审批轨迹，保留 approvalId', () => {
+    const command = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowWaitingHuman,
+      payload: {
+        approvalId: 'approval-1',
+        nodeKey: 'review',
+        traceKey: 'flow:review:approval',
+        approval: {
+          kind: 'plan-review',
+          steps: [{ id: 'step-1', goal: '核对订单' }],
+          revision: 1,
+          allowedDecisions: [
+            'approve',
+            'edit',
+            'reject_replan',
+            'reject_terminate',
+          ],
+        },
+        expiresAt: '2026-08-18T09:00:00.000Z',
+      },
+    });
+
+    expect(command).toMatchObject({
+      action: 'start',
+      input: {
+        type: ConversationTraceItemType.APPROVAL,
+        nodeKey: 'review',
+        traceKey: 'flow:review:approval',
+        title: '待确认计划',
+        summary: '共 1 步待确认',
+        metadata: expect.objectContaining({ approvalId: 'approval-1' }),
+      },
+    });
+  });
+
+  it('flow.waiting_human 将同一轮工具审批聚合为一条批次轨迹', () => {
+    const command = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowWaitingHuman,
+      payload: {
+        approvalId: 'approval-batch-1',
+        nodeKey: 'execute',
+        traceKey: 'flow:execute:approval',
+        approval: {
+          kind: 'tool',
+          requests: [
+            {
+              toolName: 'create-order',
+              description: '创建订单',
+              index: 0,
+            },
+            {
+              toolName: 'cancel-order',
+              description: '取消订单',
+              index: 1,
+            },
+          ],
+          allowedDecisions: ['approve', 'reject'],
+        },
+        expiresAt: '2026-08-18T09:00:00.000Z',
+      },
+    });
+
+    expect(command).toMatchObject({
+      action: 'start',
+      input: {
+        type: ConversationTraceItemType.APPROVAL,
+        nodeKey: 'execute',
+        traceKey: 'flow:execute:approval',
+        title: '待人工确认：create-order等 2 个工具',
+        summary: '创建订单；取消订单',
+        toolName: 'create-order',
+      },
+    });
+  });
+});

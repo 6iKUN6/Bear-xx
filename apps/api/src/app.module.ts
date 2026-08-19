@@ -22,6 +22,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { McDonaldsOrderModule } from './modules/mcdonalds-order/mcdonalds-order.module';
 import { McDonaldsCredentialModule } from './modules/mcdonalds-credential/mcdonalds-credential.module';
+import { AgentFlowModule } from './modules/agent-flow/agent-flow.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { McDonaldsCredentialModule } from './modules/mcdonalds-credential/mcdona
     HealthModule,
     McDonaldsCredentialModule,
     McDonaldsOrderModule,
+    AgentFlowModule,
   ],
   providers: [
     {

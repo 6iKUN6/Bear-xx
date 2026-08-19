@@ -51,6 +51,15 @@ export class CreateAgentDto {
   modelPreset?: string;
 
   @ApiPropertyOptional({
+    description:
+      '默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  defaultFlowVersionId?: string | null;
+
+  @ApiPropertyOptional({
     description: '默认/强制策略；AUTO=自动路由，具体值=强制',
     enum: AgentStrategy,
     default: AgentStrategy.AUTO,

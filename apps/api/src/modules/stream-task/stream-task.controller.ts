@@ -155,6 +155,7 @@ export class StreamTaskController {
       },
       lastEventId,
       req.__sseAbortSignal,
+      dto.approvalId,
     );
   }
 
@@ -194,6 +195,7 @@ export class StreamTaskController {
       },
       lastEventId,
       req.__sseAbortSignal,
+      dto.approvalId,
     );
   }
 

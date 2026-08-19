@@ -24,6 +24,12 @@ export class AgentResponseDto {
   @ApiProperty({ nullable: true, example: 'kimi' })
   modelPreset: string | null;
 
+  @ApiProperty({
+    nullable: true,
+    description: '默认执行的已发布 FlowVersion ID；null=沿用历史策略配置',
+  })
+  defaultFlowVersionId: string | null;
+
   @ApiProperty({ enum: AgentStrategy })
   defaultStrategy: AgentStrategy;
 

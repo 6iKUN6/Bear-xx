@@ -1,0 +1,106 @@
+import type { FlowNodeType } from '@litter-bear/types/agent-flow';
+
+/** 启动一次 AgentFlow Workflow 所需的最小业务标识。 */
+export interface AgentFlowWorkflowInput {
+  streamTaskId: string;
+  flowVersionId: string;
+  flowDigest: string;
+  activityTaskQueue: string;
+}
+
+/** HTTP 派发器启动 Workflow 所需的业务快照，不暴露运行时队列配置。 */
+export type AgentFlowWorkflowStartInput = Omit<
+  AgentFlowWorkflowInput,
+  'activityTaskQueue'
+>;
+
+/** 允许影响 Flow 下一跳的节点结果闭集。 */
+export type AgentFlowNodeOutcome = 'default' | 'approved' | 'true' | 'false';
+
+/** 存入 Temporal History 的最小节点投影。 */
+export interface AgentFlowWorkflowNode {
+  key: string;
+  type: FlowNodeType;
+  next: Readonly<Partial<Record<AgentFlowNodeOutcome, string>>>;
+}
+
+/** 从数据库冻结版本转换出的脱敏执行快照。 */
+export interface AgentFlowRunSnapshot {
+  entryNodeKey: string;
+  maxDurationSeconds: number;
+  nodes: readonly AgentFlowWorkflowNode[];
+}
+
+/** Activity 执行节点时所需的稳定身份。 */
+export interface AgentFlowNodeExecutionInput {
+  workflow: AgentFlowWorkflowInput;
+  nodeKey: string;
+  nodeExecutionId: string;
+}
+
+/** Activity 恢复人工等待节点时所需的稳定身份。 */
+export interface AgentFlowNodeResumeInput extends AgentFlowNodeExecutionInput {
+  approvalId: string;
+}
+
+/** 节点正常结束并请求 Workflow 选择下一条边。 */
+export interface AgentFlowNodeCompletedResult {
+  kind: 'completed';
+  outcome: AgentFlowNodeOutcome;
+  summary?: string;
+}
+
+/** 节点已持久化审批事实，Workflow 必须等待对应 Signal。 */
+export interface AgentFlowNodeWaitingHumanResult {
+  kind: 'waiting_human';
+  approvalId: string;
+  timeoutSeconds: number;
+}
+
+/** 节点主动结束 Flow，避免以不存在的边伪装成功。 */
+export interface AgentFlowNodeStoppedResult {
+  kind: 'stopped';
+  status: 'completed' | 'cancelled' | 'error';
+  errorCategory?: string;
+}
+
+/** 节点执行或恢复后的受限结果。 */
+export type AgentFlowNodeExecutionResult =
+  | AgentFlowNodeCompletedResult
+  | AgentFlowNodeWaitingHumanResult
+  | AgentFlowNodeStoppedResult;
+
+/** Workflow 通过 Activity 收敛业务任务时写入的终态。 */
+export type AgentFlowFinalStatus =
+  'completed' | 'cancelled' | 'timed_out' | 'error';
+
+/** 任务收尾 Activity 的最小输入。 */
+export interface AgentFlowFinalizeRunInput {
+  workflow: AgentFlowWorkflowInput;
+  status: AgentFlowFinalStatus;
+  lastNodeKey: string | null;
+  errorCategory?: string;
+}
+
+/** Temporal Workflow 可调用的 Activity 闭集。 */
+export interface AgentFlowActivityApi {
+  loadRunSnapshot(input: AgentFlowWorkflowInput): Promise<AgentFlowRunSnapshot>;
+  executeNode(
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<AgentFlowNodeExecutionResult>;
+  resumeNode(
+    input: AgentFlowNodeResumeInput,
+  ): Promise<AgentFlowNodeExecutionResult>;
+  finalizeRun(input: AgentFlowFinalizeRunInput): Promise<void>;
+}
+
+/** 审批 Signal 的脱敏载荷。 */
+export interface AgentFlowApprovalSignalInput {
+  approvalId: string;
+}
+
+/** Workflow 返回给调用方的最终结果。 */
+export interface AgentFlowWorkflowResult {
+  status: AgentFlowFinalStatus;
+  lastNodeKey: string | null;
+}

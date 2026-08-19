@@ -4,6 +4,7 @@ import { Agent, AgentStrategy, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDefinitionService } from './agent-definition.service';
 import { AgentService } from './agent.service';
+import { UpdateAgentDto } from './dto/update-agent.dto';
 
 type UpdateManyArgs = {
   where: { isDefault: boolean; id: { not: string } };
@@ -55,6 +56,7 @@ function buildAgent(overrides: Partial<Agent> = {}): Agent {
     maxSteps: null,
     enabled: true,
     isDefault: false,
+    defaultFlowVersionId: null,
     createdById: null,
     createdAt: new Date('2026-08-14T00:00:00.000Z'),
     updatedAt: new Date('2026-08-14T00:00:00.000Z'),
@@ -73,6 +75,10 @@ describe('AgentService', () => {
     [TransactionCallback, TransactionOptions]
   >;
   let invalidate: jest.Mock<void, []>;
+  let findFlowVersion: jest.Mock<
+    Promise<Record<string, unknown> | null>,
+    [unknown]
+  >;
 
   beforeEach(async () => {
     findUnique = jest.fn<Promise<Agent | null>, [unknown]>();
@@ -86,6 +92,10 @@ describe('AgentService', () => {
       callback({ agent: { findUnique, updateMany, update, delete: remove } }),
     );
     invalidate = jest.fn<void, []>();
+    findFlowVersion = jest.fn<
+      Promise<Record<string, unknown> | null>,
+      [unknown]
+    >();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -94,6 +104,7 @@ describe('AgentService', () => {
           provide: PrismaService,
           useValue: {
             agent: { findUnique, update, delete: remove },
+            agentFlowVersion: { findUnique: findFlowVersion },
             $transaction: transaction,
           },
         },
@@ -196,6 +207,29 @@ describe('AgentService', () => {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
     expect(remove).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it('拒绝将未发布 FlowVersion 绑定为智能体默认执行形态', async () => {
+    const dto = Object.assign(new UpdateAgentDto(), {
+      defaultFlowVersionId: 'draft-flow-version',
+    });
+    findFlowVersion.mockResolvedValue({
+      id: 'draft-flow-version',
+      status: 'DRAFT',
+    });
+    findUnique.mockResolvedValue(buildAgent());
+    update.mockResolvedValue(buildAgent());
+
+    await expect(service.update('agent-id', dto)).rejects.toThrow(
+      new BadRequestException('只能绑定已发布的 Flow 版本'),
+    );
+
+    expect(findFlowVersion).toHaveBeenCalledWith({
+      where: { id: 'draft-flow-version' },
+      select: { status: true },
+    });
+    expect(update).not.toHaveBeenCalled();
     expect(invalidate).not.toHaveBeenCalled();
   });
 });

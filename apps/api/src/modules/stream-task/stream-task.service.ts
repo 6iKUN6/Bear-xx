@@ -30,6 +30,7 @@ import {
   ConversationTraceItemType,
   ConversationTraceItemStatus,
   ConversationType,
+  AgentFlowApprovalKind,
   Prisma,
 } from '@prisma/client';
 import {
@@ -79,6 +80,9 @@ import {
 } from './stream-task-event.types';
 import { StreamTaskRegistry } from './stream-task.registry';
 import { StreamTaskSnapshotService } from './stream-task-snapshot.service';
+import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
+import { AgentFlowApprovalService } from '../agent-flow/agent-flow-approval.service';
+import { AgentFlowSignalOutboxService } from '../agent-flow/temporal/agent-flow-signal-outbox.service';
 
 interface ChatTaskPayload {
   content: string;
@@ -154,6 +158,9 @@ export class StreamTaskService {
     private readonly mcdonaldsOrderService: McDonaldsOrderService,
     private readonly capabilityRegistry: CapabilityRegistry,
     private readonly mcdonaldsCredentialService: McDonaldsCredentialService,
+    private readonly flowTaskDispatcher: FlowTaskDispatcherService,
+    private readonly agentFlowApprovalService: AgentFlowApprovalService,
+    private readonly agentFlowSignalOutboxService: AgentFlowSignalOutboxService,
   ) {
     this.bufferTtl =
       this.configService.get<number>('STREAM_TASK_BUFFER_TTL') ??
@@ -573,6 +580,11 @@ export class StreamTaskService {
       }
 
       //流式任务入库
+      const flowSnapshot =
+        await this.flowTaskDispatcher.resolveTaskFlowSnapshot(tx, {
+          agentId,
+          isTest,
+        });
       const task = await tx.streamTask.create({
         data: {
           type,
@@ -583,6 +595,7 @@ export class StreamTaskService {
           conversationId: targetConversationId,
           messageId: assistantMessage.id,
           requestPayload,
+          ...(flowSnapshot ?? {}),
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
         },
       });
@@ -608,6 +621,16 @@ export class StreamTaskService {
         conversationId: targetConversationId,
       };
     });
+
+    if (result.task.flowVersionId && result.task.flowDigest) {
+      await this.flowTaskDispatcher.dispatch({
+        taskId: result.task.id,
+        flowVersionId: result.task.flowVersionId,
+        flowDigest: result.task.flowDigest,
+        temporalWorkflowId: result.task.temporalWorkflowId,
+        temporalRunId: result.task.temporalRunId,
+      });
+    }
 
     return {
       taskId: result.task.id,
@@ -841,8 +864,21 @@ export class StreamTaskService {
     decision: ApprovalDecision,
     lastEventId: string,
     signal?: AbortSignal,
+    approvalId?: string,
   ): Promise<TaskStreamResult> {
     const task = await this.loadWaitingTask(taskId, userId);
+
+    if (task.flowVersionId) {
+      return this.resumeFlowTaskWithDecision(
+        task,
+        userId,
+        approvalId,
+        AgentFlowApprovalKind.TOOL,
+        this.toInputJsonValue(decision),
+        lastEventId,
+        signal,
+      );
+    }
 
     await this.storePendingApprovalDecision(taskId, decision);
     // 在开流之前落事件：客户端带着旧 lastEventId 续读，照样能收到。
@@ -870,8 +906,21 @@ export class StreamTaskService {
     decision: PlanReviewDecision,
     lastEventId: string,
     signal?: AbortSignal,
+    approvalId?: string,
   ): Promise<TaskStreamResult> {
     const task = await this.loadWaitingTask(taskId, userId);
+
+    if (task.flowVersionId) {
+      return this.resumeFlowTaskWithDecision(
+        task,
+        userId,
+        approvalId,
+        AgentFlowApprovalKind.PLAN_REVIEW,
+        this.toInputJsonValue(decision),
+        lastEventId,
+        signal,
+      );
+    }
 
     await this.storePendingPlanReviewDecision(taskId, decision);
     await this.recordPlanReviewResolved(task, userId, decision);
@@ -890,6 +939,44 @@ export class StreamTaskService {
       throw new BadRequestException('任务当前不处于待人工审批状态');
     }
     return task;
+  }
+
+  /**
+   * 提交 AgentFlow 审批决定并等待 Temporal 从持久化事实恢复
+   * @param task 已校验且正处于 WAITING_HUMAN 的 Flow 任务
+   * @param userId 当前审批用户ID
+   * @param approvalId Flow 审批事实的稳定标识
+   * @param kind 当前 HTTP 入口对应的审批类型
+   * @param decision 已序列化的审批决定
+   * @param lastEventId 客户端已收到的 Redis Stream 游标
+   * @param signal 当前 SSE 请求中断信号
+   * @returns 返回只订阅/回放 Flow 帧的 SSE 流
+   * @description Flow 任务不再写 Redis HITL 决定键或触发进程内 LangGraph 续跑。决定、trace、语义事件与 outbox 已由审批服务原子提交，outbox 仅向 Temporal 发送 approvalId。
+   */
+  private async resumeFlowTaskWithDecision(
+    task: Prisma.StreamTaskGetPayload<object>,
+    userId: string,
+    approvalId: string | undefined,
+    kind: AgentFlowApprovalKind,
+    decision: Prisma.InputJsonValue,
+    lastEventId: string,
+    signal?: AbortSignal,
+  ): Promise<TaskStreamResult> {
+    if (!approvalId) {
+      throw new BadRequestException('Flow 任务提交审批时必须提供 approvalId');
+    }
+    await this.agentFlowApprovalService.decideAndQueueSignal({
+      taskId: task.id,
+      approvalId,
+      actorId: userId,
+      kind,
+      decision,
+    });
+    await this.agentFlowSignalOutboxService.dispatchPending();
+
+    return {
+      stream: this.createTaskStream(task.id, lastEventId, signal),
+    };
   }
 
   /**
@@ -1137,6 +1224,27 @@ export class StreamTaskService {
    * @description 通过内存标记和 Redis 分布式锁保证同一个任务在同一时刻只会被一个生产者执行。
    */
   private async ensureTaskExecution(taskId: string) {
+    const flowTask = await this.prisma.streamTask.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        flowVersionId: true,
+        flowDigest: true,
+        temporalWorkflowId: true,
+        temporalRunId: true,
+      },
+    });
+    if (flowTask?.flowVersionId && flowTask.flowDigest) {
+      await this.flowTaskDispatcher.dispatch({
+        taskId: flowTask.id,
+        flowVersionId: flowTask.flowVersionId,
+        flowDigest: flowTask.flowDigest,
+        temporalWorkflowId: flowTask.temporalWorkflowId,
+        temporalRunId: flowTask.temporalRunId,
+      });
+      return;
+    }
+
     if (this.registry.isRunning(taskId)) {
       return;
     }
@@ -2723,6 +2831,16 @@ export class StreamTaskService {
     } catch {
       return { raw: data };
     }
+  }
+
+  /**
+   * 将审批决定转换为 Prisma Json 输入值
+   * @param value 已由 HTTP DTO 验证的审批决定
+   * @returns 返回可安全写入审批事实的普通 JSON 值
+   * @description JSON 往返移除 undefined 和类实例，确保决定比较、审计与 outbox 链路使用同一份稳定结构。
+   */
+  private toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 
   private normalizeFrameId(frameId: string | undefined) {

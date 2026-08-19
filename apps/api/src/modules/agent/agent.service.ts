@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Agent, Prisma } from '@prisma/client';
+import { AgentFlowVersionStatus, type Agent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDefinitionService } from './agent-definition.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -40,6 +40,7 @@ export class AgentService {
   }
 
   async create(dto: CreateAgentDto, userId: string): Promise<AgentResponseDto> {
+    await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
     const agent = await this.prisma.agent.create({
       data: {
         name: dto.name,
@@ -47,6 +48,7 @@ export class AgentService {
         avatar: dto.avatar?.trim() || null,
         systemPrompt: dto.systemPrompt ?? null,
         modelPreset: dto.modelPreset ?? null,
+        defaultFlowVersionId: dto.defaultFlowVersionId ?? null,
         defaultStrategy: dto.defaultStrategy ?? undefined,
         allowedStrategies: dto.allowedStrategies ?? [],
         toolGroups: dto.toolGroups ?? [],
@@ -61,6 +63,7 @@ export class AgentService {
   }
 
   async update(id: string, dto: UpdateAgentDto): Promise<AgentResponseDto> {
+    await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
     const data = {
       name: dto.name,
       description: dto.description,
@@ -68,6 +71,7 @@ export class AgentService {
       avatar: dto.avatar === undefined ? undefined : dto.avatar?.trim() || null,
       systemPrompt: dto.systemPrompt,
       modelPreset: dto.modelPreset,
+      defaultFlowVersionId: dto.defaultFlowVersionId,
       defaultStrategy: dto.defaultStrategy,
       allowedStrategies: dto.allowedStrategies,
       toolGroups: dto.toolGroups,
@@ -183,6 +187,27 @@ export class AgentService {
     return agent;
   }
 
+  /**
+   * 校验待绑定的默认 FlowVersion 已发布
+   * @param versionId 管理端提交的 FlowVersion ID；undefined/null 表示不绑定或清除绑定
+   * @returns 无返回值
+   * @description Agent 只能指向不可变的 PUBLISHED 版本，避免新任务读取会被继续编辑的草稿或已归档的历史版本。
+   */
+  private async ensurePublishedFlowVersion(
+    versionId: string | null | undefined,
+  ): Promise<void> {
+    if (versionId === undefined || versionId === null) {
+      return;
+    }
+    const version = await this.prisma.agentFlowVersion.findUnique({
+      where: { id: versionId },
+      select: { status: true },
+    });
+    if (!version || version.status !== AgentFlowVersionStatus.PUBLISHED) {
+      throw new BadRequestException('只能绑定已发布的 Flow 版本');
+    }
+  }
+
   private toResponse(agent: Agent): AgentResponseDto {
     return {
       id: agent.id,
@@ -191,6 +216,7 @@ export class AgentService {
       avatar: agent.avatar,
       systemPrompt: agent.systemPrompt,
       modelPreset: agent.modelPreset,
+      defaultFlowVersionId: agent.defaultFlowVersionId,
       defaultStrategy: agent.defaultStrategy,
       allowedStrategies: agent.allowedStrategies,
       toolGroups: agent.toolGroups,

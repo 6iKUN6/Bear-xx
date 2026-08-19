@@ -8,46 +8,51 @@ datasource db {
 }
 
 model User {
-  id                String                      @id @default(cuid())
-  nickname          String                      @default("用户")
-  avatarUrl         String                      @default("")
-  role              UserRole                    @default(USER)
-  username          String?                     @unique
-  passwordHash      String?                     @map("password_hash")
-  passwordUpdatedAt DateTime?                   @map("password_updated_at")
-  phone             String?                     @unique
-  wechatOpenId      String?                     @unique @map("wechat_open_id")
-  wechatUnionId     String?                     @unique @map("wechat_union_id")
-  createdAt         DateTime                    @default(now()) @map("created_at")
-  updatedAt         DateTime                    @updatedAt @map("updated_at")
-  conversations     Conversation[]
-  sseTasks          SseTask[]
-  streamTasks       StreamTask[]
-  turnTraceItems    ConversationTurnTraceItem[]
-  createdAgents     Agent[]
-  storageAssets     StorageAsset[]
-  mcdonaldsOrders   McDonaldsOrder[]
-  mcdonaldsCredentials McDonaldsCredential[]
-  mcpConnectionAudits McpConnectionAudit[]
+  id                        String                      @id @default(cuid())
+  nickname                  String                      @default("用户")
+  avatarUrl                 String                      @default("")
+  role                      UserRole                    @default(USER)
+  username                  String?                     @unique
+  passwordHash              String?                     @map("password_hash")
+  passwordUpdatedAt         DateTime?                   @map("password_updated_at")
+  phone                     String?                     @unique
+  wechatOpenId              String?                     @unique @map("wechat_open_id")
+  wechatUnionId             String?                     @unique @map("wechat_union_id")
+  createdAt                 DateTime                    @default(now()) @map("created_at")
+  updatedAt                 DateTime                    @updatedAt @map("updated_at")
+  conversations             Conversation[]
+  sseTasks                  SseTask[]
+  streamTasks               StreamTask[]
+  turnTraceItems            ConversationTurnTraceItem[]
+  createdAgents             Agent[]
+  storageAssets             StorageAsset[]
+  mcdonaldsOrders           McDonaldsOrder[]
+  mcdonaldsCredentials      McDonaldsCredential[]
+  mcpConnectionAudits       McpConnectionAudit[]
+  createdAgentFlows         AgentFlow[]                 @relation("AgentFlowCreator")
+  createdAgentFlowVersions  AgentFlowVersion[]          @relation("AgentFlowVersionCreator")
+  decidedAgentFlowApprovals AgentFlowApproval[]         @relation("AgentFlowApprovalDecider")
+  agentFlowAuditLogs        AgentFlowAuditLog[]         @relation("AgentFlowAuditActor")
+  agentFlowSignalOutbox     AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxActor")
 
   @@map("users")
 }
 
 /// 用户自行在麦当劳 MCP 平台生成并绑定的凭据。明文 Token 只在服务端请求范围内解密使用。
 model McDonaldsCredential {
-  id               String                     @id @default(cuid())
-  userId           String                     @map("user_id")
-  tokenCiphertext  String                     @map("token_ciphertext") @db.Text
-  tokenFingerprint String                     @map("token_fingerprint")
+  id               String                    @id @default(cuid())
+  userId           String                    @map("user_id")
+  tokenCiphertext  String                    @map("token_ciphertext") @db.Text
+  tokenFingerprint String                    @map("token_fingerprint")
   status           McDonaldsCredentialStatus @default(ACTIVE)
-  verifiedAt       DateTime?                  @map("verified_at")
-  lastError        String?                    @map("last_error") @db.Text
-  revokedAt        DateTime?                  @map("revoked_at")
-  createdAt        DateTime                   @default(now()) @map("created_at")
-  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  verifiedAt       DateTime?                 @map("verified_at")
+  lastError        String?                   @map("last_error") @db.Text
+  revokedAt        DateTime?                 @map("revoked_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
 
-  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders McDonaldsOrder[]
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders           McDonaldsOrder[]
   connectionAudits McpConnectionAudit[]
 
   @@index([userId, status])
@@ -68,8 +73,8 @@ model McpConnectionAudit {
   errorMessage String?                     @map("error_message") @db.Text
   createdAt    DateTime                    @default(now()) @map("created_at")
 
-  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credential McDonaldsCredential?  @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential McDonaldsCredential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([credentialId, createdAt])
@@ -118,28 +123,98 @@ enum StorageAssetStatus {
 /// 数据化的智能体定义：把原本写死的 system prompt / 工具组 / 执行策略变成可管理的一等实体。
 /// 空/AUTO 字段表示"不覆盖"（沿用消息驱动的默认行为），而非"空集"。
 model Agent {
-  id                String          @id @default(cuid())
-  name              String
-  description       String          @default("")
+  id                   String            @id @default(cuid())
+  name                 String
+  description          String            @default("")
   /// 头像 URL；null = 客户端显示名称首字
-  avatar            String?
-  systemPrompt      String?         @map("system_prompt") @db.Text
-  modelPreset       String?         @map("model_preset")
-  defaultStrategy   AgentStrategy   @default(AUTO) @map("default_strategy")
-  allowedStrategies AgentStrategy[] @default([]) @map("allowed_strategies")
-  toolGroups        String[]        @default([]) @map("tool_groups")
-  skills            String[]        @default([])
-  maxSteps          Int?            @map("max_steps")
-  enabled           Boolean         @default(true)
-  isDefault         Boolean         @default(false) @map("is_default")
-  createdById       String?         @map("created_by_id")
-  createdBy         User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
+  avatar               String?
+  systemPrompt         String?           @map("system_prompt") @db.Text
+  modelPreset          String?           @map("model_preset")
+  defaultStrategy      AgentStrategy     @default(AUTO) @map("default_strategy")
+  allowedStrategies    AgentStrategy[]   @default([]) @map("allowed_strategies")
+  toolGroups           String[]          @default([]) @map("tool_groups")
+  skills               String[]          @default([])
+  maxSteps             Int?              @map("max_steps")
+  enabled              Boolean           @default(true)
+  isDefault            Boolean           @default(false) @map("is_default")
+  defaultFlowVersionId String?           @map("default_flow_version_id")
+  defaultFlowVersion   AgentFlowVersion? @relation("AgentDefaultFlowVersion", fields: [defaultFlowVersionId], references: [id], onDelete: SetNull)
+  createdById          String?           @map("created_by_id")
+  createdBy            User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
 
   @@index([enabled])
   @@index([isDefault])
+  @@index([defaultFlowVersionId])
   @@map("agents")
+}
+
+/// 管理员维护的逻辑 Flow，当前发布版本由 publishedVersionId 唯一指向。
+model AgentFlow {
+  id                 String   @id @default(cuid())
+  name               String
+  description        String   @default("") @db.Text
+  publishedVersionId String?  @unique @map("published_version_id")
+  createdById        String?  @map("created_by_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  createdBy        User?               @relation("AgentFlowCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  versions         AgentFlowVersion[]  @relation("AgentFlowVersions")
+  publishedVersion AgentFlowVersion?   @relation("AgentFlowPublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  auditLogs        AgentFlowAuditLog[] @relation("AgentFlowAuditLogs")
+
+  @@index([createdById])
+  @@map("agent_flows")
+}
+
+/// 不可变的 FlowDefinition JSON 工件；只有 DRAFT 可以被编辑覆盖。
+model AgentFlowVersion {
+  id            String                 @id @default(cuid())
+  flowId        String                 @map("flow_id")
+  version       Int
+  status        AgentFlowVersionStatus @default(DRAFT)
+  definition    Json
+  digest        String?
+  schemaVersion Int                    @map("schema_version")
+  createdById   String?                @map("created_by_id")
+  publishedAt   DateTime?              @map("published_at")
+  archivedAt    DateTime?              @map("archived_at")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  flow             AgentFlow           @relation("AgentFlowVersions", fields: [flowId], references: [id], onDelete: Restrict)
+  createdBy        User?               @relation("AgentFlowVersionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  publishedForFlow AgentFlow?          @relation("AgentFlowPublishedVersion")
+  defaultForAgents Agent[]             @relation("AgentDefaultFlowVersion")
+  taskSnapshots    StreamTask[]        @relation("StreamTaskFlowVersion")
+  auditLogs        AgentFlowAuditLog[] @relation("AgentFlowVersionAuditLogs")
+
+  @@unique([flowId, version])
+  @@index([flowId, status])
+  @@index([createdById])
+  @@map("agent_flow_versions")
+}
+
+/// Flow 控制面操作的最小审计记录，不复制 Definition 或其他敏感内容。
+model AgentFlowAuditLog {
+  id        String               @id @default(cuid())
+  flowId    String               @map("flow_id")
+  versionId String?              @map("version_id")
+  action    AgentFlowAuditAction
+  actorId   String?              @map("actor_id")
+  digest    String?
+  createdAt DateTime             @default(now()) @map("created_at")
+
+  flow    AgentFlow         @relation("AgentFlowAuditLogs", fields: [flowId], references: [id], onDelete: Cascade)
+  version AgentFlowVersion? @relation("AgentFlowVersionAuditLogs", fields: [versionId], references: [id], onDelete: SetNull)
+  actor   User?             @relation("AgentFlowAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([flowId, createdAt])
+  @@index([versionId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("agent_flow_audit_logs")
 }
 
 /// 数据化的模型预设：仅存元数据，apiKey 永不落库（运行时按 platform 从 env 取）。
@@ -167,26 +242,26 @@ model ModelPreset {
 }
 
 model Conversation {
-  id             String                      @id @default(cuid())
-  title          String                      @default("新对话")
-  userId         String                      @map("user_id")
+  id              String                      @id @default(cuid())
+  title           String                      @default("新对话")
+  userId          String                      @map("user_id")
   /// admin 测试会话标记：端侧会话列表过滤掉，仅 admin 测试工作台可见（与 StreamTask.isTest 对称）
-  isTest         Boolean                     @default(false) @map("is_test")
+  isTest          Boolean                     @default(false) @map("is_test")
   /// 会话形态：SINGLE 单聊（绑定一个智能体）/ GROUP 群聊（多成员 @ 协作）
-  type           ConversationType            @default(SINGLE)
+  type            ConversationType            @default(SINGLE)
   /// 群聊成员（GROUP）：可被 @ 的智能体列表；单聊（SINGLE）：唯一绑定的智能体
-  agentIds       String[]                    @default([]) @map("agent_ids")
+  agentIds        String[]                    @default([]) @map("agent_ids")
   /// 默认回答者：SINGLE=绑定 agent；GROUP=不 @ 时的兜底（null=自动路由）
-  defaultAgentId String?                     @map("default_agent_id")
-  user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages       Message[]
-  summary        ConversationSummary?
-  sseTasks       SseTask[]
-  streamTasks    StreamTask[]
-  turnTraceItems ConversationTurnTraceItem[]
+  defaultAgentId  String?                     @map("default_agent_id")
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages        Message[]
+  summary         ConversationSummary?
+  sseTasks        SseTask[]
+  streamTasks     StreamTask[]
+  turnTraceItems  ConversationTurnTraceItem[]
   mcdonaldsOrders McDonaldsOrder[]
-  createdAt      DateTime                    @default(now()) @map("created_at")
-  updatedAt      DateTime                    @updatedAt @map("updated_at")
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([userId, isTest])
@@ -207,19 +282,19 @@ model ConversationSummary {
 }
 
 model Message {
-  id             String                      @id @default(cuid())
-  role           MessageRole
-  content        String                      @db.Text
+  id              String                      @id @default(cuid())
+  role            MessageRole
+  content         String                      @db.Text
   /// 发言者：assistant 消息记录由哪个智能体生成；null = 默认助手/历史数据
-  agentId        String?                     @map("agent_id")
-  imageUrl       String?                     @map("image_url")
-  status         MessageStatus               @default(DONE)
-  conversationId String                      @map("conversation_id")
-  conversation   Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime                    @default(now()) @map("created_at")
-  sseTasks       SseTask[]
-  streamTasks    StreamTask[]
-  turnTraceItems ConversationTurnTraceItem[]
+  agentId         String?                     @map("agent_id")
+  imageUrl        String?                     @map("image_url")
+  status          MessageStatus               @default(DONE)
+  conversationId  String                      @map("conversation_id")
+  conversation    Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  sseTasks        SseTask[]
+  streamTasks     StreamTask[]
+  turnTraceItems  ConversationTurnTraceItem[]
   mcdonaldsOrders McDonaldsOrder[]
 
   @@index([conversationId])
@@ -254,63 +329,73 @@ model SseTask {
 }
 
 model StreamTask {
-  id              String                      @id @default(cuid())
-  type            StreamTaskType
-  status          StreamTaskStatus            @default(PENDING)
-  userId          String                      @map("user_id")
-  user            User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversationId  String?                     @map("conversation_id")
-  conversation    Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  messageId       String?                     @map("message_id")
-  message         Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  requestPayload  Json                        @map("request_payload")
-  executionState  Json?                       @map("execution_state")
-  resultPayload   Json?                       @map("result_payload")
-  agentId         String?                     @map("agent_id")
-  isTest          Boolean                     @default(false) @map("is_test")
-  currentAgent    String?                     @map("current_agent")
-  currentStep     String?                     @map("current_step")
-  currentRunId    String?                     @map("current_run_id")
-  lastEventId     Int                         @default(0) @map("last_event_id")
-  fullContent     String                      @default("") @map("full_content") @db.Text
-  errorMessage    String?                     @map("error_message") @db.Text
-  startedAt       DateTime?                   @map("started_at")
-  pausedAt        DateTime?                   @map("paused_at")
-  lastHeartbeatAt DateTime?                   @map("last_heartbeat_at")
-  completedAt     DateTime?                   @map("completed_at")
-  expiresAt       DateTime?                   @map("expires_at")
-  createdAt       DateTime                    @default(now()) @map("created_at")
-  updatedAt       DateTime                    @updatedAt @map("updated_at")
-  runs            StreamTaskRun[]             @relation("StreamTaskRuns")
-  events          StreamTaskEvent[]
-  turnTraceItems  ConversationTurnTraceItem[]
-  mcdonaldsOrders McDonaldsOrder[]
+  id                 String                      @id @default(cuid())
+  type               StreamTaskType
+  status             StreamTaskStatus            @default(PENDING)
+  userId             String                      @map("user_id")
+  user               User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId     String?                     @map("conversation_id")
+  conversation       Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId          String?                     @map("message_id")
+  message            Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  requestPayload     Json                        @map("request_payload")
+  executionState     Json?                       @map("execution_state")
+  resultPayload      Json?                       @map("result_payload")
+  agentId            String?                     @map("agent_id")
+  flowVersionId      String?                     @map("flow_version_id")
+  flowDigest         String?                     @map("flow_digest")
+  temporalWorkflowId String?                     @map("temporal_workflow_id")
+  temporalRunId      String?                     @map("temporal_run_id")
+  isTest             Boolean                     @default(false) @map("is_test")
+  currentAgent       String?                     @map("current_agent")
+  currentStep        String?                     @map("current_step")
+  currentRunId       String?                     @map("current_run_id")
+  lastEventId        Int                         @default(0) @map("last_event_id")
+  fullContent        String                      @default("") @map("full_content") @db.Text
+  errorMessage       String?                     @map("error_message") @db.Text
+  startedAt          DateTime?                   @map("started_at")
+  pausedAt           DateTime?                   @map("paused_at")
+  lastHeartbeatAt    DateTime?                   @map("last_heartbeat_at")
+  completedAt        DateTime?                   @map("completed_at")
+  expiresAt          DateTime?                   @map("expires_at")
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  runs               StreamTaskRun[]             @relation("StreamTaskRuns")
+  events             StreamTaskEvent[]
+  turnTraceItems     ConversationTurnTraceItem[]
+  mcdonaldsOrders    McDonaldsOrder[]
+  flowVersion        AgentFlowVersion?           @relation("StreamTaskFlowVersion", fields: [flowVersionId], references: [id], onDelete: Restrict)
+  agentFlowApprovals AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
+  agentFlowSignalOutbox AgentFlowSignalOutbox[]  @relation("AgentFlowSignalOutboxTask")
 
   @@index([userId, status])
   @@index([conversationId])
   @@index([messageId])
   @@index([currentRunId])
   @@index([agentId])
+  @@index([flowVersionId])
+  @@index([temporalWorkflowId])
   @@index([isTest])
   @@map("stream_tasks")
 }
 
 model StreamTaskRun {
-  id             String                      @id @default(cuid())
-  taskId         String                      @map("task_id")
-  task           StreamTask                  @relation("StreamTaskRuns", fields: [taskId], references: [id], onDelete: Cascade)
-  sequence       Int
-  status         StreamTaskRunStatus         @default(PENDING)
-  trigger        String?
-  startEventId   Int                         @default(0) @map("start_event_id")
-  endEventId     Int?                        @map("end_event_id")
-  closeReason    String?                     @map("close_reason")
-  startedAt      DateTime?                   @map("started_at")
-  endedAt        DateTime?                   @map("ended_at")
-  createdAt      DateTime                    @default(now()) @map("created_at")
-  updatedAt      DateTime                    @updatedAt @map("updated_at")
-  events         StreamTaskEvent[]
-  turnTraceItems ConversationTurnTraceItem[]
+  id                 String                      @id @default(cuid())
+  taskId             String                      @map("task_id")
+  task               StreamTask                  @relation("StreamTaskRuns", fields: [taskId], references: [id], onDelete: Cascade)
+  sequence           Int
+  status             StreamTaskRunStatus         @default(PENDING)
+  trigger            String?
+  startEventId       Int                         @default(0) @map("start_event_id")
+  endEventId         Int?                        @map("end_event_id")
+  closeReason        String?                     @map("close_reason")
+  startedAt          DateTime?                   @map("started_at")
+  endedAt            DateTime?                   @map("ended_at")
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  events             StreamTaskEvent[]
+  turnTraceItems     ConversationTurnTraceItem[]
+  agentFlowApprovals AgentFlowApproval[]         @relation("AgentFlowApprovalRun")
 
   @@unique([taskId, sequence])
   @@index([taskId, status])
@@ -370,13 +455,14 @@ model ConversationTurnTraceItem {
   createdAt      DateTime                    @default(now()) @map("created_at")
   updatedAt      DateTime                    @updatedAt @map("updated_at")
 
-  user         User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversation Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message      Message                     @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  task         StreamTask?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  run          StreamTaskRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
-  parent       ConversationTurnTraceItem?  @relation("TraceItemChildren", fields: [parentId], references: [id], onDelete: SetNull)
-  children     ConversationTurnTraceItem[] @relation("TraceItemChildren")
+  user              User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation      Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message           Message                     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  task              StreamTask?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  run               StreamTaskRun?              @relation(fields: [runId], references: [id], onDelete: SetNull)
+  parent            ConversationTurnTraceItem?  @relation("TraceItemChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children          ConversationTurnTraceItem[] @relation("TraceItemChildren")
+  agentFlowApproval AgentFlowApproval?          @relation("AgentFlowApprovalTrace")
 
   @@index([taskId, traceKey])
   @@index([conversationId, messageId, sequence])
@@ -385,6 +471,57 @@ model ConversationTurnTraceItem {
   @@index([parentId])
   @@index([type])
   @@map("conversation_turn_trace_items")
+}
+
+/// 一次工具或计划审批的持久化业务事实；id 同时作为对外 approvalId。
+model AgentFlowApproval {
+  id             String                  @id @default(cuid())
+  taskId         String                  @map("task_id")
+  runId          String?                 @map("run_id")
+  traceItemId    String?                 @unique @map("trace_item_id")
+  nodeKey        String                  @map("node_key")
+  kind           AgentFlowApprovalKind
+  status         AgentFlowApprovalStatus @default(PENDING)
+  requestSummary Json                    @map("request_summary")
+  decision       Json?
+  decidedAt      DateTime?               @map("decided_at")
+  decidedById    String?                 @map("decided_by_id")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+
+  task      StreamTask                 @relation("AgentFlowApprovalTask", fields: [taskId], references: [id], onDelete: Cascade)
+  run       StreamTaskRun?             @relation("AgentFlowApprovalRun", fields: [runId], references: [id], onDelete: SetNull)
+  traceItem ConversationTurnTraceItem? @relation("AgentFlowApprovalTrace", fields: [traceItemId], references: [id], onDelete: SetNull)
+  decidedBy User?                      @relation("AgentFlowApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  signalOutbox AgentFlowSignalOutbox[] @relation("AgentFlowApprovalSignalOutbox")
+
+  @@index([taskId, status])
+  @@index([runId])
+  @@index([decidedById])
+  @@map("agent_flow_approvals")
+}
+
+/// 审批数据库事务已提交、但尚待送达 Temporal 的 Signal 命令；不复制决定正文。
+model AgentFlowSignalOutbox {
+  id          String                         @id @default(cuid())
+  taskId      String                         @map("task_id")
+  approvalId  String                         @unique @map("approval_id")
+  status      AgentFlowSignalOutboxStatus    @default(PENDING)
+  attempts    Int                            @default(0)
+  lastError   String?                        @map("last_error") @db.Text
+  deliveredAt DateTime?                      @map("delivered_at")
+  createdById String?                        @map("created_by_id")
+  createdAt   DateTime                       @default(now()) @map("created_at")
+  updatedAt   DateTime                       @updatedAt @map("updated_at")
+
+  task       StreamTask       @relation("AgentFlowSignalOutboxTask", fields: [taskId], references: [id], onDelete: Cascade)
+  approval   AgentFlowApproval @relation("AgentFlowApprovalSignalOutbox", fields: [approvalId], references: [id], onDelete: Cascade)
+  createdBy  User?            @relation("AgentFlowSignalOutboxActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([taskId])
+  @@index([createdById])
+  @@map("agent_flow_signal_outbox")
 }
 
 /// 麦当劳 MCP 成功创建的订单业务事实。支付链接独立加密保存，绝不进入 rawSnapshot 或普通 DTO。
@@ -414,11 +551,11 @@ model McDonaldsOrder {
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credential   McDonaldsCredential?  @relation(fields: [credentialId], references: [id], onDelete: Restrict)
-  conversation Conversation?         @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  message      Message?              @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  task         StreamTask?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential   McDonaldsCredential?    @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  conversation Conversation?           @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message      Message?                @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  task         StreamTask?             @relation(fields: [taskId], references: [id], onDelete: SetNull)
   refreshes    McDonaldsOrderRefresh[]
 
   @@unique([userId, credentialId, externalOrderId])
@@ -430,15 +567,15 @@ model McDonaldsOrder {
 
 /// 用户从订单页主动刷新状态的领域审计；不复用聊天 conversation trace。
 model McDonaldsOrderRefresh {
-  id           String                        @id @default(cuid())
-  orderId      String                        @map("order_id")
+  id           String                      @id @default(cuid())
+  orderId      String                      @map("order_id")
   status       McDonaldsOrderRefreshStatus
-  statusAfter  String?                       @map("status_after")
-  errorMessage String?                       @map("error_message") @db.Text
-  safeSnapshot Json?                         @map("safe_snapshot")
-  startedAt    DateTime                      @default(now()) @map("started_at")
-  completedAt  DateTime?                     @map("completed_at")
-  createdAt    DateTime                      @default(now()) @map("created_at")
+  statusAfter  String?                     @map("status_after")
+  errorMessage String?                     @map("error_message") @db.Text
+  safeSnapshot Json?                       @map("safe_snapshot")
+  startedAt    DateTime                    @default(now()) @map("started_at")
+  completedAt  DateTime?                   @map("completed_at")
+  createdAt    DateTime                    @default(now()) @map("created_at")
 
   order McDonaldsOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -473,6 +610,40 @@ enum AgentStrategy {
   REACT
   PLAN_EXECUTE
   HYBRID
+}
+
+enum AgentFlowVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AgentFlowAuditAction {
+  CREATED
+  DRAFT_UPDATED
+  IMPORTED
+  VALIDATED
+  PUBLISHED
+  ROLLED_BACK
+}
+
+enum AgentFlowApprovalKind {
+  TOOL
+  PLAN_REVIEW
+}
+
+enum AgentFlowApprovalStatus {
+  PENDING
+  RESOLVED
+  ERROR
+  CANCELED
+  TIMED_OUT
+}
+
+enum AgentFlowSignalOutboxStatus {
+  PENDING
+  SENDING
+  DELIVERED
 }
 
 enum ConversationTraceItemType {

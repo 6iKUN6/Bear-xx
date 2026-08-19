@@ -41,6 +41,14 @@ export class SubmitPlanReviewDto {
   feedback?: string;
 
   @ApiPropertyOptional({
+    description: 'AgentFlow 计划审批事实 ID；Flow 任务提交时必填',
+    example: 'cmf_approval_123',
+  })
+  @IsOptional()
+  @IsString()
+  approvalId?: string;
+
+  @ApiPropertyOptional({
     description: '客户端已收到的最后一个事件 ID，用于恢复续跑时只接收新帧',
     example: '1751450000000-0',
   })

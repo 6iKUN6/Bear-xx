@@ -15,6 +15,11 @@ import {
 } from './conversation-trace.types';
 import { StreamTaskEventType } from '../stream-task/stream-task-event.types';
 
+type TraceWriteClient = Pick<
+  Prisma.TransactionClient,
+  'conversationTurnTraceItem'
+>;
+
 @Injectable()
 export class ConversationTraceService {
   private readonly logger = new Logger(ConversationTraceService.name);
@@ -75,18 +80,63 @@ export class ConversationTraceService {
   }
 
   /**
+   * 在调用方事务内记录流式事件对应的轨迹
+   * @param transaction 当前 PostgreSQL 事务客户端
+   * @param input 流式事件和任务上下文
+   * @returns 返回写入或更新后的轨迹项；无需归约的事件返回 null
+   * @description 与普通 `recordStreamEvent` 不同，本方法不会吞掉异常，确保审批决定、语义事件与 trace 可作为同一业务事实原子提交。
+   */
+  async recordStreamEventInTransaction<K extends StreamTaskEventType>(
+    transaction: Prisma.TransactionClient,
+    input: RecordStreamEventInputOf<K>,
+  ) {
+    if (!input.userId) {
+      return null;
+    }
+
+    const command = mapStreamEventToTraceCommand(
+      input as RecordStreamEventInput,
+    );
+    if (!command) {
+      return null;
+    }
+    const enrichedCommand = this.enrichMcpMetadata(
+      input as RecordStreamEventInput,
+      command,
+    );
+
+    if (enrichedCommand.action === 'start') {
+      return this.startItem(enrichedCommand.input, transaction);
+    }
+    if (enrichedCommand.action === 'complete') {
+      return this.completeItem(enrichedCommand.input, transaction);
+    }
+    if (enrichedCommand.action === 'fail') {
+      return this.failItem(enrichedCommand.input, transaction);
+    }
+    return this.createSuccessItem(enrichedCommand.input, transaction);
+  }
+
+  /**
    * 创建正在执行的轨迹项
    * @param input 轨迹项创建参数
    * @returns 返回新创建的轨迹项
    * @description 用于 workflow/model/tool 等有 start/done 生命周期的节点，后续通过 traceKey 更新为完成或失败。
    */
-  async startItem(input: StartTraceItemInput) {
-    const existing = await this.findLatestItem(input.taskId, input.traceKey);
+  async startItem(
+    input: StartTraceItemInput,
+    client: TraceWriteClient = this.prisma,
+  ) {
+    const existing = await this.findLatestItem(
+      input.taskId,
+      input.traceKey,
+      client,
+    );
     if (existing) {
       return existing;
     }
 
-    return this.createItem(input, ConversationTraceItemStatus.RUNNING);
+    return this.createItem(input, ConversationTraceItemStatus.RUNNING, client);
   }
 
   /**
@@ -95,8 +145,15 @@ export class ConversationTraceService {
    * @returns 返回更新后的轨迹项；如果没有匹配项则返回 null
    * @description 根据 taskId 与 traceKey/nodeKey 查找已有 running 项，补充摘要、耗时、输出摘要和完成状态。
    */
-  async completeItem(input: CompleteTraceItemInput) {
-    const existing = await this.findRunningItem(input.taskId, input.traceKey);
+  async completeItem(
+    input: CompleteTraceItemInput,
+    client: TraceWriteClient = this.prisma,
+  ) {
+    const existing = await this.findRunningItem(
+      input.taskId,
+      input.traceKey,
+      client,
+    );
     if (!existing) {
       return null;
     }
@@ -104,7 +161,7 @@ export class ConversationTraceService {
     const endedAt = input.endedAt ?? new Date();
     const durationMs = this.calculateDurationMs(existing.startedAt, endedAt);
 
-    return this.prisma.conversationTurnTraceItem.update({
+    return client.conversationTurnTraceItem.update({
       where: { id: existing.id },
       data: {
         status: ConversationTraceItemStatus.SUCCESS,
@@ -128,8 +185,15 @@ export class ConversationTraceService {
    * @returns 返回更新或新建后的失败轨迹项
    * @description 优先更新已有 running 项；如果缺少 start 事件，则补建一条失败轨迹，保证历史回显能看到异常。
    */
-  async failItem(input: FailTraceItemInput) {
-    const existing = await this.findRunningItem(input.taskId, input.traceKey);
+  async failItem(
+    input: FailTraceItemInput,
+    client: TraceWriteClient = this.prisma,
+  ) {
+    const existing = await this.findRunningItem(
+      input.taskId,
+      input.traceKey,
+      client,
+    );
     const endedAt = input.endedAt ?? new Date();
 
     if (!existing) {
@@ -139,12 +203,13 @@ export class ConversationTraceService {
           endedAt,
         },
         ConversationTraceItemStatus.ERROR,
+        client,
       );
     }
 
     const durationMs = this.calculateDurationMs(existing.startedAt, endedAt);
 
-    return this.prisma.conversationTurnTraceItem.update({
+    return client.conversationTurnTraceItem.update({
       where: { id: existing.id },
       data: {
         status: ConversationTraceItemStatus.ERROR,
@@ -167,8 +232,11 @@ export class ConversationTraceService {
    * @returns 返回新创建的轨迹项
    * @description 用于策略选择、技能选择、最终回复完成等瞬时事件，创建时直接写成 success 状态。
    */
-  private async createSuccessItem(input: StartTraceItemInput) {
-    return this.createItem(input, ConversationTraceItemStatus.SUCCESS);
+  private async createSuccessItem(
+    input: StartTraceItemInput,
+    client: TraceWriteClient = this.prisma,
+  ) {
+    return this.createItem(input, ConversationTraceItemStatus.SUCCESS, client);
   }
 
   /**
@@ -181,18 +249,19 @@ export class ConversationTraceService {
   private async createItem(
     input: StartTraceItemInput,
     status: ConversationTraceItemStatus,
+    client: TraceWriteClient = this.prisma,
   ) {
     if (!input.userId) {
       return null;
     }
 
-    const sequence = await this.nextSequence(input.taskId);
+    const sequence = await this.nextSequence(input.taskId, client);
     const endedAt =
       status === ConversationTraceItemStatus.RUNNING
         ? undefined
         : (input.endedAt ?? new Date());
 
-    return this.prisma.conversationTurnTraceItem.create({
+    return client.conversationTurnTraceItem.create({
       data: {
         userId: input.userId,
         conversationId: input.conversationId,
@@ -258,8 +327,12 @@ export class ConversationTraceService {
    * @returns 返回匹配的 running 轨迹项；不存在时返回 null
    * @description start/done/error 通过 traceKey 归并为同一条 trace，避免历史回显出现重复节点。
    */
-  private findRunningItem(taskId: string, traceKey?: string | null) {
-    return this.prisma.conversationTurnTraceItem.findFirst({
+  private findRunningItem(
+    taskId: string,
+    traceKey?: string | null,
+    client: TraceWriteClient = this.prisma,
+  ) {
+    return client.conversationTurnTraceItem.findFirst({
       where: {
         taskId,
         traceKey: traceKey ?? undefined,
@@ -280,12 +353,16 @@ export class ConversationTraceService {
    * @returns 返回最近一条匹配轨迹项；不存在时返回 null
    * @description 用于 start 类事件幂等写入，避免工具 delta 多次到达时产生重复历史节点。
    */
-  private findLatestItem(taskId: string, traceKey?: string | null) {
+  private findLatestItem(
+    taskId: string,
+    traceKey?: string | null,
+    client: TraceWriteClient = this.prisma,
+  ) {
     if (!traceKey) {
       return null;
     }
 
-    return this.prisma.conversationTurnTraceItem.findFirst({
+    return client.conversationTurnTraceItem.findFirst({
       where: {
         taskId,
         traceKey,
@@ -383,8 +460,11 @@ export class ConversationTraceService {
    * @returns 返回从 1 开始递增的序号
    * @description 当前单任务 trace 写入量较小，使用 count 分配展示序号；后续高并发同任务写入可改为任务级计数器。
    */
-  private async nextSequence(taskId: string) {
-    const count = await this.prisma.conversationTurnTraceItem.count({
+  private async nextSequence(
+    taskId: string,
+    client: TraceWriteClient = this.prisma,
+  ) {
+    const count = await client.conversationTurnTraceItem.count({
       where: { taskId },
     });
     return count + 1;

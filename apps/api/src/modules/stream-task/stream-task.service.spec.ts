@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { StreamTaskStatus } from '@prisma/client';
 import { StreamTaskEventType } from '@litter-bear/types/protocol';
 import { StreamTaskService } from './stream-task.service';
 import { runWithMcDonaldsOrderContext } from '../mcdonalds-order/mcdonalds-order-context';
@@ -8,6 +9,7 @@ describe('StreamTaskService', () => {
     const prisma = {
       streamTask: {
         update: jest.fn().mockResolvedValue({ lastEventId: 2 }),
+        findUnique: jest.fn(),
       },
       streamTaskEvent: {
         create: jest.fn().mockResolvedValue({}),
@@ -23,6 +25,12 @@ describe('StreamTaskService', () => {
       getCardsByIds: jest.fn().mockResolvedValue([]),
     };
     const capabilityRegistry = { getToolMetadata: jest.fn() };
+    const flowApprovalService = {
+      decideAndQueueSignal: jest.fn(),
+    };
+    const flowSignalOutboxService = {
+      dispatchPending: jest.fn(),
+    };
 
     const service = new StreamTaskService(
       prisma as never,
@@ -40,13 +48,20 @@ describe('StreamTaskService', () => {
       snapshotService as never,
       mcdonaldsOrderService as never,
       capabilityRegistry as never,
+      {} as never,
+      {} as never,
+      flowApprovalService as never,
+      flowSignalOutboxService as never,
     );
 
     return {
       service,
+      prisma,
       mcdonaldsOrderService,
       snapshotService,
       capabilityRegistry,
+      flowApprovalService,
+      flowSignalOutboxService,
     };
   }
 
@@ -230,5 +245,35 @@ describe('StreamTaskService', () => {
         estimated: true,
       },
     });
+  });
+
+  it('已锁定 Flow 的任务要求 approvalId，并改由数据库事实和 outbox 恢复', async () => {
+    const { service, prisma, flowApprovalService, flowSignalOutboxService } =
+      createService();
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      userId: 'user-1',
+      status: StreamTaskStatus.WAITING_HUMAN,
+      flowVersionId: 'version-1',
+    });
+
+    const result = await service.resumeTaskWithDecision(
+      'task-1',
+      'user-1',
+      { decision: 'approve' },
+      '0',
+      undefined,
+      'approval-1',
+    );
+
+    expect(result).toHaveProperty('stream');
+    expect(flowApprovalService.decideAndQueueSignal).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      approvalId: 'approval-1',
+      actorId: 'user-1',
+      kind: 'TOOL',
+      decision: { decision: 'approve' },
+    });
+    expect(flowSignalOutboxService.dispatchPending).toHaveBeenCalledTimes(1);
   });
 });
