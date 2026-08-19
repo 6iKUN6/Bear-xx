@@ -9,4 +9,5 @@ coverage
 apps/mobile/UI
 .pnpm-store
 .turbo
+apps/*/pnpm-lock.yaml
 .superpowers

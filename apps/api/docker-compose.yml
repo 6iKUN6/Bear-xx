@@ -1,21 +1,105 @@
+x-application-build: &application-build
+  context: ../..
+  dockerfile: apps/api/Dockerfile
+  target: development
+  args:
+    NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim}
+    PNPM_REGISTRY: ${PNPM_REGISTRY:-https://registry.npmjs.org/}
+
+x-application-environment: &application-environment
+  DATABASE_URL: postgresql://postgres:postgres@db:5432/litter_bear
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: default
+  TEMPORAL_TASK_QUEUE: agent-flow-development
+  TEMPORAL_TLS: 'false'
+
+x-application-volumes: &application-volumes
+  - ../../apps/api:/workspace/apps/api
+  - ../../packages/types:/workspace/packages/types
+  - api_node_modules:/workspace/apps/api/node_modules
+  - types_node_modules:/workspace/packages/types/node_modules
+
 services:
   app:
-    build: .
+    build: *application-build
     ports:
       - '3000:3000'
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/litter_bear
-      - REDIS_HOST=redis
+      <<: *application-environment
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - .:/app
-      - /app/node_modules
+      temporal:
+        condition: service_healthy
+      workspace-bootstrap:
+        condition: service_completed_successfully
+    volumes: *application-volumes
+    working_dir: /workspace/apps/api
+    command: pnpm run start:dev
+
+  temporal-orchestrator-worker:
+    build: *application-build
+    env_file:
+      - .env
+    environment:
+      <<: *application-environment
+      TEMPORAL_WORKER_ROLE: orchestrator
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      workspace-bootstrap:
+        condition: service_completed_successfully
+    volumes: *application-volumes
+    working_dir: /workspace/apps/api
+    command: pnpm run start:temporal-worker:orchestrator:dev
+    restart: unless-stopped
+
+  temporal-activity-worker:
+    build: *application-build
+    env_file:
+      - .env
+    environment:
+      <<: *application-environment
+      TEMPORAL_WORKER_ROLE: activity
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      workspace-bootstrap:
+        condition: service_completed_successfully
+    volumes: *application-volumes
+    working_dir: /workspace/apps/api
+    command: pnpm run start:temporal-worker:activity:dev
+    restart: unless-stopped
+
+  workspace-bootstrap:
+    build: *application-build
+    env_file:
+      - .env
+    environment:
+      <<: *application-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes: *application-volumes
+    working_dir: /workspace
+    command: >-
+      sh -c 'pnpm --filter ./packages/types run build
+      && pnpm --filter ./apps/api run db:migrate:deploy'
+    restart: 'no'
 
   db:
     image: postgres:16-alpine
@@ -45,6 +129,55 @@ services:
       timeout: 5s
       retries: 5
 
+  temporal-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: temporal
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    volumes:
+      - temporal_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U temporal -d temporal']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-db
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    ports:
+      - '7233:7233'
+    # auto-setup 只在容器对外 IP 上监听 7233，不绑 loopback：
+    # localhost 会解析到 [::1]、127.0.0.1 也连不通，自检必须走服务名。
+    healthcheck:
+      test: ['CMD', 'tctl', '--address', 'temporal:7233', 'cluster', 'health']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      temporal:
+        condition: service_healthy
+    ports:
+      - '8233:8080'
+
 volumes:
+  api_node_modules:
+  types_node_modules:
   pg_data:
   redis_data:
+  temporal_pg_data:
