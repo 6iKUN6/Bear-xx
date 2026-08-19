@@ -3,7 +3,8 @@ import type {
   ApprovalDecision,
   PlanReviewDecision,
 } from '@litter-bear/types/protocol';
-import { PlanGraphRunner } from '../execution/plan-graph.runner';
+import { PlanGraphRunner } from '../execution/plan-graph/plan-graph.runner';
+import { resolvePlanLoopPolicy } from '../execution/plan-graph/plan-loop-policy';
 import {
   AgentStrategyMode,
   type AgentLoopInput,
@@ -26,7 +27,10 @@ export class HybridPlanReactGraph implements AgentStrategyGraph {
   stream(
     input: AgentLoopInput,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
-    return this.runner.stream(input, this.mode);
+    return this.runner.stream(
+      input,
+      resolvePlanLoopPolicy(this.mode, input.maxSteps),
+    );
   }
 
   /**
@@ -37,6 +41,10 @@ export class HybridPlanReactGraph implements AgentStrategyGraph {
     input: AgentLoopInput,
     decision: ApprovalDecision | PlanReviewDecision,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
-    return this.runner.resume(input, this.mode, decision);
+    return this.runner.resume(
+      input,
+      resolvePlanLoopPolicy(this.mode, input.maxSteps),
+      decision,
+    );
   }
 }

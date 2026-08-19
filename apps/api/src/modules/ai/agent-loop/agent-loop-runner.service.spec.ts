@@ -3,7 +3,7 @@ import { AgentStrategyMode } from './agent-loop.types';
 import { MCDONALDS_ORDER_TOOL_GROUP } from './capability/capability.registry';
 
 describe('AgentLoopRunnerService HITL 凭据快照', () => {
-  it('恢复点餐审批任务时复用首轮锁定的凭据ID', async () => {
+  it('恢复点餐审批任务时复用首轮锁定的策略与凭据快照，不重新路由', async () => {
     const resolver = {
       resolve: jest.fn().mockResolvedValue({
         tools: [],
@@ -12,8 +12,12 @@ describe('AgentLoopRunnerService HITL 凭据快照', () => {
         systemPromptAdditions: [],
       }),
     };
+    const router = {
+      buildForcedDecision: jest.fn(),
+      buildResumeDecision: jest.fn(),
+    };
     const runner = new AgentLoopRunnerService(
-      {} as never,
+      router as never,
       {} as never,
       resolver as never,
     );
@@ -31,10 +35,14 @@ describe('AgentLoopRunnerService HITL 凭据快照', () => {
 
     expect(resolver.resolve).toHaveBeenCalledWith(
       expect.objectContaining({
+        mode: AgentStrategyMode.PlanExecute,
         toolGroups: [MCDONALDS_ORDER_TOOL_GROUP],
+        maxSteps: 6,
       }),
       'user-1',
       'credential-at-start',
     );
+    expect(router.buildForcedDecision).not.toHaveBeenCalled();
+    expect(router.buildResumeDecision).not.toHaveBeenCalled();
   });
 });

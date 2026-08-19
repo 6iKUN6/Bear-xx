@@ -20,39 +20,39 @@ import type {
   ApprovalDecision,
   PlanReviewDecision,
 } from '@litter-bear/types/protocol';
-import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
-import { LlmService } from '../../../llm/llm.service';
-import { CommonChatAgentFactory } from '../../agents/common-chat-agent/common-chat-agent.factory';
-import { AgentCheckpointerService } from '../../agents/common-chat-agent/agent-checkpointer.service';
+import { StreamTaskEventType } from '../../../../stream-task/stream-task-event.types';
+import { LlmService } from '../../../../llm/llm.service';
+import { CommonChatAgentFactory } from '../../../agents/common-chat-agent/common-chat-agent.factory';
+import { AgentCheckpointerService } from '../../../agents/common-chat-agent/agent-checkpointer.service';
 import {
   buildHitlMiddleware,
   buildHitlResponse,
   emitApprovalFromValue,
   readRawInterrupt,
   type HitlRequestValue,
-} from '../../agents/common-chat-agent/agent-hitl';
+} from '../../../agents/common-chat-agent/agent-hitl';
 import {
   mapGraphStream,
   type GraphModeChunk,
-} from '../../agents/common-chat-agent/agent-message-stream.mapper';
-import { toLangChainMessages } from '../../agents/common-chat-agent/llm-message.mapper';
+} from '../../../agents/common-chat-agent/agent-message-stream.mapper';
+import { toLangChainMessages } from '../../../agents/common-chat-agent/llm-message.mapper';
 import {
-  AgentStrategyMode,
+  type AgentStrategyMode,
   type AgentLoopInput,
   type AgentLoopStreamEvent,
   type AgentLoopWorkflowEvent,
-} from '../agent-loop.types';
+} from '../../agent-loop.types';
 import {
   buildPlanReadySummary,
   buildStepDoneSummary,
-} from '../trace/trace-summary.builder';
-import { PlannerService } from './planner.service';
-import { STEP_EVALUATOR, type StepEvaluator } from './step-evaluator';
-import { buildStepPrompt, buildSynthesisPrompt } from './plan-prompt.builder';
-import { createStepContextMiddleware } from './step-tool-scope';
-import type { AgentPlan } from './plan.types';
-
-const DEFAULT_MAX_STEPS = 6;
+} from '../../trace/trace-summary.builder';
+import { PlannerService } from '../planner.service';
+import { STEP_EVALUATOR, type StepEvaluator } from '../step-evaluator';
+import { buildStepPrompt, buildSynthesisPrompt } from '../plan-prompt.builder';
+import { createStepContextMiddleware } from '../step-tool-scope';
+import type { AgentPlan } from '../plan.types';
+import { toLegacyPlanLoopStrategy } from './plan-graph.definition';
+import type { PlanLoopPolicy } from './plan-loop-policy';
 
 /**
  * 图递归上限
@@ -162,7 +162,7 @@ const PlanGraphState = Annotation.Root({
 type PlanGraphStateType = typeof PlanGraphState.State;
 
 @Injectable()
-export class PlanGraphRunner {
+export class PlanGraphBuilder {
   constructor(
     private readonly planner: PlannerService,
     private readonly agentFactory: CommonChatAgentFactory,
@@ -183,9 +183,10 @@ export class PlanGraphRunner {
    */
   async *stream(
     input: AgentLoopInput,
-    strategy: AgentStrategyMode,
+    policy: PlanLoopPolicy,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
-    const isDynamic = strategy === AgentStrategyMode.Hybrid;
+    const strategy = toLegacyPlanLoopStrategy(policy);
+    const isDynamic = policy.stopPolicy === 'evaluate-after-step';
 
     yield {
       type: StreamTaskEventType.AgentLoopStart,
@@ -199,8 +200,8 @@ export class PlanGraphRunner {
     };
 
     const hitlTools = this.resolveHitlTools(input);
-    const planReview = this.isPlanReviewEnabled(input, strategy);
-    const graph = this.buildGraph(input, strategy, hitlTools, planReview);
+    const planReview = this.isPlanReviewEnabled(input, policy);
+    const graph = this.buildGraph(input, policy, hitlTools, planReview);
 
     const stream = await graph.stream(
       { messages: toLangChainMessages(input.messages) },
@@ -226,7 +227,7 @@ export class PlanGraphRunner {
    */
   async *resume(
     input: AgentLoopInput,
-    strategy: AgentStrategyMode,
+    policy: PlanLoopPolicy,
     decision: ApprovalDecision | PlanReviewDecision,
   ): AsyncGenerator<AgentLoopStreamEvent, void, unknown> {
     if (!input.threadId) {
@@ -234,8 +235,8 @@ export class PlanGraphRunner {
     }
 
     const hitlTools = input.approvalToolNames ?? [];
-    const planReview = this.isPlanReviewEnabled(input, strategy);
-    const graph = this.buildGraph(input, strategy, hitlTools, planReview);
+    const planReview = this.isPlanReviewEnabled(input, policy);
+    const graph = this.buildGraph(input, policy, hitlTools, planReview);
 
     const raw = await readRawInterrupt(graph, input.threadId);
     const resumeValue = this.isPlanReviewInterrupt(raw)
@@ -318,10 +319,10 @@ export class PlanGraphRunner {
 
   private isPlanReviewEnabled(
     input: AgentLoopInput,
-    strategy: AgentStrategyMode,
+    policy: PlanLoopPolicy,
   ): boolean {
-    // 只对 plan_execute 默认开；无 threadId 就没有稳定 checkpoint 键，无法暂停/恢复。
-    return strategy === AgentStrategyMode.PlanExecute && !!input.threadId;
+    // 无 threadId 就没有稳定 checkpoint 键，无法暂停/恢复。
+    return policy.planReview === 'required' && !!input.threadId;
   }
 
   private isPlanReviewInterrupt(raw: unknown): raw is PlanReviewInterruptValue {
@@ -418,12 +419,13 @@ export class PlanGraphRunner {
    */
   private buildGraph(
     input: AgentLoopInput,
-    strategy: AgentStrategyMode,
+    policy: PlanLoopPolicy,
     hitlTools: string[],
     planReview: boolean,
   ) {
-    const maxSteps = input.maxSteps ?? DEFAULT_MAX_STEPS;
-    const isDynamic = strategy === AgentStrategyMode.Hybrid;
+    const maxSteps = policy.maxSteps;
+    const isDynamic = policy.stopPolicy === 'evaluate-after-step';
+    const strategy = toLegacyPlanLoopStrategy(policy);
     const useHitl = hitlTools.length > 0;
     const needsCheckpoint = useHitl || planReview;
     const model = this.llmService.createChatModel(

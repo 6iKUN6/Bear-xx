@@ -27,7 +27,14 @@ export type {
   SubagentDefinition,
 } from './capability/capability.types';
 export { PlannerService } from './execution/planner.service';
-export { PlanGraphRunner } from './execution/plan-graph.runner';
+export { PlanGraphRunner } from './execution/plan-graph/plan-graph.runner';
+export { PlanGraphBuilder } from './execution/plan-graph/plan-graph.builder';
+export {
+  HYBRID_PLAN_LOOP_POLICY,
+  PLAN_EXECUTE_LOOP_POLICY,
+  resolvePlanLoopPolicy,
+  type PlanLoopPolicy,
+} from './execution/plan-graph/plan-loop-policy';
 export {
   STEP_EVALUATOR,
   HeuristicStepEvaluator,
