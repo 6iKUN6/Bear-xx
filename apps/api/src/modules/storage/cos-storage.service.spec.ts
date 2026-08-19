@@ -21,14 +21,12 @@ type CosGetObjectUrl = (
 
 const mockGetObjectUrl = jest.fn<CosGetObjectUrl>();
 
-jest.mock(
-  'cos-nodejs-sdk-v5',
-  () => ({
-    __esModule: true,
-    default: jest.fn(() => ({ getObjectUrl: mockGetObjectUrl })),
-  }),
-  { virtual: true },
-);
+// 不能加 { virtual: true }：cos-nodejs-sdk-v5 是真实依赖，虚拟 mock 按模块名注册而非解析路径；
+// 同一 worker 内若有别的 spec 先解析过该模块，mock 会失效，本 spec 会打到真实 COS SDK 并签出真签名。
+jest.mock('cos-nodejs-sdk-v5', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({ getObjectUrl: mockGetObjectUrl })),
+}));
 
 describe('CosStorageService', () => {
   /**

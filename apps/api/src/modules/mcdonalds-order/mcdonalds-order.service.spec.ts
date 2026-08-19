@@ -357,7 +357,9 @@ describe('McDonaldsOrderService', () => {
       'user-1',
       'credential-1',
     );
-  });
+    // scrypt 密钥派生与 PNG 二维码编码都是 CPU 密集操作，本用例单独运行约 2s；
+    // 全量并行时 worker 争抢 CPU 会突破 Jest 默认的 5s 上限，因此显式放宽。
+  }, 20_000);
 
   it('下单工具执行前会再次确认任务锁定的凭据仍然有效', async () => {
     const prisma = createPrismaMock();
