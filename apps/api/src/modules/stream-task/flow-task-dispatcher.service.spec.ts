@@ -3,7 +3,24 @@ import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-defini
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 
 describe('FlowTaskDispatcherService', () => {
-  function createService() {
+  function createService(runtimeValid = true) {
+    // 任务锁定期校验的替身：默认放行，专门的用例再让它失败
+    const runtimeValidator = {
+      validate: jest.fn(() =>
+        runtimeValid
+          ? { valid: true, errors: [] }
+          : {
+              valid: false,
+              errors: [
+                {
+                  path: 'nodes.0.config.modelPreset',
+                  rule: 'agent-default-resolved',
+                  message: '任务未锁定智能体默认模型',
+                },
+              ],
+            },
+      ),
+    };
     const prisma = {
       agent: {
         findUnique: jest.fn(),
@@ -20,15 +37,18 @@ describe('FlowTaskDispatcherService', () => {
       service: new FlowTaskDispatcherService(
         prisma as never,
         temporalClient as never,
+        runtimeValidator as never,
       ),
       prisma,
       temporalClient,
+      runtimeValidator,
     };
   }
 
   it('仅为测试会话锁定 Agent 已发布 FlowVersion', async () => {
     const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue({
+      modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: {
         id: 'flow-version-1',
         digest: 'a'.repeat(64),
@@ -46,6 +66,34 @@ describe('FlowTaskDispatcherService', () => {
       flowVersionId: 'flow-version-1',
       flowDigest: 'a'.repeat(64),
       currentStep: 'answer',
+    });
+  });
+
+  it('智能体未配模型预设时在创建任务期就拒绝，不派发出去', async () => {
+    // 内置模板的节点都写 agent-default，只有到任务锁定期才能解析成具体预设。
+    // 不在这里拦，任务会被派发并在 Temporal Activity 里以
+    // AGENT_FLOW_RUNTIME_CONTEXT_INVALID 死掉，用户只看到一句「流程执行失败」
+    const { service, prisma, runtimeValidator } = createService(false);
+    prisma.agent.findUnique.mockResolvedValue({
+      modelPreset: null,
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
+    });
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+        isTest: true,
+      }),
+    ).rejects.toThrow(/无法运行/);
+
+    expect(runtimeValidator.validate).toHaveBeenCalledWith(expect.anything(), {
+      phase: 'task',
+      agentDefaultModelPreset: null,
     });
   });
 

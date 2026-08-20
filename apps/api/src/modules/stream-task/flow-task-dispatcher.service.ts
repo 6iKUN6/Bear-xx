@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
 import { TemporalClientService } from '../agent-flow/temporal/temporal-client.service';
+import { FlowRuntimeValidator } from '../agent-flow/runtime/flow-runtime-validator.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** 已冻结到 StreamTask 的 Flow 任务快照。 */
@@ -35,6 +36,7 @@ export class FlowTaskDispatcherService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly temporalClientService: TemporalClientService,
+    private readonly runtimeValidator: FlowRuntimeValidator,
   ) {}
 
   /**
@@ -55,6 +57,7 @@ export class FlowTaskDispatcherService {
     const agent = await tx.agent.findUnique({
       where: { id: input.agentId },
       select: {
+        modelPreset: true,
         defaultFlowVersion: {
           select: {
             id: true,
@@ -90,6 +93,21 @@ export class FlowTaskDispatcherService {
     );
     if (!entryNode) {
       throw new BadRequestException('智能体绑定的 FlowVersion 缺少入口节点');
+    }
+
+    // 任务锁定期校验：节点上的 `agent-default` 到这一刻才能解析成具体预设。
+    // 不在这里拦，任务会被派发出去、在 Temporal Activity 里以
+    // AGENT_FLOW_RUNTIME_CONTEXT_INVALID 失败，用户只看到一句「流程执行失败」，
+    // 真实原因只能翻 worker 日志——错误必须还给发起者。
+    const runtime = this.runtimeValidator.validate(parsed.definition, {
+      phase: 'task',
+      agentDefaultModelPreset: agent?.modelPreset ?? null,
+    });
+    if (!runtime.valid) {
+      throw new BadRequestException({
+        message: '智能体绑定的 Flow 在当前配置下无法运行',
+        errors: runtime.errors,
+      });
     }
 
     return {
