@@ -1,3 +1,4 @@
+import { plainToInstance } from 'class-transformer';
 import {
   IsString,
   IsNotEmpty,
@@ -5,6 +6,7 @@ import {
   IsOptional,
   Matches,
   ValidateIf,
+  validateSync,
 } from 'class-validator';
 
 export class EnvConfig {
@@ -123,6 +125,18 @@ export class EnvConfig {
   @IsOptional()
   @IsString()
   DOUBAO_MODEL?: string;
+
+  /**
+   * 模型预设 apiKey 的加密主密钥
+   * @description 必填且无降级路径：模型配置的唯一来源是 model_presets 表的密文，缺了它
+   * 一次模型调用都发不出去。设为可选会让「配置缺失」延迟到管理员保存预设或首次模型调用时
+   * 才暴露，与启动即失败相比排查成本高得多。
+   * 字符集在此校验，解码后必须为 32 字节由 LlmCredentialCryptoService.requireKey 断言。
+   */
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[A-Za-z0-9+/]+={0,2}$/)
+  LLM_CREDENTIAL_ENCRYPTION_KEY: string;
 
   @IsOptional()
   @IsString()
@@ -280,4 +294,26 @@ export class EnvConfig {
   @IsNotEmpty()
   @Matches(/^[A-Za-z0-9+/]+={0,2}$/)
   MCDONALDS_PAYMENT_URL_ENCRYPTION_KEY?: string;
+}
+
+/**
+ * 校验应用环境变量
+ * @param config 原始环境变量键值对
+ * @returns 返回已转换并通过校验的环境变量对象
+ * @description 放在本文件而非 config.module.ts：后者的 `NestConfigModule.forRoot()`
+ * 在 import 期就会读取 .env 并跑一次校验，测试只要 import 那个模块就会撞上开发者本机的
+ * 真实环境，导致用例结果取决于 .env 内容而非入参。
+ */
+export function validateEnvironment(config: Record<string, unknown>) {
+  const validated = plainToInstance(EnvConfig, config, {
+    enableImplicitConversion: true,
+  });
+  const errors = validateSync(validated, {
+    skipMissingProperties: false,
+  });
+
+  if (errors.length > 0) {
+    throw new Error(`Config validation error:\n${errors.toString()}`);
+  }
+  return validated;
 }

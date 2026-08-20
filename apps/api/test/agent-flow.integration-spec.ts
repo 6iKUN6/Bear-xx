@@ -246,6 +246,10 @@ function applyAgentFlowE2eEnvironment(
   }
   process.env.JWT_ACCESS_SECRET = 'agent-flow-e2e-access-secret';
   process.env.JWT_REFRESH_SECRET = 'agent-flow-e2e-refresh-secret';
+  // 必填项：AppModule 的 ConfigModule 会校验它。固定的测试用值，e2e 不解密任何真实密钥
+  process.env.LLM_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString(
+    'base64',
+  );
 }
 
 /**
