@@ -1,7 +1,8 @@
 # AgentFlow 后端架构设计
 
-> 状态：阶段 0-5 的控制面、Temporal Harness、`StreamTask` 事务事件投影和独立节点执行器已落代码。已发布 Flow 仅在 admin 测试会话中从 API 进程内 producer 切换到 Temporal；`agent`、`synthesize`、`plan`、`approval`、`plan-loop`、`condition` 的**代码路径已实现，但尚无真实链路验证**——单测中模型调用为 mock，唯一的集成用例走的是单 condition 节点、无后继边、不调用真实模型的最小 Flow，只覆盖基础设施接线；审批 Signal 通过 outbox，取消 Signal 通过数据库状态补偿派发。普通聊天、移动端消费和 HTTP/E2E 闭环仍留在阶段 5 后续工作，尚未灰度。
-> 日期：2026-08-19。
+> 状态：阶段 0-5 的控制面、Temporal Harness、`StreamTask` 事务事件投影和独立节点执行器已落代码。已发布 Flow 仅在 admin 测试会话中从 API 进程内 producer 切换到 Temporal；`agent`、`synthesize`、`plan`、`approval`、`plan-loop` 的代码路径已实现；审批 Signal 通过 outbox，取消 Signal 通过数据库状态补偿派发。普通聊天、移动端消费和 HTTP/E2E 闭环仍留在阶段 5 后续工作，尚未灰度。
+> `condition` 节点已于 2026-08 移除（`config.field` 只认两个在求值点恒为常量的字段名，其余字段名静默走 false 分支，无法正确路由），因此 V1 的合法图必然是单链。本文第 8 节提到的 condition 分支语义仅作历史记录；条件分支与并行的重新设计见 `agent-flow-v2-model.md`。
+> 日期：2026-08-19（condition 状态于 2026-08-20 更正）。
 > 范围：`apps/api` 的 AgentFlow 控制面与执行面；不包含 admin 画布实现。
 
 ## 1. 目标与边界
