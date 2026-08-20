@@ -16,11 +16,13 @@ import type {
 import {
   AgentStrategyMode,
   StreamTaskEventType,
+  TASK_ERROR_CATEGORY_LABELS,
   type ApprovalDecision,
   type ApprovalRequiredPayload,
   type PlanReviewDecision,
   type TaskErrorCategory,
 } from '@litter-bear/types/protocol';
+import { isRetryableTaskErrorCategory } from '../../llm/llm-error';
 import { chatAgentCommonPrompt } from '../../../prompts';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
@@ -65,6 +67,23 @@ import type {
 
 const FLOW_APPROVAL_TIMEOUT_SECONDS = 900;
 
+/**
+ * 把不可信字符串收窄为协议错误类别
+ * @param value 来自 executionState JSON 的候选值
+ * @returns 落在闭集内时返回该类别，否则返回 undefined
+ * @description 成员判断直接借 TASK_ERROR_CATEGORY_LABELS 的键：它是
+ * `Record<TaskErrorCategory, string>`，新增类别时编译器会强制补文案，
+ * 因此不需要再维护第二份类别清单去和它对齐。
+ */
+function toTaskErrorCategory(
+  value: string | undefined,
+): TaskErrorCategory | undefined {
+  if (value && Object.hasOwn(TASK_ERROR_CATEGORY_LABELS, value)) {
+    return value as TaskErrorCategory;
+  }
+  return undefined;
+}
+
 interface PersistedCompletedNode {
   outcome: AgentFlowNodeCompletedResult['outcome'];
   summary: string;
@@ -102,7 +121,11 @@ interface PersistedFlowExecutionState {
   completedNodes: Record<string, PersistedCompletedNode>;
   stoppedNodes: Record<
     string,
-    { status: 'completed' | 'cancelled' | 'error'; errorCategory?: string }
+    {
+      status: 'completed' | 'cancelled' | 'error';
+      /** 从库里 JSON 读回时是不可信输入，回放前必须经 toTaskErrorCategory 收窄 */
+      errorCategory?: string;
+    }
   >;
   plan?: PersistedFlowPlan;
   planLoop?: PersistedFlowPlanLoop;
@@ -276,7 +299,14 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     }
     const stopped = state.stoppedNodes[input.nodeExecutionId];
     if (stopped) {
-      return { kind: 'stopped', ...stopped };
+      // executionState 是库里的 JSON，类别可能是历史遗留或被手工改过的值；
+      // 直接透传会让闭集外的字符串进入下发给前端的 task.error 载荷
+      const errorCategory = toTaskErrorCategory(stopped.errorCategory);
+      return {
+        kind: 'stopped',
+        status: stopped.status,
+        ...(errorCategory ? { errorCategory } : {}),
+      };
     }
     if (
       state.pendingApproval?.nodeExecutionId === input.nodeExecutionId &&
@@ -401,11 +431,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       : cancelled
         ? StreamTaskStatus.CANCELED
         : StreamTaskStatus.ERROR;
+    // 有具体原因就用它：泛化成「流程执行失败」会让用户和排障者都只能去翻 worker 日志。
+    // errorReason 只可能来自我们自己抛的 ApplicationFailure，第三方错误已在 Workflow 侧滤掉。
     const errorMessage = completed
       ? undefined
       : cancelled
         ? '流程已取消'
-        : '流程执行失败';
+        : input.errorReason?.trim() || '流程执行失败';
     const events = await this.prisma.$transaction(async (transaction) => {
       const persisted: PersistedAgentFlowTaskEvent[] = [];
       if (completed) {
@@ -441,8 +473,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
             ? {
                 errorMessage,
                 payload: {
-                  category: 'server',
-                  retryable: false,
+                  // 曾硬编码为 'server'，把配置错误（invalid）也说成"服务暂时不可用，
+                  // 请稍后重试"，前端据此给出的重试建议是错的；类别由 Workflow 侧按
+                  // ApplicationFailure 类型判定后传入
+                  category: input.errorCategory ?? 'server',
+                  retryable: isRetryableTaskErrorCategory(
+                    input.errorCategory ?? 'server',
+                  ),
                 },
               }
             : {}),

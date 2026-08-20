@@ -428,6 +428,76 @@ describe('agentFlowWorkflow', () => {
     };
   }
 
+  it('Activity 抛出的失败原因与类别传给终态写入，不再泛化成通用错误', async () => {
+    // 曾硬编码 errorCategory='WORKFLOW_ACTIVITY_FAILED'（还不在协议闭集内）并丢弃 message，
+    // 用户只剩一句「流程执行失败」，真实原因只能靠翻 worker 日志
+    const finalized: Array<{
+      status: string;
+      errorCategory?: string;
+      errorReason?: string;
+    }> = [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: singleNodeSnapshot(),
+        executeNode: () =>
+          Promise.reject(
+            ApplicationFailure.nonRetryable(
+              'Flow 任务未锁定智能体默认模型',
+              'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
+            ),
+          ),
+        finalizeRun: ({ status, errorCategory, errorReason }) => {
+          finalized.push({ status, errorCategory, errorReason });
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    try {
+      await expectWorkflowFailedBecause(
+        running.handle.result(),
+        '未锁定智能体默认模型',
+      );
+      expect(finalized).toEqual([
+        {
+          status: 'error',
+          // 配置问题归 invalid：归成 server 会让前端建议「稍后重试」，而重试不会变好
+          errorCategory: 'invalid',
+          errorReason: 'Flow 任务未锁定智能体默认模型',
+        },
+      ]);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
+  it('非 ApplicationFailure 异常不透出 message，避免带出连接串或密钥', async () => {
+    const finalized: Array<{ errorCategory?: string; errorReason?: string }> =
+      [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: singleNodeSnapshot(),
+        executeNode: () =>
+          Promise.reject(
+            new Error('connect ECONNREFUSED postgres://user:pw@db:5432'),
+          ),
+        finalizeRun: ({ errorCategory, errorReason }) => {
+          finalized.push({ errorCategory, errorReason });
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    try {
+      await running.handle.result().catch(() => undefined);
+      expect(finalized).toHaveLength(1);
+      expect(finalized[0].errorCategory).toBe('server');
+      expect(finalized[0].errorReason).toBeUndefined();
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
   /**
    * 停止测试 Worker
    * @param running 由 startWorkflow 创建的运行资源

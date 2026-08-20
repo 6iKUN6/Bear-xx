@@ -1,4 +1,5 @@
 import type { FlowNodeType } from '@litter-bear/types/agent-flow';
+import type { TaskErrorCategory } from '@litter-bear/types/protocol';
 
 /** 启动一次 AgentFlow Workflow 所需的最小业务标识。 */
 export interface AgentFlowWorkflowInput {
@@ -61,7 +62,7 @@ export interface AgentFlowNodeWaitingHumanResult {
 export interface AgentFlowNodeStoppedResult {
   kind: 'stopped';
   status: 'completed' | 'cancelled' | 'error';
-  errorCategory?: string;
+  errorCategory?: TaskErrorCategory;
 }
 
 /**
@@ -91,7 +92,14 @@ export interface AgentFlowFinalizeRunInput {
   workflow: AgentFlowWorkflowInput;
   status: AgentFlowFinalStatus;
   lastNodeKey: string | null;
-  errorCategory?: string;
+  /** 必须落在协议闭集内：它会直接进入下发给前端的 task.error 载荷 */
+  errorCategory?: TaskErrorCategory;
+  /**
+   * 可展示的失败原因
+   * @description 只允许来自我们自己抛出的 ApplicationFailure 文案。第三方错误（Prisma、
+   * 网络库）的 message 可能含连接串或密钥，一律不透出，退回通用文案。
+   */
+  errorReason?: string;
 }
 
 /** Temporal Workflow 可调用的 Activity 闭集。 */

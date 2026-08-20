@@ -24,6 +24,19 @@ const RETRYABLE_CATEGORIES = new Set<TaskErrorCategory>([
 ]);
 
 /**
+ * 判断一个错误类别是否值得重试
+ * @param category 协议闭集内的错误类别
+ * @returns 属于限流/超时/网络/服务端时返回 true
+ * @description 与 classifyLlmError 共用同一个集合。Flow 终态事件也要给出 retryable，
+ * 在那边另抄一份清单必然与这里漂移——「同一事实只有一个源」。
+ */
+export function isRetryableTaskErrorCategory(
+  category: TaskErrorCategory,
+): boolean {
+  return RETRYABLE_CATEGORIES.has(category);
+}
+
+/**
  * 归一化并分类 LLM / provider 错误
  * @param error 捕获到的任意错误
  * @returns 返回带类别与可重试判断的结构化错误
