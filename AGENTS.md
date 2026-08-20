@@ -20,9 +20,14 @@
 
 ```txt
 apps/api/         NestJS + Prisma(PostgreSQL) + Redis；认证/会话/聊天任务/SSE 流式任务/
-                  LangChain·LangGraph agent 链路(路由·能力·Plan·Hybrid·HITL)/LLM 调用
+                  LangChain·LangGraph agent 链路(路由·能力·Plan·Hybrid·HITL)/LLM 调用/
+                  AgentFlow 控制面 + Temporal 编排
 apps/mobile/      Taro 4 + React + TailwindCSS(weapp-tailwindcss) + Zustand + orval；微信小程序 / H5 多端
-packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契约(@litter-bear/types)
+apps/admin/       Vite 5 + React 18 + TailwindCSS + Radix + TanStack Query + Zustand；
+                  管理后台（可观测/智能体/模型预设/AgentFlow/调试会话），只消费 /admin/* 端点
+packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契约与 ./agent-flow Definition 契约(@litter-bear/types)
+packages/theme/   跨端语义主题定义与 --lb-* CSS 变量映射(@litter-bear/theme)
+packages/assets/  前后端共享静态资产（头像等），按子路径直接引用(@litter-bear/assets)
 ```
 
 - 包管理器只用 `pnpm`；工作区 + turbo；Node ≥ 22.12（`.nvmrc` = 24，共享包走 ESM，Nest 侧靠 `require(esm)`）。
@@ -37,9 +42,11 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 | --------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `apps/api/`**                           | `apps/api/AGENTS.md`                                                                   | `diagnosing-bugs` / `code-review`                    |
 | agent 链路：工具 / 策略路由 / Plan·Hybrid / HITL | `apps/api/AGENTS.md` + `apps/api/docs/{agent-loop-evolution,agent-chat-chain,hitl}.md` | `diagnosing-bugs`                                    |
+| AgentFlow：Definition / 版本发布 / Temporal 编排 / 画布演进 | `apps/api/AGENTS.md` + `apps/api/docs/{agent-flow-architecture,agent-flow-v2-model}.md` | `diagnosing-bugs`                                    |
 | 流式任务 / SSE / 任务生命周期                     | `apps/api/AGENTS.md` + `apps/api/docs/stream-task-architecture.md`                     | —                                                    |
 | `apps/mobile/**`                        | `apps/mobile/AGENTS.md`                                                                | 新组件 `impeccable`；新交互先 `shape`                        |
 | 移动端 UI 设计打磨                             | `apps/mobile/AGENTS.md`                                                                | `critique` / `polish` / `adapt` / `harden`           |
+| `apps/admin/**`                         | `apps/admin/AGENTS.md`                                                                 | `code-review`；新交互先 `shape`                    |
 | 设计系统 / 主题 / 共享组件                        | `docs/design-system.md`                                                                | `shape` 定方向；`impeccable` 构建；`critique` / `polish` 打磨 |
 | 独立 HTML 原型 / UI 方案预览                    | 涉及现有产品时读 `docs/design-system.md`                                                | `html-prototype-generator`（`.claude/skills/html-prototype-generator`） |
 | `packages/types/**`、前后端流式契约             | `packages/types/src/protocol` + `apps/api/docs/agent-chat-chain.md`                    | —                                                    |
@@ -101,7 +108,8 @@ packages/types/   前后端共享类型；含 ./protocol 流式通讯协议契�
 ## 前后端契约
 
 - **流式事件契约**：唯一源在 `packages/types/src/protocol`（`StreamTaskEventType` / 事件载荷 / 中文文案）。前后端都从此引入，不各写一份。
-- **REST 契约**：前端 API 客户端由 orval 依据后端 OpenAPI 生成。不手改 `apps/api/docs/openapi.json` 与 `apps/mobile/src/api/generated/`**；需更新时在 `apps/mobile/` 执行 `pnpm generate:api:local`（导出 OpenAPI + Orval 生成）。
+- **REST 契约（移动端）**：API 客户端由 orval 依据后端 OpenAPI 生成。不手改 `apps/api/docs/openapi.json` 与 `apps/mobile/src/api/generated/`**；需更新时在 `apps/mobile/` 执行 `pnpm generate:api:local`（导出 OpenAPI + Orval 生成）。
+- **REST 契约（管理后台）**：`apps/admin` **不走 orval**，`src/api/types.ts` 是手写对齐后端 DTO 的（只消费十几个端点，手写比生成更轻）。改后端 `/admin/*` 的 DTO 时必须同步改它，两边漂移不会有任何工具报错。
 - 字段命名跟随对应 `apps/*/AGENTS.md` 既有约定，不擅自切换风格。
 - 契约不一致时**优先修契约，不写兼容层**。
 
@@ -138,9 +146,14 @@ pnpm build
 pnpm --filter ./apps/api run build         # nest build（含 tsc 类型检查）
 pnpm --filter ./apps/api run lint:check     # 纯校验；--fix 用 run lint
 
-# 前端
+# 移动端
 pnpm --filter ./apps/mobile run typecheck
 pnpm --filter ./apps/mobile run build:weapp # 小程序构建（改动涉及共享包/编译时务必回归）
+
+# 管理后台
+pnpm --filter ./apps/admin run typecheck
+pnpm --filter ./apps/admin run lint
+pnpm --filter ./apps/admin run build       # tsc --noEmit + vite build
 
 # Prisma schema/migration 改动后
 pnpm --filter ./apps/api run db:migrate
