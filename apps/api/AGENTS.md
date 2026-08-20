@@ -304,7 +304,27 @@ SSE 接口不走统一响应包装，使用 `text/event-stream`。
 
 除非是临时本地实验，否则不要只改 schema 不加 migration。
 
-### 2. 不直接破坏历史数据
+### 2. schema 改完，容器模式必须重建镜像
+
+宿主机跑 `db:migrate`（内含 `prisma generate`）**不会**更新容器里的 Prisma Client：
+
+- pnpm 的真实包内容在 `/workspace/node_modules`，而 compose 只把 `apps/api/node_modules`
+  与 `packages/types/node_modules` 做成命名卷（那两处只是符号链接）；根 `node_modules`
+  是每个容器各自的镜像可写层。
+- `workspace-bootstrap` 跑的是 `db:migrate:deploy`，而 `migrate deploy` 不像 `migrate dev`
+  那样附带生成；即便在 bootstrap 里补 `db:generate` 也只影响它自己的容器。
+
+所以 schema 改动后要用容器模式，必须重建：
+
+```bash
+pnpm run dev:docker:up      # = docker compose up --build，镜像构建期重新生成 client
+```
+
+漏了这步的表现具有欺骗性：容器 `Up` 但应用编译不过、端口不监听，浏览器拿到
+`ERR_EMPTY_RESPONSE`，而宿主机上 `tsc --noEmit` / `jest` / `pnpm build` 全绿——
+**宿主机的绿灯覆盖不到容器**。改 schema 后要主动看一眼 `docker compose logs app`。
+
+### 3. 不直接破坏历史数据
 
 涉及字段重命名、枚举调整、表拆分时：
 
@@ -312,7 +332,7 @@ SSE 接口不走统一响应包装，使用 `text/event-stream`。
 - 必要时写数据迁移逻辑
 - 不要默认可以直接清库
 
-### 3. 模型命名
+### 4. 模型命名
 
 Prisma 模型和字段命名应优先保持业务语义一致，不为短而短。
 
