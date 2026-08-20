@@ -90,6 +90,48 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
+  it('拒绝前面没有 plan 节点的 plan-loop', () => {
+    // 运行时会抛 AGENT_FLOW_PLAN_STATE_MISSING，必须在发布期就拦住
+    const definition = validDefinition();
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: definition.nodes.filter((node) => node.id !== 'plan'),
+      edges: [
+        { from: 'review', to: 'execute', when: 'approved' },
+        { from: 'execute', to: 'answer' },
+      ],
+    });
+
+    expectValidationError(
+      result,
+      (error) => error.rule === 'plan-prerequisite',
+    );
+  });
+
+  it('拒绝前面没有 plan 节点的计划审批', () => {
+    const definition = validDefinition();
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: definition.nodes.filter(
+        (node) => node.id !== 'plan' && node.id !== 'execute',
+      ),
+      edges: [{ from: 'review', to: 'answer', when: 'approved' }],
+    });
+
+    expectValidationError(
+      result,
+      (error) =>
+        error.rule === 'plan-prerequisite' && error.path === 'nodes.0.id',
+    );
+  });
+
+  it('plan 在链路更早处时依赖计划的节点通过校验', () => {
+    const definition = validDefinition();
+    const result = validateFlowDefinition(definition);
+
+    expect(result.success).toBe(true);
+  });
+
   it.each(['direct', 'react', 'plan_execute', 'hybrid'] as const)(
     '%s 预设通过与导入 JSON 相同的校验器',
     (preset) => {

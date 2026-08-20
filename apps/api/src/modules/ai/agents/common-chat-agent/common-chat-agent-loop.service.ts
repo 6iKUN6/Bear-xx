@@ -58,7 +58,10 @@ export class CommonChatAgentLoopService {
       { messages: toLangChainMessages(request.messages) },
       config,
     );
-    for await (const { event } of mapMessagesStream(stream)) {
+    for await (const { event } of mapMessagesStream(
+      stream,
+      request.onModelTurn,
+    )) {
       yield event;
     }
 
@@ -97,7 +100,10 @@ export class CommonChatAgentLoopService {
       new Command({ resume: resumeValue }),
       this.buildStreamConfig(request, true),
     );
-    for await (const { event } of mapMessagesStream(stream)) {
+    for await (const { event } of mapMessagesStream(
+      stream,
+      request.onModelTurn,
+    )) {
       yield event;
     }
 

@@ -150,13 +150,6 @@ export class FlowCompiler {
         };
       case 'approval':
         return { key: node.id, type: 'approval', next, kind: node.config.kind };
-      case 'condition':
-        return {
-          key: node.id,
-          type: 'condition',
-          next,
-          condition: node.config,
-        };
       case 'synthesize':
         return { key: node.id, type: 'synthesize', next };
     }

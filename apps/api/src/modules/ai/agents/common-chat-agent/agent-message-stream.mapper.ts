@@ -163,22 +163,66 @@ function createMessageChunkParser() {
 /**
  * 映射 messages 流为统一事件
  * @param stream `streamMode:'messages'` 的产出（可带 `subgraphs:true`）
+ * @param onModelTurn 每识别到一次新的模型调用时回调
  * @returns 返回事件与其来源命名空间
+ * @description onModelTurn 按 chunk 而不是按事件判定：一次模型调用可能只产出工具调用、
+ * 甚至不产出任何事件，挂在事件上会漏计。
  */
 export async function* mapMessagesStream(
   stream: AsyncIterable<MessagesModeChunk | SubgraphMessagesModeChunk>,
+  onModelTurn?: () => void,
 ): AsyncGenerator<MappedAgentEvent, void, unknown> {
   const parse = createMessageChunkParser();
+  const countTurn = createModelTurnCounter(onModelTurn);
 
   for await (const rawChunk of stream) {
     const [namespace, messageChunk] = isSubgraphChunk(rawChunk)
       ? rawChunk
       : ([[], rawChunk] as [string[], MessagesModeChunk]);
 
+    countTurn(namespace, messageChunk);
     for (const event of parse(messageChunk)) {
       yield { event, namespace };
     }
   }
+}
+
+/**
+ * 创建按 LangGraph 步骤去重的模型调用计数器
+ * @param onModelTurn 识别到新模型调用时的回调；缺省则整个计数器为空操作
+ * @returns 返回「单块 → 是否新模型调用」的判定函数
+ * @description LangGraph 在每个 chunk 的 metadata 上给出 `langgraph_node` 与
+ * `langgraph_step`（见 `@langchain/langgraph` 的 pregel/algo）。一次模型调用会产出多个
+ * AIMessageChunk，但它们共享同一个 (node, step)，所以按该组合去重即等于模型调用次数。
+ * 只计 ai 消息：tool 消息属于工具执行，不是模型调用。命名空间要一起参与去重，
+ * 否则子图与外层图的同名节点在同一 step 上会互相吞掉。
+ */
+function createModelTurnCounter(
+  onModelTurn: (() => void) | undefined,
+): (namespace: string[], chunk: MessagesModeChunk) => void {
+  if (!onModelTurn) {
+    return () => undefined;
+  }
+  const seenTurns = new Set<string>();
+  return (namespace, [message, metadata]) => {
+    if (message.type !== 'ai') {
+      return;
+    }
+    const node = metadata.langgraph_node;
+    const step = metadata.langgraph_step;
+    if (typeof node !== 'string' || typeof step !== 'number') {
+      // 元数据缺失（例如 LangGraph 升级改了形状）时无法去重，此处宁可多计也不能不计：
+      // 不计会让预算护栏静默失效变成无限预算，多计只会让 Flow 提前撞上预算并明确报错。
+      onModelTurn();
+      return;
+    }
+    const turnKey = `${namespace.join('/')}#${node}#${step}`;
+    if (seenTurns.has(turnKey)) {
+      return;
+    }
+    seenTurns.add(turnKey);
+    onModelTurn();
+  };
 }
 
 /**

@@ -98,9 +98,10 @@ describe('AgentFlowActivities', () => {
     });
 
     await expect(activities.loadRunSnapshot(workflowInput())).resolves.toEqual({
-      entryNodeKey: 'review',
+      entryNodeKey: 'plan',
       maxDurationSeconds: 60,
       nodes: [
+        { key: 'plan', type: 'plan', next: { default: 'review' } },
         {
           key: 'review',
           type: 'approval',
@@ -198,6 +199,94 @@ describe('AgentFlowActivities', () => {
       }),
     );
     expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('模型调用计入预算并随 executionState 落库', async () => {
+    mockAgentNode();
+    // flowDefinition 的 maxModelCalls 为 1，恰好允许一次模型调用
+    commonChatAgentService.streamEvents.mockImplementation(
+      (request: { onModelTurn?: () => void }) => {
+        request.onModelTurn?.();
+        return emptyEventStream();
+      },
+    );
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '节点执行完成',
+    });
+    expect(readPersistedBudget()).toEqual({ modelCalls: 1, toolCalls: 0 });
+  });
+
+  it('模型调用额度已用尽时不再发起模型调用', async () => {
+    mockAgentNode({
+      // maxModelCalls 为 1，历史用量已达上限
+      agentFlow: { started: true, budget: { modelCalls: 1, toolCalls: 0 } },
+    });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+      }),
+    ).resolves.toEqual({
+      kind: 'stopped',
+      status: 'error',
+      errorCategory: 'budget_exceeded',
+    });
+    expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+  });
+
+  it('突破工具调用预算时中断流并以 flow.node.failed 收敛', async () => {
+    mockAgentNode();
+    // flowDefinition 的 maxToolCalls 为 0：第一次工具请求即超额
+    const afterOverspend = jest.fn();
+    commonChatAgentService.streamEvents.mockReturnValue(
+      toolCallEventStream(afterOverspend),
+    );
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+      }),
+    ).resolves.toEqual({
+      kind: 'stopped',
+      status: 'error',
+      errorCategory: 'budget_exceeded',
+    });
+    // 超额判定必须发生在同一个事件上：放到下一个事件才判会放过一次超额工具执行
+    expect(afterOverspend).not.toHaveBeenCalled();
+    expect(lastPersistedEventName()).toBe('flow.node.failed');
+  });
+
+  it('maxToolCalls 为 0 的纯问答节点仍然可以正常执行', async () => {
+    mockAgentNode();
+    // 回归用：准入检查若同时要求工具额度，禁用工具的 Flow 会一次都跑不起来
+    commonChatAgentService.streamEvents.mockReturnValue(
+      textEventStream('好的'),
+    );
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '已生成回复',
+    });
   });
 
   it('同一轮多个工具请求共用一个审批批次并完整持久化', async () => {
@@ -585,6 +674,65 @@ describe('AgentFlowActivities', () => {
    * @returns 无返回值
    * @description 单测只替换本次执行相关的已编译节点，任务、FlowVersion 和 Agent 快照保持与真实 Activity 查询结构一致。
    */
+  /**
+   * 装配一个最小 Agent 节点的执行上下文
+   * @param executionState 可选的已持久化执行状态
+   * @returns 无返回值
+   * @description 预算相关用例只关心 policy 与用量，节点能力固定为无工具的单步 Agent。
+   */
+  function mockAgentNode(executionState?: Record<string, unknown>): void {
+    mockExecutionContext({
+      node: {
+        key: 'answer',
+        type: 'agent',
+        next: {},
+        modelPreset: 'openai:test',
+        toolGroups: [],
+        skills: [],
+        maxToolIterations: 1,
+        approvalToolNames: [],
+      },
+      ...(executionState ? { executionState } : {}),
+    });
+    capabilityResolver.resolve.mockResolvedValue({
+      tools: [],
+      systemPromptAdditions: [],
+      approvalToolNames: [],
+    });
+    chatContextService.buildContextBundle.mockResolvedValue({
+      messages: [{ role: 'user', content: '你好' }],
+    });
+  }
+
+  /**
+   * 读取最后一次写入 executionState 的预算用量
+   * @returns 返回落库的预算对象
+   * @description 预算必须真的进数据库才能跨节点与跨 Activity retry 累计，断言内存值没有意义。
+   */
+  function readPersistedBudget(): unknown {
+    const calls = taskEventService.persistInTransaction.mock.calls;
+    for (let index = calls.length - 1; index >= 0; index -= 1) {
+      const event = calls[index][1] as {
+        taskUpdate?: { executionState?: { agentFlow?: { budget?: unknown } } };
+      };
+      const budget = event.taskUpdate?.executionState?.agentFlow?.budget;
+      if (budget) {
+        return budget;
+      }
+    }
+    throw new Error('executionState 中没有写入预算用量');
+  }
+
+  /**
+   * 读取最后一次持久化的事件名
+   * @returns 返回事件名
+   */
+  function lastPersistedEventName(): unknown {
+    const calls = taskEventService.persistInTransaction.mock.calls;
+    const last = calls[calls.length - 1][1] as { eventName?: unknown };
+    return last.eventName;
+  }
+
   function mockExecutionContext(input: {
     node: Record<string, unknown>;
     executionState?: Record<string, unknown>;
@@ -643,6 +791,23 @@ async function* textEventStream(delta: string) {
 }
 
 /**
+ * 构造一个先请求工具、随后还有后续事件的底层 Agent 流
+ * @param afterOverspend 工具请求之后的事件被消费时调用
+ * @returns 返回工具生命周期事件流
+ * @description afterOverspend 用来证明预算判定发生在工具请求那一刻：若消费方放过这个事件
+ * 继续往下走，说明超额的工具调用已经被执行。
+ */
+async function* toolCallEventStream(afterOverspend: () => void) {
+  await Promise.resolve();
+  yield {
+    type: 'tool.call.start' as const,
+    payload: { toolCallId: 'call-1', name: 'search', index: 0 },
+  };
+  afterOverspend();
+  yield { type: 'message.delta' as const, delta: '不该走到这里' };
+}
+
+/**
  * 构造同一轮包含多个工具审批请求的底层 Agent 流
  * @param requests 当前审批批次中的工具请求
  * @returns 返回按顺序产出审批事件的异步事件流
@@ -697,6 +862,13 @@ function flowDefinition() {
       maxDurationSeconds: 60,
     },
     nodes: [
+      // approval 依赖 plan 节点写入的计划，图上必须有前置 plan：
+      // 否则运行时会抛 AGENT_FLOW_PLAN_STATE_MISSING，发布校验也会拒绝。
+      {
+        id: 'plan',
+        type: 'plan' as const,
+        config: { maxSteps: 1 },
+      },
       {
         id: 'review',
         type: 'approval' as const,
@@ -708,6 +880,9 @@ function flowDefinition() {
         config: {},
       },
     ],
-    edges: [{ from: 'review', to: 'answer', when: 'approved' as const }],
+    edges: [
+      { from: 'plan', to: 'review' },
+      { from: 'review', to: 'answer', when: 'approved' as const },
+    ],
   };
 }

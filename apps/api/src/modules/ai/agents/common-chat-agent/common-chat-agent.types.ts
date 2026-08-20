@@ -17,6 +17,13 @@ export interface CommonChatAgentLoopRequest {
   /** 需要人工审批的工具名，驱动 HITL 中间件 interruptOn */
   approvalToolNames?: string[];
   abortSignal?: AbortSignal;
+  /**
+   * 底层模型每被真实调用一次回调一次
+   * @description 供 AgentFlow 的 maxModelCalls 预算护栏精确计数。做成回调而非新增流事件
+   * 变体：CommonChatAgentStreamEvent 会被旧链路的 graph 原样 `yield` 转发进 SSE，新增变体
+   * 会直接漏给前端。不传时行为完全不变。
+   */
+  onModelTurn?: () => void;
 }
 
 /**

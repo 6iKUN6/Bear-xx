@@ -1,6 +1,6 @@
 import { ApplicationFailure } from '@temporalio/client';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
+import { Worker, bundleWorkflowCode } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentFlowActivityApi,
@@ -18,15 +18,20 @@ type TestAgentFlowWorkflow = (
 ) => Promise<AgentFlowWorkflowResult>;
 
 const temporalTestServerPath = process.env.TEMPORAL_TEST_SERVER_PATH;
-const describeTimeSkippingWorkflow =
-  process.arch === 'arm64' && !temporalTestServerPath
-    ? describe.skip
-    : describe;
 
-describeTimeSkippingWorkflow('agentFlowWorkflow', () => {
+// 本文件是真集成测试：每个用例要建两个 Worker、驱动真实 Temporal 服务端跑完整
+// workflow。与其余五十多个 suite 并行抢 CPU 时，单用例稳定超过 jest 默认的 5s。
+jest.setTimeout(30_000);
+
+describe('agentFlowWorkflow', () => {
   let testEnvironment: TestWorkflowEnvironment | undefined;
+  let workflowBundle: { code: string } | undefined;
 
-  beforeEach(async () => {
+  // 整个 suite 共用一个测试服务端：每个用例起一个的话，本文件要拉起九次 Temporal
+  // 服务端，与其余 suite 并行时会抢端口并间歇性 Connection refused。用例之间的隔离
+  // 靠 startWorkflow 里 randomUUID 的任务队列与 workflowId，本来就不依赖服务端隔离；
+  // 时间跳跃只在所有 workflow 都阻塞时推进，而 jest 在同一 suite 内串行执行用例。
+  beforeAll(async () => {
     testEnvironment = await TestWorkflowEnvironment.createTimeSkipping(
       temporalTestServerPath
         ? {
@@ -39,9 +44,15 @@ describeTimeSkippingWorkflow('agentFlowWorkflow', () => {
           }
         : undefined,
     );
-  });
+    // 只打包一次 workflow：Worker.create({ workflowsPath }) 每次都会跑一遍 webpack
+    // （约 1.5MB 产物、数秒），本文件九个用例各建两个 Worker，重复打包会让单用例
+    // 轻易超过 jest 默认 5s 超时。
+    workflowBundle = await bundleWorkflowCode({
+      workflowsPath: require.resolve('./agent-flow.workflow'),
+    });
+  }, 120_000);
 
-  afterEach(async () => {
+  afterAll(async () => {
     await testEnvironment?.teardown();
   });
 
@@ -200,6 +211,46 @@ describeTimeSkippingWorkflow('agentFlowWorkflow', () => {
     }
   });
 
+  it('原生取消时仍写入 cancelled 终态，不把任务留在运行中', async () => {
+    const finalized: Array<{ status: string; lastNodeKey: string | null }> = [];
+    let enterSnapshot!: () => void;
+    const snapshotEntered = new Promise<void>((resolve) => {
+      enterSnapshot = resolve;
+    });
+    let releaseSnapshot!: () => void;
+    const snapshotReleased = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    const running = await startWorkflow({
+      ...createActivities({
+        snapshot: approvalSnapshot(),
+        finalizeRun: ({ status, lastNodeKey }) => {
+          finalized.push({ status, lastNodeKey });
+          return Promise.resolve();
+        },
+      }),
+      // 在第一个 Activity 中挂住，确保取消请求落在 Workflow 已开始执行之后；
+      // proxyActivities 默认 TRY_CANCEL，取消一到 Workflow 侧 Promise 立即 reject。
+      loadRunSnapshot: async () => {
+        enterSnapshot();
+        await snapshotReleased;
+        return approvalSnapshot();
+      },
+    });
+
+    try {
+      await snapshotEntered;
+      await running.handle.cancel();
+
+      // 未走 nonCancellable 时终态写入会被一并取消，finalized 为空、任务永远停在 RUNNING
+      await expect(running.handle.result()).rejects.toThrow();
+      expect(finalized).toEqual([{ status: 'cancelled', lastNodeKey: null }]);
+    } finally {
+      releaseSnapshot();
+      await stopWorkflow(running);
+    }
+  });
+
   it('可重试 Activity 在有限次数内成功后继续推进', async () => {
     let attempts = 0;
     const running = await startWorkflow(
@@ -252,10 +303,77 @@ describeTimeSkippingWorkflow('agentFlowWorkflow', () => {
     );
 
     try {
-      await expect(running.handle.result()).rejects.toThrow(
+      await expectWorkflowFailedBecause(
+        running.handle.result(),
         '不可恢复的节点错误',
       );
       expect(attempts).toBe(1);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
+  it('节点返回 continued 时逐步调度同一节点，每步一次 Activity', async () => {
+    const scheduled: string[] = [];
+    let continueCalls = 0;
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: singleNodeSnapshot(),
+        executeNode: ({ nodeKey }) => {
+          scheduled.push(`execute:${nodeKey}`);
+          return Promise.resolve({ kind: 'continued', completedSteps: 1 });
+        },
+        continueNode: ({ nodeKey }) => {
+          continueCalls += 1;
+          scheduled.push(`continue:${nodeKey}`);
+          // 前两次继续推进，第三次收敛为完成
+          return Promise.resolve(
+            continueCalls < 3
+              ? { kind: 'continued', completedSteps: continueCalls + 1 }
+              : { kind: 'completed', outcome: 'default' },
+          );
+        },
+        finalizeRun: () => Promise.resolve(),
+      }),
+    );
+
+    try {
+      await expect(running.handle.result()).resolves.toEqual({
+        status: 'completed',
+        lastNodeKey: 'answer',
+      });
+      // 一次 executeNode 起头，其后每步各一次 continueNode，均落在同一节点上
+      expect(scheduled).toEqual([
+        'execute:answer',
+        'continue:answer',
+        'continue:answer',
+        'continue:answer',
+      ]);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
+  it('continued 未推进步骤时拒绝空转并终止 Flow', async () => {
+    const finalized: Array<{ status: string }> = [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: singleNodeSnapshot(),
+        // 始终返回同一个 completedSteps，模拟 Activity 卡在同一步不前进
+        executeNode: () =>
+          Promise.resolve({ kind: 'continued', completedSteps: 2 }),
+        continueNode: () =>
+          Promise.resolve({ kind: 'continued', completedSteps: 2 }),
+        finalizeRun: ({ status }) => {
+          finalized.push({ status });
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    try {
+      await expectWorkflowFailedBecause(running.handle.result(), '拒绝空转');
+      expect(finalized).toEqual([{ status: 'error' }]);
     } finally {
       await stopWorkflow(running);
     }
@@ -273,10 +391,13 @@ describeTimeSkippingWorkflow('agentFlowWorkflow', () => {
     }
     const orchestratorTaskQueue = `agent-flow-orchestrator-${randomUUID()}`;
     const activityTaskQueue = `agent-flow-activity-${randomUUID()}`;
+    if (!workflowBundle) {
+      throw new Error('Workflow 打包产物未初始化');
+    }
     const orchestratorWorker = await Worker.create({
       connection: testEnvironment.nativeConnection,
       taskQueue: orchestratorTaskQueue,
-      workflowsPath: require.resolve('./agent-flow.workflow'),
+      workflowBundle,
     });
     const activityWorker = await Worker.create({
       connection: testEnvironment.nativeConnection,
@@ -330,6 +451,33 @@ describeTimeSkippingWorkflow('agentFlowWorkflow', () => {
  * @returns 返回可注册到 Temporal Worker 的完整 Activity 集合
  * @description 默认实现只服务测试；真实 Activity 只在独立 Activity Worker 进程中访问数据库和 Nest 服务。
  */
+/**
+ * 断言 Workflow 因指定原因失败
+ * @param result Workflow Handle 的 result Promise
+ * @param reason 期望出现在失败原因中的文案
+ * @returns 无返回值
+ * @description handle.result() 拒绝的是 WorkflowFailedError，其 message 恒为通用的
+ * "Workflow execution failed"，真实原因在 cause 上。直接对 message 断言会让任何失败
+ * 原因都通过，因此必须沿 cause 链取实际失败信息。
+ */
+async function expectWorkflowFailedBecause(
+  result: Promise<unknown>,
+  reason: string,
+): Promise<void> {
+  const failure = await result.then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  expect(failure).toBeInstanceOf(Error);
+  const causes: string[] = [];
+  let current: unknown = failure;
+  while (current instanceof Error) {
+    causes.push(current.message);
+    current = current.cause;
+  }
+  expect(causes.join(' | ')).toContain(reason);
+}
+
 function createActivities(
   overrides: Partial<AgentFlowActivityApi> & {
     snapshot: AgentFlowRunSnapshot;
@@ -339,6 +487,9 @@ function createActivities(
     loadRunSnapshot: () => Promise.resolve(overrides.snapshot),
     executeNode:
       overrides.executeNode ??
+      (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
+    continueNode:
+      overrides.continueNode ??
       (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
     resumeNode:
       overrides.resumeNode ??

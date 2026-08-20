@@ -15,7 +15,7 @@ export type AgentFlowWorkflowStartInput = Omit<
 >;
 
 /** 允许影响 Flow 下一跳的节点结果闭集。 */
-export type AgentFlowNodeOutcome = 'default' | 'approved' | 'true' | 'false';
+export type AgentFlowNodeOutcome = 'default' | 'approved';
 
 /** 存入 Temporal History 的最小节点投影。 */
 export interface AgentFlowWorkflowNode {
@@ -64,10 +64,22 @@ export interface AgentFlowNodeStoppedResult {
   errorCategory?: string;
 }
 
+/**
+ * 节点尚未结束，Workflow 需继续调度同一节点推进下一步。
+ * @description plan-loop 每步都是一次完整模型调用；整条循环压在单次 Activity 里会
+ * 逼近 startToCloseTimeout，且循环期间 Workflow 既查不到 deadline 也收不到取消。
+ * 改为一步一次 Activity 后，`completedSteps` 让 Workflow 能断言每次调度确有推进。
+ */
+export interface AgentFlowNodeContinuedResult {
+  kind: 'continued';
+  completedSteps: number;
+}
+
 /** 节点执行或恢复后的受限结果。 */
 export type AgentFlowNodeExecutionResult =
   | AgentFlowNodeCompletedResult
   | AgentFlowNodeWaitingHumanResult
+  | AgentFlowNodeContinuedResult
   | AgentFlowNodeStoppedResult;
 
 /** Workflow 通过 Activity 收敛业务任务时写入的终态。 */
@@ -86,6 +98,10 @@ export interface AgentFlowFinalizeRunInput {
 export interface AgentFlowActivityApi {
   loadRunSnapshot(input: AgentFlowWorkflowInput): Promise<AgentFlowRunSnapshot>;
   executeNode(
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<AgentFlowNodeExecutionResult>;
+  /** 继续推进已开始但未结束的节点；不重发节点开始事件。 */
+  continueNode(
     input: AgentFlowNodeExecutionInput,
   ): Promise<AgentFlowNodeExecutionResult>;
   resumeNode(

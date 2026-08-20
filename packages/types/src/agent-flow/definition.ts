@@ -3,7 +3,7 @@ export const AGENT_FLOW_SCHEMA_VERSION = 1 as const;
 
 /** AgentFlow V1 支持的节点闭集。 */
 export type FlowNodeType =
-  "agent" | "plan" | "plan-loop" | "approval" | "condition" | "synthesize";
+  "agent" | "plan" | "plan-loop" | "approval" | "synthesize";
 
 /** Flow 的运行预算策略。 */
 export interface FlowPolicy {
@@ -46,16 +46,6 @@ export interface FlowApprovalNodeConfig {
   readonly kind: "plan-review";
 }
 
-/** 条件节点支持的受限比较运算。 */
-export type FlowConditionOperator = "equals" | "not-equals" | "exists";
-
-/** 条件节点配置。 */
-export interface FlowConditionNodeConfig {
-  readonly field: string;
-  readonly operator: FlowConditionOperator;
-  readonly value?: string | number | boolean;
-}
-
 /** Agent 节点。 */
 export interface FlowAgentNode {
   readonly id: string;
@@ -84,13 +74,6 @@ export interface FlowApprovalNode {
   readonly config: FlowApprovalNodeConfig;
 }
 
-/** 条件节点。 */
-export interface FlowConditionNode {
-  readonly id: string;
-  readonly type: "condition";
-  readonly config: FlowConditionNodeConfig;
-}
-
 /** 汇总节点。 */
 export interface FlowSynthesizeNode {
   readonly id: string;
@@ -104,11 +87,10 @@ export type FlowNode =
   | FlowPlanNode
   | FlowPlanLoopNode
   | FlowApprovalNode
-  | FlowConditionNode
   | FlowSynthesizeNode;
 
-/** 条件节点和审批节点可声明的有限分支。 */
-export type FlowEdgeWhen = "approved" | "true" | "false";
+/** 审批节点可声明的有限分支。 */
+export type FlowEdgeWhen = "approved";
 
 /** Flow 节点间的有向边。 */
 export interface FlowEdge {

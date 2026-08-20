@@ -378,6 +378,8 @@ export type TaskErrorCategory =
   | "network"
   | "invalid"
   | "server"
+  /** 命中 Flow 的 maxModelCalls / maxToolCalls 预算上限被主动终止；重试不会变好 */
+  | "budget_exceeded"
   | "unknown";
 
 /**
@@ -404,6 +406,7 @@ export const TASK_ERROR_CATEGORY_LABELS: Record<TaskErrorCategory, string> = {
   network: "网络异常，请检查连接后重试",
   invalid: "请求内容无法处理，请调整后再试",
   server: "服务暂时不可用，请稍后重试",
+  budget_exceeded: "本次任务已达到运行预算上限，已停止",
   unknown: "生成失败，请重试",
 };
 

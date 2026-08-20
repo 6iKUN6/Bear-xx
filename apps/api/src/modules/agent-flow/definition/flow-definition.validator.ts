@@ -113,8 +113,89 @@ function validateGraphStructure(
       message:
         'V1 Flow 不允许节点之间形成环；PlanLoop 的循环必须保留在节点内部',
     });
+  } else {
+    validatePlanPrerequisite(definition.nodes, validEdges, errors);
   }
   return errors;
+}
+
+/**
+ * 检查依赖计划的节点前面是否必定存在 plan 节点
+ * @param nodes 全部节点
+ * @param edges 端点和分支均有效的边集合
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description plan-loop 与 approval 在运行时都要读取 plan 节点写入的计划；缺少前置 plan 时
+ * Activity 会抛 AGENT_FLOW_PLAN_STATE_MISSING 直接终止任务。这个错误必须在发布期就拦住，
+ * 否则一个能通过发布校验的 Flow 会在每个终端用户身上炸。要求「每条路径上都有」而不是
+ * 「存在一条路径有」：只要有一条绕开 plan 的分支，那条分支上的运行就会失败。
+ */
+function validatePlanPrerequisite(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowDefinition['edges'][number][],
+  errors: FlowDefinitionValidationError[],
+): void {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const predecessors = new Map<string, string[]>();
+  const outdegreeTargets = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  for (const node of nodes) {
+    indegree.set(node.id, 0);
+  }
+  for (const edge of edges) {
+    predecessors.set(edge.to, [
+      ...(predecessors.get(edge.to) ?? []),
+      edge.from,
+    ]);
+    outdegreeTargets.set(edge.from, [
+      ...(outdegreeTargets.get(edge.from) ?? []),
+      edge.to,
+    ]);
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+  }
+
+  // 拓扑序上做一次前向数据流：planGuaranteed 表示「到达该节点前必定已执行过 plan」
+  const planGuaranteed = new Map<string, boolean>();
+  const ready = nodes
+    .filter((node) => (indegree.get(node.id) ?? 0) === 0)
+    .map((node) => node.id);
+  while (ready.length > 0) {
+    const nodeId = ready.shift();
+    if (!nodeId) {
+      continue;
+    }
+    const incoming = predecessors.get(nodeId) ?? [];
+    planGuaranteed.set(
+      nodeId,
+      incoming.length > 0 &&
+        incoming.every(
+          (from) =>
+            planGuaranteed.get(from) === true ||
+            nodesById.get(from)?.type === 'plan',
+        ),
+    );
+    for (const target of outdegreeTargets.get(nodeId) ?? []) {
+      const remaining = (indegree.get(target) ?? 0) - 1;
+      indegree.set(target, remaining);
+      if (remaining === 0) {
+        ready.push(target);
+      }
+    }
+  }
+
+  nodes.forEach((node, index) => {
+    if (node.type !== 'plan-loop' && node.type !== 'approval') {
+      return;
+    }
+    if (planGuaranteed.get(node.id) === true) {
+      return;
+    }
+    errors.push({
+      path: `nodes.${index}.id`,
+      rule: 'plan-prerequisite',
+      message: `节点「${node.id}」依赖计划，其之前的每条路径上都必须存在 plan 节点`,
+    });
+  });
 }
 
 /**
@@ -122,14 +203,11 @@ function validateGraphStructure(
  * @param node 边的源节点
  * @param when 用户声明的可选分支标识
  * @returns 当节点允许该分支时返回 true
- * @description 非分支节点只能使用无 when 的默认边，审批与条件节点只能使用其各自的固定结果枚举。
+ * @description 非分支节点只能使用无 when 的默认边，审批节点只能使用 approved 分支。
  */
 function isValidEdgeWhen(node: FlowNode, when: FlowEdgeWhen | undefined) {
   if (node.type === 'approval') {
     return when === 'approved';
-  }
-  if (node.type === 'condition') {
-    return when === 'true' || when === 'false';
   }
   return when === undefined;
 }
@@ -139,7 +217,7 @@ function isValidEdgeWhen(node: FlowNode, when: FlowEdgeWhen | undefined) {
  * @param edges 端点和分支均有效的边集合
  * @param errors 用于累积校验错误的数组
  * @returns 无返回值
- * @description 同一默认边或同一 condition/approval 分支只能出现一次，防止运行时无法确定下一跳。
+ * @description 同一默认边或同一 approval 分支只能出现一次，防止运行时无法确定下一跳。
  */
 function validateDuplicateBranches(
   edges: readonly FlowDefinition['edges'][number][],

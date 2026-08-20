@@ -29,6 +29,8 @@ describe('FlowCompiler', () => {
           provide: LlmModelRegistryService,
           useValue: {
             listAvailableModels: () => [{ id: 'model-enabled' }],
+            // 已通过工具往返探测；带工具的节点才允许使用
+            getCapability: () => 'tools',
           },
         },
       ],

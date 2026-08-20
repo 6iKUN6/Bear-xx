@@ -24,6 +24,8 @@ export interface CommonChatAgentRequest {
   /** 需要人工审批的工具名，驱动 HITL 中间件 interruptOn */
   approvalToolNames?: string[];
   abortSignal?: AbortSignal;
+  /** 底层模型每被真实调用一次回调一次；见 CommonChatAgentLoopRequest.onModelTurn */
+  onModelTurn?: () => void;
 }
 
 @Injectable()
@@ -156,6 +158,7 @@ export class CommonChatAgentService {
       threadId: request.threadId,
       approvalToolNames: request.approvalToolNames,
       abortSignal: request.abortSignal,
+      onModelTurn: request.onModelTurn,
     })) {
       yield event;
     }
@@ -184,6 +187,7 @@ export class CommonChatAgentService {
       approvalToolNames: request.approvalToolNames,
       decision: request.decision,
       abortSignal: request.abortSignal,
+      onModelTurn: request.onModelTurn,
     })) {
       yield event;
     }

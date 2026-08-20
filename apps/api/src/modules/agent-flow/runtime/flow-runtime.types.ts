@@ -1,5 +1,4 @@
 import type {
-  FlowConditionNodeConfig,
   FlowDefinition,
   FlowNodeType,
   FlowPlanLoopStopPolicy,
@@ -74,12 +73,6 @@ export interface CompiledApprovalFlowNode extends CompiledFlowNodeBase {
   kind: 'plan-review';
 }
 
-/** 编译后的条件节点。 */
-export interface CompiledConditionFlowNode extends CompiledFlowNodeBase {
-  type: 'condition';
-  condition: FlowConditionNodeConfig;
-}
-
 /** 编译后的汇总节点。 */
 export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
   type: 'synthesize';
@@ -91,7 +84,6 @@ export type CompiledFlowNode =
   | CompiledPlanFlowNode
   | CompiledPlanLoopFlowNode
   | CompiledApprovalFlowNode
-  | CompiledConditionFlowNode
   | CompiledSynthesizeFlowNode;
 
 /** 已冻结且可被节点执行器消费的 Flow 计划。 */

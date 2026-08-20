@@ -1,7 +1,9 @@
 import {
   ApplicationFailure,
+  CancellationScope,
   condition,
   defineSignal,
+  isCancellation,
   proxyActivities,
   setHandler,
 } from '@temporalio/workflow';
@@ -34,6 +36,7 @@ export async function agentFlowWorkflow(
   input: AgentFlowWorkflowInput,
 ): Promise<AgentFlowWorkflowResult> {
   const activities = createActivities(input.activityTaskQueue);
+  const finalizeActivities = createFinalizeActivities(input.activityTaskQueue);
   const resolvedApprovalIds = new Set<string>();
   let cancelled = false;
   let lastNodeKey: string | null = null;
@@ -60,12 +63,17 @@ export async function agentFlowWorkflow(
     errorCategory?: string,
   ): Promise<AgentFlowWorkflowResult> => {
     finalizationStarted = true;
-    await activities.finalizeRun({
-      workflow: input,
-      status,
-      lastNodeKey,
-      ...(errorCategory ? { errorCategory } : {}),
-    });
+    // 必须走 nonCancellable：原生取消（Temporal UI 的 Cancel、handle.cancel()）会取消
+    // 当前 scope 内所有 Activity 与 Timer，普通调度的终态写入会立刻以 CancelledFailure
+    // 失败，StreamTask 永久停在 RUNNING、SSE 流不关闭，前端只能一直转圈。
+    await CancellationScope.nonCancellable(() =>
+      finalizeActivities.finalizeRun({
+        workflow: input,
+        status,
+        lastNodeKey,
+        ...(errorCategory ? { errorCategory } : {}),
+      }),
+    );
     return { status, lastNodeKey };
   };
 
@@ -92,7 +100,34 @@ export async function agentFlowWorkflow(
         nodeExecutionId,
       });
 
-      while (result.kind === 'waiting_human') {
+      // 已观测到的步骤进度，用于拒绝不推进的空转调度；人工恢复后重置
+      let observedSteps = -1;
+      while (result.kind === 'waiting_human' || result.kind === 'continued') {
+        // 逐步调度使得时长预算与取消信号在每个步骤之间都能生效，
+        // 而不是只在节点边界——单个 plan-loop 节点可能持续数分钟。
+        if (cancelled) {
+          return finalize('cancelled');
+        }
+        if (Date.now() >= deadlineMs) {
+          return finalize('timed_out');
+        }
+
+        if (result.kind === 'continued') {
+          if (result.completedSteps <= observedSteps) {
+            throw ApplicationFailure.nonRetryable(
+              `节点「${node.key}」连续调度未推进步骤，拒绝空转`,
+              'AGENT_FLOW_NON_RETRYABLE',
+            );
+          }
+          observedSteps = result.completedSteps;
+          result = await activities.continueNode({
+            workflow: input,
+            nodeKey: node.key,
+            nodeExecutionId,
+          });
+          continue;
+        }
+
         const waitingResult = result;
         const remainingMs = deadlineMs - Date.now();
         const waitTimeoutMs = Math.min(
@@ -110,6 +145,8 @@ export async function agentFlowWorkflow(
           return finalize('timed_out');
         }
         resolvedApprovalIds.delete(waitingResult.approvalId);
+        // 恢复会补完被中断的那一步，进度基线随之失效
+        observedSteps = -1;
         result = await activities.resumeNode({
           workflow: input,
           nodeKey: node.key,
@@ -127,13 +164,15 @@ export async function agentFlowWorkflow(
     return finalize('completed');
   } catch (error) {
     if (!finalizationStarted) {
-      await activities.finalizeRun({
-        workflow: input,
-        status: 'error',
-        lastNodeKey,
-        errorCategory: 'WORKFLOW_ACTIVITY_FAILED',
-      });
+      // 原生取消不是失败：Activity 与 condition 都会抛 CancelledFailure，若按错误收敛
+      // 会把运维的一次 Cancel 记成 WORKFLOW_ACTIVITY_FAILED，误导排障。
+      if (isCancellation(error)) {
+        await finalize('cancelled');
+      } else {
+        await finalize('error', 'WORKFLOW_ACTIVITY_FAILED');
+      }
     }
+    // 继续抛出以让 Temporal 把执行收敛为 CANCELLED / FAILED，而不是伪装成正常完成
     throw error;
   }
 }
@@ -163,6 +202,29 @@ function createActivities(activityTaskQueue: string): AgentFlowActivityApi {
         'AGENT_FLOW_NODE_EXECUTOR_UNAVAILABLE',
         'AGENT_FLOW_NON_RETRYABLE',
       ],
+    },
+  });
+}
+
+/**
+ * 创建终态写入专用的 Activity 代理
+ * @param activityTaskQueue 由启动输入冻结的业务 Activity 队列名
+ * @returns 返回只含 finalizeRun 的 Activity 集合
+ * @description 终态写入是唯一让 StreamTask 离开 RUNNING、让 SSE 流关闭的动作，失败代价
+ * 远高于普通节点调度，因此比业务 Activity 给更多重试与更长退避上限；节点调度仍用
+ * createActivities 的三次重试，避免真实故障时长时间挂住整条 Flow。
+ */
+function createFinalizeActivities(
+  activityTaskQueue: string,
+): Pick<AgentFlowActivityApi, 'finalizeRun'> {
+  return proxyActivities<Pick<AgentFlowActivityApi, 'finalizeRun'>>({
+    taskQueue: activityTaskQueue,
+    startToCloseTimeout: '5 minutes',
+    retry: {
+      initialInterval: '1 second',
+      maximumInterval: '30 seconds',
+      maximumAttempts: 10,
+      nonRetryableErrorTypes: ['AGENT_FLOW_INVALID_SNAPSHOT'],
     },
   });
 }

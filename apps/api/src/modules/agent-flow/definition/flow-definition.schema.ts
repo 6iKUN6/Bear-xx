@@ -90,19 +90,6 @@ const flowNodeSchema = z.discriminatedUnion('type', [
   z
     .object({
       id: nodeIdSchema,
-      type: z.literal('condition'),
-      config: z
-        .object({
-          field: nonEmptyKeySchema,
-          operator: z.enum(['equals', 'not-equals', 'exists']),
-          value: z.union([z.string(), z.number(), z.boolean()]).optional(),
-        })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      id: nodeIdSchema,
       type: z.literal('synthesize'),
       config: z.object({}).strict(),
     })
@@ -147,7 +134,7 @@ export const FlowDefinitionSchema = z
           .object({
             from: nodeIdSchema,
             to: nodeIdSchema,
-            when: z.enum(['approved', 'true', 'false']).optional(),
+            when: z.literal('approved').optional(),
           })
           .strict(),
       )
