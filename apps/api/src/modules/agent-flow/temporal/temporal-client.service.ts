@@ -5,6 +5,10 @@ import {
   getTemporalWorkerConfig,
   type TemporalWorkerConfig,
 } from '../../../temporal/temporal.config';
+import {
+  AGENT_FLOW_WORKFLOW_REVISION,
+  AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY,
+} from '../../../temporal/agent-flow.workflow-revision';
 import type {
   AgentFlowWorkflowInput,
   AgentFlowWorkflowStartInput,
@@ -15,6 +19,8 @@ export interface AgentFlowWorkflowStartOptions {
   taskQueue: string;
   workflowId: string;
   workflowIdConflictPolicy: 'USE_EXISTING';
+  /** 只登记 Workflow 代码修订号，不放任何业务或用户数据。 */
+  memo: Record<string, number>;
   args: [AgentFlowWorkflowInput];
 }
 
@@ -156,6 +162,11 @@ export function createAgentFlowWorkflowStartOptions(
     taskQueue: config.orchestratorTaskQueue,
     workflowId: input.streamTaskId,
     workflowIdConflictPolicy: 'USE_EXISTING',
+    // 记录启动时的 Workflow 代码修订号：改动命令序列前可据此在 Temporal UI 上
+    // 过滤出属于旧修订的在途 run，判断是否已排空。memo 不参与 replay。
+    memo: {
+      [AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY]: AGENT_FLOW_WORKFLOW_REVISION,
+    },
     args: [
       {
         ...input,

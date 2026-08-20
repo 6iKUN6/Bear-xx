@@ -1,3 +1,4 @@
+import { AGENT_FLOW_WORKFLOW_REVISION } from '../../../temporal/agent-flow.workflow-revision';
 import { getTemporalWorkerConfig } from '../../../temporal/temporal.config';
 import type {
   AgentFlowWorkflowInput,
@@ -24,6 +25,10 @@ describe('TemporalClientService', () => {
       taskQueue: 'agent-flow-orchestrator',
       workflowId: 'task-1',
       workflowIdConflictPolicy: 'USE_EXISTING',
+      // 登记启动时的 Workflow 代码修订，供排空判断使用
+      memo: {
+        agentFlowWorkflowRevision: AGENT_FLOW_WORKFLOW_REVISION,
+      },
       args: [
         {
           streamTaskId: 'task-1',

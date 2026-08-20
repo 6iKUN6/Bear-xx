@@ -7,6 +7,7 @@ import {
 import { Prisma, StreamTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TemporalClientService } from './temporal-client.service';
+import { isWorkflowUnreachableError } from './temporal-signal-error';
 
 const CANCELLATION_DISPATCH_INTERVAL_MS = 5_000;
 const CANCELLATION_DISPATCH_BATCH_SIZE = 50;
@@ -65,6 +66,10 @@ export class AgentFlowCancellationDispatcherService
         status: StreamTaskStatus.CANCELED,
         flowVersionId: { not: null },
         temporalWorkflowId: { not: null },
+        // 必须在 SQL 层排除已处理任务：若投递标记只在内存里过滤，已处理记录会长期
+        // 停留在 updatedAt 最旧的位置占满 take 额度，累计到批次大小后新取消的任务
+        // 永远进不了批次，取消 Signal 再也发不出去。
+        cancelSignalSettledAt: null,
       },
       orderBy: { updatedAt: 'asc' },
       take: CANCELLATION_DISPATCH_BATCH_SIZE,
@@ -77,7 +82,7 @@ export class AgentFlowCancellationDispatcherService
 
     for (const task of tasks) {
       const workflowId = task.temporalWorkflowId;
-      if (!workflowId || hasCancellationSignalDelivered(task.executionState)) {
+      if (!workflowId) {
         continue;
       }
       await this.dispatchOne({ ...task, temporalWorkflowId: workflowId });
@@ -99,23 +104,48 @@ export class AgentFlowCancellationDispatcherService
       await this.temporalClientService.signalCancel({
         workflowId: task.temporalWorkflowId,
       });
-      await this.prisma.streamTask.updateMany({
-        where: {
-          id: task.id,
-          status: StreamTaskStatus.CANCELED,
-          temporalWorkflowId: task.temporalWorkflowId,
-        },
-        data: {
-          executionState: toCancellationDeliveredExecutionState(
-            task.executionState,
-          ),
-        },
-      });
+      await this.settle(task);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : '未知取消 Signal 错误';
+      // Workflow 已关闭时取消 Signal 本就无意义，且永远不会成功；若不落终态标记，
+      // 这条记录会一直留在批次队头并挤掉后续新取消的任务。
+      if (isWorkflowUnreachableError(error)) {
+        this.logger.log(
+          `Flow 取消 Signal 目标已关闭，按已处理收敛（taskId=${task.id}）：${message.slice(0, 200)}`,
+        );
+        await this.settle(task);
+        return;
+      }
       this.logger.warn(`Flow 取消 Signal 投递失败：${message.slice(0, 500)}`);
     }
+  }
+
+  /**
+   * 标记一条取消任务的 Signal 已处理
+   * @param task 已取消任务的最小数据库快照
+   * @returns 无返回值
+   * @description 同时写 cancelSignalSettledAt 与 executionState 标记：前者供派发查询在
+   * SQL 层排除，后者保留既有的可观测字段。条件更新避免覆盖已被其他终态流程改写的任务。
+   */
+  private async settle(task: {
+    id: string;
+    temporalWorkflowId: string;
+    executionState: Prisma.JsonValue | null;
+  }): Promise<void> {
+    await this.prisma.streamTask.updateMany({
+      where: {
+        id: task.id,
+        status: StreamTaskStatus.CANCELED,
+        temporalWorkflowId: task.temporalWorkflowId,
+      },
+      data: {
+        cancelSignalSettledAt: new Date(),
+        executionState: toCancellationDeliveredExecutionState(
+          task.executionState,
+        ),
+      },
+    });
   }
 
   /**
@@ -130,21 +160,6 @@ export class AgentFlowCancellationDispatcherService
       this.logger.warn(`Flow 取消 Signal 派发失败：${message.slice(0, 500)}`);
     });
   }
-}
-
-/**
- * 判断任务执行状态是否已记录取消 Signal 投递
- * @param value StreamTask.executionState 的 JSON 值
- * @returns 已记录有效 ISO 时间时返回 true
- * @description 标记只用于避免健康进程反复向已收到 Signal 的 Workflow 发送取消，不作为任务取消与否的业务事实。
- */
-function hasCancellationSignalDelivered(
-  value: Prisma.JsonValue | null,
-): boolean {
-  if (!isJsonObject(value) || !isJsonObject(value.agentFlow)) {
-    return false;
-  }
-  return typeof value.agentFlow.cancelSignalDeliveredAt === 'string';
 }
 
 /**

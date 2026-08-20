@@ -7,10 +7,20 @@ import {
 import { AgentFlowSignalOutboxStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TemporalClientService } from './temporal-client.service';
+import { isWorkflowUnreachableError } from './temporal-signal-error';
 
 const OUTBOX_BATCH_SIZE = 50;
 const OUTBOX_DISPATCH_INTERVAL_MS = 5_000;
 const OUTBOX_SENDING_LEASE_MS = 60_000;
+/**
+ * 投递重试上限。达到后转 FAILED 终态，不再参与派发批次。
+ * @description 没有上限时，一条永远失败的记录会以最旧 createdAt 长期占据批次，
+ * 累计到 OUTBOX_BATCH_SIZE 条后新审批 Signal 将永远轮不到派发。
+ */
+const OUTBOX_MAX_ATTEMPTS = 8;
+/** 指数退避基数；第 n 次失败后等待 base * 2^(n-1)，上限见 OUTBOX_BACKOFF_MAX_MS。 */
+const OUTBOX_BACKOFF_BASE_MS = 5_000;
+const OUTBOX_BACKOFF_MAX_MS = 5 * 60_000;
 
 /**
  * AgentFlow 审批 Signal outbox
@@ -61,7 +71,11 @@ export class AgentFlowSignalOutboxService
   async dispatchPending(): Promise<void> {
     await this.recoverExpiredSendingLeases();
     const pending = await this.prisma.agentFlowSignalOutbox.findMany({
-      where: { status: AgentFlowSignalOutboxStatus.PENDING },
+      where: {
+        status: AgentFlowSignalOutboxStatus.PENDING,
+        // 退避未到期的记录不进入批次，避免退避中的记录挤占派发额度
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+      },
       orderBy: { createdAt: 'asc' },
       take: OUTBOX_BATCH_SIZE,
       select: {
@@ -138,11 +152,36 @@ export class AgentFlowSignalOutboxService
           status: AgentFlowSignalOutboxStatus.DELIVERED,
           deliveredAt: new Date(),
           lastError: null,
+          nextAttemptAt: null,
         },
       });
     } catch (error) {
       const message = this.toSafeErrorMessage(error);
-      this.logger.warn(`Flow 审批 Signal 投递失败：${message}`);
+      const attempts = outbox.attempts + 1;
+      // Workflow 已关闭意味着 Signal 永远送不到：审批决定提交与 Workflow 超时收尾
+      // 存在固有竞态，重试再多也无用，必须转终态而不是无限占用批次。
+      const unreachable = isWorkflowUnreachableError(error);
+      const exhausted = attempts >= OUTBOX_MAX_ATTEMPTS;
+
+      if (unreachable || exhausted) {
+        this.logger.error(
+          `Flow 审批 Signal 投递终止（approvalId=${outbox.approvalId}, attempts=${attempts}, ` +
+            `${unreachable ? 'workflow 已关闭' : '重试次数耗尽'}）：${message}`,
+        );
+        await this.prisma.agentFlowSignalOutbox.updateMany({
+          where: { id: outbox.id, status: AgentFlowSignalOutboxStatus.SENDING },
+          data: {
+            status: AgentFlowSignalOutboxStatus.FAILED,
+            lastError: message,
+            nextAttemptAt: null,
+          },
+        });
+        return;
+      }
+
+      this.logger.warn(
+        `Flow 审批 Signal 投递失败（第 ${attempts} 次，将退避重试）：${message}`,
+      );
       await this.prisma.agentFlowSignalOutbox.updateMany({
         where: {
           id: outbox.id,
@@ -151,6 +190,7 @@ export class AgentFlowSignalOutboxService
         data: {
           status: AgentFlowSignalOutboxStatus.PENDING,
           lastError: message,
+          nextAttemptAt: new Date(Date.now() + backoffDelayMs(attempts)),
         },
       });
     }
@@ -180,4 +220,18 @@ export class AgentFlowSignalOutboxService
       error instanceof Error ? error.message : '未知 Signal 投递错误';
     return message.slice(0, 500);
   }
+}
+
+/**
+ * 计算第 n 次失败后的退避时长
+ * @param attempts 已累计的投递尝试次数
+ * @returns 返回退避毫秒数
+ * @description 指数增长并设上限，避免瞬时故障期间以固定 5s 间隔反复冲击 Temporal。
+ */
+function backoffDelayMs(attempts: number): number {
+  const exponent = Math.max(0, attempts - 1);
+  return Math.min(
+    OUTBOX_BACKOFF_MAX_MS,
+    OUTBOX_BACKOFF_BASE_MS * 2 ** exponent,
+  );
 }
