@@ -12,6 +12,7 @@ import {
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { validateFlowDefinition } from './definition/flow-definition.validator';
+import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
 
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
 
@@ -57,7 +58,10 @@ export interface AgentFlowDetailResponse extends AgentFlowSummaryResponse {
  */
 @Injectable()
 export class AgentFlowService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly runtimeValidator: FlowRuntimeValidator,
+  ) {}
 
   /**
    * 创建逻辑 Flow 与其首个草稿版本
@@ -229,6 +233,7 @@ export class AgentFlowService {
       ) {
         throw new BadRequestException('只有已发布或已归档版本可以回滚');
       }
+      this.requireRollbackTargetStillRunnable(targetVersion.definition);
 
       const now = new Date();
       await transaction.agentFlowVersion.updateMany({
@@ -265,6 +270,80 @@ export class AgentFlowService {
       });
       return this.toVersionResponse(restoredVersion);
     });
+  }
+
+  /**
+   * 删除一个从未被任务引用的 Flow
+   * @param flowId 逻辑 Flow ID
+   * @returns 无返回值
+   * @description 只允许删除"干净"的 Flow：任何版本一旦被 StreamTask 锁定过，它就是审计链的一部分，
+   * 数据库层面 `StreamTask.flowVersionId` 是 `onDelete: Restrict`，这里把该约束翻译成可读的拒绝原因，
+   * 而不是让管理端撞上裸 Prisma 外键错误。同理，被 Agent 绑定的版本不静默解绑——`defaultFlowVersionId`
+   * 是 `SetNull`，删了会让那个 Agent 无声地退回非 Flow 链路，必须让操作者先显式解绑。
+   */
+  async remove(flowId: string): Promise<void> {
+    await this.runSerializableTransaction(async (transaction) => {
+      const flow = await transaction.agentFlow.findUnique({
+        where: { id: flowId },
+        include: { versions: { select: { id: true } } },
+      });
+      if (!flow) {
+        throw new NotFoundException('Flow 不存在');
+      }
+      const versionIds = flow.versions.map((version) => version.id);
+
+      const taskCount = await transaction.streamTask.count({
+        where: { flowVersionId: { in: versionIds } },
+      });
+      if (taskCount > 0) {
+        throw new BadRequestException(
+          `该 Flow 已被 ${taskCount} 个任务运行过，属于审计链的一部分，不可删除`,
+        );
+      }
+      const boundAgents = await transaction.agent.findMany({
+        where: { defaultFlowVersionId: { in: versionIds } },
+        select: { name: true },
+      });
+      if (boundAgents.length > 0) {
+        throw new BadRequestException(
+          `请先解除智能体绑定：${boundAgents.map((agent) => agent.name).join('、')}`,
+        );
+      }
+
+      // 先摘掉 Flow -> 版本的发布指针，否则删版本会被该外键挡住
+      await transaction.agentFlow.update({
+        where: { id: flowId },
+        data: { publishedVersionId: null },
+      });
+      await transaction.agentFlowVersion.deleteMany({ where: { flowId } });
+      // 审计日志随 Flow 级联删除
+      await transaction.agentFlow.delete({ where: { id: flowId } });
+    });
+  }
+
+  /**
+   * 校验回滚目标在当前能力闭集下仍可运行
+   * @param definition 目标历史版本的 Definition JSON
+   * @returns 无返回值
+   * @description 历史版本发布时引用的模型、工具组或技能可能已经下线。回滚只切指针不校验的话，
+   * 这个版本会成为线上发布版本，然后在每个终端用户的任务创建期编译失败——失败落在用户身上，
+   * 而不是执行回滚的管理员。这里用与 publish 相同的发布期校验，把错误还给操作者。
+   */
+  private requireRollbackTargetStillRunnable(definition: unknown): void {
+    const parsed = validateFlowDefinition(definition);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        message: '回滚目标版本的 FlowDefinition 已不合法',
+        errors: parsed.errors,
+      });
+    }
+    const runtimeResult = this.runtimeValidator.validate(parsed.definition);
+    if (!runtimeResult.valid) {
+      throw new BadRequestException({
+        message: '回滚目标版本引用的能力已不可用',
+        errors: runtimeResult.errors,
+      });
+    }
   }
 
   /**

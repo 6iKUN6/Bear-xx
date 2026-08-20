@@ -40,6 +40,28 @@ export class AgentFlowDetailResponseDto extends AgentFlowResponseDto {
   versions: AgentFlowVersionResponseDto[];
 }
 
+/** 内置 Flow 模板：新建 Flow 的起点，避免管理员手写整份 Definition。 */
+export class AgentFlowTemplateResponseDto {
+  @ApiProperty({
+    description: '预设标识',
+    enum: ['direct', 'react', 'plan_execute', 'hybrid'],
+  })
+  preset: string;
+
+  @ApiProperty({ description: '模板 Definition 声明的名称' })
+  name: string;
+
+  @ApiProperty({ description: '模板 Definition 声明的描述' })
+  description: string;
+
+  @ApiProperty({
+    description: '可直接提交给创建接口的完整 FlowDefinition',
+    type: 'object',
+    additionalProperties: true,
+  })
+  definition: object;
+}
+
 export class AgentFlowValidationResponseDto {
   @ApiProperty() valid: boolean;
   @ApiProperty({ type: FlowDefinitionValidationErrorDto, isArray: true })

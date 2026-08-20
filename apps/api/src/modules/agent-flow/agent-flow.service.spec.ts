@@ -3,6 +3,7 @@ import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentFlowService } from './agent-flow.service';
+import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
 
 type CreateArgs = { data: Record<string, unknown> };
 
@@ -11,6 +12,7 @@ type AgentFlowTransactionClient = {
     create: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
     findUnique: jest.Mock<Promise<Record<string, unknown> | null>, [unknown]>;
     update: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
+    delete: jest.Mock<Promise<Record<string, unknown>>, [unknown]>;
   };
   agentFlowVersion: {
     create: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
@@ -18,9 +20,14 @@ type AgentFlowTransactionClient = {
     findUnique: jest.Mock<Promise<Record<string, unknown> | null>, [unknown]>;
     updateMany: jest.Mock<Promise<{ count: number }>, [unknown]>;
     update: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
+    deleteMany: jest.Mock<Promise<{ count: number }>, [unknown]>;
   };
   agentFlowAuditLog: {
     create: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
+  };
+  streamTask: { count: jest.Mock<Promise<number>, [unknown]> };
+  agent: {
+    findMany: jest.Mock<Promise<Array<{ name: string }>>, [unknown]>;
   };
 };
 
@@ -55,6 +62,9 @@ const directDefinition: FlowDefinition = {
 };
 
 describe('AgentFlowService', () => {
+  // 回滚要走与 publish 相同的发布期能力校验；默认放行，单独用例再让它失败
+  const runtimeValidator = { validate: jest.fn() };
+
   let service: AgentFlowService;
   let createFlow: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
   let createVersion: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
@@ -71,9 +81,14 @@ describe('AgentFlowService', () => {
   let updateVersions: jest.Mock<Promise<{ count: number }>, [unknown]>;
   let updateVersion: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
   let createAudit: jest.Mock<Promise<Record<string, unknown>>, [CreateArgs]>;
+  let deleteFlow: jest.Mock<Promise<Record<string, unknown>>, [unknown]>;
+  let deleteVersions: jest.Mock<Promise<{ count: number }>, [unknown]>;
+  let countTasks: jest.Mock<Promise<number>, [unknown]>;
+  let findBoundAgents: jest.Mock<Promise<Array<{ name: string }>>, [unknown]>;
   let transaction: jest.Mock<Promise<unknown>, [TransactionCallback, unknown]>;
 
   beforeEach(async () => {
+    runtimeValidator.validate.mockReturnValue({ valid: true, errors: [] });
     createFlow = jest.fn<Promise<Record<string, unknown>>, [CreateArgs]>();
     createVersion = jest.fn<Promise<Record<string, unknown>>, [CreateArgs]>();
     findFlow = jest.fn<Promise<Record<string, unknown> | null>, [unknown]>();
@@ -86,6 +101,15 @@ describe('AgentFlowService', () => {
     updateVersions = jest.fn<Promise<{ count: number }>, [unknown]>();
     updateVersion = jest.fn<Promise<Record<string, unknown>>, [CreateArgs]>();
     createAudit = jest.fn<Promise<Record<string, unknown>>, [CreateArgs]>();
+    deleteFlow = jest.fn<Promise<Record<string, unknown>>, [unknown]>();
+    deleteVersions = jest
+      .fn<Promise<{ count: number }>, [unknown]>()
+      .mockResolvedValue({ count: 1 });
+    // 默认"干净"：没跑过任务、没被智能体绑定；单独用例再让它们非空
+    countTasks = jest.fn<Promise<number>, [unknown]>().mockResolvedValue(0);
+    findBoundAgents = jest
+      .fn<Promise<Array<{ name: string }>>, [unknown]>()
+      .mockResolvedValue([]);
     transaction = jest.fn<Promise<unknown>, [TransactionCallback, unknown]>(
       (callback) =>
         callback({
@@ -93,6 +117,7 @@ describe('AgentFlowService', () => {
             create: createFlow,
             findUnique: findFlow,
             update: updateFlow,
+            delete: deleteFlow,
           },
           agentFlowVersion: {
             create: createVersion,
@@ -100,8 +125,11 @@ describe('AgentFlowService', () => {
             findUnique: findVersion,
             updateMany: updateVersions,
             update: updateVersion,
+            deleteMany: deleteVersions,
           },
           agentFlowAuditLog: { create: createAudit },
+          streamTask: { count: countTasks },
+          agent: { findMany: findBoundAgents },
         }),
     );
 
@@ -112,6 +140,7 @@ describe('AgentFlowService', () => {
           provide: PrismaService,
           useValue: { $transaction: transaction },
         },
+        { provide: FlowRuntimeValidator, useValue: runtimeValidator },
       ],
     }).compile();
 
@@ -308,5 +337,95 @@ describe('AgentFlowService', () => {
         digest: 'historical-digest',
       },
     });
+  });
+
+  it('回滚目标引用的能力已下线时拒绝回滚，不切换发布指针', async () => {
+    findFlow.mockResolvedValue({
+      id: 'flow-1',
+      publishedVersionId: 'version-3',
+    });
+    findVersion.mockResolvedValue({
+      id: 'version-1',
+      flowId: 'flow-1',
+      status: 'ARCHIVED',
+      digest: 'historical-digest',
+      definition: directDefinition,
+      version: 1,
+      schemaVersion: 1,
+      createdAt: new Date('2026-08-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-16T00:00:00.000Z'),
+      publishedAt: new Date('2026-08-16T00:00:00.000Z'),
+      archivedAt: new Date('2026-08-16T00:00:00.000Z'),
+    });
+    // 历史版本发布时存在的工具组之后被下线
+    runtimeValidator.validate.mockReturnValue({
+      valid: false,
+      errors: [
+        {
+          path: 'nodes.0.config.toolGroups.0',
+          rule: 'tool-group-exists',
+          message: '工具组「retired」不存在',
+        },
+      ],
+    });
+
+    await expect(
+      service.rollback('flow-1', 'version-1', 'admin-1'),
+    ).rejects.toThrow('回滚目标版本引用的能力已不可用');
+    // 校验失败必须发生在任何写入之前，否则发布指针会指向一个跑不起来的版本
+    expect(updateVersions).not.toHaveBeenCalled();
+    expect(updateVersion).not.toHaveBeenCalled();
+    expect(updateFlow).not.toHaveBeenCalled();
+    expect(createAudit).not.toHaveBeenCalled();
+  });
+  it('删除干净的 Flow 时先摘掉发布指针再删版本', async () => {
+    findFlow.mockResolvedValue({
+      id: 'flow-1',
+      versions: [{ id: 'version-1' }, { id: 'version-2' }],
+    });
+
+    await service.remove('flow-1');
+
+    // 顺序有意义：AgentFlow.publishedVersionId 指向版本，不先摘就会被外键挡住
+    expect(updateFlow).toHaveBeenCalledWith({
+      where: { id: 'flow-1' },
+      data: { publishedVersionId: null },
+    });
+    expect(deleteVersions).toHaveBeenCalledWith({
+      where: { flowId: 'flow-1' },
+    });
+    expect(deleteFlow).toHaveBeenCalledWith({ where: { id: 'flow-1' } });
+  });
+
+  it('跑过任务的 Flow 拒绝删除，且不发生任何写入', async () => {
+    // 被任务锁定过的版本是审计链的一部分；数据库是 Restrict，这里要给出可读原因
+    findFlow.mockResolvedValue({
+      id: 'flow-1',
+      versions: [{ id: 'version-1' }],
+    });
+    countTasks.mockResolvedValue(3);
+
+    await expect(service.remove('flow-1')).rejects.toThrow(/3 个任务/);
+    expect(updateFlow).not.toHaveBeenCalled();
+    expect(deleteVersions).not.toHaveBeenCalled();
+    expect(deleteFlow).not.toHaveBeenCalled();
+  });
+
+  it('仍被智能体绑定时拒绝删除，不静默解绑', async () => {
+    // defaultFlowVersionId 是 SetNull：删掉会让那个 Agent 无声退回非 Flow 链路
+    findFlow.mockResolvedValue({
+      id: 'flow-1',
+      versions: [{ id: 'version-1' }],
+    });
+    findBoundAgents.mockResolvedValue([{ name: '客服助手' }]);
+
+    await expect(service.remove('flow-1')).rejects.toThrow(/客服助手/);
+    expect(deleteFlow).not.toHaveBeenCalled();
+  });
+
+  it('Flow 不存在时抛 NotFound', async () => {
+    findFlow.mockResolvedValue(null);
+
+    await expect(service.remove('missing')).rejects.toThrow('Flow 不存在');
   });
 });

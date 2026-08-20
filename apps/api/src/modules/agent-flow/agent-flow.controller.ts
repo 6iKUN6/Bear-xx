@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Put,
@@ -23,9 +26,12 @@ import { CreateAgentFlowDto } from './dto/create-agent-flow.dto';
 import {
   AgentFlowDetailResponseDto,
   AgentFlowResponseDto,
+  AgentFlowTemplateResponseDto,
   AgentFlowValidationResponseDto,
   AgentFlowVersionResponseDto,
 } from './dto/agent-flow-response.dto';
+import { EmptyResultDto } from '../../common/dto/empty-result.dto';
+import { FlowTemplateRegistry } from './runtime/flow-template.registry';
 import { ImportAgentFlowDto } from './dto/import-agent-flow.dto';
 import { RollbackAgentFlowDto } from './dto/rollback-agent-flow.dto';
 import { UpdateAgentFlowVersionDto } from './dto/update-agent-flow-version.dto';
@@ -43,6 +49,7 @@ export class AgentFlowController {
   constructor(
     private readonly flowService: AgentFlowService,
     private readonly versionService: AgentFlowVersionService,
+    private readonly templateRegistry: FlowTemplateRegistry,
   ) {}
 
   /**
@@ -69,6 +76,26 @@ export class AgentFlowController {
   @ApiOkResponse({ type: AgentFlowResponseDto, isArray: true })
   list() {
     return this.flowService.list();
+  }
+
+  /**
+   * 列出可作为新建起点的内置 Flow 模板
+   * @returns 返回 Direct、ReAct、Plan Execute 与 Hybrid 的完整 Definition
+   * @description 每次重新构造模板副本，管理端修改返回值不会污染后续请求；模板只表达结构与预算，模型统一为 `agent-default`。
+   */
+  @Get('agent-flow-templates')
+  @ApiOperation({ summary: '获取内置 Flow 模板（管理员）' })
+  @ApiOkResponse({ type: AgentFlowTemplateResponseDto, isArray: true })
+  listTemplates(): AgentFlowTemplateResponseDto[] {
+    return this.templateRegistry.list().map((preset) => {
+      const definition = this.templateRegistry.get(preset);
+      return {
+        preset,
+        name: definition.name,
+        description: definition.description ?? '',
+        definition,
+      };
+    });
   }
 
   /**
@@ -182,5 +209,20 @@ export class AgentFlowController {
     @CurrentUser('id') actorId: string,
   ) {
     return this.flowService.rollback(flowId, dto.versionId, actorId);
+  }
+
+  /**
+   * 删除一个从未被任务运行过的 Flow
+   * @param flowId 逻辑 Flow ID
+   * @returns 返回删除结果
+   * @description 跑过任务或仍被智能体绑定的 Flow 会被拒绝并给出原因；不做软删除，也不静默解绑。
+   */
+  @Delete('agent-flows/:flowId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '删除未运行过的 Flow（管理员）' })
+  @ApiOkResponse({ type: EmptyResultDto })
+  async remove(@Param('flowId') flowId: string) {
+    await this.flowService.remove(flowId);
+    return { success: true };
   }
 }
