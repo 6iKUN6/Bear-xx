@@ -6,8 +6,10 @@ import { FlowRuntimeValidator } from './flow-runtime-validator.service';
 
 describe('FlowRuntimeValidator', () => {
   let validator: FlowRuntimeValidator;
+  let capability: string;
 
   beforeEach(async () => {
+    capability = 'tools';
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FlowRuntimeValidator,
@@ -19,6 +21,8 @@ describe('FlowRuntimeValidator', () => {
           provide: LlmModelRegistryService,
           useValue: {
             listAvailableModels: () => [{ id: 'model-enabled' }],
+            // 能力档位来自真实探测；默认给通过工具往返的档位
+            getCapability: () => capability,
           },
         },
       ],
@@ -101,7 +105,56 @@ describe('FlowRuntimeValidator', () => {
       ],
     });
   });
+
+  it('拒绝把未通过工具往返探测的模型配到带工具的节点上', () => {
+    // 只过 L1 连通性的预设在第一次工具回填时才会炸，必须在发布期拦住
+    capability = 'basic';
+
+    const result = validator.validate(withToolGroup());
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ rule: 'model-preset-tool-capability' }),
+    );
+  });
+
+  it('尚未探测的模型同样不能用于带工具的节点', () => {
+    capability = 'unverified';
+
+    const result = validator.validate(withToolGroup());
+
+    expect(result.errors[0].message).toContain('尚未通过连通性探测');
+  });
+
+  it('未配工具的节点不受能力档位限制', () => {
+    // basic 档位仍可用于 synthesize 这类无工具场景，不该一刀切禁用
+    capability = 'basic';
+
+    expect(validator.validate(baseDefinition()).valid).toBe(true);
+  });
 });
+
+/**
+ * 构造一个带工具组的 Agent 节点定义
+ * @returns 返回引用已注册工具组的定义
+ */
+function withToolGroup(): FlowDefinition {
+  return {
+    ...baseDefinition(),
+    nodes: [
+      {
+        id: 'answer',
+        type: 'agent',
+        config: {
+          modelPreset: 'model-enabled',
+          toolGroups: ['weather'],
+          skills: [],
+          maxToolIterations: 1,
+        },
+      },
+    ],
+  };
+}
 
 /**
  * 创建最小的有效 FlowDefinition

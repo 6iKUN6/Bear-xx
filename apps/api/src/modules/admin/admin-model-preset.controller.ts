@@ -19,7 +19,9 @@ import {
 import { ModelPresetService } from './model-preset.service';
 import {
   CreateModelPresetDto,
+  ModelPresetProbeResultDto,
   ModelPresetResponseDto,
+  ProbeModelPresetDto,
   UpdateModelPresetDto,
 } from './dto/model-preset.dto';
 import { EmptyResultDto } from '../../common/dto/empty-result.dto';
@@ -61,6 +63,30 @@ export class AdminModelPresetController {
   @ApiOkResponse({ type: ModelPresetResponseDto })
   update(@Param('id') id: string, @Body() dto: UpdateModelPresetDto) {
     return this.service.update(id, dto);
+  }
+
+  @Post('probe')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '探测尚未保存的模型连接（管理员）',
+    description:
+      '两级探测：L1 验证连通性，L2 验证工具往返闭环。不落库、不改动任何预设。',
+  })
+  @ApiOkResponse({ type: ModelPresetProbeResultDto })
+  probeDraft(@Body() dto: ProbeModelPresetDto) {
+    return this.service.probeDraft(dto);
+  }
+
+  @Post(':id/probe')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '探测已保存的模型预设并写回能力档位（管理员）',
+    description:
+      '使用已落库的密文密钥；结论写入 capability 与 lastCheck* 字段。',
+  })
+  @ApiOkResponse({ type: ModelPresetProbeResultDto })
+  probeExisting(@Param('id') id: string) {
+    return this.service.probeExisting(id);
   }
 
   @Delete(':id')

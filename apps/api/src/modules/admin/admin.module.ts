@@ -9,6 +9,7 @@ import { AdminModelPresetController } from './admin-model-preset.controller';
 import { AdminObservabilityService } from './admin-observability.service';
 import { AgentTestSessionService } from './agent-test-session.service';
 import { ModelPresetService } from './model-preset.service';
+import { ModelPresetProbeService } from './model-preset-probe.service';
 
 @Module({
   imports: [StreamTaskModule, LlmModule, AiModule],
@@ -22,6 +23,7 @@ import { ModelPresetService } from './model-preset.service';
     AdminObservabilityService,
     AgentTestSessionService,
     ModelPresetService,
+    ModelPresetProbeService,
   ],
 })
 export class AdminModule {}

@@ -4,7 +4,7 @@ import type { BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { LLMResult } from '@langchain/core/outputs';
 import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAICompletions } from '@langchain/openai';
+import { ChatOpenAICompletions, ChatOpenAIResponses } from '@langchain/openai';
 import type { ResolvedLlmTextRequest } from '../llm.types';
 import {
   recordModelCallEnd,
@@ -82,24 +82,53 @@ export class LlmChatModelFactory {
    * @description 根据 provider 创建对应 SDK 的模型实例，避免业务层直接耦合具体模型供应商。
    */
   createChatModel(request: ResolvedLlmTextRequest): BaseChatModel {
-    if (request.model.provider === 'anthropic') {
-      return this.createAnthropicChatModel(request);
+    switch (request.model.upstreamFormat) {
+      case 'anthropic_messages':
+        return this.createAnthropicChatModel(request);
+      case 'openai_responses':
+        return this.createOpenAiResponsesChatModel(request);
+      case 'openai_chat_completions':
+        return this.createOpenAiCompatibleChatModel(request);
+      default:
+        throw new BadRequestException(
+          `未支持的上游格式: ${String(request.model.upstreamFormat)}`,
+        );
     }
+  }
 
-    if (request.model.provider === 'openai') {
-      return this.createOpenAiCompatibleChatModel(request);
-    }
+  /**
+   * 创建走 Responses 协议的 OpenAI 模型实例
+   * @param request 已解析的文本生成请求配置
+   * @returns 返回 LangChain ChatOpenAIResponses 实例
+   * @description Responses 与 Chat Completions 的工具调用 id 语义不同（`fc_` 对 `call_`），
+   * 两者混用会在回填工具结果时报 400 —— 这正是 docs/agent-loop-evolution.md 记录的那次事故。
+   * 因此格式必须由预设显式选定并端到端保持一致，而不是在链路中途切换。
+   * 兼容网关是否真的实现了 Responses 的工具往返，由连通性探针实测判定，不在此假设。
+   */
+  private createOpenAiResponsesChatModel(
+    request: ResolvedLlmTextRequest,
+  ): BaseChatModel {
+    const { model, generation } = request;
+    const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
 
-    throw new BadRequestException(
-      `未找到对应的 LLM Provider: ${String(request.model.provider)}`,
-    );
+    return new ChatOpenAIResponses({
+      model: model.model,
+      apiKey: model.apiKey,
+      temperature: generation.temperature,
+      maxTokens: generation.maxOutputTokens,
+      topP: generation.topP,
+      maxRetries,
+      timeout: timeoutMs,
+      callbacks: [MODEL_CALL_USAGE_CALLBACK],
+      configuration: { baseURL: model.baseURL },
+    });
   }
 
   /**
    * 创建 OpenAI 兼容聊天模型实例
    * @param request 已解析的文本生成请求配置
    * @returns 返回 LangChain ChatOpenAICompletions 实例
-   * @description 通过 baseURL 与 apiKey 支持 OpenAI、DeepSeek、Kimi、豆包等 OpenAI 兼容协议平台；工具调用优先使用 Chat Completions 协议，避免 Responses API 在兼容服务中出现 tool call output 与 call_id 不匹配。
+   * @description 覆盖 OpenAI 与一切 OpenAI 兼容网关（DeepSeek / Kimi / 豆包 / 自建中转站）；这是默认且最稳的格式，工具调用 id 为 `call_` 语义。
    */
   private createOpenAiCompatibleChatModel(
     request: ResolvedLlmTextRequest,
@@ -109,17 +138,14 @@ export class LlmChatModelFactory {
 
     return new ChatOpenAICompletions({
       model: model.model,
-      apiKey: model.apiKey ?? this.configService.get<string>('OPENAI_API_KEY'),
+      apiKey: model.apiKey,
       temperature: generation.temperature,
       maxTokens: generation.maxOutputTokens,
       topP: generation.topP,
       maxRetries,
       timeout: timeoutMs,
       callbacks: [MODEL_CALL_USAGE_CALLBACK],
-      configuration: {
-        baseURL:
-          model.baseURL ?? this.configService.get<string>('OPENAI_BASE_URL'),
-      },
+      configuration: { baseURL: model.baseURL },
     });
   }
 
@@ -137,10 +163,8 @@ export class LlmChatModelFactory {
 
     return new ChatAnthropic({
       model: model.model,
-      apiKey:
-        model.apiKey ?? this.configService.get<string>('ANTHROPIC_API_KEY'),
-      anthropicApiUrl:
-        model.baseURL ?? this.configService.get<string>('ANTHROPIC_BASE_URL'),
+      apiKey: model.apiKey,
+      anthropicApiUrl: model.baseURL,
       temperature: generation.temperature,
       maxTokens: generation.maxOutputTokens,
       topP: generation.topP,

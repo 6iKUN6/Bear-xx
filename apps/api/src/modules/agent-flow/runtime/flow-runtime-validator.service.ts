@@ -145,6 +145,30 @@ export class FlowRuntimeValidator {
       });
     }
 
+    // 配了工具却用一个没通过工具往返探测的模型，运行时才会炸在第一次工具回填上；
+    // 这里提前拦住。能力档位来自真实探测，不是配置声明。
+    if (executor.toolGroups.length > 0) {
+      const effectivePreset =
+        modelPreset === 'agent-default'
+          ? context.phase === 'task'
+            ? context.agentDefaultModelPreset
+            : undefined
+          : modelPreset;
+      const capability = effectivePreset
+        ? this.modelRegistry.getCapability(effectivePreset)
+        : undefined;
+      if (capability && capability !== 'tools') {
+        errors.push({
+          path: `${path}.modelPreset`,
+          rule: 'model-preset-tool-capability',
+          message:
+            capability === 'unverified'
+              ? `模型预设「${effectivePreset}」尚未通过连通性探测，不能用于带工具的节点，请先在后台测试连接`
+              : `模型预设「${effectivePreset}」未通过工具往返探测（当前档位：${capability}），不能用于带工具的节点`,
+        });
+      }
+    }
+
     executor.toolGroups.forEach((group, index) => {
       if (!toolGroups.has(group)) {
         errors.push({
