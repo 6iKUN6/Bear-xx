@@ -128,7 +128,7 @@ export function createMcDonaldsMcpClientConfig(
   return {
     throwOnLoadError: true,
     prefixToolNameWithServerName: options.prefixToolNameWithServerName ?? true,
-      additionalToolNamePrefix: options.additionalToolNamePrefix ?? '',
+    additionalToolNamePrefix: options.additionalToolNamePrefix ?? '',
     useStandardContentBlocks: true,
     onConnectionError: options.onConnectionError ?? 'throw',
     mcpServers: {
