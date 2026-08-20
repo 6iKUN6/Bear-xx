@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { AppModule } from '../app.module';
 import { AgentFlowActivities } from '../modules/agent-flow/temporal/agent-flow.activities';
+import { getAgentFlowWorkflowBuildId } from './agent-flow.workflow-revision';
 import {
   getTemporalConnectionOptions,
   getTemporalWorkerConfig,
@@ -62,6 +63,9 @@ async function runOrchestratorWorker(
       namespace: config.namespace,
       taskQueue: config.orchestratorTaskQueue,
       workflowsPath: require.resolve('./workflows/agent-flow.workflow'),
+      // 让每个 Workflow Task 携带推进它的代码修订，便于事后定位非确定性问题；
+      // 未开启 useVersioning，因此不参与任务路由，仅作元数据。
+      buildId: getAgentFlowWorkflowBuildId(),
     });
     await worker.run();
   } finally {
@@ -87,6 +91,7 @@ async function runActivityWorker(config: TemporalWorkerConfig): Promise<void> {
       namespace: config.namespace,
       taskQueue: config.activityTaskQueue,
       activities: activities.getActivityHandlers(),
+      buildId: getAgentFlowWorkflowBuildId(),
     });
     await worker.run();
   } finally {
