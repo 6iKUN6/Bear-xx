@@ -217,28 +217,63 @@ model AgentFlowAuditLog {
   @@map("agent_flow_audit_logs")
 }
 
-/// 数据化的模型预设：仅存元数据，apiKey 永不落库（运行时按 platform 从 env 取）。
+/// 数据化的模型预设：后台是唯一配置入口，apiKey 以 AES-256-GCM 密文落库。
 /// presetId 为业务标识（如 openai:gpt-5.5），供 Agent.modelPreset 引用与 registry 去重。
 model ModelPreset {
-  id              String   @id @default(cuid())
-  presetId        String   @unique @map("preset_id")
+  id              String              @id @default(cuid())
+  presetId        String              @unique @map("preset_id")
   name            String
-  description     String   @default("")
-  provider        String
+  description     String              @default("")
   platform        String
   model           String
-  baseURL         String?  @map("base_url")
+  /// 上游 wire 格式；唯一决定用哪个 LangChain 客户端，SDK 由它推导
+  upstreamFormat  ModelUpstreamFormat @default(OPENAI_CHAT_COMPLETIONS) @map("upstream_format")
+  baseURL         String?             @map("base_url")
   temperature     Float?
-  maxOutputTokens Int?     @map("max_output_tokens")
-  topP            Float?   @map("top_p")
-  enabled         Boolean  @default(true)
-  isDefault       Boolean  @default(false) @map("is_default")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  maxOutputTokens Int?                @map("max_output_tokens")
+  topP            Float?              @map("top_p")
+  enabled         Boolean             @default(true)
+  isDefault       Boolean             @default(false) @map("is_default")
+
+  /// 版本化 AES-256-GCM 密文（v1.<iv>.<authTag>.<ciphertext>）；明文只在解析请求期存在
+  apiKeyCiphertext  String? @map("api_key_ciphertext") @db.Text
+  /// apiKey 的 SHA-256 指纹，仅用于变更判断与脱敏展示，不可逆
+  apiKeyFingerprint String? @map("api_key_fingerprint")
+
+  /// 由连通性探针实测写入的能力档位，决定该预设能否被带工具的节点使用
+  capability     ModelPresetCapability @default(UNVERIFIED)
+  lastCheckedAt  DateTime?             @map("last_checked_at")
+  /// 探针失败原因的安全文本，不含 key、请求体或响应原文
+  lastCheckError String?               @map("last_check_error") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([enabled])
   @@index([isDefault])
   @@map("model_presets")
+}
+
+/// 上游可用的 wire 格式闭集。合法的 (platform, format) 组合由探针实测决定，不在此硬编码矩阵。
+enum ModelUpstreamFormat {
+  /// OpenAI Chat Completions；覆盖 OpenAI 与一切 OpenAI 兼容网关（DeepSeek / Kimi / 豆包 / 中转站）
+  OPENAI_CHAT_COMPLETIONS
+  /// OpenAI Responses；额外支持 reasoning_effort、verbosity 等原生请求参数
+  OPENAI_RESPONSES
+  /// Anthropic Messages
+  ANTHROPIC_MESSAGES
+}
+
+/// 探针实测出的预设能力档位。
+enum ModelPresetCapability {
+  /// 尚未探测过；不允许投入 agent 链路
+  UNVERIFIED
+  /// 连通性探针失败
+  UNREACHABLE
+  /// 仅连通性通过；只能用于无工具场景（如 synthesize 节点）
+  BASIC
+  /// 工具往返闭环通过；可用于带 toolGroups 的 agent 节点
+  TOOLS
 }
 
 model Conversation {
@@ -329,44 +364,47 @@ model SseTask {
 }
 
 model StreamTask {
-  id                 String                      @id @default(cuid())
-  type               StreamTaskType
-  status             StreamTaskStatus            @default(PENDING)
-  userId             String                      @map("user_id")
-  user               User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversationId     String?                     @map("conversation_id")
-  conversation       Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  messageId          String?                     @map("message_id")
-  message            Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  requestPayload     Json                        @map("request_payload")
-  executionState     Json?                       @map("execution_state")
-  resultPayload      Json?                       @map("result_payload")
-  agentId            String?                     @map("agent_id")
-  flowVersionId      String?                     @map("flow_version_id")
-  flowDigest         String?                     @map("flow_digest")
-  temporalWorkflowId String?                     @map("temporal_workflow_id")
-  temporalRunId      String?                     @map("temporal_run_id")
-  isTest             Boolean                     @default(false) @map("is_test")
-  currentAgent       String?                     @map("current_agent")
-  currentStep        String?                     @map("current_step")
-  currentRunId       String?                     @map("current_run_id")
-  lastEventId        Int                         @default(0) @map("last_event_id")
-  fullContent        String                      @default("") @map("full_content") @db.Text
-  errorMessage       String?                     @map("error_message") @db.Text
-  startedAt          DateTime?                   @map("started_at")
-  pausedAt           DateTime?                   @map("paused_at")
-  lastHeartbeatAt    DateTime?                   @map("last_heartbeat_at")
-  completedAt        DateTime?                   @map("completed_at")
-  expiresAt          DateTime?                   @map("expires_at")
-  createdAt          DateTime                    @default(now()) @map("created_at")
-  updatedAt          DateTime                    @updatedAt @map("updated_at")
-  runs               StreamTaskRun[]             @relation("StreamTaskRuns")
-  events             StreamTaskEvent[]
-  turnTraceItems     ConversationTurnTraceItem[]
-  mcdonaldsOrders    McDonaldsOrder[]
-  flowVersion        AgentFlowVersion?           @relation("StreamTaskFlowVersion", fields: [flowVersionId], references: [id], onDelete: Restrict)
-  agentFlowApprovals AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
-  agentFlowSignalOutbox AgentFlowSignalOutbox[]  @relation("AgentFlowSignalOutboxTask")
+  id                    String                      @id @default(cuid())
+  type                  StreamTaskType
+  status                StreamTaskStatus            @default(PENDING)
+  userId                String                      @map("user_id")
+  user                  User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId        String?                     @map("conversation_id")
+  conversation          Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId             String?                     @map("message_id")
+  message               Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  requestPayload        Json                        @map("request_payload")
+  executionState        Json?                       @map("execution_state")
+  resultPayload         Json?                       @map("result_payload")
+  agentId               String?                     @map("agent_id")
+  flowVersionId         String?                     @map("flow_version_id")
+  flowDigest            String?                     @map("flow_digest")
+  temporalWorkflowId    String?                     @map("temporal_workflow_id")
+  temporalRunId         String?                     @map("temporal_run_id")
+  /// 取消 Signal 的投递终态时间；补偿派发器据此在 SQL 层排除已处理任务，
+  /// 避免已投递记录永久占满按 updatedAt 排序的批次而饿死新取消任务
+  cancelSignalSettledAt DateTime?                   @map("cancel_signal_settled_at")
+  isTest                Boolean                     @default(false) @map("is_test")
+  currentAgent          String?                     @map("current_agent")
+  currentStep           String?                     @map("current_step")
+  currentRunId          String?                     @map("current_run_id")
+  lastEventId           Int                         @default(0) @map("last_event_id")
+  fullContent           String                      @default("") @map("full_content") @db.Text
+  errorMessage          String?                     @map("error_message") @db.Text
+  startedAt             DateTime?                   @map("started_at")
+  pausedAt              DateTime?                   @map("paused_at")
+  lastHeartbeatAt       DateTime?                   @map("last_heartbeat_at")
+  completedAt           DateTime?                   @map("completed_at")
+  expiresAt             DateTime?                   @map("expires_at")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+  runs                  StreamTaskRun[]             @relation("StreamTaskRuns")
+  events                StreamTaskEvent[]
+  turnTraceItems        ConversationTurnTraceItem[]
+  mcdonaldsOrders       McDonaldsOrder[]
+  flowVersion           AgentFlowVersion?           @relation("StreamTaskFlowVersion", fields: [flowVersionId], references: [id], onDelete: Restrict)
+  agentFlowApprovals    AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
+  agentFlowSignalOutbox AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxTask")
 
   @@index([userId, status])
   @@index([conversationId])
@@ -489,11 +527,11 @@ model AgentFlowApproval {
   createdAt      DateTime                @default(now()) @map("created_at")
   updatedAt      DateTime                @updatedAt @map("updated_at")
 
-  task      StreamTask                 @relation("AgentFlowApprovalTask", fields: [taskId], references: [id], onDelete: Cascade)
-  run       StreamTaskRun?             @relation("AgentFlowApprovalRun", fields: [runId], references: [id], onDelete: SetNull)
-  traceItem ConversationTurnTraceItem? @relation("AgentFlowApprovalTrace", fields: [traceItemId], references: [id], onDelete: SetNull)
-  decidedBy User?                      @relation("AgentFlowApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
-  signalOutbox AgentFlowSignalOutbox[] @relation("AgentFlowApprovalSignalOutbox")
+  task         StreamTask                 @relation("AgentFlowApprovalTask", fields: [taskId], references: [id], onDelete: Cascade)
+  run          StreamTaskRun?             @relation("AgentFlowApprovalRun", fields: [runId], references: [id], onDelete: SetNull)
+  traceItem    ConversationTurnTraceItem? @relation("AgentFlowApprovalTrace", fields: [traceItemId], references: [id], onDelete: SetNull)
+  decidedBy    User?                      @relation("AgentFlowApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  signalOutbox AgentFlowSignalOutbox[]    @relation("AgentFlowApprovalSignalOutbox")
 
   @@index([taskId, status])
   @@index([runId])
@@ -503,22 +541,24 @@ model AgentFlowApproval {
 
 /// 审批数据库事务已提交、但尚待送达 Temporal 的 Signal 命令；不复制决定正文。
 model AgentFlowSignalOutbox {
-  id          String                         @id @default(cuid())
-  taskId      String                         @map("task_id")
-  approvalId  String                         @unique @map("approval_id")
-  status      AgentFlowSignalOutboxStatus    @default(PENDING)
-  attempts    Int                            @default(0)
-  lastError   String?                        @map("last_error") @db.Text
-  deliveredAt DateTime?                      @map("delivered_at")
-  createdById String?                        @map("created_by_id")
-  createdAt   DateTime                       @default(now()) @map("created_at")
-  updatedAt   DateTime                       @updatedAt @map("updated_at")
+  id            String                      @id @default(cuid())
+  taskId        String                      @map("task_id")
+  approvalId    String                      @unique @map("approval_id")
+  status        AgentFlowSignalOutboxStatus @default(PENDING)
+  attempts      Int                         @default(0)
+  /// 指数退避的下次可派发时间；为空表示立即可派发
+  nextAttemptAt DateTime?                   @map("next_attempt_at")
+  lastError     String?                     @map("last_error") @db.Text
+  deliveredAt   DateTime?                   @map("delivered_at")
+  createdById   String?                     @map("created_by_id")
+  createdAt     DateTime                    @default(now()) @map("created_at")
+  updatedAt     DateTime                    @updatedAt @map("updated_at")
 
-  task       StreamTask       @relation("AgentFlowSignalOutboxTask", fields: [taskId], references: [id], onDelete: Cascade)
-  approval   AgentFlowApproval @relation("AgentFlowApprovalSignalOutbox", fields: [approvalId], references: [id], onDelete: Cascade)
-  createdBy  User?            @relation("AgentFlowSignalOutboxActor", fields: [createdById], references: [id], onDelete: SetNull)
+  task      StreamTask        @relation("AgentFlowSignalOutboxTask", fields: [taskId], references: [id], onDelete: Cascade)
+  approval  AgentFlowApproval @relation("AgentFlowApprovalSignalOutbox", fields: [approvalId], references: [id], onDelete: Cascade)
+  createdBy User?             @relation("AgentFlowSignalOutboxActor", fields: [createdById], references: [id], onDelete: SetNull)
 
-  @@index([status, createdAt])
+  @@index([status, nextAttemptAt, createdAt])
   @@index([taskId])
   @@index([createdById])
   @@map("agent_flow_signal_outbox")
@@ -644,6 +684,8 @@ enum AgentFlowSignalOutboxStatus {
   PENDING
   SENDING
   DELIVERED
+  /// 重试次数耗尽或目标 Workflow 已关闭；不再参与派发批次，需人工介入
+  FAILED
 }
 
 enum ConversationTraceItemType {
