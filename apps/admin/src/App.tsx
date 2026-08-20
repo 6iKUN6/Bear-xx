@@ -10,6 +10,8 @@ import { TasksPage } from "@/pages/tasks";
 import { ErrorsPage } from "@/pages/errors";
 import { AgentTestPage } from "@/pages/agent-test";
 import { ModelsPage } from "@/pages/models";
+import { FlowsPage } from "@/pages/flows";
+import { FlowDetailPage } from "@/pages/flow-detail";
 
 export function App() {
   return (
@@ -31,6 +33,8 @@ export function App() {
           <Route path="/errors" element={<ErrorsPage />} />
           <Route path="/debug" element={<AgentTestPage />} />
           <Route path="/models" element={<ModelsPage />} />
+          <Route path="/flows" element={<FlowsPage />} />
+          <Route path="/flows/:flowId" element={<FlowDetailPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

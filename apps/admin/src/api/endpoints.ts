@@ -8,8 +8,15 @@ import type {
   AgentUsage,
   AuthResponse,
   ErrorCategoryCount,
+  AgentFlow,
+  AgentFlowDetail,
+  AgentFlowTemplate,
+  AgentFlowValidation,
+  AgentFlowVersion,
   ModelPreset,
   ModelPresetInput,
+  ModelPresetProbeInput,
+  ModelPresetProbeResult,
   ObservabilityOverview,
   RecentTasks,
   TaskDetail,
@@ -113,4 +120,73 @@ export const updateModelPreset = (id: string, body: ModelPresetInput) =>
 export const deleteModelPreset = (id: string) =>
   request<{ success: boolean }>(`/admin/model-presets/${id}`, {
     method: "DELETE",
+  });
+
+/** 用表单里的连接参数试探；不落库，也不改动任何预设的 capability */
+export const probeModelPresetDraft = (body: ModelPresetProbeInput) =>
+  request<ModelPresetProbeResult>("/admin/model-presets/probe", {
+    method: "POST",
+    body,
+  });
+
+/** 用已落库的密文密钥探测，结论写回该预设的 capability 与 lastCheck* */
+export const probeModelPreset = (id: string) =>
+  request<ModelPresetProbeResult>(`/admin/model-presets/${id}/probe`, {
+    method: "POST",
+  });
+
+// ---- AgentFlow 控制面 ----
+export const listAgentFlows = () => request<AgentFlow[]>("/admin/agent-flows");
+
+export const getAgentFlow = (flowId: string) =>
+  request<AgentFlowDetail>(`/admin/agent-flows/${flowId}`);
+
+/** 创建 Flow 与其 version 1 草稿；definition 即完整 FlowDefinition */
+export const createAgentFlow = (definition: object) =>
+  request<AgentFlow>("/admin/agent-flows", {
+    method: "POST",
+    body: { definition },
+  });
+
+export const deleteAgentFlow = (flowId: string) =>
+  request<{ success: boolean }>(`/admin/agent-flows/${flowId}`, {
+    method: "DELETE",
+  });
+
+export const listAgentFlowTemplates = () =>
+  request<AgentFlowTemplate[]>("/admin/agent-flow-templates");
+
+/** 整份覆盖草稿；服务端不接受局部 patch，避免图工件半更新 */
+export const updateFlowDraft = (versionId: string, definition: object) =>
+  request<AgentFlowVersion>(`/admin/agent-flow-versions/${versionId}`, {
+    method: "PUT",
+    body: { definition },
+  });
+
+export const validateFlowVersion = (versionId: string) =>
+  request<AgentFlowValidation>(
+    `/admin/agent-flow-versions/${versionId}/validate`,
+    { method: "POST" },
+  );
+
+export const publishFlowVersion = (versionId: string) =>
+  request<AgentFlowVersion>(
+    `/admin/agent-flow-versions/${versionId}/publish`,
+    { method: "POST" },
+  );
+
+export const exportFlowVersion = (versionId: string) =>
+  request<object>(`/admin/agent-flow-versions/${versionId}/export`);
+
+/** 导入永远递增创建新草稿，不覆盖任何既有版本 */
+export const importFlowDefinition = (flowId: string, definition: object) =>
+  request<AgentFlowVersion>(`/admin/agent-flows/${flowId}/import`, {
+    method: "POST",
+    body: { definition },
+  });
+
+export const rollbackAgentFlow = (flowId: string, versionId: string) =>
+  request<AgentFlowVersion>(`/admin/agent-flows/${flowId}/rollback`, {
+    method: "POST",
+    body: { versionId },
   });

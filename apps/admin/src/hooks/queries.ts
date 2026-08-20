@@ -19,13 +19,29 @@ import {
   listAgents,
   getAgentCapabilities,
   listAssets,
+  createAgentFlow,
+  deleteAgentFlow,
+  getAgentFlow,
+  importFlowDefinition,
+  listAgentFlowTemplates,
+  listAgentFlows,
   listModelPresets,
+  publishFlowVersion,
+  rollbackAgentFlow,
+  updateFlowDraft,
+  validateFlowVersion,
+  probeModelPreset,
+  probeModelPresetDraft,
   listTestSessions,
   setDefaultAgent,
   updateAgent,
   updateModelPreset,
 } from "@/api/endpoints";
-import type { AgentInput, ModelPresetInput } from "@/api/types";
+import type {
+  AgentInput,
+  ModelPresetInput,
+  ModelPresetProbeInput,
+} from "@/api/types";
 
 export const useOverview = (days: number) =>
   useQuery({ queryKey: ["overview", days], queryFn: () => getOverview(days) });
@@ -145,6 +161,88 @@ export function useModelPresetMutations() {
     mutationFn: (id: string) => deleteModelPreset(id),
     onSuccess: invalidate,
   });
+  // 保存前试探：不落库，因此也不需要失效列表
+  const probeDraft = useMutation({
+    mutationFn: (body: ModelPresetProbeInput) => probeModelPresetDraft(body),
+  });
+  // 已保存预设的探测会写回 capability，列表必须重取，否则徽章停在旧档位
+  const probe = useMutation({
+    mutationFn: (id: string) => probeModelPreset(id),
+    onSuccess: invalidate,
+  });
 
-  return { create, update, remove };
+  return { create, update, remove, probe, probeDraft };
+}
+
+/* ── AgentFlow ─────────────────────────────────────────────── */
+
+export const useAgentFlows = () =>
+  useQuery({ queryKey: ["agentFlows"], queryFn: listAgentFlows });
+
+export const useAgentFlow = (flowId: string | undefined) =>
+  useQuery({
+    queryKey: ["agentFlow", flowId],
+    queryFn: () => getAgentFlow(flowId as string),
+    enabled: Boolean(flowId),
+  });
+
+/** 内置模板是纯常量，服务端每次重新构造，缓存起来即可 */
+export const useAgentFlowTemplates = () =>
+  useQuery({
+    queryKey: ["agentFlowTemplates"],
+    queryFn: listAgentFlowTemplates,
+    staleTime: Infinity,
+  });
+
+export function useAgentFlowMutations(flowId?: string) {
+  const qc = useQueryClient();
+  // 版本状态改变会同时影响列表的发布版本摘要和详情的版本历史，两个 key 都要失效
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["agentFlows"] });
+    if (flowId) {
+      void qc.invalidateQueries({ queryKey: ["agentFlow", flowId] });
+    }
+  };
+
+  const create = useMutation({
+    mutationFn: (definition: object) => createAgentFlow(definition),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteAgentFlow(id),
+    onSuccess: invalidate,
+  });
+  const saveDraft = useMutation({
+    mutationFn: (input: { versionId: string; definition: object }) =>
+      updateFlowDraft(input.versionId, input.definition),
+    onSuccess: invalidate,
+  });
+  // 校验是只读的，不触发失效
+  const validate = useMutation({
+    mutationFn: (versionId: string) => validateFlowVersion(versionId),
+  });
+  const publish = useMutation({
+    mutationFn: (versionId: string) => publishFlowVersion(versionId),
+    onSuccess: invalidate,
+  });
+  const importDefinition = useMutation({
+    mutationFn: (input: { flowId: string; definition: object }) =>
+      importFlowDefinition(input.flowId, input.definition),
+    onSuccess: invalidate,
+  });
+  const rollback = useMutation({
+    mutationFn: (input: { flowId: string; versionId: string }) =>
+      rollbackAgentFlow(input.flowId, input.versionId),
+    onSuccess: invalidate,
+  });
+
+  return {
+    create,
+    remove,
+    saveDraft,
+    validate,
+    publish,
+    importDefinition,
+    rollback,
+  };
 }

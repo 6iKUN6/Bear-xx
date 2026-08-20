@@ -19,6 +19,7 @@ import {
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
   useAgentCapabilities,
+  useAgentFlows,
   useAgentMutations,
   useAvatarAssets,
   useModelPresets,
@@ -31,6 +32,7 @@ import {
   TOOL_GROUP_META,
   toolGroupName,
 } from "@/lib/agent-meta";
+import { capabilityMeta } from "@/lib/model-preset-meta";
 import { cn } from "@/lib/utils";
 
 /** 逗号/空格分隔字符串 ↔ 数组 */
@@ -51,6 +53,7 @@ export function AgentFormSheet({
 }) {
   const { create, update } = useAgentMutations();
   const { data: modelPresets } = useModelPresets();
+  const { data: agentFlows } = useAgentFlows();
   const { data: capabilities } = useAgentCapabilities();
   const [form, setForm] = useState<AgentInput>({ name: "" });
   const [skillsText, setSkillsText] = useState("");
@@ -70,6 +73,7 @@ export function AgentFormSheet({
         avatar: agent.avatar ?? "",
         systemPrompt: agent.systemPrompt ?? "",
         modelPreset: agent.modelPreset ?? "",
+        defaultFlowVersionId: agent.defaultFlowVersionId,
         defaultStrategy: agent.defaultStrategy,
         allowedStrategies: agent.allowedStrategies,
         toolGroups: agent.toolGroups,
@@ -90,6 +94,17 @@ export function AgentFormSheet({
   }, [agent, open]);
 
   const submitting = create.isPending || update.isPending;
+  // 后端 ensurePublishedFlowVersion 只接受 PUBLISHED；列出草稿只会换来一个 400
+  const publishedFlowVersions = (agentFlows ?? []).flatMap((flow) =>
+    flow.publishedVersion
+      ? [
+          {
+            versionId: flow.publishedVersion.id,
+            label: `${flow.name} · v${flow.publishedVersion.version}`,
+          },
+        ]
+      : [],
+  );
   const toolGroups = capabilities?.toolGroups ?? [];
   const selectedGroups = form.toolGroups ?? [];
   const allowedStrategies = form.allowedStrategies ?? [];
@@ -269,11 +284,40 @@ export function AgentFormSheet({
               <SelectContent>
                 {(modelPresets ?? []).map((m) => (
                   <SelectItem key={m.id} value={m.presetId}>
-                    {m.name}（{m.presetId}）
+                    {m.name}（{m.presetId}）·{" "}
+                    {capabilityMeta(m.capability).name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+          </Field>
+          <Field label="绑定 Flow 版本（留空则不走 Flow）">
+            <Select
+              value={form.defaultFlowVersionId ?? ""}
+              onValueChange={(v) =>
+                setForm({ ...form, defaultFlowVersionId: v || null })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="不绑定，用下方编排策略" />
+              </SelectTrigger>
+              <SelectContent>
+                {publishedFlowVersions.map((option) => (
+                  <SelectItem key={option.versionId} value={option.versionId}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              只能绑定已发布版本。绑定后该智能体在 admin 调试会话中改走 Temporal
+              编排的 Flow 链路；普通聊天暂不生效，仍按下方策略执行。
+            </p>
+            {publishedFlowVersions.length === 0 ? (
+              <p className="text-xs text-[var(--lb-warning)]">
+                当前没有已发布的 Flow 版本，请先在 Flow 页发布一个。
+              </p>
+            ) : null}
           </Field>
           <Field label="默认编排策略">
             <Select

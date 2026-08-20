@@ -178,6 +178,8 @@ export interface Agent {
   avatar: string | null;
   systemPrompt: string | null;
   modelPreset: string | null;
+  /** 绑定的已发布 FlowVersion；null = 沿用历史策略配置，不走 Flow 链路 */
+  defaultFlowVersionId: string | null;
   defaultStrategy: AgentStrategy;
   allowedStrategies: AgentStrategy[];
   toolGroups: string[];
@@ -189,11 +191,26 @@ export interface Agent {
   updatedAt: number;
 }
 
+/** 上游 wire 格式闭集；决定服务端用哪个 SDK，provider 由它推导 */
+export type UpstreamFormat =
+  | "openai_chat_completions"
+  | "openai_responses"
+  | "anthropic_messages";
+
+/** 服务端探针实测出的能力档位；带工具的节点在发布校验时要求 tools */
+export type ModelPresetCapability =
+  | "unverified"
+  | "unreachable"
+  | "basic"
+  | "tools";
+
 export interface ModelPreset {
   id: string;
   presetId: string;
   name: string;
   description: string;
+  upstreamFormat: UpstreamFormat;
+  /** 由 upstreamFormat 推导，只读展示，不可单独设置 */
   provider: string;
   platform: string;
   model: string;
@@ -204,6 +221,11 @@ export interface ModelPreset {
   enabled: boolean;
   isDefault: boolean;
   apiKeyConfigured: boolean;
+  /** 形如 `Key ...a1b2c3`，取自不可逆指纹尾部；密钥本身永不下发 */
+  apiKeyHint: string | null;
+  capability: ModelPresetCapability;
+  lastCheckedAt: number | null;
+  lastCheckError: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -212,15 +234,91 @@ export interface ModelPresetInput {
   presetId: string;
   name: string;
   description?: string;
-  provider: string;
+  upstreamFormat: UpstreamFormat;
   platform: string;
   model: string;
   baseURL?: string | null;
+  /** 明文，仅写入方向提交；留空表示保持已存密钥不变 */
+  apiKey?: string;
   temperature?: number | null;
   maxOutputTokens?: number | null;
   topP?: number | null;
   enabled?: boolean;
   isDefault?: boolean;
+}
+
+/** 保存前试探连接的入参；不落库、不改任何预设的能力档位 */
+export interface ModelPresetProbeInput {
+  upstreamFormat: UpstreamFormat;
+  platform: string;
+  model: string;
+  baseURL?: string;
+  apiKey?: string;
+}
+
+export interface ModelPresetProbeResult {
+  capability: ModelPresetCapability;
+  /** L1：能否建立连接并拿到一次回复 */
+  reachable: boolean;
+  /** L2：工具调用发起 + 结果回灌是否闭环 */
+  toolRoundTrip: boolean;
+  error: string | null;
+}
+
+/* ── AgentFlow 控制面 ────────────────────────────────────── */
+
+export type AgentFlowVersionStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+
+/** 校验错误；`path` 形如 `nodes.0.config.modelPreset`，用于在编辑器里定位 */
+export interface FlowDefinitionValidationError {
+  path: string;
+  rule: string;
+  message: string;
+}
+
+export interface AgentFlowVersion {
+  id: string;
+  flowId: string;
+  version: number;
+  status: AgentFlowVersionStatus;
+  /** FlowDefinition JSON 工件；前端不解析其内部结构，原样编辑与回传 */
+  definition: object;
+  /** 布局无关摘要；草稿为 null，发布后固化 */
+  digest: string | null;
+  schemaVersion: number;
+  createdAt: number;
+  updatedAt: number;
+  publishedAt: number | null;
+  archivedAt: number | null;
+}
+
+export interface AgentFlow {
+  id: string;
+  name: string;
+  description: string;
+  publishedVersionId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  publishedVersion?: AgentFlowVersion | null;
+  draftVersion?: AgentFlowVersion;
+}
+
+export interface AgentFlowDetail extends AgentFlow {
+  versions: AgentFlowVersion[];
+}
+
+/** 内置模板：新建 Flow 的起点，避免手写整份 Definition */
+export interface AgentFlowTemplate {
+  preset: string;
+  name: string;
+  description: string;
+  definition: object;
+}
+
+export interface AgentFlowValidation {
+  valid: boolean;
+  errors: FlowDefinitionValidationError[];
+  digest?: string;
 }
 
 export interface AgentInput {
@@ -229,6 +327,7 @@ export interface AgentInput {
   avatar?: string | null;
   systemPrompt?: string | null;
   modelPreset?: string | null;
+  defaultFlowVersionId?: string | null;
   defaultStrategy?: AgentStrategy;
   allowedStrategies?: AgentStrategy[];
   toolGroups?: string[];

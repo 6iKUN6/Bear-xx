@@ -24,7 +24,7 @@ export class ApiError extends Error {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   query?: Record<string, string | number | undefined>;
   /** 跳过鉴权头（登录/刷新用） */

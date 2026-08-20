@@ -37,6 +37,7 @@ import { streamAgentTest } from "@/api/stream";
 import type { TestSessionMessage } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { formatTime, statusBadgeVariant } from "@/lib/format";
+import { capabilityMeta } from "@/lib/model-preset-meta";
 
 interface TimelineItem {
   key: string;
@@ -308,7 +309,7 @@ export function AgentTestPage() {
               <SelectContent>
                 {(models ?? []).map((m) => (
                   <SelectItem key={m.id} value={m.presetId}>
-                    {m.name}
+                    {m.name} · {capabilityMeta(m.capability).name}
                   </SelectItem>
                 ))}
               </SelectContent>

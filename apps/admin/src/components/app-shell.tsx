@@ -19,6 +19,7 @@ const NAV = [
   { to: "/agents", label: "智能体" },
   { to: "/agents/manage", label: "智能体管理" },
   { to: "/models", label: "模型" },
+  { to: "/flows", label: "Flow" },
   { to: "/tools", label: "工具" },
   { to: "/tasks", label: "任务" },
   { to: "/errors", label: "错误" },
