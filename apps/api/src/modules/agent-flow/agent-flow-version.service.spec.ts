@@ -1,3 +1,4 @@
+import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -8,7 +9,7 @@ import { calculateFlowDefinitionDigest } from './definition/flow-definition.vali
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
 
 const directDefinition: FlowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
   kind: 'agent-flow',
   name: '直接回答',
   policy: {
@@ -108,7 +109,7 @@ describe('AgentFlowVersionService', () => {
       status: 'DRAFT',
       version: 1,
       digest: null,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: null,
@@ -131,7 +132,7 @@ describe('AgentFlowVersionService', () => {
       where: { id: 'version-1' },
       data: {
         definition: directDefinition,
-        schemaVersion: 1,
+        schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
         digest: null,
       },
     });
@@ -161,7 +162,7 @@ describe('AgentFlowVersionService', () => {
       definition: directDefinition,
       version: 2,
       digest: null,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: null,
@@ -260,7 +261,7 @@ describe('AgentFlowVersionService', () => {
       status: 'PUBLISHED',
       definition: directDefinition,
       digest: 'digest',
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
     });
 
     const exported = await service.exportDefinition('version-1');
@@ -274,7 +275,7 @@ describe('AgentFlowVersionService', () => {
     findUnique.mockResolvedValue({
       id: 'version-1',
       definition: {
-        schemaVersion: 1,
+        schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
         kind: 'agent-flow',
         name: '无效 Flow',
       },

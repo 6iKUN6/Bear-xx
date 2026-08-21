@@ -1,3 +1,4 @@
+import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AgentFlowWorkflowInput } from '../../../temporal/workflows/agent-flow.workflow.types';
@@ -16,9 +17,15 @@ describe('AgentFlowActivities', () => {
     streamTask: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     agent: {
       findUnique: jest.fn(),
+    },
+    agentFlowNodeExecution: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
     },
     $transaction: jest.fn(),
     agentFlowApproval: {
@@ -60,6 +67,14 @@ describe('AgentFlowActivities', () => {
     prisma.$transaction.mockImplementation(
       (operation: (transaction: typeof prisma) => unknown) => operation(prisma),
     );
+    // 默认「本节点尚无终局记录、尚未抢到 run.started」，各用例只覆盖它们关心的那一项
+    prisma.agentFlowNodeExecution.findUnique.mockResolvedValue(null);
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([]);
+    prisma.streamTask.updateMany.mockResolvedValue({ count: 1 });
+    prisma.streamTask.update.mockResolvedValue({
+      flowModelCalls: 0,
+      flowToolCalls: 0,
+    });
     taskEventService.persistInTransaction.mockResolvedValue({
       taskId: 'task-1',
       eventId: 1,
@@ -201,7 +216,7 @@ describe('AgentFlowActivities', () => {
     expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(3);
   });
 
-  it('模型调用计入预算并随 executionState 落库', async () => {
+  it('模型调用以原子 increment 计入预算计数列', async () => {
     mockAgentNode();
     // flowDefinition 的 maxModelCalls 为 1，恰好允许一次模型调用
     commonChatAgentService.streamEvents.mockImplementation(
@@ -222,13 +237,16 @@ describe('AgentFlowActivities', () => {
       outcome: 'default',
       summary: '节点执行完成',
     });
-    expect(readPersistedBudget()).toEqual({ modelCalls: 1, toolCalls: 0 });
+    expect(readBudgetIncrement()).toEqual({
+      modelCalls: { increment: 1 },
+      toolCalls: { increment: 0 },
+    });
   });
 
   it('模型调用额度已用尽时不再发起模型调用', async () => {
     mockAgentNode({
       // maxModelCalls 为 1，历史用量已达上限
-      agentFlow: { started: true, budget: { modelCalls: 1, toolCalls: 0 } },
+      budgetUsage: { modelCalls: 1, toolCalls: 0 },
     });
 
     await expect(
@@ -668,6 +686,216 @@ describe('AgentFlowActivities', () => {
     });
   });
 
+  it('节点已有完成记录时直接回放，不再调用模型', async () => {
+    mockAgentNode();
+    prisma.agentFlowNodeExecution.findUnique.mockResolvedValue({
+      result: 'COMPLETED',
+      outcome: 'default',
+      summary: '已生成回复',
+      errorCategory: null,
+    });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '已生成回复',
+    });
+    expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+  });
+
+  it('审批恢复路径同样回放已完成节点，不重跑已审批通过的工具', async () => {
+    // 回归用：resumeNode 曾没有幂等短路。节点事务已提交而结果上报丢失时，Temporal 会带着
+    // 同一份决定重试，把模型和已放行的工具整个重跑一遍。
+    mockExecutionContext({
+      node: {
+        key: 'answer',
+        type: 'agent',
+        next: {},
+        modelPreset: 'openai:test',
+        toolGroups: [],
+        skills: [],
+        maxToolIterations: 1,
+        approvalToolNames: ['create_order'],
+      },
+    });
+    prisma.agentFlowNodeExecution.findUnique.mockResolvedValue({
+      result: 'COMPLETED',
+      outcome: 'default',
+      summary: '已生成回复',
+      errorCategory: null,
+    });
+
+    await expect(
+      activities.resumeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+        approvalId: 'approval-1',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '已生成回复',
+    });
+    expect(commonChatAgentService.resumeEvents).not.toHaveBeenCalled();
+  });
+
+  it('节点完成记录与完成事件写在同一个事务里', async () => {
+    mockAgentNode();
+    commonChatAgentService.streamEvents.mockReturnValue(
+      textEventStream('好的'),
+    );
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+    });
+
+    // 事件发出而幂等记录缺失，重试就会重复执行副作用；两者必须同生共死
+    expect(prisma.agentFlowNodeExecution.create).toHaveBeenCalledWith({
+      data: {
+        taskId: 'task-1',
+        nodeExecutionId: 'task-1:version-1:answer',
+        nodeKey: 'answer',
+        result: 'COMPLETED',
+        outcome: 'default',
+        // 声明输出与幂等记录同一行落库，下游 condition 才能经 $ref 读到它
+        outputs: { text: '好的' },
+        summary: '已生成回复',
+      },
+    });
+  });
+
+  it('没抢到 run.started 声明的节点不再重复发运行开始事件', async () => {
+    mockAgentNode();
+    // 条件更新命中 0 行 = 别的节点已经声明过；并行扇出时多个首节点会同时走到这里
+    prisma.streamTask.updateMany.mockResolvedValue({ count: 0 });
+    commonChatAgentService.streamEvents.mockReturnValue(emptyEventStream());
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+    });
+
+    const eventNames = taskEventService.persistInTransaction.mock.calls.map(
+      (call: unknown[]) => (call[1] as { eventName?: unknown }).eventName,
+    );
+    expect(eventNames).not.toContain('flow.run.started');
+    expect(eventNames).toContain('flow.node.started');
+  });
+
+  it('condition 节点按上游已落库的输出命中分支', async () => {
+    mockConditionNode();
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      { nodeKey: 'plan', outputs: { steps: [], stepCount: 5 } },
+    ]);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'classify',
+        nodeExecutionId: 'task-1:version-1:classify',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'case_1',
+      summary: '命中分支「case_1」',
+    });
+    // 条件判定不该调模型：它只读已落库的输出
+    expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+  });
+
+  it('condition 全不命中时走隐含的 else 分支', async () => {
+    mockConditionNode();
+    // stepCount 为 1，不满足 gt 3
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      { nodeKey: 'plan', outputs: { steps: [], stepCount: 1 } },
+    ]);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'classify',
+        nodeExecutionId: 'task-1:version-1:classify',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'else',
+      summary: '命中分支「else」',
+    });
+  });
+
+  it('condition 引用的上游输出缺失时显式失败，不静默走 else', async () => {
+    // ref-dominates 已保证被引节点必定先完成，读不到就是我们自己的写入漏了。
+    // 静默判 false 会让分支永远走 else —— 那正是旧 condition stub「永远算不对」的失败方式。
+    mockConditionNode();
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([]);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'classify',
+        nodeExecutionId: 'task-1:version-1:classify',
+      }),
+    ).rejects.toThrow('没有已落库的输出');
+  });
+
+  /**
+   * 装配一个条件分支节点的执行上下文
+   * @returns 无返回值
+   * @description Definition 必须真的含 condition 节点：分支键合法性由共享契约的
+   * flowNodeBranchKeys 从 Definition 读出，手写编译节点绕不过去。
+   */
+  function mockConditionNode(): void {
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      userId: 'user-1',
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      currentRunId: 'run-1',
+      agentId: 'agent-1',
+      fullContent: '',
+      status: 'STREAMING',
+      executionState: null,
+      flowModelCalls: 0,
+      flowToolCalls: 0,
+      requestPayload: { content: '帮我查一下' },
+      flowVersionId: 'version-1',
+      flowDigest: 'a'.repeat(64),
+      flowVersion: {
+        id: 'version-1',
+        flowId: 'flow-1',
+        digest: 'a'.repeat(64),
+        definition: conditionFlowDefinition(),
+      },
+    });
+    prisma.agent.findUnique.mockResolvedValue({
+      modelPreset: 'openai:test',
+      systemPrompt: null,
+    });
+    flowCompiler.compile.mockReturnValue({
+      success: true,
+      plan: {
+        nodes: [
+          {
+            key: 'classify',
+            type: 'condition',
+            next: { case_1: 'answer', else: 'brief' },
+            cases: conditionFlowDefinition().nodes[1].config.cases,
+          },
+        ],
+      },
+    });
+  }
+
   /**
    * 设置一个可由 Activity 编译的冻结任务上下文
    * @param input 当前节点与可选执行状态
@@ -676,11 +904,16 @@ describe('AgentFlowActivities', () => {
    */
   /**
    * 装配一个最小 Agent 节点的执行上下文
-   * @param executionState 可选的已持久化执行状态
+   * @param options 可选的已持久化执行状态与历史预算用量
    * @returns 无返回值
    * @description 预算相关用例只关心 policy 与用量，节点能力固定为无工具的单步 Agent。
    */
-  function mockAgentNode(executionState?: Record<string, unknown>): void {
+  function mockAgentNode(
+    options: {
+      executionState?: Record<string, unknown>;
+      budgetUsage?: { modelCalls: number; toolCalls: number };
+    } = {},
+  ): void {
     mockExecutionContext({
       node: {
         key: 'answer',
@@ -692,7 +925,7 @@ describe('AgentFlowActivities', () => {
         maxToolIterations: 1,
         approvalToolNames: [],
       },
-      ...(executionState ? { executionState } : {}),
+      ...options,
     });
     capabilityResolver.resolve.mockResolvedValue({
       tools: [],
@@ -705,22 +938,25 @@ describe('AgentFlowActivities', () => {
   }
 
   /**
-   * 读取最后一次写入 executionState 的预算用量
-   * @returns 返回落库的预算对象
-   * @description 预算必须真的进数据库才能跨节点与跨 Activity retry 累计，断言内存值没有意义。
+   * 读取落库的预算增量
+   * @returns 返回本次 Activity 累加进计数列的模型与工具调用数
+   * @description 断言的是原子 increment 而不是绝对值：整块回写绝对值会被并发节点互相吞掉，
+   * 这正是预算从 executionState 迁到计数列要解决的问题，因此断言必须盯住写法本身。
    */
-  function readPersistedBudget(): unknown {
-    const calls = taskEventService.persistInTransaction.mock.calls;
+  function readBudgetIncrement(): unknown {
+    const calls = prisma.streamTask.update.mock.calls as Array<
+      [{ data?: Record<string, unknown> }]
+    >;
     for (let index = calls.length - 1; index >= 0; index -= 1) {
-      const event = calls[index][1] as {
-        taskUpdate?: { executionState?: { agentFlow?: { budget?: unknown } } };
-      };
-      const budget = event.taskUpdate?.executionState?.agentFlow?.budget;
-      if (budget) {
-        return budget;
+      const data = calls[index][0]?.data;
+      if (data && 'flowModelCalls' in data) {
+        return {
+          modelCalls: data.flowModelCalls,
+          toolCalls: data.flowToolCalls,
+        };
       }
     }
-    throw new Error('executionState 中没有写入预算用量');
+    throw new Error('预算没有以原子 increment 写入计数列');
   }
 
   /**
@@ -736,6 +972,7 @@ describe('AgentFlowActivities', () => {
   function mockExecutionContext(input: {
     node: Record<string, unknown>;
     executionState?: Record<string, unknown>;
+    budgetUsage?: { modelCalls: number; toolCalls: number };
     status?: string;
   }): void {
     prisma.streamTask.findUnique.mockResolvedValue({
@@ -748,6 +985,8 @@ describe('AgentFlowActivities', () => {
       fullContent: '',
       status: input.status ?? 'STREAMING',
       executionState: input.executionState ?? null,
+      flowModelCalls: input.budgetUsage?.modelCalls ?? 0,
+      flowToolCalls: input.budgetUsage?.toolCalls ?? 0,
       requestPayload: {},
       flowVersionId: 'version-1',
       flowDigest: 'a'.repeat(64),
@@ -846,13 +1085,62 @@ function workflowInput(): AgentFlowWorkflowInput {
 }
 
 /**
+ * 构造含条件分支的可校验 FlowDefinition
+ * @returns 返回 plan 之后按计划步数分流的标准 JSON
+ * @description plan 支配 classify，因此 plan.stepCount 满足 ref-dominates；两条分支都连出，
+ * 满足分支完备性。
+ */
+function conditionFlowDefinition() {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow' as const,
+    name: '按计划规模分流',
+    policy: {
+      maxSteps: 5,
+      maxModelCalls: 4,
+      maxToolCalls: 0,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'plan', type: 'plan' as const, config: { maxSteps: 5 } },
+      {
+        id: 'classify',
+        type: 'condition' as const,
+        config: {
+          cases: [
+            {
+              key: 'case_1',
+              logic: 'and' as const,
+              conditions: [
+                {
+                  ref: { $ref: ['plan', 'stepCount'] as [string, string] },
+                  operator: 'gt' as const,
+                  value: 3,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      { id: 'answer', type: 'synthesize' as const, config: {} },
+      { id: 'brief', type: 'synthesize' as const, config: {} },
+    ],
+    edges: [
+      { from: 'plan', to: 'classify' },
+      { from: 'classify', to: 'answer', when: 'case_1' },
+      { from: 'classify', to: 'brief', when: 'else' },
+    ],
+  };
+}
+
+/**
  * 构造最小可校验的 FlowDefinition
  * @returns 返回审批后进入汇总节点的标准 JSON
  * @description 使用真实 Definition 校验器路径，确保 Activity 的投影逻辑没有手写旁路。
  */
 function flowDefinition() {
   return {
-    schemaVersion: 1,
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
     kind: 'agent-flow' as const,
     name: '审批后回复',
     policy: {

@@ -15,14 +15,19 @@ export type AgentFlowWorkflowStartInput = Omit<
   'activityTaskQueue'
 >;
 
-/** 允许影响 Flow 下一跳的节点结果闭集。 */
-export type AgentFlowNodeOutcome = 'default' | 'approved';
+/**
+ * 影响 Flow 下一跳的分支键
+ * @description 从闭集联合泛化为字符串：condition 节点的分支键由 Definition 声明（case_* 与 else），
+ * 类型系统无法枚举。合法性由发布期校验（每个声明分支都必须有出边，或都没有）与
+ * `next` 表的完备性共同保证；Workflow 侧查不到对应出边即视为该分支为终点。
+ */
+export type AgentFlowNodeOutcome = string;
 
 /** 存入 Temporal History 的最小节点投影。 */
 export interface AgentFlowWorkflowNode {
   key: string;
   type: FlowNodeType;
-  next: Readonly<Partial<Record<AgentFlowNodeOutcome, string>>>;
+  next: Readonly<Record<string, string>>;
 }
 
 /** 从数据库冻结版本转换出的脱敏执行快照。 */

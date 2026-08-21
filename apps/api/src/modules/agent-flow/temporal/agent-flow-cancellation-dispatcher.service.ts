@@ -166,7 +166,8 @@ export class AgentFlowCancellationDispatcherService
  * 将取消 Signal 投递标记合并进现有 Flow 执行状态
  * @param value StreamTask.executionState 的原始 JSON 值
  * @returns 返回可安全写回 Prisma 的 JSON 对象
- * @description 保留 Plan、PlanLoop、审批和节点幂等状态，只新增不含用户数据的投递时间；用 JSON 往返清除 undefined，满足 Prisma Json 输入约束。
+ * @description 保留 Plan 与 PlanLoop 状态，只新增不含用户数据的投递时间；用 JSON 往返清除 undefined，满足 Prisma Json 输入约束。
+ * 节点幂等结果与预算用量已迁往 `AgentFlowNodeExecution` 表与 StreamTask 计数列，不在这块 JSON 里。
  */
 function toCancellationDeliveredExecutionState(
   value: Prisma.JsonValue | null,

@@ -1,3 +1,4 @@
+import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
 import { Prisma } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -36,7 +37,7 @@ type TransactionCallback = (
 ) => Promise<unknown>;
 
 const directDefinition: FlowDefinition = {
-  schemaVersion: 1,
+  schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
   kind: 'agent-flow',
   name: '直接回答',
   description: '不调用工具，直接生成回复',
@@ -163,7 +164,7 @@ describe('AgentFlowService', () => {
       status: 'DRAFT',
       definition: directDefinition,
       digest: null,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: null,
@@ -189,7 +190,7 @@ describe('AgentFlowService', () => {
         version: 1,
         status: 'DRAFT',
         definition: directDefinition,
-        schemaVersion: 1,
+        schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
         createdById: 'admin-1',
       }),
     });
@@ -218,7 +219,7 @@ describe('AgentFlowService', () => {
       status: 'DRAFT',
       definition: directDefinition,
       digest: null,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: null,
@@ -245,7 +246,7 @@ describe('AgentFlowService', () => {
         status: 'DRAFT',
         definition: directDefinition,
         digest: null,
-        schemaVersion: 1,
+        schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
         createdById: 'admin-1',
       },
     });
@@ -277,7 +278,7 @@ describe('AgentFlowService', () => {
       digest: 'historical-digest',
       definition: directDefinition,
       version: 1,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: new Date('2026-08-16T00:00:00.000Z'),
@@ -291,7 +292,7 @@ describe('AgentFlowService', () => {
       digest: 'historical-digest',
       definition: directDefinition,
       version: 1,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: new Date('2026-08-16T00:00:00.000Z'),
@@ -351,7 +352,7 @@ describe('AgentFlowService', () => {
       digest: 'historical-digest',
       definition: directDefinition,
       version: 1,
-      schemaVersion: 1,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       createdAt: new Date('2026-08-16T00:00:00.000Z'),
       updatedAt: new Date('2026-08-16T00:00:00.000Z'),
       publishedAt: new Date('2026-08-16T00:00:00.000Z'),

@@ -379,6 +379,14 @@ model StreamTask {
   agentId               String?                     @map("agent_id")
   flowVersionId         String?                     @map("flow_version_id")
   flowDigest            String?                     @map("flow_digest")
+  /// Flow 的 flow.run.started 已发出的时刻，兼作「谁先抢到首个节点」的原子判据：
+  /// 经 updateMany + `flowRunStartedAt: null` 条件声明，只有 count 为 1 的那个节点发事件。
+  /// 不复用 startedAt —— 那一列非 Flow 的 runTask 也写，复用会让 Flow 语义静默失效。
+  flowRunStartedAt      DateTime?                   @map("flow_run_started_at")
+  /// Flow 运行至今的模型与工具调用累计。放标量列而非 executionState JSON：预算是安全护栏，
+  /// 只有 Prisma 原子 increment 才不会被并发节点的整块回写吞掉计数（吞掉即等于无限预算）。
+  flowModelCalls        Int                         @default(0) @map("flow_model_calls")
+  flowToolCalls         Int                         @default(0) @map("flow_tool_calls")
   temporalWorkflowId    String?                     @map("temporal_workflow_id")
   temporalRunId         String?                     @map("temporal_run_id")
   /// 取消 Signal 的投递终态时间；补偿派发器据此在 SQL 层排除已处理任务，
@@ -405,6 +413,7 @@ model StreamTask {
   flowVersion           AgentFlowVersion?           @relation("StreamTaskFlowVersion", fields: [flowVersionId], references: [id], onDelete: Restrict)
   agentFlowApprovals    AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
   agentFlowSignalOutbox AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxTask")
+  agentFlowNodeRuns     AgentFlowNodeExecution[]    @relation("AgentFlowNodeExecutionTask")
 
   @@index([userId, status])
   @@index([conversationId])
@@ -509,6 +518,37 @@ model ConversationTurnTraceItem {
   @@index([parentId])
   @@index([type])
   @@map("conversation_turn_trace_items")
+}
+
+/// 一个 Flow 节点执行的终局结果，是节点幂等的唯一事实来源。
+/// 唯一键 (taskId, nodeExecutionId) 由数据库强制幂等，而不是靠读写时序：
+/// 原先这些结果存在 StreamTask.executionState 这个 JSON blob 里，整块读改写，
+/// 两个并发节点会互相覆盖 —— 丢一条完成记录就意味着 Activity 重试会重新调用模型与工具。
+model AgentFlowNodeExecution {
+  id              String                           @id @default(cuid())
+  taskId          String                           @map("task_id")
+  /// Workflow 侧按 (workflow, nodeKey) 生成的稳定执行标识
+  nodeExecutionId String                           @map("node_execution_id")
+  nodeKey         String                           @map("node_key")
+  result          AgentFlowNodeExecutionResultKind
+  /// result 为 COMPLETED 时 Workflow 要走的下一跳分支键；其余结果为空
+  outcome         String?
+  summary         String?                          @db.Text
+  /// 本节点声明的输出值（FLOW_NODE_OUTPUTS 闭集），供下游节点经 $ref 引用。
+  /// 只存契约声明的字段，不存提示词、工具原始出参或审批决定正文。
+  outputs         Json?
+  /// 失败类别，取值来自 @litter-bear/types/protocol 的 TaskErrorCategory。
+  /// 不做成 Prisma enum：那会让同一个闭集有两个源，改一处漏一处不会有任何工具报错。
+  /// 读取侧统一经 toTaskErrorCategory 收窄。
+  errorCategory   String?                          @map("error_category")
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+
+  task StreamTask @relation("AgentFlowNodeExecutionTask", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, nodeExecutionId])
+  @@index([taskId])
+  @@map("agent_flow_node_executions")
 }
 
 /// 一次工具或计划审批的持久化业务事实；id 同时作为对外 approvalId。
@@ -665,6 +705,18 @@ enum AgentFlowAuditAction {
   VALIDATED
   PUBLISHED
   ROLLED_BACK
+}
+
+/// 一个 Flow 节点执行的终局形态。
+/// 刻意扁平成一个闭集而不是「kind + 可空 stopStatus」两列：
+/// 后者能表示出 kind=COMPLETED 同时 stopStatus=ERROR 这种非法组合。
+enum AgentFlowNodeExecutionResultKind {
+  /// 完成并沿 outcome 分支继续推进
+  COMPLETED
+  /// 正常结束但不再选择下一条边（例如用户主动终止计划）
+  STOPPED_COMPLETED
+  STOPPED_CANCELLED
+  STOPPED_ERROR
 }
 
 enum AgentFlowApprovalKind {
