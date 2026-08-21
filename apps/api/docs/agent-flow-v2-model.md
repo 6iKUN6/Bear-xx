@@ -1,7 +1,8 @@
 # AgentFlow V2 数据模型设计（变量 / 分支 / 并行）
 
-> 状态：**设计底本，未落代码**。V1（`schemaVersion: 1`）已在运行，本文描述通往「Dify 式画布编排」所需的模型改动。
-> 日期：2026-08-20。
+> 状态：**部分已落代码**。§4.3 拆表、§2 变量模型、§3 条件分支与边语义泛化已实现（`schemaVersion: 2`）；
+> 并行相关的 §4.1 fan-out / join、§4.2 前沿执行器、§4.5 消息分片仍是设计。各节标注了状态。
+> 日期：2026-08-20（落地状态于 2026-08-21 更新）。
 > 范围：`packages/types/src/agent-flow` 的 Definition 契约、`apps/api` 的 validator / compiler / Temporal 执行器与持久化。不含 admin 画布实现细节。
 > 关联：`agent-flow-architecture.md`（V1 架构）、`agent-flow-iterations.md`、`hitl.md`。
 
@@ -67,19 +68,30 @@ while (nodeKey) {
 
 画布的真正内容不是画框，是**变量引用**。V1 的 `FlowNode` 只有 `config`，没有任何 inputs / outputs 声明，状态隐式流过 message 与 plan。没有变量模型，画布只是装饰：线能连，数据不流。
 
-### 2.1 节点输出由代码声明，不给用户配
+### 2.1 节点输出由代码声明，不给用户配 —— **已落地**
+
+唯一事实源是 `packages/types` 的 `FLOW_NODE_OUTPUTS`；运行时随节点完成写入
+`AgentFlowNodeExecution.outputs`（与幂等记录同一行、同一事务），下游经 `$ref` 读取。
 
 | 节点 | 输出 |
 | --- | --- |
-| `agent` | `text: string`、`toolCalls: array` |
+| `agent` | `text: string` |
 | `plan` | `steps: array`、`stepCount: number` |
 | `plan-loop` | `text: string`、`observations: array` |
 | `approval` | `approved: boolean`、`comment: string` |
 | `synthesize` | `text: string` |
 | `condition` | 无输出，只产分支 |
-| `join` | 透传被聚合节点的输出 |
+| `join` | 透传被聚合节点的输出（并行批次） |
 
-外加 Flow 级根变量：`$input.text`（用户消息）、`$input.attachments`。
+外加 Flow 级根变量 `$input.text`（用户本轮消息正文）。
+
+两处相对初稿的收缩，都是为了不留「永远算不对」的字段：
+
+- **`agent.toolCalls` 不做**。唯一的运行时来源是流事件，而 `tool.call.start` 的工具名可能缺失
+  （`tools.nameById` 在首个 chunk 尚未有值），据此建数组会漏报已调用的工具——引用它的
+  `notContains` 会直接给出相反的答案。要这个输出，得先让底层流为每次调用给出稳定名称。
+- **`$input.attachments` 不做**。任务载荷 `ChatTaskPayload` 里没有这个字段，声明出来就是一个
+  恒为空的输出，引用它的条件永远判 false。
 
 输出 schema 是闭集常量，与节点类型一一对应；用户不能声明新输出。这样编辑器的变量选择器和 validator 的类型检查用的是同一份事实。
 
@@ -95,9 +107,11 @@ while (nodeKey) {
 
 ### 2.3 值类型闭集
 
-`string | number | boolean | object | array`。不做泛型、不做嵌套类型参数。够用，且能静态校验。
+`string | number | boolean | array`。不做泛型、不做嵌套类型参数。够用，且能静态校验。
+初稿含 `object`，落地时去掉：没有节点声明对象输出，也没有算子接受对象，留着就是一个既不产生
+也不消费的死类型。真有节点输出对象时再加是一行的事。
 
-### 2.4 新校验规则 `ref-dominates`
+### 2.4 新校验规则 `ref-dominates` —— **已落地**
 
 引用只能指向**在所有到达本节点的执行路径上都必然已完成**的节点（图论上的支配节点 dominator）。这一条同时排除两类错误：
 
@@ -108,7 +122,7 @@ while (nodeKey) {
 
 ## 3. 条件分支
 
-### 3.1 `condition` 节点（重新设计）
+### 3.1 `condition` 节点（重新设计）—— **已落地**
 
 ```ts
 interface FlowConditionCase {
@@ -133,13 +147,29 @@ operator 闭集按被引变量的类型分组：
 
 **operator 与 `ref` 的类型不匹配 ⇒ 发布期拒绝。** 这正是旧 stub 缺的东西：它连 field 是否存在都不检查。
 
-### 3.2 边语义泛化
+落地时补了一维初稿没写的约束：`requiresValue`。`empty` 这类算子不带比较值，而 `is` 缺了值就会去和
+`undefined` 比较——静默判 false，仍是「永远算不对」。因此「该带值却没带」和「不该带却带了」都在
+发布期拒绝。运行时另有一层：被引值的实际类型不符时该条判定为假，而**上游输出整个读不到时显式失败**
+（`ref-dominates` 已保证被引节点必定先完成，读不到就是我们自己写漏了，静默走 else 等于重犯旧 stub 的错）。
+
+### 3.2 边语义泛化 —— **已落地**
 
 - `FlowEdgeWhen` 从单值联合 `"approved"` 改为 `string`
-- 合法取值 = 源节点**声明的分支键集合**：`condition` 是 `case_*` + `else`，`approval` 是 `approved` + `rejected`
-- `AgentFlowNodeOutcome` 同步从闭集联合改为 `string`；快照 `next: Record<string, string>` 的完备性由 validator 保证（每个声明分支都必须有出边，或都没有——不允许部分覆盖）
+- 合法取值 = 源节点**声明的分支键集合**，由共享契约的 `flowNodeBranchKeys` 给出：`condition`
+  是 `case_*` + `else`，`approval` 是 `approved`。validator、运行时回放与画布共用这一份事实
+- `AgentFlowNodeOutcome` 同步从闭集联合改为 `string`；完备性由 `branch-coverage` 规则保证
+  （每个声明分支都必须有出边，或都没有——不允许部分覆盖）
 
-顺带把 approval 的 `rejected` 补成真分支。V1 里"拒绝"不是一条边而是任务终止，这在画布上无法表达。
+**`approval` 的 `rejected` 暂不补成真分支**。初稿想顺手做掉，但当前没有任何节点类型能作为它的
+落点——需要一个"以固定文案终止"的终端节点，而运行时已经把 `reject_terminate` 正确处理成业务
+终态。现在声明 `rejected` 只会多出一个无处可去的分支键，属于死字段。要做，先加终端节点类型。
+
+### 3.3 为什么 condition 不需要等前沿执行器
+
+`agent-flow.workflow.ts` 选下一跳是 `node.next[result.outcome]` —— 单游标按分支键选**一条**边。
+condition 的多条出边互斥，只走一条，现有执行器直接就能跑。需要重写执行器的只有 fan-out
+（多条 default 边同时走）与 join。因此第二批被切成两段：变量模型 + condition 先落地并可验证，
+并行相关的 join / fan-out / `message.delta` 分片 / 前沿执行器留在下一段。
 
 ## 4. 并行
 
@@ -171,14 +201,21 @@ while (frontier.length > 0) {
 
 Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记录每个 Activity 的调度顺序），这条可行。`nodeExecutionId` 已按 `(workflow, nodeKey)` 生成，天然支持并行幂等。
 
-### 4.3 拆表（P0，对应 §1.1）
+### 4.3 拆表（P0，对应 §1.1）——**已落地**
 
-| 现在 | 改成 |
+| 原状态 | 现在 |
 | --- | --- |
 | `executionState.completedNodes` / `stoppedNodes` | 新表 `AgentFlowNodeExecution`，唯一键 `(taskId, nodeExecutionId)` —— 用数据库唯一约束保证幂等，而不是靠读写时序 |
-| `executionState.budget` | `AgentFlowRun` 上的整数列，用 Prisma 原子 `{ increment: 1 }`，不再 read-modify-write |
-| `executionState.plan` / `planLoop` | 迁入 `AgentFlowNodeExecution.state`（本就是单节点内的状态，放全局是历史包袱） |
-| `executionState` 余下部分 | 只留 Flow 级少量标量 |
+| `executionState.budget` | `StreamTask.flowModelCalls` / `flowToolCalls`，Prisma 原子 `increment`，不再 read-modify-write |
+| `executionState.started` | `StreamTask.flowRunStartedAt`，以 `IS NULL` 条件更新原子声明发事件的归属 |
+| `executionState.pendingApproval` | 删除。`AgentFlowApproval` 的 PENDING 记录本就是唯一事实源，快照只能容纳一个等待节点，并行下必然失真 |
+| `executionState.plan` / `planLoop` | **留在原处**。设计初稿称其为"单节点内的状态"，与代码不符：`plan` 由 plan 节点写，approval / plan-loop / synthesize 三个节点读，是跨节点数据。它由 §2 的变量模型接管，不是搬进 `AgentFlowNodeExecution` |
+
+落地后 `executionState.agentFlow` 只剩 `plan` / `planLoop`，仍是整块读改写。**因此 §4.3 完成不等于并行安全**，扇出前还欠 §2（变量模型接管 plan）、§4.5（`message.delta` 分片）与 §4.2（前沿执行器）。
+
+顺带修掉一个此前不在计划内的幂等漏洞：`resumeNode` 原先没有回放短路，节点事务已提交而结果上报丢失时，Temporal 会带着同一份审批决定把节点整个重跑——模型重复调用，已放行的工具重复执行。
+
+仍未解决：`AgentFlowApproval` 缺 `(taskId, nodeKey, kind) where status = PENDING` 的**部分**唯一索引，并发创建审批会落出两条 PENDING 卡片。Prisma schema 无法声明部分索引，只能手写进 `migration.sql`，而本仓库禁止手写迁移 SQL，故留待人工决策。降级成完整唯一索引是错的——那会挡掉同一节点在前一轮已决议后的第二轮审批（`reject_replan` 的 revision 2）。
 
 ### 4.4 预算判定移到 Workflow 侧
 
@@ -199,9 +236,9 @@ Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记�
 
 不引入 `loop` / `iteration` 节点。`plan-loop` 把循环关在节点内部是正确的取舍——图上的环会让前沿算法需要处理收敛判定与迭代上下文，代价陡增。Dify 的 iteration 节点同样是节点内循环。
 
-## 5. 迁移
+## 5. 迁移 —— **已落地**
 
-`schemaVersion: 1 → 2`，**不做双运行时**。
+`schemaVersion: 1 → 2`，**不做双运行时**：V1 工件由 Zod 的 `z.literal` 直接拒绝，有用例守住。
 
 理由：按根 `AGENTS.md`「不写长期兼容旧接口的代码」，而版本化工件的兼容成本会同时渗进 validator、compiler 和 workflow 三处。
 
@@ -220,11 +257,14 @@ Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记�
 
 **第二批 —— V2 地基，无 UI**
 
-4. 拆表 + 原子预算（P0，不做则并行必然破坏护栏）
+4. ~~拆表 + 原子预算（P0，不做则并行必然破坏护栏）~~ **已落地，见 §4.3**
 5. `message.delta` 增加 `nodeKey` 与分片渲染
-6. 变量模型 + `$ref` 静态校验（含 `ref-dominates`）
-7. `condition` / `join` 节点 + 分支键泛化
+6. ~~变量模型 + `$ref` 静态校验（含 `ref-dominates`）~~ **已落地**
+7. `condition` + 分支键泛化 **已落地**；`join` 属并行段
 8. 前沿执行器重写
+
+第 6 与第 7 项必须同时落：`$ref` 单独声明出来没有任何消费者，就是死字段；condition 的
+`conditions[].ref` 是它的第一个真实消费者。
 
 **第三批**
 

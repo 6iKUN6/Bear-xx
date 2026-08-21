@@ -126,7 +126,18 @@ AgentFlowSignalOutbox
 
 `AgentFlowSignalOutbox` 已随阶段 5 写入 schema 和控制面 migration，用于可靠投递审批 Signal；取消 Signal 不复制业务正文，而是以 `StreamTask.status=CANCELED` 为事实源，由补偿派发器在成功通知 Temporal 后在 `executionState.agentFlow.cancelSignalDeliveredAt` 写入投递标记。
 
-AgentFlow 任务的 `StreamTask.executionState.agentFlow` 保存运行期小型快照：节点幂等结果、待审批 ID、计划步骤、PlanLoop 步骤索引和安全观察摘要。它不保存完整 FlowDefinition、完整对话、审批决定正文或工具原始响应；遗留策略任务继续保留既有策略快照。
+运行期状态按「并发下会不会被吞掉」分成三处存放，不再共用一个 JSON blob：
+
+| 事实 | 存放位置 | 为什么在这里 |
+| --- | --- | --- |
+| 节点终局结果（幂等依据） | `AgentFlowNodeExecution`，唯一键 `(taskId, nodeExecutionId)` | 幂等由数据库唯一约束保证，不依赖读写时序 |
+| 预算用量 | `StreamTask.flowModelCalls` / `flowToolCalls` | 走 Prisma 原子 `increment`；整块回写会让并发节点互相吞掉计数，等于无限预算 |
+| `flow.run.started` 是否已发 | `StreamTask.flowRunStartedAt` | 以 `IS NULL` 条件更新原子声明，只有命中 1 行的节点发事件 |
+| 待审批事实 | `AgentFlowApproval`（`status=PENDING`） | 唯一事实源；快照只能容纳一个等待中的节点，并行下必然失真 |
+| 节点声明输出（供下游 `$ref` 引用） | `AgentFlowNodeExecution.outputs`，与幂等记录同一行同一事务 | 一行一节点，读取不需要合并 JSON，也不存在并发覆盖。闭集由 `FLOW_NODE_OUTPUTS` 声明 |
+| 计划步骤、PlanLoop 步骤索引与观察摘要 | `StreamTask.executionState.agentFlow` | 仍是整块读改写。它是跨节点数据（plan 节点写，approval / plan-loop / synthesize 读），**并行落地前必须由变量模型完全接管**，见 `agent-flow-v2-model.md` |
+
+以上都不保存完整 FlowDefinition、完整对话、审批决定正文或工具原始响应；遗留策略任务继续保留既有策略快照。
 
 所有数据库变更只修改 `apps/api/prisma/schema.prisma`；迁移由开发者本地执行 Prisma 生成，禁止手写 `migration.sql`。
 
