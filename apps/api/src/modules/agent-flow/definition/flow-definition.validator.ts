@@ -1,7 +1,14 @@
-import type {
-  FlowDefinition,
-  FlowEdgeWhen,
-  FlowNode,
+import {
+  FLOW_CONDITION_OPERATORS,
+  FLOW_DEFAULT_BRANCH,
+  FLOW_INPUT_OUTPUTS,
+  FLOW_INPUT_SOURCE,
+  FLOW_NODE_OUTPUTS,
+  flowNodeBranchKeys,
+  type FlowDefinition,
+  type FlowEdge,
+  type FlowNode,
+  type FlowValueType,
 } from '@litter-bear/types/agent-flow';
 import { FlowDefinitionSchema } from './flow-definition.schema';
 
@@ -105,89 +112,177 @@ function validateGraphStructure(
   });
 
   validateDuplicateBranches(validEdges, errors);
+  validateBranchCoverage(definition.nodes, validEdges, errors);
   validateEntryAndTerminalNodes(definition.nodes, validEdges, errors);
   if (hasCycle(definition.nodes, validEdges)) {
     errors.push({
       path: 'edges',
       rule: 'cycle',
-      message:
-        'V1 Flow 不允许节点之间形成环；PlanLoop 的循环必须保留在节点内部',
+      message: 'Flow 不允许节点之间形成环；PlanLoop 的循环必须保留在节点内部',
     });
-  } else {
-    validatePlanPrerequisite(definition.nodes, validEdges, errors);
+    return errors;
   }
+
+  // 支配关系只在无环图上有意义，且需要唯一入口；两条前置都不满足时已经报过更准确的错，
+  // 再算一遍支配集只会叠加噪音
+  const entryNodeKey = findEntryNodeKey(definition.nodes, validEdges);
+  if (!entryNodeKey) {
+    return errors;
+  }
+  const dominators = computeDominators(
+    definition.nodes,
+    validEdges,
+    entryNodeKey,
+  );
+  validatePlanPrerequisite(definition.nodes, dominators, errors);
+  validateVariableReferences(definition.nodes, dominators, errors);
   return errors;
 }
 
 /**
- * 检查依赖计划的节点前面是否必定存在 plan 节点
+ * 找出图的唯一入口节点
  * @param nodes 全部节点
- * @param edges 端点和分支均有效的边集合
- * @param errors 用于累积校验错误的数组
- * @returns 无返回值
- * @description plan-loop 与 approval 在运行时都要读取 plan 节点写入的计划；缺少前置 plan 时
- * Activity 会抛 AGENT_FLOW_PLAN_STATE_MISSING 直接终止任务。这个错误必须在发布期就拦住，
- * 否则一个能通过发布校验的 Flow 会在每个终端用户身上炸。要求「每条路径上都有」而不是
- * 「存在一条路径有」：只要有一条绕开 plan 的分支，那条分支上的运行就会失败。
+ * @param edges 端点与分支均有效的边集合
+ * @returns 恰好一个入口时返回其标识，否则返回 undefined
  */
-function validatePlanPrerequisite(
+function findEntryNodeKey(
   nodes: readonly FlowNode[],
-  edges: readonly FlowDefinition['edges'][number][],
-  errors: FlowDefinitionValidationError[],
-): void {
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  edges: readonly FlowEdge[],
+): string | undefined {
+  const incoming = new Set(edges.map((edge) => edge.to));
+  const entries = nodes.filter((node) => !incoming.has(node.id));
+  return entries.length === 1 ? entries[0].id : undefined;
+}
+
+/**
+ * 计算每个节点的支配集
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param entryNodeKey 唯一入口节点标识
+ * @returns 返回节点标识到其支配节点集合的映射，集合含节点自身
+ * @description 支配集定义为「从入口到该节点的每一条路径上都必然出现的节点」，用经典迭代
+ * 不动点求解：dom(entry) = {entry}，dom(n) = {n} ∪ (∩ dom(pred))。
+ * 有了它，「引用必须指向必定已执行的节点」与「依赖计划的节点前面必定有 plan」这两条规则
+ * 就是同一个事实的两次查询，不需要各写一份数据流。
+ * 只对入口可达的节点求解：不可达节点已由 reachable-node 单独报错，把它们算进来会得到
+ * 「支配集为全集」这种无意义结果并连带污染下游判定。
+ */
+function computeDominators(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  entryNodeKey: string,
+): Map<string, ReadonlySet<string>> {
   const predecessors = new Map<string, string[]>();
-  const outdegreeTargets = new Map<string, string[]>();
-  const indegree = new Map<string, number>();
-  for (const node of nodes) {
-    indegree.set(node.id, 0);
-  }
+  const successors = new Map<string, string[]>();
   for (const edge of edges) {
     predecessors.set(edge.to, [
       ...(predecessors.get(edge.to) ?? []),
       edge.from,
     ]);
-    outdegreeTargets.set(edge.from, [
-      ...(outdegreeTargets.get(edge.from) ?? []),
-      edge.to,
-    ]);
-    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+    successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
   }
 
-  // 拓扑序上做一次前向数据流：planGuaranteed 表示「到达该节点前必定已执行过 plan」
-  const planGuaranteed = new Map<string, boolean>();
-  const ready = nodes
-    .filter((node) => (indegree.get(node.id) ?? 0) === 0)
-    .map((node) => node.id);
-  while (ready.length > 0) {
-    const nodeId = ready.shift();
-    if (!nodeId) {
+  const reachable = new Set<string>();
+  const pending = [entryNodeKey];
+  while (pending.length > 0) {
+    const nodeId = pending.pop();
+    if (!nodeId || reachable.has(nodeId)) {
       continue;
     }
-    const incoming = predecessors.get(nodeId) ?? [];
-    planGuaranteed.set(
-      nodeId,
-      incoming.length > 0 &&
-        incoming.every(
-          (from) =>
-            planGuaranteed.get(from) === true ||
-            nodesById.get(from)?.type === 'plan',
-        ),
+    reachable.add(nodeId);
+    pending.push(...(successors.get(nodeId) ?? []));
+  }
+
+  const allReachable = new Set(reachable);
+  const dominators = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    if (!reachable.has(node.id)) {
+      continue;
+    }
+    // 初值取全集，交集迭代才能单调收缩到不动点；入口固定为自身
+    dominators.set(
+      node.id,
+      node.id === entryNodeKey
+        ? new Set([entryNodeKey])
+        : new Set(allReachable),
     );
-    for (const target of outdegreeTargets.get(nodeId) ?? []) {
-      const remaining = (indegree.get(target) ?? 0) - 1;
-      indegree.set(target, remaining);
-      if (remaining === 0) {
-        ready.push(target);
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of nodes) {
+      if (node.id === entryNodeKey || !reachable.has(node.id)) {
+        continue;
+      }
+      const incoming = (predecessors.get(node.id) ?? []).filter((from) =>
+        reachable.has(from),
+      );
+      let next: Set<string>;
+      if (incoming.length === 0) {
+        next = new Set([node.id]);
+      } else {
+        next = new Set(dominators.get(incoming[0]) ?? []);
+        for (const from of incoming.slice(1)) {
+          const other = dominators.get(from) ?? new Set<string>();
+          for (const candidate of [...next]) {
+            if (!other.has(candidate)) {
+              next.delete(candidate);
+            }
+          }
+        }
+        next.add(node.id);
+      }
+      const current = dominators.get(node.id);
+      if (!current || current.size !== next.size) {
+        dominators.set(node.id, next);
+        changed = true;
+        continue;
+      }
+      for (const candidate of next) {
+        if (!current.has(candidate)) {
+          dominators.set(node.id, next);
+          changed = true;
+          break;
+        }
       }
     }
   }
 
+  return new Map(dominators);
+}
+
+/**
+ * 检查依赖计划的节点前面是否必定存在 plan 节点
+ * @param nodes 全部节点
+ * @param dominators 每个节点的支配集
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description plan-loop 与 approval 在运行时都要读取 plan 节点写入的计划；缺少前置 plan 时
+ * Activity 会抛 AGENT_FLOW_PLAN_STATE_MISSING 直接终止任务。这个错误必须在发布期就拦住，
+ * 否则一个能通过发布校验的 Flow 会在每个终端用户身上炸。要求「每条路径上都有」而不是
+ * 「存在一条路径有」：只要有一条绕开 plan 的分支，那条分支上的运行就会失败——而这正是
+ * 支配集的定义，因此这里只是一次查询，不再自己走一遍数据流。
+ */
+function validatePlanPrerequisite(
+  nodes: readonly FlowNode[],
+  dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  errors: FlowDefinitionValidationError[],
+): void {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
   nodes.forEach((node, index) => {
     if (node.type !== 'plan-loop' && node.type !== 'approval') {
       return;
     }
-    if (planGuaranteed.get(node.id) === true) {
+    const dominating = dominators.get(node.id);
+    if (!dominating) {
+      return;
+    }
+    const hasPlan = [...dominating].some(
+      (candidate) =>
+        candidate !== node.id && nodesById.get(candidate)?.type === 'plan',
+    );
+    if (hasPlan) {
       return;
     }
     errors.push({
@@ -199,17 +294,145 @@ function validatePlanPrerequisite(
 }
 
 /**
- * 判断边的分支标识是否与源节点类型匹配
+ * 校验节点配置里的全部变量引用
+ * @param nodes 全部节点
+ * @param dominators 每个节点的支配集
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 三件事一起查：被引来源存在、被引字段是该来源声明的输出、算子与该输出的类型匹配，
+ * 以及最关键的 ref-dominates —— 引用只能指向支配本节点的节点。
+ * 后者拦下两类错误：引用下游节点（拓扑序违规），以及**引用互斥条件分支里的节点**。
+ * 第二类是变量模型最容易漏的坑：图上看着连通，运行时那条分支没走，取值必定为空。
+ * 它在发布期可判定，就必须在发布期拦，而不是让终端用户在运行时拿到一个空值。
+ */
+function validateVariableReferences(
+  nodes: readonly FlowNode[],
+  dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  errors: FlowDefinitionValidationError[],
+): void {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  nodes.forEach((node, nodeIndex) => {
+    if (node.type !== 'condition') {
+      return;
+    }
+    node.config.cases.forEach((branch, caseIndex) => {
+      branch.conditions.forEach((predicate, predicateIndex) => {
+        const path = `nodes.${nodeIndex}.config.cases.${caseIndex}.conditions.${predicateIndex}`;
+        const [sourceId, field] = predicate.ref.$ref;
+        const valueType = resolveRefValueType(sourceId, field, nodesById);
+        if (!valueType) {
+          errors.push({
+            path: `${path}.ref`,
+            rule: 'ref-target',
+            message: `引用「${sourceId}.${field}」不存在：来源必须是已声明该输出的节点或 ${FLOW_INPUT_SOURCE}`,
+          });
+          return;
+        }
+        if (sourceId !== FLOW_INPUT_SOURCE) {
+          const dominating = dominators.get(node.id);
+          if (!dominating?.has(sourceId) || sourceId === node.id) {
+            errors.push({
+              path: `${path}.ref`,
+              rule: 'ref-dominates',
+              message: `节点「${node.id}」不能引用「${sourceId}」：只允许引用到达本节点的每条路径上都必定已执行的节点`,
+            });
+            return;
+          }
+        }
+
+        const operator = FLOW_CONDITION_OPERATORS[predicate.operator];
+        if (!operator.valueTypes.includes(valueType)) {
+          errors.push({
+            path: `${path}.operator`,
+            rule: 'ref-type-match',
+            message: `算子「${predicate.operator}」不能用于 ${valueType} 类型的「${sourceId}.${field}」`,
+          });
+        }
+        if (operator.requiresValue && predicate.value === undefined) {
+          errors.push({
+            path: `${path}.value`,
+            rule: 'condition-value-required',
+            message: `算子「${predicate.operator}」必须提供比较值`,
+          });
+        }
+        if (!operator.requiresValue && predicate.value !== undefined) {
+          errors.push({
+            path: `${path}.value`,
+            rule: 'condition-value-forbidden',
+            message: `算子「${predicate.operator}」不接受比较值`,
+          });
+        }
+      });
+    });
+  });
+}
+
+/**
+ * 解析一个引用指向的输出类型
+ * @param sourceId 被引来源标识，可能是节点标识或 Flow 级根变量
+ * @param field 被引输出字段名
+ * @param nodesById 节点索引
+ * @returns 来源与字段都已声明时返回其值类型，否则返回 undefined
+ * @description 输出声明是代码里的闭集常量，编辑器的变量选择器与这里用的是同一份事实。
+ */
+function resolveRefValueType(
+  sourceId: string,
+  field: string,
+  nodesById: ReadonlyMap<string, FlowNode>,
+): FlowValueType | undefined {
+  if (sourceId === FLOW_INPUT_SOURCE) {
+    return FLOW_INPUT_OUTPUTS[field];
+  }
+  const source = nodesById.get(sourceId);
+  return source ? FLOW_NODE_OUTPUTS[source.type][field] : undefined;
+}
+
+/**
+ * 校验分支覆盖的完备性
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 一个节点声明的分支要么全部有出边，要么全部没有（即它是终点）。
+ * 不允许部分覆盖：漏掉的那条分支在运行时命中就无处可去，Flow 会在那里静默停住。
+ */
+function validateBranchCoverage(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  errors: FlowDefinitionValidationError[],
+): void {
+  const outgoingBranches = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    const branches = outgoingBranches.get(edge.from) ?? new Set<string>();
+    branches.add(edge.when ?? FLOW_DEFAULT_BRANCH);
+    outgoingBranches.set(edge.from, branches);
+  }
+
+  nodes.forEach((node, index) => {
+    const declared = flowNodeBranchKeys(node);
+    const covered = outgoingBranches.get(node.id) ?? new Set<string>();
+    if (covered.size === 0 || covered.size === declared.length) {
+      return;
+    }
+    const missing = declared.filter((branch) => !covered.has(branch));
+    errors.push({
+      path: `nodes.${index}.id`,
+      rule: 'branch-coverage',
+      message: `节点「${node.id}」的分支「${missing.join('、')}」没有出边；分支必须全部连出或全部不连`,
+    });
+  });
+}
+
+/**
+ * 判断边的分支标识是否为源节点声明的分支
  * @param node 边的源节点
  * @param when 用户声明的可选分支标识
- * @returns 当节点允许该分支时返回 true
- * @description 非分支节点只能使用无 when 的默认边，审批节点只能使用 approved 分支。
+ * @returns 当节点声明了该分支时返回 true
+ * @description 合法取值不再由类型系统枚举，而由 flowNodeBranchKeys 这一份共享事实决定；
+ * `when` 缺省等价于 default 分支。
  */
-function isValidEdgeWhen(node: FlowNode, when: FlowEdgeWhen | undefined) {
-  if (node.type === 'approval') {
-    return when === 'approved';
-  }
-  return when === undefined;
+function isValidEdgeWhen(node: FlowNode, when: string | undefined) {
+  return flowNodeBranchKeys(node).includes(when ?? FLOW_DEFAULT_BRANCH);
 }
 
 /**
@@ -220,7 +443,7 @@ function isValidEdgeWhen(node: FlowNode, when: FlowEdgeWhen | undefined) {
  * @description 同一默认边或同一 approval 分支只能出现一次，防止运行时无法确定下一跳。
  */
 function validateDuplicateBranches(
-  edges: readonly FlowDefinition['edges'][number][],
+  edges: readonly FlowEdge[],
   errors: FlowDefinitionValidationError[],
 ): void {
   const seen = new Set<string>();
@@ -248,7 +471,7 @@ function validateDuplicateBranches(
  */
 function validateEntryAndTerminalNodes(
   nodes: readonly FlowNode[],
-  edges: readonly FlowDefinition['edges'][number][],
+  edges: readonly FlowEdge[],
   errors: FlowDefinitionValidationError[],
 ): void {
   const incoming = new Set(edges.map((edge) => edge.to));
@@ -311,7 +534,7 @@ function validateEntryAndTerminalNodes(
  */
 function hasCycle(
   nodes: readonly FlowNode[],
-  edges: readonly FlowDefinition['edges'][number][],
+  edges: readonly FlowEdge[],
 ): boolean {
   const adjacency = new Map<string, string[]>();
   for (const edge of edges) {

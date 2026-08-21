@@ -1,4 +1,9 @@
-import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
+import {
+  AGENT_FLOW_SCHEMA_VERSION,
+  FLOW_CONDITION_OPERATORS,
+  FLOW_INPUT_SOURCE,
+  type FlowConditionOperator,
+} from '@litter-bear/types/agent-flow';
 import { z } from 'zod';
 
 /** FlowDefinition 的服务端安全上限。 */
@@ -23,12 +28,66 @@ export const FLOW_DEFINITION_LIMITS = {
   maxToolIterations: 16,
   /** 画布节点坐标轴允许的绝对值上限。 */
   layoutCoordinate: 100_000,
+  /** 单个 condition 节点允许声明的最大 case 数。 */
+  conditionCaseCount: 16,
+  /** 单个 case 内允许声明的最大判定条件数。 */
+  conditionPredicateCount: 16,
+  /** 条件比较值的最大字符数。 */
+  conditionValueLength: 500,
 } as const;
 
 const NODE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
+const BRANCH_KEY_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+const OUTPUT_FIELD_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 
 const nodeIdSchema = z.string().regex(NODE_ID_PATTERN);
 const nonEmptyKeySchema = z.string().trim().min(1).max(100);
+const branchKeySchema = z.string().regex(BRANCH_KEY_PATTERN);
+
+// 算子清单只从 FLOW_CONDITION_OPERATORS 派生：另写一份 z.enum 字面量就会有第二个源，
+// 加算子时漏改一处不会有任何工具报错。Object.keys 的静态类型是 string[]，
+// 而该 map 的键就是算子联合本身，这里只是把这个事实告诉编译器。
+const conditionOperatorSchema = z.enum(
+  Object.keys(FLOW_CONDITION_OPERATORS) as [
+    FlowConditionOperator,
+    ...FlowConditionOperator[],
+  ],
+);
+
+/** 结构化变量引用；来源可以是节点标识或 Flow 级根变量。 */
+const flowRefSchema = z
+  .object({
+    $ref: z.tuple([
+      z.union([nodeIdSchema, z.literal(FLOW_INPUT_SOURCE)]),
+      z.string().regex(OUTPUT_FIELD_PATTERN),
+    ]),
+  })
+  .strict();
+
+const conditionCaseSchema = z
+  .object({
+    key: branchKeySchema,
+    logic: z.enum(['and', 'or']),
+    conditions: z
+      .array(
+        z
+          .object({
+            ref: flowRefSchema,
+            operator: conditionOperatorSchema,
+            value: z
+              .union([
+                z.string().max(FLOW_DEFINITION_LIMITS.conditionValueLength),
+                z.number().finite(),
+                z.boolean(),
+              ])
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(FLOW_DEFINITION_LIMITS.conditionPredicateCount),
+  })
+  .strict();
 
 const agentNodeConfigSchema = z
   .object({
@@ -94,9 +153,23 @@ const flowNodeSchema = z.discriminatedUnion('type', [
       config: z.object({}).strict(),
     })
     .strict(),
+  z
+    .object({
+      id: nodeIdSchema,
+      type: z.literal('condition'),
+      config: z
+        .object({
+          cases: z
+            .array(conditionCaseSchema)
+            .min(1)
+            .max(FLOW_DEFINITION_LIMITS.conditionCaseCount),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
-/** `schemaVersion=1` 的 FlowDefinition JSON 解析 Schema。 */
+/** 当前 schemaVersion 的 FlowDefinition JSON 解析 Schema。 */
 export const FlowDefinitionSchema = z
   .object({
     schemaVersion: z.literal(AGENT_FLOW_SCHEMA_VERSION),
@@ -134,7 +207,7 @@ export const FlowDefinitionSchema = z
           .object({
             from: nodeIdSchema,
             to: nodeIdSchema,
-            when: z.literal('approved').optional(),
+            when: branchKeySchema.optional(),
           })
           .strict(),
       )
