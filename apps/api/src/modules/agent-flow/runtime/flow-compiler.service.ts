@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import type {
   FlowAgentNodeConfig,
   FlowDefinition,
-  FlowEdgeWhen,
   FlowNode,
 } from '@litter-bear/types/agent-flow';
 import { CapabilityRegistry } from '../../ai/agent-loop/capability/capability.registry';
@@ -44,7 +43,6 @@ export class FlowCompiler {
       return { success: false, errors: validation.errors };
     }
 
-    const nextByNode = this.buildNextByNode(definition);
     const entryNodeKey = this.findEntryNodeKey(definition);
     return {
       success: true,
@@ -52,43 +50,10 @@ export class FlowCompiler {
         definition,
         entryNodeKey,
         nodes: definition.nodes.map((node) =>
-          this.compileNode(
-            node,
-            nextByNode.get(node.id) ?? {},
-            context,
-            definition.policy.maxSteps,
-          ),
+          this.compileNode(node, context, definition.policy.maxSteps),
         ),
       },
     };
-  }
-
-  /**
-   * 构建每个节点的受限分支跳转表
-   * @param definition 已通过结构校验的 FlowDefinition
-   * @returns 返回节点 ID 到固定 branch->target 映射的只读映射
-   * @description FlowDefinition 结构校验已保证分支唯一和端点存在，编译器仅将边转为运行时无需解析表达式的查表结构。
-   */
-  private buildNextByNode(
-    definition: FlowDefinition,
-  ): ReadonlyMap<string, Readonly<Record<string, string>>> {
-    const nextByNode = new Map<string, Record<string, string>>();
-    for (const edge of definition.edges) {
-      const next = nextByNode.get(edge.from) ?? {};
-      next[this.getBranchKey(edge.when)] = edge.to;
-      nextByNode.set(edge.from, next);
-    }
-    return nextByNode;
-  }
-
-  /**
-   * 获取边在编译计划中的分支键
-   * @param when Definition 声明的可选 edge 分支
-   * @returns 返回 runtime 固定使用的分支键
-   * @description 默认边统一用 default，审批和条件节点保留其受限枚举，不解析任意表达式。
-   */
-  private getBranchKey(when: FlowEdgeWhen | undefined): string {
-    return when ?? 'default';
   }
 
   /**
@@ -109,7 +74,6 @@ export class FlowCompiler {
   /**
    * 编译一个固定类型节点
    * @param node 当前已校验节点
-   * @param next 当前节点的固定跳转表
    * @param context 任务锁定的运行时上下文
    * @param maxSteps Flow 级别的计划步骤预算
    * @returns 返回无需反射或动态执行的编译节点
@@ -117,19 +81,17 @@ export class FlowCompiler {
    */
   private compileNode(
     node: FlowNode,
-    next: Readonly<Record<string, string>>,
     context: Omit<FlowTaskRuntimeContext, 'phase'>,
     maxSteps: number,
   ): CompiledFlowNode {
     switch (node.type) {
       case 'start':
-        return { key: node.id, ...alias(node), type: 'start', next };
+        return { key: node.id, ...alias(node), type: 'start' };
       case 'agent':
         return {
           key: node.id,
           ...alias(node),
           type: 'agent',
-          next,
           ...this.compileExecutor(node.config, context),
         };
       case 'plan':
@@ -137,7 +99,6 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'plan',
-          next,
           maxSteps: node.config.maxSteps,
         };
       case 'plan-loop':
@@ -145,7 +106,6 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'plan-loop',
-          next,
           planRef: node.config.planRef,
           planLoopPolicy: {
             stopPolicy: node.config.stopPolicy,
@@ -159,7 +119,6 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'approval',
-          next,
           kind: node.config.kind,
           policy: node.config.policy,
           planRef: node.config.planRef,
@@ -169,7 +128,6 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'synthesize',
-          next,
           ...(node.config.observationsRef
             ? { observationsRef: node.config.observationsRef }
             : {}),
@@ -179,7 +137,6 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'join',
-          next,
           waitFor: node.config.waitFor,
           joinPolicy: node.config.policy,
         };
@@ -188,7 +145,6 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'condition',
-          next,
           cases: node.config.cases,
         };
     }
@@ -204,7 +160,7 @@ export class FlowCompiler {
   private compileExecutor(
     config: FlowAgentNodeConfig,
     context: Omit<FlowTaskRuntimeContext, 'phase'>,
-  ): Omit<CompiledAgentFlowNode, 'key' | 'type' | 'next'> {
+  ): Omit<CompiledAgentFlowNode, 'key' | 'type'> {
     const toolNames = new Set<string>();
     for (const group of config.toolGroups) {
       for (const tool of this.capabilityRegistry.getToolsByGroup(group)) {

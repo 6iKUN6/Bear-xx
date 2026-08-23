@@ -1463,7 +1463,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   private async executeAgentNode(
     context: AgentFlowExecutionContext,
     input: AgentFlowNodeExecutionInput,
-    node: Omit<CompiledAgentFlowNode, 'key' | 'type' | 'next'>,
+    node: Omit<CompiledAgentFlowNode, 'key' | 'type'>,
     resumeDecision: ApprovalDecision | undefined,
     systemPromptOverride?: string,
   ): Promise<AgentFlowNodeExecutionResult> {
@@ -2261,7 +2261,7 @@ function toRunSnapshot(definition: FlowDefinition): AgentFlowRunSnapshot {
  * @description Flow 编译已经确定模型、技能和工具组；这里只复用能力解析器，不触发策略选择或模型路由。
  */
 function toFlowCapabilityDecision(
-  node: Omit<CompiledAgentFlowNode, 'key' | 'type' | 'next'>,
+  node: Omit<CompiledAgentFlowNode, 'key' | 'type'>,
 ): AgentStrategyDecision {
   return {
     mode: AgentStrategyMode.ReAct,
@@ -2283,7 +2283,7 @@ function toFlowCapabilityDecision(
  */
 function toSynthesizeExecutor(
   modelPreset: string,
-): Omit<CompiledAgentFlowNode, 'key' | 'type' | 'next'> {
+): Omit<CompiledAgentFlowNode, 'key' | 'type'> {
   return {
     modelPreset,
     toolGroups: [],

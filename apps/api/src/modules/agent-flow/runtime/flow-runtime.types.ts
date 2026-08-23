@@ -3,7 +3,6 @@ import type {
   FlowConditionCase,
   FlowRef,
   FlowDefinition,
-  FlowNodeType,
   FlowPlanLoopStopPolicy,
 } from '@litter-bear/types/agent-flow';
 
@@ -41,8 +40,6 @@ export interface CompiledFlowNodeBase {
   key: string;
   /** Definition 里的显示别名；缺省时展示层回退到节点类型标题 */
   name?: string;
-  type: FlowNodeType;
-  next: Readonly<Record<string, string>>;
 }
 
 /** 编译后的 Agent 节点。 */
@@ -71,7 +68,7 @@ export interface CompiledPlanLoopFlowNode extends CompiledFlowNodeBase {
     planReview: 'disabled';
     maxSteps: number;
   };
-  executor: Omit<CompiledAgentFlowNode, 'key' | 'type' | 'next'>;
+  executor: Omit<CompiledAgentFlowNode, 'key' | 'type'>;
 }
 
 /** 编译后的计划审批节点。 */

@@ -56,9 +56,8 @@ describe('FlowCompiler', () => {
         type: 'agent',
         modelPreset: 'model-enabled',
         approvalToolNames: ['generateImage'],
-        next: { default: 'finish' },
       }),
-      expect.objectContaining({ key: 'finish', type: 'synthesize', next: {} }),
+      expect.objectContaining({ key: 'finish', type: 'synthesize' }),
     ]);
   });
 

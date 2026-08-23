@@ -186,7 +186,6 @@ describe('AgentFlowActivities', () => {
           {
             key: 'answer',
             type: 'agent',
-            next: {},
             modelPreset: 'openai:test',
             toolGroups: [],
             skills: [],
@@ -323,7 +322,6 @@ describe('AgentFlowActivities', () => {
       node: {
         key: 'execute',
         type: 'agent',
-        next: {},
         modelPreset: 'openai:test',
         toolGroups: ['orders'],
         skills: [],
@@ -633,7 +631,6 @@ describe('AgentFlowActivities', () => {
       node: {
         key: 'answer',
         type: 'agent',
-        next: {},
         modelPreset: 'openai:test',
         toolGroups: [],
         skills: [],
@@ -726,7 +723,6 @@ describe('AgentFlowActivities', () => {
       node: {
         key: 'answer',
         type: 'agent',
-        next: {},
         modelPreset: 'openai:test',
         toolGroups: [],
         skills: [],
@@ -997,7 +993,6 @@ describe('AgentFlowActivities', () => {
             key: 'answer',
             name: '生成客服回复',
             type: 'agent',
-            next: {},
             modelPreset: 'openai:test',
             toolGroups: [],
             skills: [],
@@ -1158,7 +1153,6 @@ describe('AgentFlowActivities', () => {
       node: {
         key: 'answer',
         type: 'agent',
-        next: {},
         modelPreset: 'openai:test',
         toolGroups: [],
         skills: [],
