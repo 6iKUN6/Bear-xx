@@ -1,7 +1,6 @@
 import {
   AGENT_FLOW_SCHEMA_VERSION,
   FLOW_CONDITION_OPERATORS,
-  FLOW_INPUT_SOURCE,
   type FlowConditionOperator,
 } from '@litter-bear/types/agent-flow';
 import { z } from 'zod';
@@ -34,6 +33,8 @@ export const FLOW_DEFINITION_LIMITS = {
   conditionPredicateCount: 16,
   /** 条件比较值的最大字符数。 */
   conditionValueLength: 500,
+  /** 节点显示名的最大字符数。 */
+  nodeNameLength: 60,
 } as const;
 
 const NODE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -43,6 +44,22 @@ const OUTPUT_FIELD_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 const nodeIdSchema = z.string().regex(NODE_ID_PATTERN);
 const nonEmptyKeySchema = z.string().trim().min(1).max(100);
 const branchKeySchema = z.string().regex(BRANCH_KEY_PATTERN);
+
+/**
+ * 所有节点共有的字段
+ * @description 以对象展开复用而不是 z.object().extend()：discriminatedUnion 要求每个成员的
+ * `type` 是字面量，展开写法最直白，也不会因为 extend 链让报错路径变难读。
+ * `name` 是面向人的显示名，可用中文，与作为机器标识的 `id` 职责分开。
+ */
+const nodeBaseShape = {
+  id: nodeIdSchema,
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(FLOW_DEFINITION_LIMITS.nodeNameLength)
+    .optional(),
+};
 
 // 算子清单只从 FLOW_CONDITION_OPERATORS 派生：另写一份 z.enum 字面量就会有第二个源，
 // 加算子时漏改一处不会有任何工具报错。Object.keys 的静态类型是 string[]，
@@ -57,10 +74,7 @@ const conditionOperatorSchema = z.enum(
 /** 结构化变量引用；来源可以是节点标识或 Flow 级根变量。 */
 const flowRefSchema = z
   .object({
-    $ref: z.tuple([
-      z.union([nodeIdSchema, z.literal(FLOW_INPUT_SOURCE)]),
-      z.string().regex(OUTPUT_FIELD_PATTERN),
-    ]),
+    $ref: z.tuple([nodeIdSchema, z.string().regex(OUTPUT_FIELD_PATTERN)]),
   })
   .strict();
 
@@ -105,14 +119,21 @@ const agentNodeConfigSchema = z
 const flowNodeSchema = z.discriminatedUnion('type', [
   z
     .object({
-      id: nodeIdSchema,
+      ...nodeBaseShape,
+      type: z.literal('start'),
+      config: z.object({}).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
       type: z.literal('agent'),
       config: agentNodeConfigSchema,
     })
     .strict(),
   z
     .object({
-      id: nodeIdSchema,
+      ...nodeBaseShape,
       type: z.literal('plan'),
       config: z
         .object({
@@ -127,7 +148,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
-      id: nodeIdSchema,
+      ...nodeBaseShape,
       type: z.literal('plan-loop'),
       config: z
         .object({
@@ -141,21 +162,21 @@ const flowNodeSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
-      id: nodeIdSchema,
+      ...nodeBaseShape,
       type: z.literal('approval'),
       config: z.object({ kind: z.literal('plan-review') }).strict(),
     })
     .strict(),
   z
     .object({
-      id: nodeIdSchema,
+      ...nodeBaseShape,
       type: z.literal('synthesize'),
       config: z.object({}).strict(),
     })
     .strict(),
   z
     .object({
-      id: nodeIdSchema,
+      ...nodeBaseShape,
       type: z.literal('condition'),
       config: z
         .object({

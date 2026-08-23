@@ -113,9 +113,10 @@ describe('AgentFlowActivities', () => {
     });
 
     await expect(activities.loadRunSnapshot(workflowInput())).resolves.toEqual({
-      entryNodeKey: 'plan',
+      entryNodeKey: 'start',
       maxDurationSeconds: 60,
       nodes: [
+        { key: 'start', type: 'start', next: { default: 'plan' } },
         { key: 'plan', type: 'plan', next: { default: 'review' } },
         {
           key: 'review',
@@ -849,6 +850,21 @@ describe('AgentFlowActivities', () => {
   });
 
   /**
+   * 装配 start 节点的执行上下文
+   * @returns 无返回值
+   * @description requestPayload.content 就是 start 节点声明输出 text 的来源。
+   */
+  function mockStartNode(): void {
+    mockConditionNode();
+    flowCompiler.compile.mockReturnValue({
+      success: true,
+      plan: {
+        nodes: [{ key: 'start', type: 'start', next: { default: 'plan' } }],
+      },
+    });
+  }
+
+  /**
    * 装配一个条件分支节点的执行上下文
    * @returns 无返回值
    * @description Definition 必须真的含 condition 节点：分支键合法性由共享契约的
@@ -889,12 +905,42 @@ describe('AgentFlowActivities', () => {
             key: 'classify',
             type: 'condition',
             next: { case_1: 'answer', else: 'brief' },
-            cases: conditionFlowDefinition().nodes[1].config.cases,
+            cases: conditionFlowDefinition().nodes[2].config.cases,
           },
         ],
       },
     });
   }
+
+  it('start 节点把用户消息作为声明输出落库，不调模型', async () => {
+    // start.text 是下游经 $ref 引用的锚点；不落库的话 condition 会撞上
+    // 「上游节点没有已落库的输出」并显式失败
+    mockStartNode();
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'start',
+        nodeExecutionId: 'task-1:version-1:start',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '流程开始',
+    });
+    expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+    expect(prisma.agentFlowNodeExecution.create).toHaveBeenCalledWith({
+      data: {
+        taskId: 'task-1',
+        nodeExecutionId: 'task-1:version-1:start',
+        nodeKey: 'start',
+        result: 'COMPLETED',
+        outcome: 'default',
+        outputs: { text: '帮我查一下' },
+        summary: '流程开始',
+      },
+    });
+  });
 
   /**
    * 设置一个可由 Activity 编译的冻结任务上下文
@@ -1102,6 +1148,7 @@ function conditionFlowDefinition() {
       maxDurationSeconds: 60,
     },
     nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
       { id: 'plan', type: 'plan' as const, config: { maxSteps: 5 } },
       {
         id: 'classify',
@@ -1126,6 +1173,7 @@ function conditionFlowDefinition() {
       { id: 'brief', type: 'synthesize' as const, config: {} },
     ],
     edges: [
+      { from: 'start', to: 'plan' },
       { from: 'plan', to: 'classify' },
       { from: 'classify', to: 'answer', when: 'case_1' },
       { from: 'classify', to: 'brief', when: 'else' },
@@ -1150,6 +1198,7 @@ function flowDefinition() {
       maxDurationSeconds: 60,
     },
     nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
       // approval 依赖 plan 节点写入的计划，图上必须有前置 plan：
       // 否则运行时会抛 AGENT_FLOW_PLAN_STATE_MISSING，发布校验也会拒绝。
       {
@@ -1169,6 +1218,7 @@ function flowDefinition() {
       },
     ],
     edges: [
+      { from: 'start', to: 'plan' },
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'answer', when: 'approved' as const },
     ],

@@ -1,12 +1,15 @@
 /**
  * AgentFlow Definition 当前支持的 JSON schema 版本。
- * @description 2 引入变量模型（`$ref`）、condition 分支与泛化的分支键。不做双运行时：
- * 版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，V1 工件一律拒绝。
+ * @description 2 引入变量模型（`$ref`）、condition 分支与泛化的分支键；3 引入必需的 start 节点，
+ * 并用它取代 `$input` 这个凭空存在的变量来源。schemaVersion 的职责就是「本工件符合第 N 版形状」，
+ * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
+ * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 2 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 3 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
+  | "start"
   | "agent"
   | "plan"
   | "plan-loop"
@@ -21,15 +24,13 @@ export type FlowNodeType =
  */
 export type FlowValueType = "string" | "number" | "boolean" | "array";
 
-/** Flow 级根变量的来源标识，语法上占据一个节点位。 */
-export const FLOW_INPUT_SOURCE = "$input" as const;
-
 /**
  * 一个结构化变量引用
  * @description 契约里只存结构化形式：编辑器可以让用户输入 `{{planner.steps}}`，但保存时必须
  * 解析成 `$ref` 落库。纯字符串模板无法可靠静态检查「被引节点存在 / 在上游 / 类型匹配」，
  * 那正是运行时冒出 undefined 的来源。
- * 元组是 `[节点标识 | "$input", 输出字段名]`。
+ * 元组是 `[节点标识, 输出字段名]`。用户本轮消息由 start 节点的 `text` 输出提供，
+ * 因此这里不需要任何特殊来源标识——引用机制只有节点输出这一套。
  */
 export interface FlowRef {
   readonly $ref: readonly [string, string];
@@ -43,6 +44,8 @@ export interface FlowRef {
 export const FLOW_NODE_OUTPUTS: Readonly<
   Record<FlowNodeType, Readonly<Record<string, FlowValueType>>>
 > = {
+  // start 的 text 就是用户本轮消息正文；它取代了原先的 `$input.text`
+  start: { text: "string" },
   // 刻意不含 toolCalls：唯一的运行时来源是流事件，而 tool.call.start 的工具名可能缺失
   // （首个 chunk 尚未带名称），据此建数组会漏报已调用的工具——引用它的 notContains 会直接
   // 撒谎。需要这个输出时得先让底层流为每次调用给出稳定名称。
@@ -52,16 +55,6 @@ export const FLOW_NODE_OUTPUTS: Readonly<
   approval: { approved: "boolean", comment: "string" },
   synthesize: { text: "string" },
   condition: {},
-};
-
-/**
- * Flow 级根变量的输出闭集
- * @description 只有 `text`（用户本轮消息正文）。设计初稿还列了 `attachments`，但任务载荷
- * （ChatTaskPayload）里没有这个字段，声明出来就是一个永远为空的输出——引用它的条件永远判 false，
- * 属于「永远算不对」的那类坑。真接入附件时再加。
- */
-export const FLOW_INPUT_OUTPUTS: Readonly<Record<string, FlowValueType>> = {
-  text: "string",
 };
 
 /** Flow 的运行预算策略。 */
@@ -178,50 +171,77 @@ export interface FlowConditionNodeConfig {
   readonly cases: readonly FlowConditionCase[];
 }
 
-/** Agent 节点。 */
-export interface FlowAgentNode {
+/**
+ * 所有节点共有的字段
+ * @description `id` 与 `name` 职责分开：`id` 是机器标识，被 edges 的 from/to、`$ref` 的第一个
+ * 元素和 layout 的键引用，改它等于改引用；`name` 只影响画布与列表的显示，随便改都不会断链，
+ * 也可以用中文。缺省时界面回退显示 `id`。
+ * `name` 参与 digest——顶层 layout 被排除是因为坐标是拖动的副产物，而改名是刻意的编辑动作，
+ * 工件确实变了。
+ */
+export interface FlowNodeBase {
   readonly id: string;
+  readonly name?: string;
+}
+
+/**
+ * 所有节点共有的字段
+ * @description `id` 与 `name` 职责分开：`id` 是机器标识，被 edges 的 from/to、`$ref` 的第一个
+ * 元素和 layout 的键引用，改它等于改引用；`name` 只影响画布与列表的显示，随便改都不会断链，
+ * 也可以用中文。缺省时界面回退显示 `id`。
+ * `name` 参与 digest——顶层 layout 被排除是因为坐标是拖动的副产物，而改名是刻意的编辑动作，
+ * 工件确实变了。
+ */
+export interface FlowNodeBase {
+  readonly id: string;
+  readonly name?: string;
+}
+
+/** Agent 节点。 */
+export interface FlowAgentNode extends FlowNodeBase {
   readonly type: "agent";
   readonly config: FlowAgentNodeConfig;
 }
 
 /** Plan 节点。 */
-export interface FlowPlanNode {
-  readonly id: string;
+export interface FlowPlanNode extends FlowNodeBase {
   readonly type: "plan";
   readonly config: FlowPlanNodeConfig;
 }
 
 /** PlanLoop 节点。 */
-export interface FlowPlanLoopNode {
-  readonly id: string;
+export interface FlowPlanLoopNode extends FlowNodeBase {
   readonly type: "plan-loop";
   readonly config: FlowPlanLoopNodeConfig;
 }
 
 /** 计划审批节点。 */
-export interface FlowApprovalNode {
-  readonly id: string;
+export interface FlowApprovalNode extends FlowNodeBase {
   readonly type: "approval";
   readonly config: FlowApprovalNodeConfig;
 }
 
 /** 汇总节点。 */
-export interface FlowSynthesizeNode {
-  readonly id: string;
+export interface FlowSynthesizeNode extends FlowNodeBase {
   readonly type: "synthesize";
   readonly config: Record<string, never>;
 }
 
+/** 起始节点；每张图有且仅有一个，是唯一入口，并提供用户本轮消息。 */
+export interface FlowStartNode extends FlowNodeBase {
+  readonly type: "start";
+  readonly config: Record<string, never>;
+}
+
 /** 条件分支节点。 */
-export interface FlowConditionNode {
-  readonly id: string;
+export interface FlowConditionNode extends FlowNodeBase {
   readonly type: "condition";
   readonly config: FlowConditionNodeConfig;
 }
 
 /** Flow 节点判别联合。 */
 export type FlowNode =
+  | FlowStartNode
   | FlowAgentNode
   | FlowPlanNode
   | FlowPlanLoopNode
@@ -296,4 +316,101 @@ export interface FlowDefinition {
 
 /** 内置 Flow 预设名称。 */
 export type FlowDefinitionPreset =
-  "direct" | "react" | "plan_execute" | "hybrid";
+  | "blank"
+  | "direct"
+  | "react"
+  | "plan_execute"
+  | "hybrid";
+
+/**
+ * 计算每个节点的支配集
+ * @param nodes 图中全部节点（只需要 id）
+ * @param edges 图中全部边（只需要端点）
+ * @returns 返回节点标识到其支配节点集合的映射，集合含节点自身；入口不唯一时返回空映射
+ * @description 支配集定义为「从入口到该节点的每一条路径上都必然出现的节点」，用经典迭代不动点
+ * 求解：dom(entry) = {entry}，dom(n) = {n} ∪ (∩ dom(pred))。
+ *
+ * 放在共享契约里而不是各端各写一份：后端 validator 用它判定 `ref-dominates`，管理端画布用它
+ * 决定变量选择器能列出哪些上游输出。两处必须给出**同一个**答案——选择器里出现一个后端注定
+ * 拒绝的选项，等于把用户往错误里推；而这段图算法抄两份必然漂移。
+ *
+ * 只对入口可达的节点求解。入口取「没有入边的唯一节点」；草稿可能有零个或多个入口，此时返回
+ * 空映射，让调用方给不出结论而不是给出错的结论。
+ */
+export function flowDominators(
+  nodes: ReadonlyArray<{ readonly id: string }>,
+  edges: ReadonlyArray<{ readonly from: string; readonly to: string }>,
+): Map<string, ReadonlySet<string>> {
+  const incoming = new Set(edges.map((edge) => edge.to));
+  const entries = nodes.filter((node) => !incoming.has(node.id));
+  if (entries.length !== 1) {
+    return new Map();
+  }
+  const entryId = entries[0].id;
+
+  const predecessors = new Map<string, string[]>();
+  const successors = new Map<string, string[]>();
+  for (const edge of edges) {
+    predecessors.set(edge.to, [...(predecessors.get(edge.to) ?? []), edge.from]);
+    successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+  }
+
+  const reachable = new Set<string>();
+  const pending = [entryId];
+  while (pending.length > 0) {
+    const nodeId = pending.pop();
+    if (!nodeId || reachable.has(nodeId)) {
+      continue;
+    }
+    reachable.add(nodeId);
+    pending.push(...(successors.get(nodeId) ?? []));
+  }
+
+  const dominators = new Map<string, Set<string>>();
+  for (const nodeId of reachable) {
+    // 初值取全集，交集迭代才能单调收缩到不动点；入口固定为自身
+    dominators.set(
+      nodeId,
+      nodeId === entryId ? new Set([entryId]) : new Set(reachable),
+    );
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const nodeId of reachable) {
+      if (nodeId === entryId) {
+        continue;
+      }
+      const preds = (predecessors.get(nodeId) ?? []).filter((from) =>
+        reachable.has(from),
+      );
+      const next = new Set<string>(
+        preds.length === 0 ? [] : (dominators.get(preds[0]) ?? []),
+      );
+      for (const from of preds.slice(1)) {
+        const other = dominators.get(from) ?? new Set<string>();
+        for (const candidate of [...next]) {
+          if (!other.has(candidate)) {
+            next.delete(candidate);
+          }
+        }
+      }
+      next.add(nodeId);
+      const current = dominators.get(nodeId);
+      if (!current || current.size !== next.size) {
+        dominators.set(nodeId, next);
+        changed = true;
+        continue;
+      }
+      for (const candidate of next) {
+        if (!current.has(candidate)) {
+          dominators.set(nodeId, next);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+  return new Map(dominators);
+}

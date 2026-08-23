@@ -122,6 +122,8 @@ export class FlowCompiler {
     maxSteps: number,
   ): CompiledFlowNode {
     switch (node.type) {
+      case 'start':
+        return { key: node.id, type: 'start', next };
       case 'agent':
         return {
           key: node.id,

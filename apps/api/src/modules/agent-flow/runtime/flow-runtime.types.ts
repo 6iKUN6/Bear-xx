@@ -79,6 +79,11 @@ export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
   type: 'synthesize';
 }
 
+/** 编译后的起始节点。 */
+export interface CompiledStartFlowNode extends CompiledFlowNodeBase {
+  type: 'start';
+}
+
 /** 编译后的条件分支节点。 */
 export interface CompiledConditionFlowNode extends CompiledFlowNodeBase {
   type: 'condition';
@@ -87,6 +92,7 @@ export interface CompiledConditionFlowNode extends CompiledFlowNodeBase {
 
 /** 编译后的节点闭集。 */
 export type CompiledFlowNode =
+  | CompiledStartFlowNode
   | CompiledAgentFlowNode
   | CompiledPlanFlowNode
   | CompiledPlanLoopFlowNode

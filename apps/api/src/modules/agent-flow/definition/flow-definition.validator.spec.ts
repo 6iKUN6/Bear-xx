@@ -58,6 +58,7 @@ describe('FlowDefinitionValidator', () => {
     const cyclic = {
       ...validDefinition(),
       nodes: [
+        { id: 'start', type: 'start', config: {} },
         {
           id: 'agent-a',
           type: 'agent',
@@ -66,6 +67,7 @@ describe('FlowDefinitionValidator', () => {
         { id: 'answer', type: 'synthesize', config: {} },
       ],
       edges: [
+        { from: 'start', to: 'agent-a' },
         { from: 'agent-a', to: 'answer' },
         { from: 'answer', to: 'agent-a' },
       ],
@@ -98,6 +100,7 @@ describe('FlowDefinitionValidator', () => {
       ...definition,
       nodes: definition.nodes.filter((node) => node.id !== 'plan'),
       edges: [
+        { from: 'start', to: 'review' },
         { from: 'review', to: 'execute', when: 'approved' },
         { from: 'execute', to: 'answer' },
       ],
@@ -116,13 +119,17 @@ describe('FlowDefinitionValidator', () => {
       nodes: definition.nodes.filter(
         (node) => node.id !== 'plan' && node.id !== 'execute',
       ),
-      edges: [{ from: 'review', to: 'answer', when: 'approved' }],
+      edges: [
+        { from: 'start', to: 'review' },
+        { from: 'review', to: 'answer', when: 'approved' },
+      ],
     });
 
+    // path 指向 review 在过滤后数组中的下标：start 占 0，review 是 1
     expectValidationError(
       result,
       (error) =>
-        error.rule === 'plan-prerequisite' && error.path === 'nodes.0.id',
+        error.rule === 'plan-prerequisite' && error.path === 'nodes.1.id',
     );
   });
 
@@ -133,7 +140,116 @@ describe('FlowDefinitionValidator', () => {
     expect(result.success).toBe(true);
   });
 
-  it.each(['direct', 'react', 'plan_execute', 'hybrid'] as const)(
+  it('拒绝没有 start 节点的图', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.filter((node) => node.id !== 'start'),
+        edges: definition.edges.filter((edge) => edge.from !== 'start'),
+      }),
+      (error) => error.rule === 'unique-start',
+    );
+  });
+
+  it('拒绝两个 start 节点', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: [
+          ...definition.nodes,
+          { id: 'start2', type: 'start', config: {} },
+        ],
+        edges: [...definition.edges, { from: 'start2', to: 'plan' }],
+      }),
+      (error) => error.rule === 'unique-start',
+    );
+  });
+
+  it('拒绝有入边的 start 节点', () => {
+    // start 必须是入口：允许它有入边等于允许它被重复执行，而它的输出是下游引用的锚点
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: [...definition.edges, { from: 'answer', to: 'start' }],
+      }),
+      (error) => error.rule === 'start-is-entry' || error.rule === 'cycle',
+    );
+  });
+
+  it('condition 可以引用 start 的输出', () => {
+    // start.text 取代了原先凭空存在的 $input.text：引用机制只剩节点输出一套
+    const definition = conditionDefinition({
+      ref: { $ref: ['start', 'text'] },
+      operator: 'contains',
+      value: '订单',
+    });
+
+    expect(validateFlowDefinition(definition).success).toBe(true);
+  });
+
+  it('拒绝已被移除的 $input 来源', () => {
+    expectValidationError(
+      validateFlowDefinition(
+        conditionDefinition({
+          ref: { $ref: ['$input', 'text'] },
+          operator: 'notEmpty',
+          value: undefined,
+        }),
+      ),
+      (error) => error.rule === 'schema' || error.rule === 'ref-target',
+    );
+  });
+
+  it('接受节点上的显示名', () => {
+    const definition = validDefinition();
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id === 'answer' ? { ...node, name: '汇总客服回复' } : node,
+      ),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('显示名参与 digest：改名会得到不同摘要', () => {
+    // layout 被排除是因为坐标是拖动的副产物；改名是刻意的编辑动作，工件确实变了
+    const definition = validDefinition();
+    const renamed = {
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id === 'answer' ? { ...node, name: '汇总客服回复' } : node,
+      ),
+    };
+    const before = validateFlowDefinition(definition);
+    const after = validateFlowDefinition(renamed);
+    if (!before.success || !after.success) {
+      throw new Error('两份 Definition 都应校验通过');
+    }
+
+    expect(calculateFlowDefinitionDigest(before.definition)).not.toBe(
+      calculateFlowDefinitionDigest(after.definition),
+    );
+  });
+
+  it('拒绝空白显示名', () => {
+    // 全空格的名字在界面上和「没起名」无法区分，但会让 digest 变化，属于看不见的差异
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.map((node) =>
+          node.id === 'answer' ? { ...node, name: '   ' } : node,
+        ),
+      }),
+      (error) => error.rule === 'schema',
+    );
+  });
+
+  it.each(['blank', 'direct', 'react', 'plan_execute', 'hybrid'] as const)(
     '%s 预设通过与导入 JSON 相同的校验器',
     (preset) => {
       const result = validateFlowDefinition(createFlowDefinitionPreset(preset));
@@ -197,6 +313,7 @@ describe('FlowDefinitionValidator', () => {
         { id: 'tail', type: 'synthesize', config: {} },
       ],
       edges: [
+        { from: 'start', to: 'plan' },
         { from: 'plan', to: 'classify' },
         { from: 'classify', to: 'heavy', when: 'case_1' },
         { from: 'classify', to: 'recheck', when: 'else' },
@@ -301,6 +418,7 @@ function validDefinition() {
       maxDurationSeconds: 900,
     },
     nodes: [
+      { id: 'start', type: 'start', config: {} },
       { id: 'plan', type: 'plan', config: { maxSteps: 5 } },
       {
         id: 'review',
@@ -324,6 +442,7 @@ function validDefinition() {
       { id: 'answer', type: 'synthesize', config: {} },
     ],
     edges: [
+      { from: 'start', to: 'plan' },
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'execute', when: 'approved' },
       { from: 'execute', to: 'answer' },
@@ -351,6 +470,7 @@ function conditionDefinition(overrides: Record<string, unknown> = {}) {
       maxDurationSeconds: 900,
     },
     nodes: [
+      { id: 'start', type: 'start', config: {} },
       { id: 'plan', type: 'plan', config: { maxSteps: 5 } },
       {
         id: 'classify',
@@ -376,6 +496,7 @@ function conditionDefinition(overrides: Record<string, unknown> = {}) {
       { id: 'brief', type: 'synthesize', config: {} },
     ],
     edges: [
+      { from: 'start', to: 'plan' },
       { from: 'plan', to: 'classify' },
       { from: 'classify', to: 'answer', when: 'case_1' },
       { from: 'classify', to: 'brief', when: 'else' },

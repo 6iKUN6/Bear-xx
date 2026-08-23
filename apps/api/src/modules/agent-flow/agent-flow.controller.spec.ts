@@ -58,10 +58,11 @@ describe('AgentFlowController', () => {
     ]);
   });
 
-  it('模板端点返回四个内置预设，且每份 Definition 都能通过校验器', () => {
+  it('模板端点返回全部内置预设，且每份 Definition 都能通过校验器', () => {
     const templates = controller.listTemplates();
 
     expect(templates.map((template) => template.preset)).toEqual([
+      'blank',
       'direct',
       'react',
       'plan_execute',

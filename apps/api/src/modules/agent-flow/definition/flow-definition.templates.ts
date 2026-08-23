@@ -21,6 +21,8 @@ export function createFlowDefinitionPreset(
   preset: FlowDefinitionPreset,
 ): FlowDefinition {
   switch (preset) {
+    case 'blank':
+      return blankPreset();
     case 'direct':
       return directPreset();
     case 'react':
@@ -30,6 +32,25 @@ export function createFlowDefinitionPreset(
     case 'hybrid':
       return hybridPreset();
   }
+}
+
+/**
+ * 生成空白预设
+ * @returns 返回只含 start 节点的最小合法 Flow
+ * @description 「只有 start」是结构合法的：唯一入口、且它本身就是可达终点。作为画布起点，
+ * 用户从这里开始加节点。**它本身跑起来不产出任何回复**——描述里写明这一点，避免有人直接
+ * 发布后拿到空回答还以为是坏了。
+ */
+function blankPreset(): FlowDefinition {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: '空白流程',
+    description: '只有起始节点；加上节点并连线后才会产出回复',
+    policy: DEFAULT_POLICY,
+    nodes: [{ id: 'start', type: 'start', config: {} }],
+    edges: [],
+  };
 }
 
 /**
@@ -45,13 +66,14 @@ function directPreset(): FlowDefinition {
     description: '直接生成回复',
     policy: { ...DEFAULT_POLICY, maxSteps: 1, maxToolCalls: 0 },
     nodes: [
+      { id: 'start', type: 'start', config: {} },
       {
         id: 'answer',
         type: 'agent',
         config: agentConfig([]),
       },
     ],
-    edges: [],
+    edges: [{ from: 'start', to: 'answer' }],
   };
 }
 
@@ -68,13 +90,14 @@ function reactPreset(): FlowDefinition {
     description: '按需调用已授权工具并生成回复',
     policy: DEFAULT_POLICY,
     nodes: [
+      { id: 'start', type: 'start', config: {} },
       {
         id: 'answer',
         type: 'agent',
         config: agentConfig(['default']),
       },
     ],
-    edges: [],
+    edges: [{ from: 'start', to: 'answer' }],
   };
 }
 
@@ -91,6 +114,7 @@ function planExecutePreset(): FlowDefinition {
     description: '先确认计划，再逐步执行并汇总',
     policy: DEFAULT_POLICY,
     nodes: [
+      { id: 'start', type: 'start', config: {} },
       { id: 'plan', type: 'plan', config: { maxSteps: 6 } },
       {
         id: 'review',
@@ -108,6 +132,7 @@ function planExecutePreset(): FlowDefinition {
       { id: 'answer', type: 'synthesize', config: {} },
     ],
     edges: [
+      { from: 'start', to: 'plan' },
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'execute', when: 'approved' },
       { from: 'execute', to: 'answer' },
@@ -128,6 +153,7 @@ function hybridPreset(): FlowDefinition {
     description: '规划后动态判断信息是否足够并汇总',
     policy: DEFAULT_POLICY,
     nodes: [
+      { id: 'start', type: 'start', config: {} },
       { id: 'plan', type: 'plan', config: { maxSteps: 6 } },
       {
         id: 'execute',
@@ -140,6 +166,7 @@ function hybridPreset(): FlowDefinition {
       { id: 'answer', type: 'synthesize', config: {} },
     ],
     edges: [
+      { from: 'start', to: 'plan' },
       { from: 'plan', to: 'execute' },
       { from: 'execute', to: 'answer' },
     ],

@@ -65,7 +65,8 @@ describe('FlowTaskDispatcherService', () => {
     expect(snapshot).toEqual({
       flowVersionId: 'flow-version-1',
       flowDigest: 'a'.repeat(64),
-      currentStep: 'answer',
+      // 入口现在是声明式的 start 节点，不再是「第一个没有入边的业务节点」
+      currentStep: 'start',
     });
   });
 

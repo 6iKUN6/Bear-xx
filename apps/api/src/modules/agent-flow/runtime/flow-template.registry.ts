@@ -6,6 +6,8 @@ import type {
 import { createFlowDefinitionPreset } from '../definition/flow-definition.templates';
 
 const FLOW_PRESETS: readonly FlowDefinitionPreset[] = [
+  // blank 排在最前：从空白起步比从某个预设改起更常用
+  'blank',
   'direct',
   'react',
   'plan_execute',

@@ -12,7 +12,6 @@ import {
 import { ApplicationFailure } from '@temporalio/client';
 import {
   FLOW_CONDITION_ELSE_BRANCH,
-  FLOW_INPUT_SOURCE,
   flowNodeBranchKeys,
   type FlowConditionCase,
   type FlowConditionPredicate,
@@ -808,6 +807,14 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         resumeDecision as PlanReviewDecision | undefined,
       );
     }
+    if (context.node.type === 'start') {
+      // 起始节点不调模型、不产生副作用，只把用户本轮消息作为声明输出交给下游引用。
+      // 仍然走 completeNode：节点执行事实与输出必须和其他节点一样落库，否则下游
+      // 经 $ref 读它时会撞上「上游节点没有已落库的输出」。
+      return this.completeNode(context, input, 'default', '流程开始', {
+        outputs: { text: context.task.inputText },
+      });
+    }
     if (context.node.type === 'condition') {
       return this.executeConditionNode(context, input, context.node);
     }
@@ -1149,9 +1156,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const upstream = await this.loadUpstreamOutputs(context.task.id);
     const resolve = (ref: readonly [string, string]): unknown => {
       const [sourceId, field] = ref;
-      if (sourceId === FLOW_INPUT_SOURCE) {
-        return field === 'text' ? context.task.inputText : undefined;
-      }
       const outputs = upstream.get(sourceId);
       if (!outputs) {
         // 发布期的 ref-dominates 已保证被引节点在每条路径上都必定先完成，因此这里读不到
@@ -2754,6 +2758,8 @@ function getNodeTitle(type: FlowNodeType): string {
       return '汇总最终回复';
     case 'condition':
       return '判定条件分支';
+    case 'start':
+      return '开始';
   }
 }
 

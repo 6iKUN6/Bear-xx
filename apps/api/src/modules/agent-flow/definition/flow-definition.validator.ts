@@ -1,9 +1,8 @@
 import {
   FLOW_CONDITION_OPERATORS,
   FLOW_DEFAULT_BRANCH,
-  FLOW_INPUT_OUTPUTS,
-  FLOW_INPUT_SOURCE,
   FLOW_NODE_OUTPUTS,
+  flowDominators,
   flowNodeBranchKeys,
   type FlowDefinition,
   type FlowEdge,
@@ -113,6 +112,7 @@ function validateGraphStructure(
 
   validateDuplicateBranches(validEdges, errors);
   validateBranchCoverage(definition.nodes, validEdges, errors);
+  validateStartNode(definition.nodes, validEdges, errors);
   validateEntryAndTerminalNodes(definition.nodes, validEdges, errors);
   if (hasCycle(definition.nodes, validEdges)) {
     errors.push({
@@ -123,133 +123,50 @@ function validateGraphStructure(
     return errors;
   }
 
-  // 支配关系只在无环图上有意义，且需要唯一入口；两条前置都不满足时已经报过更准确的错，
-  // 再算一遍支配集只会叠加噪音
-  const entryNodeKey = findEntryNodeKey(definition.nodes, validEdges);
-  if (!entryNodeKey) {
+  // 支配关系只在无环图上有意义；入口唯一性由 flowDominators 自己判定，入口不唯一时它返回
+  // 空映射，而那种情况已经由 unique-entry / unique-start 报过更准确的错，不再叠加噪音
+  const dominators = flowDominators(definition.nodes, validEdges);
+  if (dominators.size === 0) {
     return errors;
   }
-  const dominators = computeDominators(
-    definition.nodes,
-    validEdges,
-    entryNodeKey,
-  );
   validatePlanPrerequisite(definition.nodes, dominators, errors);
   validateVariableReferences(definition.nodes, dominators, errors);
   return errors;
 }
 
 /**
- * 找出图的唯一入口节点
+ * 校验起始节点
  * @param nodes 全部节点
  * @param edges 端点与分支均有效的边集合
- * @returns 恰好一个入口时返回其标识，否则返回 undefined
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 入口从「推导」改为「声明」：原先靠「没有入边的那个节点」推断入口，用户在画布上
+ * 删掉一条边就会静默多出一个入口，报错也只说「入口节点为 2 个」，指不到是谁。
+ * start 同时是变量模型的锚点——用户本轮消息由它的 `text` 输出提供，因此引用机制只剩节点输出
+ * 一套，不再需要 `$input` 这个凭空存在的来源。
  */
-function findEntryNodeKey(
+function validateStartNode(
   nodes: readonly FlowNode[],
   edges: readonly FlowEdge[],
-): string | undefined {
+  errors: FlowDefinitionValidationError[],
+): void {
+  const startNodes = nodes.filter((node) => node.type === 'start');
+  if (startNodes.length !== 1) {
+    errors.push({
+      path: 'nodes',
+      rule: 'unique-start',
+      message: `Flow 必须有且仅有一个 start 节点，当前为 ${startNodes.length} 个`,
+    });
+    return;
+  }
   const incoming = new Set(edges.map((edge) => edge.to));
-  const entries = nodes.filter((node) => !incoming.has(node.id));
-  return entries.length === 1 ? entries[0].id : undefined;
-}
-
-/**
- * 计算每个节点的支配集
- * @param nodes 全部节点
- * @param edges 端点与分支均有效的边集合
- * @param entryNodeKey 唯一入口节点标识
- * @returns 返回节点标识到其支配节点集合的映射，集合含节点自身
- * @description 支配集定义为「从入口到该节点的每一条路径上都必然出现的节点」，用经典迭代
- * 不动点求解：dom(entry) = {entry}，dom(n) = {n} ∪ (∩ dom(pred))。
- * 有了它，「引用必须指向必定已执行的节点」与「依赖计划的节点前面必定有 plan」这两条规则
- * 就是同一个事实的两次查询，不需要各写一份数据流。
- * 只对入口可达的节点求解：不可达节点已由 reachable-node 单独报错，把它们算进来会得到
- * 「支配集为全集」这种无意义结果并连带污染下游判定。
- */
-function computeDominators(
-  nodes: readonly FlowNode[],
-  edges: readonly FlowEdge[],
-  entryNodeKey: string,
-): Map<string, ReadonlySet<string>> {
-  const predecessors = new Map<string, string[]>();
-  const successors = new Map<string, string[]>();
-  for (const edge of edges) {
-    predecessors.set(edge.to, [
-      ...(predecessors.get(edge.to) ?? []),
-      edge.from,
-    ]);
-    successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+  if (incoming.has(startNodes[0].id)) {
+    errors.push({
+      path: 'nodes',
+      rule: 'start-is-entry',
+      message: `start 节点「${startNodes[0].id}」不能有入边`,
+    });
   }
-
-  const reachable = new Set<string>();
-  const pending = [entryNodeKey];
-  while (pending.length > 0) {
-    const nodeId = pending.pop();
-    if (!nodeId || reachable.has(nodeId)) {
-      continue;
-    }
-    reachable.add(nodeId);
-    pending.push(...(successors.get(nodeId) ?? []));
-  }
-
-  const allReachable = new Set(reachable);
-  const dominators = new Map<string, Set<string>>();
-  for (const node of nodes) {
-    if (!reachable.has(node.id)) {
-      continue;
-    }
-    // 初值取全集，交集迭代才能单调收缩到不动点；入口固定为自身
-    dominators.set(
-      node.id,
-      node.id === entryNodeKey
-        ? new Set([entryNodeKey])
-        : new Set(allReachable),
-    );
-  }
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const node of nodes) {
-      if (node.id === entryNodeKey || !reachable.has(node.id)) {
-        continue;
-      }
-      const incoming = (predecessors.get(node.id) ?? []).filter((from) =>
-        reachable.has(from),
-      );
-      let next: Set<string>;
-      if (incoming.length === 0) {
-        next = new Set([node.id]);
-      } else {
-        next = new Set(dominators.get(incoming[0]) ?? []);
-        for (const from of incoming.slice(1)) {
-          const other = dominators.get(from) ?? new Set<string>();
-          for (const candidate of [...next]) {
-            if (!other.has(candidate)) {
-              next.delete(candidate);
-            }
-          }
-        }
-        next.add(node.id);
-      }
-      const current = dominators.get(node.id);
-      if (!current || current.size !== next.size) {
-        dominators.set(node.id, next);
-        changed = true;
-        continue;
-      }
-      for (const candidate of next) {
-        if (!current.has(candidate)) {
-          dominators.set(node.id, next);
-          changed = true;
-          break;
-        }
-      }
-    }
-  }
-
-  return new Map(dominators);
 }
 
 /**
@@ -324,20 +241,18 @@ function validateVariableReferences(
           errors.push({
             path: `${path}.ref`,
             rule: 'ref-target',
-            message: `引用「${sourceId}.${field}」不存在：来源必须是已声明该输出的节点或 ${FLOW_INPUT_SOURCE}`,
+            message: `引用「${sourceId}.${field}」不存在：来源必须是已声明该输出的节点`,
           });
           return;
         }
-        if (sourceId !== FLOW_INPUT_SOURCE) {
-          const dominating = dominators.get(node.id);
-          if (!dominating?.has(sourceId) || sourceId === node.id) {
-            errors.push({
-              path: `${path}.ref`,
-              rule: 'ref-dominates',
-              message: `节点「${node.id}」不能引用「${sourceId}」：只允许引用到达本节点的每条路径上都必定已执行的节点`,
-            });
-            return;
-          }
+        const dominating = dominators.get(node.id);
+        if (!dominating?.has(sourceId) || sourceId === node.id) {
+          errors.push({
+            path: `${path}.ref`,
+            rule: 'ref-dominates',
+            message: `节点「${node.id}」不能引用「${sourceId}」：只允许引用到达本节点的每条路径上都必定已执行的节点`,
+          });
+          return;
         }
 
         const operator = FLOW_CONDITION_OPERATORS[predicate.operator];
@@ -380,9 +295,6 @@ function resolveRefValueType(
   field: string,
   nodesById: ReadonlyMap<string, FlowNode>,
 ): FlowValueType | undefined {
-  if (sourceId === FLOW_INPUT_SOURCE) {
-    return FLOW_INPUT_OUTPUTS[field];
-  }
   const source = nodesById.get(sourceId);
   return source ? FLOW_NODE_OUTPUTS[source.type][field] : undefined;
 }
