@@ -24,15 +24,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FlowCanvas } from "@/components/flow-canvas";
 import { useAgentFlow, useAgentFlowMutations } from "@/hooks/queries";
 import {
+  describeApiError,
   formatDefinition,
   parseDefinition,
   versionStatusMeta,
 } from "@/lib/flow-meta";
 import { formatTime } from "@/lib/format";
 import { exportFlowVersion } from "@/api/endpoints";
-import { ApiError } from "@/api/client";
 import type { AgentFlowValidation, AgentFlowVersion } from "@/api/types";
 
 export function FlowDetailPage() {
@@ -44,6 +45,7 @@ export function FlowDetailPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [validation, setValidation] = useState<AgentFlowValidation | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const versions = flow?.versions ?? [];
   // 默认落在草稿上——那是唯一可编辑的版本
@@ -69,7 +71,9 @@ export function FlowDetailPage() {
     setValidation(null);
   }
 
-  const isDraft = selected?.status === "DRAFT";
+  // 契约不兼容的存量版本：服务端一定拒绝保存/校验/发布，可点即等于让用户白点一次收 400
+  const incompatible = Boolean(selected && !selected.schemaCompatible);
+  const isDraft = selected?.status === "DRAFT" && !incompatible;
   const dirty = Boolean(
     selected && text !== formatDefinition(selected.definition),
   );
@@ -89,7 +93,7 @@ export function FlowDetailPage() {
       setValidation(null);
       toast.success("草稿已保存");
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "保存失败");
+      toast.error(describeApiError(err, "保存失败"));
     }
   };
 
@@ -104,7 +108,7 @@ export function FlowDetailPage() {
         toast.error(`校验未通过：${result.errors.length} 处问题`);
       }
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "校验失败");
+      toast.error(describeApiError(err, "校验失败"));
     }
   };
 
@@ -117,7 +121,7 @@ export function FlowDetailPage() {
       setSelectedId(null);
       toast.success(`v${selected.version} 已发布`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "发布失败");
+      toast.error(describeApiError(err, "发布失败"));
     }
   };
 
@@ -129,7 +133,7 @@ export function FlowDetailPage() {
       setSelectedId(null);
       toast.success(`已回滚到 v${version.version}`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "回滚失败");
+      toast.error(describeApiError(err, "回滚失败"));
     }
   };
 
@@ -147,7 +151,7 @@ export function FlowDetailPage() {
       setSelectedId(draft.id);
       toast.success(`已创建草稿 v${draft.version}`);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "创建草稿失败");
+      toast.error(describeApiError(err, "创建草稿失败"));
     }
   };
 
@@ -165,7 +169,7 @@ export function FlowDetailPage() {
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "导出失败");
+      toast.error(describeApiError(err, "导出失败"));
     }
   };
 
@@ -238,10 +242,18 @@ export function FlowDetailPage() {
                         v{version.version}
                       </button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="space-x-1">
                       <Badge variant={meta.variant} title={meta.desc}>
                         {meta.name}
                       </Badge>
+                      {version.schemaCompatible ? null : (
+                        <Badge
+                          variant="warning"
+                          title="工件不符合当前 Definition 契约，无法编辑或发布"
+                        >
+                          契约不兼容
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className="font-mono text-xs text-muted-foreground">
@@ -254,6 +266,14 @@ export function FlowDetailPage() {
                         : "—"}
                     </TableCell>
                     <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link
+                          to={`/flows/${flow.id}/versions/${version.id}/edit`}
+                        >
+                          <GitBranch className="h-4 w-4" />
+                          画布
+                        </Link>
+                      </Button>
                       {canRollback ? (
                         <Button
                           variant="ghost"
@@ -273,6 +293,49 @@ export function FlowDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {selected ? (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="flex items-center gap-2">
+              v{selected.version} 结构图
+              <Badge variant="outline">只读</Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {dirty
+                ? "画布显示的是已保存的版本，不含下方未保存的改动"
+                : "点节点可查看它在 JSON 中的位置"}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {incompatible ? (
+              <div className="rounded-md border border-[var(--lb-warning)] bg-[var(--lb-warning-soft)] px-3 py-2">
+                <p className="text-sm font-medium text-foreground">
+                  此版本不符合当前 Definition 契约，无法编辑或发布
+                </p>
+                <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                  {selected.schemaErrors?.map((error) => (
+                    <li key={`${error.path}:${error.rule}`}>
+                      <span className="font-mono">{error.path}</span>（
+                      {error.rule}）{error.message}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  结构图仍按原文渲染，可对照它从模板新建一份草稿。
+                </p>
+              </div>
+            ) : null}
+            {/* 刻意画已保存的 definition 而不是编辑器里的文本：编辑中途的 JSON 往往语法都不完整，
+                跟着每次击键重画会让画布不断闪成「无法渲染」。脏状态由上面那行文案说明。 */}
+            <FlowCanvas
+              definition={selected.definition}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={setSelectedNodeId}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {selected ? (
         <Card>

@@ -12,12 +12,23 @@ import { AgentTestPage } from "@/pages/agent-test";
 import { ModelsPage } from "@/pages/models";
 import { FlowsPage } from "@/pages/flows";
 import { FlowDetailPage } from "@/pages/flow-detail";
+import { FlowEditorPage } from "@/pages/flow-editor";
 
 export function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* 画布编辑器不套 AppShell：三栏加画布需要整屏宽度，导航栏在这里只是干扰。
+            仍然经 RequireAdmin，鉴权不能因为换布局就漏掉。 */}
+        <Route
+          path="/flows/:flowId/versions/:versionId/edit"
+          element={
+            <RequireAdmin>
+              <FlowEditorPage />
+            </RequireAdmin>
+          }
+        />
         <Route
           element={
             <RequireAdmin>
