@@ -253,6 +253,132 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
+  it('接受并行扇出与 join 汇聚', () => {
+    expect(validateFlowDefinition(parallelDefinition('all')).success).toBe(
+      true,
+    );
+  });
+
+  it('拒绝 join 等待没有连过来的节点', () => {
+    // 等一个永远不会到达的分支就是死锁；显式 fan-in 的意义正是让这件事在发布期可判定
+    const definition = parallelDefinition('all');
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: definition.edges.filter(
+          (edge) => !(edge.from === 'branch_b' && edge.to === 'merge'),
+        ),
+      }),
+      (error) => error.rule === 'join-wait-for',
+    );
+  });
+
+  it('拒绝 join(all) 等待互斥分支，但 any 放行', () => {
+    // case 划分是静态的，因此「等齐两条互斥分支」这种必然死锁在发布期就能算出来
+    expectValidationError(
+      validateFlowDefinition(exclusiveJoinDefinition('all')),
+      (error) => error.rule === 'join-exclusive-branches',
+    );
+    expect(validateFlowDefinition(exclusiveJoinDefinition('any')).success).toBe(
+      true,
+    );
+  });
+
+  it('拒绝同一对端点之间重复的默认边', () => {
+    // 放开 fan-out 之后仍要拦这个：同一条边画两次不是并行，是误操作
+    const definition = parallelDefinition('all');
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: [...definition.edges, { from: 'start', to: 'branch_a' }],
+      }),
+      (error) => error.rule === 'duplicate-edge',
+    );
+  });
+
+  it('拒绝 condition 同一个 case 连出两条边', () => {
+    // 具名分支仍然唯一：一个 case 两条出边时运行时无法确定走哪条
+    const definition = exclusiveJoinDefinition('any');
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: [
+          ...definition.edges,
+          { from: 'classify', to: 'branch_b', when: 'case_1' },
+        ],
+      }),
+      (error) => error.rule === 'unique-edge-branch',
+    );
+  });
+
+  it('join 之后的节点可以引用被等分支的输出', () => {
+    // 这条是 must-complete 分析与旧支配集的分水岭：支配集会对两条并行分支求交集、把它们
+    // 都丢掉，于是这个本该合法的引用会被误拒成 ref-dominates
+    const definition = parallelDefinition('all');
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id === 'tail'
+          ? {
+              id: 'tail',
+              type: 'condition',
+              config: {
+                cases: [
+                  {
+                    key: 'case_1',
+                    logic: 'and',
+                    conditions: [
+                      {
+                        ref: { $ref: ['branch_a', 'text'] },
+                        operator: 'notEmpty',
+                      },
+                    ],
+                  },
+                ],
+              },
+            }
+          : node,
+      ),
+      // condition 的分支必须全连或全不连
+      edges: [
+        ...definition.edges,
+        { from: 'tail', to: 'done_a', when: 'case_1' },
+        { from: 'tail', to: 'done_b', when: 'else' },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error('缺少终点节点时应校验失败');
+    }
+    // 关键：失败原因不能是 ref-dominates —— 引用并行分支的输出在 join(all) 之后是合法的
+    expect(result.errors.map((error) => error.rule)).not.toContain(
+      'ref-dominates',
+    );
+  });
+
+  it('join(any) 之后引用被等分支会被拒', () => {
+    // any 语义下另一条分支可能还没跑完，引用它必定取到空值
+    const definition = exclusiveJoinDefinition('any');
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.map((node) =>
+          node.id === 'tail'
+            ? {
+                ...node,
+                type: 'synthesize',
+                config: {
+                  observationsRef: { $ref: ['branch_a', 'text'] },
+                },
+              }
+            : node,
+        ),
+      }),
+      (error) => error.rule === 'ref-dominates' || error.rule === 'ref-field',
+    );
+  });
+
   it.each(['blank', 'direct', 'react', 'plan_execute', 'hybrid'] as const)(
     '%s 预设通过与导入 JSON 相同的校验器',
     (preset) => {
@@ -538,4 +664,105 @@ function expectValidationError(
     throw new Error('预期 FlowDefinition 校验失败');
   }
   expect(result.errors.some(predicate)).toBe(true);
+}
+
+/**
+ * 构造并行扇出 + join 汇聚的 FlowDefinition
+ * @param policy join 的等待策略
+ * @returns 返回仅用于验证器输入的结构化 JSON 对象
+ */
+function parallelDefinition(policy: 'all' | 'any') {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: '并行取数',
+    policy: {
+      maxSteps: 5,
+      maxModelCalls: 8,
+      maxToolCalls: 12,
+      maxDurationSeconds: 900,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      { id: 'branch_a', type: 'agent', config: agentNodeConfig() },
+      { id: 'branch_b', type: 'agent', config: agentNodeConfig() },
+      {
+        id: 'merge',
+        type: 'join',
+        config: { waitFor: ['branch_a', 'branch_b'], policy },
+      },
+      { id: 'tail', type: 'synthesize', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'branch_a' },
+      { from: 'start', to: 'branch_b' },
+      { from: 'branch_a', to: 'merge' },
+      { from: 'branch_b', to: 'merge' },
+      { from: 'merge', to: 'tail' },
+    ],
+  };
+}
+
+/**
+ * 构造 condition 互斥分支后接 join 的 FlowDefinition
+ * @param policy join 的等待策略
+ * @returns 返回仅用于验证器输入的结构化 JSON 对象
+ * @description all 语义下必然死锁，any 语义下合法；两者共用同一张图便于对比。
+ */
+function exclusiveJoinDefinition(policy: 'all' | 'any') {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: '分流后汇聚',
+    policy: {
+      maxSteps: 5,
+      maxModelCalls: 8,
+      maxToolCalls: 12,
+      maxDurationSeconds: 900,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'classify',
+        type: 'condition',
+        config: {
+          cases: [
+            {
+              key: 'case_1',
+              logic: 'and',
+              conditions: [
+                { ref: { $ref: ['start', 'text'] }, operator: 'notEmpty' },
+              ],
+            },
+          ],
+        },
+      },
+      { id: 'branch_a', type: 'agent', config: agentNodeConfig() },
+      { id: 'branch_b', type: 'agent', config: agentNodeConfig() },
+      {
+        id: 'merge',
+        type: 'join',
+        config: { waitFor: ['branch_a', 'branch_b'], policy },
+      },
+      { id: 'tail', type: 'synthesize', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'classify' },
+      { from: 'classify', to: 'branch_a', when: 'case_1' },
+      { from: 'classify', to: 'branch_b', when: 'else' },
+      { from: 'branch_a', to: 'merge' },
+      { from: 'branch_b', to: 'merge' },
+      { from: 'merge', to: 'tail' },
+    ],
+  };
+}
+
+/** 并行用例复用的最小 Agent 配置。 */
+function agentNodeConfig() {
+  return {
+    modelPreset: 'agent-default',
+    toolGroups: [],
+    skills: [],
+    maxToolIterations: 1,
+  };
 }

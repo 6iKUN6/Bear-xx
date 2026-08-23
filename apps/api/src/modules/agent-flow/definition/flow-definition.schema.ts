@@ -35,6 +35,8 @@ export const FLOW_DEFINITION_LIMITS = {
   conditionValueLength: 500,
   /** 节点显示名的最大字符数。 */
   nodeNameLength: 60,
+  /** 单个 join 节点允许等待的最大分支数。 */
+  joinWaitForCount: 16,
 } as const;
 
 const NODE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -179,6 +181,21 @@ const flowNodeSchema = z.discriminatedUnion('type', [
       ...nodeBaseShape,
       type: z.literal('synthesize'),
       config: z.object({ observationsRef: flowRefSchema.optional() }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
+      type: z.literal('join'),
+      config: z
+        .object({
+          waitFor: z
+            .array(nodeIdSchema)
+            .min(1)
+            .max(FLOW_DEFINITION_LIMITS.joinWaitForCount),
+          policy: z.enum(['all', 'any']),
+        })
+        .strict(),
     })
     .strict(),
   z

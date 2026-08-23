@@ -2,7 +2,7 @@ import {
   FLOW_CONDITION_OPERATORS,
   FLOW_DEFAULT_BRANCH,
   FLOW_NODE_OUTPUTS,
-  flowDominators,
+  flowMustCompleteBefore,
   flowNodeBranchKeys,
   type FlowDefinition,
   type FlowEdge,
@@ -113,6 +113,7 @@ function validateGraphStructure(
   validateDuplicateBranches(validEdges, errors);
   validateBranchCoverage(definition.nodes, validEdges, errors);
   validateStartNode(definition.nodes, validEdges, errors);
+  validateJoinNodes(definition.nodes, validEdges, errors);
   validateEntryAndTerminalNodes(definition.nodes, validEdges, errors);
   if (hasCycle(definition.nodes, validEdges)) {
     errors.push({
@@ -123,9 +124,9 @@ function validateGraphStructure(
     return errors;
   }
 
-  // 支配关系只在无环图上有意义；入口唯一性由 flowDominators 自己判定，入口不唯一时它返回
-  // 空映射，而那种情况已经由 unique-entry / unique-start 报过更准确的错，不再叠加噪音
-  const dominators = flowDominators(definition.nodes, validEdges);
+  // 「必定已完成」分析只在无环图上有意义；入口唯一性由它自己判定，入口不唯一时返回空映射，
+  // 而那种情况已经由 unique-entry / unique-start 报过更准确的错，不再叠加噪音
+  const dominators = flowMustCompleteBefore(definition.nodes, validEdges);
   if (dominators.size === 0) {
     return errors;
   }
@@ -461,12 +462,28 @@ function validateDuplicateBranches(
 ): void {
   const seen = new Set<string>();
   edges.forEach((edge, index) => {
-    const branchKey = `${edge.from}:${edge.when ?? 'default'}`;
+    const branch = edge.when ?? FLOW_DEFAULT_BRANCH;
+    // default 分支允许多条出边：那就是并行扇出，全部并发启动。
+    // 具名分支仍然唯一——condition 的一个 case 有两条出边时，运行时无法确定走哪条。
+    if (branch === FLOW_DEFAULT_BRANCH) {
+      const target = `${edge.from}->${edge.to}`;
+      if (seen.has(target)) {
+        errors.push({
+          path: `edges.${index}`,
+          rule: 'duplicate-edge',
+          message: `节点「${edge.from}」到「${edge.to}」的默认边重复`,
+        });
+        return;
+      }
+      seen.add(target);
+      return;
+    }
+    const branchKey = `${edge.from}:${branch}`;
     if (seen.has(branchKey)) {
       errors.push({
         path: `edges.${index}`,
         rule: 'unique-edge-branch',
-        message: `节点「${edge.from}」的分支「${edge.when ?? 'default'}」重复`,
+        message: `节点「${edge.from}」的分支「${branch}」重复`,
       });
       return;
     }
@@ -577,4 +594,139 @@ function hasCycle(
   };
 
   return nodes.some((node) => visit(node.id));
+}
+
+/**
+ * 校验 join 节点
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 三条：waitFor 里的节点必须存在、必须真的连到本 join（否则等一个永远不会到达的
+ * 分支就是死锁），以及 `policy: "all"` 时不能等待处于**互斥 case 分支**下的两个节点——那同样
+ * 必然死锁，而且这件事在发布期可判定，因为 case 划分是静态的。
+ */
+function validateJoinNodes(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  errors: FlowDefinitionValidationError[],
+): void {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const mustComplete = flowMustCompleteBefore(nodes, edges);
+  nodes.forEach((node, index) => {
+    if (node.type !== 'join') {
+      return;
+    }
+    const path = `nodes.${index}.config.waitFor`;
+    if (node.config.waitFor.length === 0) {
+      errors.push({
+        path,
+        rule: 'join-wait-for',
+        message: `join 节点「${node.id}」必须至少等待一个节点`,
+      });
+      return;
+    }
+    const incomingFrom = new Set(
+      edges.filter((edge) => edge.to === node.id).map((edge) => edge.from),
+    );
+    for (const target of node.config.waitFor) {
+      if (!nodeIds.has(target)) {
+        errors.push({
+          path,
+          rule: 'join-wait-for',
+          message: `join 节点「${node.id}」等待的「${target}」不存在`,
+        });
+        continue;
+      }
+      if (!incomingFrom.has(target)) {
+        errors.push({
+          path,
+          rule: 'join-wait-for',
+          message: `join 节点「${node.id}」等待的「${target}」没有连到它；等一个不会到达的分支即死锁`,
+        });
+      }
+    }
+    if (node.config.policy !== 'all') {
+      return;
+    }
+    const waits = node.config.waitFor.filter((target) => nodeIds.has(target));
+    for (let i = 0; i < waits.length; i += 1) {
+      for (let j = i + 1; j < waits.length; j += 1) {
+        if (
+          isMutuallyExclusive(waits[i], waits[j], nodes, edges, mustComplete)
+        ) {
+          errors.push({
+            path,
+            rule: 'join-exclusive-branches',
+            message: `join 节点「${node.id}」以 all 等待「${waits[i]}」与「${waits[j]}」，但它们处于互斥分支，必然死锁`,
+          });
+        }
+      }
+    }
+  });
+}
+
+/**
+ * 判断两个节点是否处于互斥的 condition 分支下
+ * @param left 待比较节点
+ * @param right 待比较节点
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param mustComplete 每个节点的必完成集合
+ * @returns 处于互斥分支时返回 true
+ * @description 判据是「存在一个 condition 节点，它的两条**不同**分支分别只通向其中一个」。
+ * 用可达性算：从 condition 的每条出边分别走一遍，若 left 只出现在某一条、right 只出现在另一条，
+ * 两者就永不同时执行。并行扇出的 default 边不算互斥——那是全都会走的。
+ */
+function isMutuallyExclusive(
+  left: string,
+  right: string,
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  mustComplete: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+  // 互相有保证的两个节点必然不互斥，先便宜地排掉
+  if (
+    mustComplete.get(left)?.has(right) ||
+    mustComplete.get(right)?.has(left)
+  ) {
+    return false;
+  }
+  const successors = new Map<string, string[]>();
+  for (const edge of edges) {
+    successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+  }
+  const reachFrom = (start: string): Set<string> => {
+    const seen = new Set<string>();
+    const pending = [start];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!current || seen.has(current)) {
+        continue;
+      }
+      seen.add(current);
+      pending.push(...(successors.get(current) ?? []));
+    }
+    return seen;
+  };
+
+  for (const node of nodes) {
+    if (node.type !== 'condition') {
+      continue;
+    }
+    const branches = edges.filter((edge) => edge.from === node.id);
+    for (let i = 0; i < branches.length; i += 1) {
+      for (let j = i + 1; j < branches.length; j += 1) {
+        const a = reachFrom(branches[i].to);
+        const b = reachFrom(branches[j].to);
+        if (
+          (a.has(left) && b.has(right) && !a.has(right) && !b.has(left)) ||
+          (a.has(right) && b.has(left) && !a.has(left) && !b.has(right))
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }

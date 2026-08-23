@@ -96,6 +96,13 @@ export interface CompiledStartFlowNode extends CompiledFlowNodeBase {
   type: 'start';
 }
 
+/** 编译后的汇聚节点。 */
+export interface CompiledJoinFlowNode extends CompiledFlowNodeBase {
+  type: 'join';
+  waitFor: readonly string[];
+  joinPolicy: 'all' | 'any';
+}
+
 /** 编译后的条件分支节点。 */
 export interface CompiledConditionFlowNode extends CompiledFlowNodeBase {
   type: 'condition';
@@ -110,7 +117,8 @@ export type CompiledFlowNode =
   | CompiledPlanLoopFlowNode
   | CompiledApprovalFlowNode
   | CompiledSynthesizeFlowNode
-  | CompiledConditionFlowNode;
+  | CompiledConditionFlowNode
+  | CompiledJoinFlowNode;
 
 /** 已冻结且可被节点执行器消费的 Flow 计划。 */
 export interface CompiledFlowPlan {

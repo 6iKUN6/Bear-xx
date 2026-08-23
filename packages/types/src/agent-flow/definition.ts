@@ -2,11 +2,12 @@
  * AgentFlow Definition 当前支持的 JSON schema 版本。
  * @description 2 引入变量模型（`$ref`）、condition 分支与泛化的分支键；3 引入必需的 start 节点，
  * 并用它取代 `$input` 这个凭空存在的变量来源；4 把计划数据从隐式的全局状态改为显式 `$ref`
- * 传递，并给计划审批加上门禁策略。schemaVersion 的职责就是「本工件符合第 N 版形状」，
+ * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点。
+ * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 4 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 5 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -16,7 +17,8 @@ export type FlowNodeType =
   | "plan-loop"
   | "approval"
   | "synthesize"
-  | "condition";
+  | "condition"
+  | "join";
 
 /**
  * 变量可以承载的值类型闭集；不做泛型与嵌套类型参数
@@ -63,6 +65,8 @@ export const FLOW_NODE_OUTPUTS: Readonly<
   },
   synthesize: { text: "string" },
   condition: {},
+  // join 只做汇聚，不产出自己的值；下游要用某条分支的结果就直接引用那个节点
+  join: {},
 };
 
 /** Flow 的运行预算策略。 */
@@ -196,6 +200,22 @@ export interface FlowConditionCase {
   readonly conditions: readonly FlowConditionPredicate[];
 }
 
+/**
+ * Join 节点配置
+ * @description `waitFor` 列出要等待的节点标识，`policy` 决定等多少个：
+ * `all` 全部完成才继续，`any` 任一完成即继续。
+ *
+ * fan-in 必须显式声明而不做隐式汇聚：条件分支 + 隐式 join = 等一个永远不会到达的分支 = 死锁。
+ * 做成显式节点后，「会不会等一个不可能完成的分支」在发布期就能判定。
+ *
+ * `any` 语义下**不取消**未完成的分支：取消会打乱预算计数与事件序，而让它们跑完的代价只是
+ * 一点额度。它们的结果不进入下游——下游能引用的只有 join 保证已完成的那部分。
+ */
+export interface FlowJoinNodeConfig {
+  readonly waitFor: readonly string[];
+  readonly policy: "all" | "any";
+}
+
 /** Condition 节点配置；`else` 分支隐含存在，不需要声明。 */
 export interface FlowConditionNodeConfig {
   readonly cases: readonly FlowConditionCase[];
@@ -267,6 +287,12 @@ export interface FlowSynthesizeNode extends FlowNodeBase {
   readonly config: FlowSynthesizeNodeConfig;
 }
 
+/** 汇聚节点；等待并行分支后继续。 */
+export interface FlowJoinNode extends FlowNodeBase {
+  readonly type: "join";
+  readonly config: FlowJoinNodeConfig;
+}
+
 /** 起始节点；每张图有且仅有一个，是唯一入口，并提供用户本轮消息。 */
 export interface FlowStartNode extends FlowNodeBase {
   readonly type: "start";
@@ -287,7 +313,8 @@ export type FlowNode =
   | FlowPlanLoopNode
   | FlowApprovalNode
   | FlowSynthesizeNode
-  | FlowConditionNode;
+  | FlowConditionNode
+  | FlowJoinNode;
 
 /**
  * 边上的分支键
@@ -363,22 +390,31 @@ export type FlowDefinitionPreset =
   | "hybrid";
 
 /**
- * 计算每个节点的支配集
- * @param nodes 图中全部节点（只需要 id）
+ * 计算每个节点执行前「必定已完成」的节点集合
+ * @param nodes 图中全部节点
  * @param edges 图中全部边（只需要端点）
- * @returns 返回节点标识到其支配节点集合的映射，集合含节点自身；入口不唯一时返回空映射
- * @description 支配集定义为「从入口到该节点的每一条路径上都必然出现的节点」，用经典迭代不动点
- * 求解：dom(entry) = {entry}，dom(n) = {n} ∪ (∩ dom(pred))。
+ * @returns 返回节点标识到其前置必完成集合的映射（含节点自身）；入口不唯一时返回空映射
+ * @description 这不是教科书意义上的支配集。支配集假设「多条出边只走一条」，那对 condition
+ * 成立、对并行扇出不成立——扇出的多条 default 边**全都会走**。于是分三种传播：
  *
- * 放在共享契约里而不是各端各写一份：后端 validator 用它判定 `ref-dominates`，管理端画布用它
- * 决定变量选择器能列出哪些上游输出。两处必须给出**同一个**答案——选择器里出现一个后端注定
- * 拒绝的选项，等于把用户往错误里推；而这段图算法抄两份必然漂移。
+ * - 普通节点：对所有前驱求**交集**。同时正确处理两种情形：condition 的互斥分支（只走一条，
+ *   交集排除掉未走的那条），以及扇出之后、汇聚之前的节点（不能引用兄弟分支的输出，因为那条
+ *   分支可能还没跑完——并发不等于已完成）。
+ * - `join` + `policy: "all"`：对 waitFor 求**并集**。全部分支都必须完成才继续，因此它们各自
+ *   的前置也都有保证。这是支配集算不出来的部分：图上看是多条路径汇聚，实际上都走过。
+ * - `join` + `policy: "any"`：对 waitFor 求**交集**。只有公共前置有保证，某条分支可能没跑完。
  *
- * 只对入口可达的节点求解。入口取「没有入边的唯一节点」；草稿可能有零个或多个入口，此时返回
- * 空映射，让调用方给不出结论而不是给出错的结论。
+ * 后端 validator 用它判定 ref-dominates，管理端画布用它决定变量选择器能列出哪些上游输出。
+ * 两处必须给出同一个答案，因此实现只有这一份。
+ *
+ * 只对入口可达的节点求解；入口不唯一时返回空映射，让调用方给不出结论而不是给出错的结论。
  */
-export function flowDominators(
-  nodes: ReadonlyArray<{ readonly id: string }>,
+export function flowMustCompleteBefore(
+  nodes: ReadonlyArray<{
+    readonly id: string;
+    readonly type: string;
+    readonly config?: unknown;
+  }>,
   edges: ReadonlyArray<{ readonly from: string; readonly to: string }>,
 ): Map<string, ReadonlySet<string>> {
   const incoming = new Set(edges.map((edge) => edge.to));
@@ -387,6 +423,7 @@ export function flowDominators(
     return new Map();
   }
   const entryId = entries[0].id;
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
 
   const predecessors = new Map<string, string[]>();
   const successors = new Map<string, string[]>();
@@ -406,14 +443,25 @@ export function flowDominators(
     pending.push(...(successors.get(nodeId) ?? []));
   }
 
-  const dominators = new Map<string, Set<string>>();
+  const result = new Map<string, Set<string>>();
   for (const nodeId of reachable) {
-    // 初值取全集，交集迭代才能单调收缩到不动点；入口固定为自身
-    dominators.set(
+    // 初值取全集：交集迭代必须从上界开始才能单调收缩到不动点。并集分支不受影响，
+    // 因为它每轮都整体重算。
+    result.set(
       nodeId,
       nodeId === entryId ? new Set([entryId]) : new Set(reachable),
     );
   }
+
+  const sourcesOf = (nodeId: string): string[] => {
+    const waitFor = readJoinWaitFor(nodesById.get(nodeId));
+    if (waitFor) {
+      return waitFor.filter((item) => reachable.has(item));
+    }
+    return (predecessors.get(nodeId) ?? []).filter((item) =>
+      reachable.has(item),
+    );
+  };
 
   let changed = true;
   while (changed) {
@@ -422,35 +470,84 @@ export function flowDominators(
       if (nodeId === entryId) {
         continue;
       }
-      const preds = (predecessors.get(nodeId) ?? []).filter((from) =>
-        reachable.has(from),
-      );
-      const next = new Set<string>(
-        preds.length === 0 ? [] : (dominators.get(preds[0]) ?? []),
-      );
-      for (const from of preds.slice(1)) {
-        const other = dominators.get(from) ?? new Set<string>();
-        for (const candidate of [...next]) {
-          if (!other.has(candidate)) {
-            next.delete(candidate);
+      const node = nodesById.get(nodeId);
+      const sources = sourcesOf(nodeId);
+      const next = new Set<string>();
+      if (sources.length > 0) {
+        const contribution = (source: string): ReadonlySet<string> =>
+          new Set([...(result.get(source) ?? []), source]);
+        if (readJoinWaitFor(node) && readJoinPolicy(node) === "all") {
+          for (const source of sources) {
+            for (const item of contribution(source)) {
+              next.add(item);
+            }
+          }
+        } else {
+          for (const item of contribution(sources[0])) {
+            next.add(item);
+          }
+          for (const source of sources.slice(1)) {
+            const other = contribution(source);
+            for (const item of [...next]) {
+              if (!other.has(item)) {
+                next.delete(item);
+              }
+            }
           }
         }
       }
       next.add(nodeId);
-      const current = dominators.get(nodeId);
+
+      const current = result.get(nodeId);
       if (!current || current.size !== next.size) {
-        dominators.set(nodeId, next);
+        result.set(nodeId, next);
         changed = true;
         continue;
       }
-      for (const candidate of next) {
-        if (!current.has(candidate)) {
-          dominators.set(nodeId, next);
+      for (const item of next) {
+        if (!current.has(item)) {
+          result.set(nodeId, next);
           changed = true;
           break;
         }
       }
     }
   }
-  return new Map(dominators);
+  return new Map(result);
+}
+
+/**
+ * 读取 join 节点的 waitFor
+ * @param node 待判定节点
+ * @returns 是 join 且 waitFor 形状合法时返回它，否则返回 undefined
+ * @description 参数只声明本分析真正读到的字段（id / type / config），因此管理端那种「config 尚未
+ * 校验」的草稿也能直接传进来，不必先断言成完整 FlowNode。形状不符时按普通节点处理——
+ * 那种图本来就会被 join-wait-for 规则拒掉，这里不需要再多一种失败模式。
+ */
+function readJoinWaitFor(
+  node: { readonly type: string; readonly config?: unknown } | undefined,
+): readonly string[] | undefined {
+  if (node?.type !== "join") {
+    return undefined;
+  }
+  const waitFor = (node.config as { waitFor?: unknown } | undefined)?.waitFor;
+  return Array.isArray(waitFor) &&
+    waitFor.every((item) => typeof item === "string")
+    ? (waitFor as readonly string[])
+    : undefined;
+}
+
+/**
+ * 读取 join 节点的等待策略
+ * @param node 待判定节点
+ * @returns 只有显式声明为 all 时返回 "all"，其余一律按 "any" 处理
+ * @description 缺省到 any 是有意的**保守**选择。all 会让分析对分支求并集、给出「这些分支都
+ * 必定完成」的强保证；若实际策略是 any 或形状读不出来，那就是把没保证的说成有保证，下游
+ * 引用它会在运行时取到空值。反过来缺省到 any 只会少给保证，用户最多是发布时被拒。
+ */
+function readJoinPolicy(
+  node: { readonly type: string; readonly config?: unknown } | undefined,
+): "all" | "any" {
+  const policy = (node?.config as { policy?: unknown } | undefined)?.policy;
+  return policy === "all" ? "all" : "any";
 }

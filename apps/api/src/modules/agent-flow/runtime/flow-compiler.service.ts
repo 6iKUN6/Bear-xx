@@ -174,6 +174,15 @@ export class FlowCompiler {
             ? { observationsRef: node.config.observationsRef }
             : {}),
         };
+      case 'join':
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'join',
+          next,
+          waitFor: node.config.waitFor,
+          joinPolicy: node.config.policy,
+        };
       case 'condition':
         return {
           key: node.id,

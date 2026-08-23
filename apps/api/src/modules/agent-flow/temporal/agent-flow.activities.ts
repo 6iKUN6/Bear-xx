@@ -2899,6 +2899,8 @@ function getNodeTypeTitle(type: FlowNodeType): string {
       return '判定条件分支';
     case 'start':
       return '开始';
+    case 'join':
+      return '汇聚并行分支';
   }
 }
 
