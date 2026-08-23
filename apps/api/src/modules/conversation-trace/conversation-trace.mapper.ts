@@ -347,7 +347,9 @@ export function mapStreamEventToTraceCommand(
           taskId: input.taskId,
           traceKey: payload?.traceKey ?? `flow:${payload?.nodeKey ?? 'node'}`,
           nodeKey: payload?.nodeKey,
-          title: '流程节点已完成',
+          // 刻意不传 title：completeItem 会覆盖它，而开始事件写入的是节点标题
+          // （有别名时就是别名）。用「流程节点已完成」盖掉，历史里就看不出是哪个节点跑完了——
+          // title 该回答「跑的是什么」，状态由 status 字段表达，摘要由 summary 表达。
           summary: truncate(payload?.summary) ?? '流程节点已完成',
           metrics: payload ? { durationMs: payload.durationMs } : undefined,
           metadata: safeMetadata(payload),
@@ -364,7 +366,9 @@ export function mapStreamEventToTraceCommand(
           ...context,
           traceKey: payload?.traceKey ?? `flow:${payload?.nodeKey ?? 'node'}`,
           type: ConversationTraceItemType.WORKFLOW_STEP,
-          title: '流程节点执行失败',
+          // 失败事件可能在没有开始事件的情况下创建 trace 项，因此 title 必填；
+          // 优先用载荷带来的节点标题（有别名时即别名），让人看出是哪个节点失败的
+          title: payload?.title ?? '流程节点执行失败',
           summary: payload?.category ?? '流程节点执行失败',
           nodeKey: payload?.nodeKey,
           error: {

@@ -297,3 +297,87 @@ describe('mapStreamEventToTraceCommand · AgentFlow', () => {
     });
   });
 });
+
+/**
+ * Flow 节点生命周期事件 → trace item 的映射
+ * @description 覆盖节点标题在整条生命周期里的归属：开始事件写入标题（有别名时即别名），
+ * 完成事件不得覆盖它，失败事件可能要独立创建 trace 项因此必须自带标题。
+ */
+describe('mapStreamEventToTraceCommand · flow 节点标题', () => {
+  const baseInput = {
+    userId: 'user-1',
+    taskId: 'task-1',
+    streamId: 'run-1',
+    conversationId: 'conversation-1',
+    messageId: 'message-1',
+  };
+
+  it('开始事件用载荷里的标题（有别名时即别名）', () => {
+    const command = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowNodeStarted,
+      payload: {
+        nodeKey: 'answer',
+        nodeType: 'agent',
+        title: '生成客服回复',
+        traceKey: 'flow:node:answer',
+      },
+    });
+
+    expect(command).toMatchObject({
+      action: 'start',
+      input: { title: '生成客服回复', traceKey: 'flow:node:answer' },
+    });
+  });
+
+  it('完成事件不携带标题，避免覆盖开始时写入的节点标题', () => {
+    // 回归用：这里原先写死 title: '流程节点已完成'，而 completeItem 会用它覆盖。
+    // 结果是节点一完成，历史里就看不出跑的是哪个节点——title 该回答「跑的是什么」，
+    // 状态由 status 表达、结果由 summary 表达。
+    const command = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowNodeCompleted,
+      payload: {
+        nodeKey: 'answer',
+        nodeType: 'agent',
+        traceKey: 'flow:node:answer',
+        summary: '已生成回复',
+        durationMs: 0,
+      },
+    });
+
+    expect(command.action).toBe('complete');
+    expect((command.input as { title?: unknown }).title).toBeUndefined();
+    expect(command.input).toMatchObject({ summary: '已生成回复' });
+  });
+
+  it('失败事件用载荷里的节点标题，缺省时回退通用文案', () => {
+    // 失败可能在没有开始事件的情况下创建 trace 项，因此标题必填
+    const withTitle = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowNodeFailed,
+      payload: {
+        nodeKey: 'answer',
+        title: '生成客服回复',
+        nodeType: 'agent',
+        traceKey: 'flow:node:answer',
+        category: 'server',
+        retryable: false,
+      },
+    });
+    const withoutTitle = mapStreamEventToTraceCommand({
+      ...baseInput,
+      eventName: StreamTaskEventType.FlowNodeFailed,
+      payload: {
+        nodeKey: 'answer',
+        nodeType: 'agent',
+        traceKey: 'flow:node:answer',
+        category: 'server',
+        retryable: false,
+      },
+    });
+
+    expect(withTitle.input).toMatchObject({ title: '生成客服回复' });
+    expect(withoutTitle.input).toMatchObject({ title: '流程节点执行失败' });
+  });
+});

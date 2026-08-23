@@ -526,7 +526,10 @@ export interface FlowNodeStartedPayload {
   nodeKey: string;
   /** 节点类型；仅允许 V1 闭集。 */
   nodeType: FlowNodeType;
-  /** 面向用户和 trace 展示的节点标题。 */
+  /**
+   * 面向用户和 trace 展示的节点标题。
+   * @description 优先是管理员为该节点起的别名，缺省时是节点类型标题。
+   */
   title: string;
   /** 同一节点生命周期事件共享的 trace 标识。 */
   traceKey: string;
@@ -550,6 +553,12 @@ export interface FlowNodeCompletedPayload {
 export interface FlowNodeFailedPayload {
   /** Flow 节点标识。 */
   nodeKey: string;
+  /**
+   * 面向用户和 trace 展示的节点标题。
+   * @description 可选：失败事件可能在没有对应开始事件的情况下创建 trace 项，此时需要一个
+   * 能说明「是哪个节点失败」的标题。缺省时端侧回退到通用文案。
+   */
+  title?: string;
   /** 节点类型；仅允许 V1 闭集。 */
   nodeType: FlowNodeType;
   /** 与开始事件关联的 trace 标识。 */
