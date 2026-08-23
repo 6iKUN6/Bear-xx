@@ -19,6 +19,7 @@ const directDefinition: FlowDefinition = {
     maxDurationSeconds: 60,
   },
   nodes: [
+    { id: 'start', type: 'start', config: {} },
     {
       id: 'answer',
       type: 'agent',
@@ -30,7 +31,7 @@ const directDefinition: FlowDefinition = {
       },
     },
   ],
-  edges: [],
+  edges: [{ from: 'start', to: 'answer' }],
 };
 
 describe('AgentFlowVersionService', () => {

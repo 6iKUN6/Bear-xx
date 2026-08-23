@@ -281,8 +281,16 @@ export interface AgentFlowVersion {
   flowId: string;
   version: number;
   status: AgentFlowVersionStatus;
-  /** FlowDefinition JSON 工件；前端不解析其内部结构，原样编辑与回传 */
+  /** FlowDefinition JSON 工件；前端不解析其结构合法性，原样编辑与回传 */
   definition: object;
+  /**
+   * 该工件是否仍符合当前后端 Definition 契约
+   * @description 契约升版后的存量工件会是 false。此时**不能**保存、校验或发布——服务端一定拒绝，
+   * 让按钮可点等于让用户白点一次再收到 400。要改只能新建草稿。
+   */
+  schemaCompatible: boolean;
+  /** 不兼容时的逐条原因；兼容时后端不下发此字段 */
+  schemaErrors?: FlowDefinitionValidationError[];
   /** 布局无关摘要；草稿为 null，发布后固化 */
   digest: string | null;
   schemaVersion: number;

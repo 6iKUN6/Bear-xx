@@ -48,6 +48,7 @@ const directDefinition: FlowDefinition = {
     maxDurationSeconds: 60,
   },
   nodes: [
+    { id: 'start', type: 'start', config: {} },
     {
       id: 'answer',
       type: 'agent',
@@ -59,7 +60,7 @@ const directDefinition: FlowDefinition = {
       },
     },
   ],
-  edges: [],
+  edges: [{ from: 'start', to: 'answer' }],
 };
 
 describe('AgentFlowService', () => {
@@ -86,6 +87,7 @@ describe('AgentFlowService', () => {
   let deleteVersions: jest.Mock<Promise<{ count: number }>, [unknown]>;
   let countTasks: jest.Mock<Promise<number>, [unknown]>;
   let findBoundAgents: jest.Mock<Promise<Array<{ name: string }>>, [unknown]>;
+  let listFlows: jest.Mock<Promise<Array<Record<string, unknown>>>, [unknown]>;
   let transaction: jest.Mock<Promise<unknown>, [TransactionCallback, unknown]>;
 
   beforeEach(async () => {
@@ -110,6 +112,9 @@ describe('AgentFlowService', () => {
     countTasks = jest.fn<Promise<number>, [unknown]>().mockResolvedValue(0);
     findBoundAgents = jest
       .fn<Promise<Array<{ name: string }>>, [unknown]>()
+      .mockResolvedValue([]);
+    listFlows = jest
+      .fn<Promise<Array<Record<string, unknown>>>, [unknown]>()
       .mockResolvedValue([]);
     transaction = jest.fn<Promise<unknown>, [TransactionCallback, unknown]>(
       (callback) =>
@@ -139,13 +144,53 @@ describe('AgentFlowService', () => {
         AgentFlowService,
         {
           provide: PrismaService,
-          useValue: { $transaction: transaction },
+          useValue: {
+            $transaction: transaction,
+            agentFlow: { findMany: listFlows },
+          },
         },
         { provide: FlowRuntimeValidator, useValue: runtimeValidator },
       ],
     }).compile();
 
     service = module.get(AgentFlowService);
+  });
+
+  it('存量旧工件不再让整个 Flow 列表失败', async () => {
+    // 回归用：读取路径原先要求工件仍然合法，一条 schemaVersion=1 的旧数据就让
+    // GET /admin/agent-flows 整体返回 400，管理员连别的 Flow 都看不到、删不掉。
+    listFlows.mockResolvedValue([
+      {
+        id: 'flow-legacy',
+        name: 'Plan Execute',
+        description: '',
+        publishedVersionId: 'version-legacy',
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+        publishedVersion: {
+          id: 'version-legacy',
+          flowId: 'flow-legacy',
+          version: 1,
+          status: 'PUBLISHED',
+          definition: { ...directDefinition, schemaVersion: 1 },
+          digest: 'a'.repeat(64),
+          schemaVersion: 1,
+          createdById: null,
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+          publishedAt: new Date(0),
+          archivedAt: null,
+        },
+      },
+    ]);
+
+    const flows = await service.list();
+
+    expect(flows).toHaveLength(1);
+    expect(flows[0].publishedVersion?.schemaCompatible).toBe(false);
+    expect(flows[0].publishedVersion?.schemaErrors?.[0]?.path).toBe(
+      'schemaVersion',
+    );
   });
 
   it('创建时在同一可串行化事务内生成 version 1 草稿和审计记录', async () => {

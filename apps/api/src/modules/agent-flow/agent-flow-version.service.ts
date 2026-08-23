@@ -3,11 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  AgentFlowVersionStatus,
-  type AgentFlowVersion,
-  Prisma,
-} from '@prisma/client';
+import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AgentFlowVersionResponse } from './agent-flow.service';
@@ -16,6 +12,7 @@ import {
   validateFlowDefinition,
 } from './definition/flow-definition.validator';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
+import { toAgentFlowVersionResponse } from './agent-flow-version.mapper';
 
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
 
@@ -86,7 +83,7 @@ export class AgentFlowVersionService {
           digest: null,
         },
       });
-      return this.toVersionResponse(updatedVersion);
+      return toAgentFlowVersionResponse(updatedVersion);
     });
   }
 
@@ -156,7 +153,7 @@ export class AgentFlowVersionService {
           digest,
         },
       });
-      return this.toVersionResponse(publishedVersion);
+      return toAgentFlowVersionResponse(publishedVersion);
     });
   }
 
@@ -280,29 +277,5 @@ export class AgentFlowVersionService {
    */
   private toInputJsonValue(definition: FlowDefinition): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(definition)) as Prisma.InputJsonValue;
-  }
-
-  /**
-   * 映射 AgentFlowVersion 为管理端响应
-   * @param version Prisma 查询或写入得到的版本记录
-   * @returns 返回可安全展示的版本数据
-   * @description 每次读取 Definition 都经同一结构校验器收敛 Json 类型，避免历史脏数据被静默透传到管理端。
-   */
-  private toVersionResponse(
-    version: AgentFlowVersion,
-  ): AgentFlowVersionResponse {
-    return {
-      id: version.id,
-      flowId: version.flowId,
-      version: version.version,
-      status: version.status,
-      definition: this.requireValidDefinition(version.definition),
-      digest: version.digest,
-      schemaVersion: version.schemaVersion,
-      createdAt: version.createdAt.getTime(),
-      updatedAt: version.updatedAt.getTime(),
-      publishedAt: version.publishedAt?.getTime() ?? null,
-      archivedAt: version.archivedAt?.getTime() ?? null,
-    };
   }
 }

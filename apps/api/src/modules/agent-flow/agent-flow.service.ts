@@ -11,8 +11,12 @@ import {
 } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { PrismaService } from '../../prisma/prisma.service';
-import { validateFlowDefinition } from './definition/flow-definition.validator';
+import {
+  validateFlowDefinition,
+  type FlowDefinitionValidationError,
+} from './definition/flow-definition.validator';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
+import { toAgentFlowVersionResponse } from './agent-flow-version.mapper';
 
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
 
@@ -22,7 +26,17 @@ export interface AgentFlowVersionResponse {
   flowId: string;
   version: number;
   status: AgentFlowVersionStatus;
-  definition: FlowDefinition;
+  /**
+   * 该版本的 Definition 工件原文
+   * @description 类型是 `object` 而不是 `FlowDefinition`：存量版本可能是旧 schemaVersion 或
+   * 其他不再符合当前契约的工件，读取时把它断言成合法 Definition 是在撒谎。是否可用由
+   * `schemaCompatible` 单独表达，管理端据此决定能不能编辑、校验、发布。
+   */
+  definition: object;
+  /** 该工件是否仍符合当前 Definition 契约 */
+  schemaCompatible: boolean;
+  /** 不兼容时的逐条原因；兼容时不带此字段 */
+  schemaErrors?: FlowDefinitionValidationError[];
   digest: string | null;
   schemaVersion: number;
   createdAt: number;
@@ -103,7 +117,7 @@ export class AgentFlowService {
 
       return {
         ...this.toFlowResponse(flow),
-        draftVersion: this.toVersionResponse(draftVersion),
+        draftVersion: toAgentFlowVersionResponse(draftVersion),
       };
     });
   }
@@ -140,7 +154,9 @@ export class AgentFlowService {
     }
     return {
       ...this.toSummaryResponse(flow),
-      versions: flow.versions.map((version) => this.toVersionResponse(version)),
+      versions: flow.versions.map((version) =>
+        toAgentFlowVersionResponse(version),
+      ),
     };
   }
 
@@ -197,7 +213,7 @@ export class AgentFlowService {
           digest: null,
         },
       });
-      return this.toVersionResponse(version);
+      return toAgentFlowVersionResponse(version);
     });
   }
 
@@ -268,7 +284,7 @@ export class AgentFlowService {
           digest: targetVersion.digest,
         },
       });
-      return this.toVersionResponse(restoredVersion);
+      return toAgentFlowVersionResponse(restoredVersion);
     });
   }
 
@@ -434,32 +450,8 @@ export class AgentFlowService {
     return {
       ...this.toFlowResponse(flow),
       publishedVersion: flow.publishedVersion
-        ? this.toVersionResponse(flow.publishedVersion)
+        ? toAgentFlowVersionResponse(flow.publishedVersion)
         : null,
-    };
-  }
-
-  /**
-   * 映射 AgentFlowVersion 为管理端响应
-   * @param version Prisma 查询得到的版本记录
-   * @returns 返回可安全展示和导出的版本数据
-   * @description Definition 在写入前已校验；读取时仍通过同一校验器收敛 Json 类型，异常数据不能被静默返回。
-   */
-  private toVersionResponse(
-    version: AgentFlowVersion,
-  ): AgentFlowVersionResponse {
-    return {
-      id: version.id,
-      flowId: version.flowId,
-      version: version.version,
-      status: version.status,
-      definition: this.requireValidDefinition(version.definition),
-      digest: version.digest,
-      schemaVersion: version.schemaVersion,
-      createdAt: version.createdAt.getTime(),
-      updatedAt: version.updatedAt.getTime(),
-      publishedAt: version.publishedAt?.getTime() ?? null,
-      archivedAt: version.archivedAt?.getTime() ?? null,
     };
   }
 }

@@ -14,6 +14,13 @@ export class AgentFlowVersionResponseDto {
   @ApiProperty({ enum: AgentFlowVersionStatus }) status: AgentFlowVersionStatus;
   @ApiProperty({ type: 'object', additionalProperties: true })
   definition: object;
+  /** 该工件是否仍符合当前 Definition 契约；false 时不能编辑、校验或发布 */
+  @ApiProperty() schemaCompatible: boolean;
+  @ApiPropertyOptional({
+    type: () => FlowDefinitionValidationErrorDto,
+    isArray: true,
+  })
+  schemaErrors?: FlowDefinitionValidationErrorDto[];
   @ApiProperty({ nullable: true }) digest: string | null;
   @ApiProperty() schemaVersion: number;
   @ApiProperty() createdAt: number;
