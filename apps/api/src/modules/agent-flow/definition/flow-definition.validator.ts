@@ -129,7 +129,6 @@ function validateGraphStructure(
   if (dominators.size === 0) {
     return errors;
   }
-  validatePlanPrerequisite(definition.nodes, dominators, errors);
   validateVariableReferences(definition.nodes, dominators, errors);
   return errors;
 }
@@ -170,47 +169,6 @@ function validateStartNode(
 }
 
 /**
- * 检查依赖计划的节点前面是否必定存在 plan 节点
- * @param nodes 全部节点
- * @param dominators 每个节点的支配集
- * @param errors 用于累积校验错误的数组
- * @returns 无返回值
- * @description plan-loop 与 approval 在运行时都要读取 plan 节点写入的计划；缺少前置 plan 时
- * Activity 会抛 AGENT_FLOW_PLAN_STATE_MISSING 直接终止任务。这个错误必须在发布期就拦住，
- * 否则一个能通过发布校验的 Flow 会在每个终端用户身上炸。要求「每条路径上都有」而不是
- * 「存在一条路径有」：只要有一条绕开 plan 的分支，那条分支上的运行就会失败——而这正是
- * 支配集的定义，因此这里只是一次查询，不再自己走一遍数据流。
- */
-function validatePlanPrerequisite(
-  nodes: readonly FlowNode[],
-  dominators: ReadonlyMap<string, ReadonlySet<string>>,
-  errors: FlowDefinitionValidationError[],
-): void {
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  nodes.forEach((node, index) => {
-    if (node.type !== 'plan-loop' && node.type !== 'approval') {
-      return;
-    }
-    const dominating = dominators.get(node.id);
-    if (!dominating) {
-      return;
-    }
-    const hasPlan = [...dominating].some(
-      (candidate) =>
-        candidate !== node.id && nodesById.get(candidate)?.type === 'plan',
-    );
-    if (hasPlan) {
-      return;
-    }
-    errors.push({
-      path: `nodes.${index}.id`,
-      rule: 'plan-prerequisite',
-      message: `节点「${node.id}」依赖计划，其之前的每条路径上都必须存在 plan 节点`,
-    });
-  });
-}
-
-/**
  * 校验节点配置里的全部变量引用
  * @param nodes 全部节点
  * @param dominators 每个节点的支配集
@@ -228,6 +186,11 @@ function validateVariableReferences(
   errors: FlowDefinitionValidationError[],
 ): void {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
+
+  nodes.forEach((node, nodeIndex) => {
+    validateConfigRefs(node, nodeIndex, nodesById, dominators, errors);
+  });
+
   nodes.forEach((node, nodeIndex) => {
     if (node.type !== 'condition') {
       return;
@@ -235,23 +198,15 @@ function validateVariableReferences(
     node.config.cases.forEach((branch, caseIndex) => {
       branch.conditions.forEach((predicate, predicateIndex) => {
         const path = `nodes.${nodeIndex}.config.cases.${caseIndex}.conditions.${predicateIndex}`;
-        const [sourceId, field] = predicate.ref.$ref;
-        const valueType = resolveRefValueType(sourceId, field, nodesById);
+        const valueType = checkRef(
+          predicate.ref,
+          node,
+          `${path}.ref`,
+          nodesById,
+          dominators,
+          errors,
+        );
         if (!valueType) {
-          errors.push({
-            path: `${path}.ref`,
-            rule: 'ref-target',
-            message: `引用「${sourceId}.${field}」不存在：来源必须是已声明该输出的节点`,
-          });
-          return;
-        }
-        const dominating = dominators.get(node.id);
-        if (!dominating?.has(sourceId) || sourceId === node.id) {
-          errors.push({
-            path: `${path}.ref`,
-            rule: 'ref-dominates',
-            message: `节点「${node.id}」不能引用「${sourceId}」：只允许引用到达本节点的每条路径上都必定已执行的节点`,
-          });
           return;
         }
 
@@ -260,7 +215,7 @@ function validateVariableReferences(
           errors.push({
             path: `${path}.operator`,
             rule: 'ref-type-match',
-            message: `算子「${predicate.operator}」不能用于 ${valueType} 类型的「${sourceId}.${field}」`,
+            message: `算子「${predicate.operator}」不能用于 ${valueType} 类型的「${predicate.ref.$ref.join('.')}」`,
           });
         }
         if (operator.requiresValue && predicate.value === undefined) {
@@ -280,6 +235,152 @@ function validateVariableReferences(
       });
     });
   });
+}
+
+/**
+ * 校验一个节点 config 上声明的引用
+ * @param node 当前节点
+ * @param nodeIndex 节点在数组中的下标，用于拼错误路径
+ * @param nodesById 节点索引
+ * @param dominators 每个节点的支配集
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description plan-loop 与 approval 用 planRef 指明要执行/审批哪份计划，synthesize 用
+ * observationsRef 指明汇总谁的观察。这几条替代了原先的 `plan-prerequisite` 规则——那条规则
+ * 只能表达「前面某处有个 plan 节点」，图上有两个 plan 时根本说不清用哪个；改成显式引用后，
+ * 「被引节点必定已执行」由通用的 ref-dominates 保证，更准也更少一条特例。
+ */
+function validateConfigRefs(
+  node: FlowNode,
+  nodeIndex: number,
+  nodesById: ReadonlyMap<string, FlowNode>,
+  dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  errors: FlowDefinitionValidationError[],
+): void {
+  if (node.type === 'plan-loop') {
+    requireArrayRef(
+      node.config.planRef,
+      'steps',
+      node,
+      `nodes.${nodeIndex}.config.planRef`,
+      nodesById,
+      dominators,
+      errors,
+    );
+    return;
+  }
+  if (node.type === 'approval') {
+    const path = `nodes.${nodeIndex}.config.planRef`;
+    const ok = requireArrayRef(
+      node.config.planRef,
+      'steps',
+      node,
+      path,
+      nodesById,
+      dominators,
+      errors,
+    );
+    // 重规划要复用 plan 节点 config 里的 maxSteps，因此审批只能挂在 plan 节点上；
+    // 指向另一个 approval 的 steps 会让「按多少步重规划」无处可取
+    if (ok && nodesById.get(node.config.planRef.$ref[0])?.type !== 'plan') {
+      errors.push({
+        path,
+        rule: 'approval-plan-source',
+        message: `计划审批只能引用 plan 节点的 steps，当前引用的是「${node.config.planRef.$ref[0]}」`,
+      });
+    }
+    return;
+  }
+  if (node.type === 'synthesize' && node.config.observationsRef) {
+    requireArrayRef(
+      node.config.observationsRef,
+      'observations',
+      node,
+      `nodes.${nodeIndex}.config.observationsRef`,
+      nodesById,
+      dominators,
+      errors,
+    );
+  }
+}
+
+/**
+ * 校验一个引用必须指向某个数组输出
+ * @param ref 待校验引用
+ * @param expectedField 期望的输出字段名
+ * @param node 声明该引用的节点
+ * @param path 错误路径
+ * @param nodesById 节点索引
+ * @param dominators 每个节点的支配集
+ * @param errors 用于累积校验错误的数组
+ * @returns 通过时返回 true
+ * @description 字段名固定：planRef 只能指 `steps`、observationsRef 只能指 `observations`。
+ * 允许指向任意数组输出会让运行时拿到一个形状对不上的数组，而那种错在发布期看不出来。
+ */
+function requireArrayRef(
+  ref: { $ref: readonly [string, string] },
+  expectedField: string,
+  node: FlowNode,
+  path: string,
+  nodesById: ReadonlyMap<string, FlowNode>,
+  dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  errors: FlowDefinitionValidationError[],
+): boolean {
+  const valueType = checkRef(ref, node, path, nodesById, dominators, errors);
+  if (!valueType) {
+    return false;
+  }
+  if (ref.$ref[1] !== expectedField) {
+    errors.push({
+      path,
+      rule: 'ref-field',
+      message: `此处只能引用「${expectedField}」输出，当前引用的是「${ref.$ref[1]}」`,
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 校验引用的来源与可达性
+ * @param ref 待校验引用
+ * @param node 声明该引用的节点
+ * @param path 错误路径
+ * @param nodesById 节点索引
+ * @param dominators 每个节点的支配集
+ * @param errors 用于累积校验错误的数组
+ * @returns 通过时返回被引输出的值类型，否则返回 undefined
+ * @description condition 的判定与节点 config 上的引用共用这一份检查，避免两处各写一遍
+ * ref-target / ref-dominates 后语义漂移。
+ */
+function checkRef(
+  ref: { $ref: readonly [string, string] },
+  node: FlowNode,
+  path: string,
+  nodesById: ReadonlyMap<string, FlowNode>,
+  dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  errors: FlowDefinitionValidationError[],
+): FlowValueType | undefined {
+  const [sourceId, field] = ref.$ref;
+  const valueType = resolveRefValueType(sourceId, field, nodesById);
+  if (!valueType) {
+    errors.push({
+      path,
+      rule: 'ref-target',
+      message: `引用「${sourceId}.${field}」不存在：来源必须是已声明该输出的节点`,
+    });
+    return undefined;
+  }
+  const dominating = dominators.get(node.id);
+  if (!dominating?.has(sourceId) || sourceId === node.id) {
+    errors.push({
+      path,
+      rule: 'ref-dominates',
+      message: `节点「${node.id}」不能引用「${sourceId}」：只允许引用到达本节点的每条路径上都必定已执行的节点`,
+    });
+    return undefined;
+  }
+  return valueType;
 }
 
 /**

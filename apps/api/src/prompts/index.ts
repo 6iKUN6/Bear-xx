@@ -14,6 +14,12 @@ export const conversationTitlePrompt = readPromptMarkdown(
 export const groupRouterPrompt = readPromptMarkdown('group-router.md');
 export const groupContextPrompt = readPromptMarkdown('group-context.md');
 export const strategyRouterPrompt = readPromptMarkdown('strategy-router.md');
+/**
+ * 计划审批门禁提示词
+ * @description 只用于判断「这份计划要不要请人过目」，不承担任何权限判定——工具审批完全由
+ * CapabilityRegistry 推导，Flow 配置没有降低工具风险等级的入口。
+ */
+export const planReviewGatePrompt = readPromptMarkdown('plan-review-gate.md');
 const taskPlannerPromptTemplate = readPromptMarkdown('task-planner.md');
 
 /**

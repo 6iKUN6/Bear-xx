@@ -119,7 +119,11 @@ function planExecutePreset(): FlowDefinition {
       {
         id: 'review',
         type: 'approval',
-        config: { kind: 'plan-review' },
+        config: {
+          kind: 'plan-review',
+          policy: 'always',
+          planRef: { $ref: ['plan', 'steps'] },
+        },
       },
       {
         id: 'execute',
@@ -127,9 +131,15 @@ function planExecutePreset(): FlowDefinition {
         config: {
           executor: { type: 'agent', ...agentConfig(['default']) },
           stopPolicy: 'all-steps',
+          // 执行的是**人确认过**的那份计划，而不是 plan 节点的原始输出
+          planRef: { $ref: ['review', 'steps'] },
         },
       },
-      { id: 'answer', type: 'synthesize', config: {} },
+      {
+        id: 'answer',
+        type: 'synthesize',
+        config: { observationsRef: { $ref: ['execute', 'observations'] } },
+      },
     ],
     edges: [
       { from: 'start', to: 'plan' },
@@ -161,9 +171,14 @@ function hybridPreset(): FlowDefinition {
         config: {
           executor: { type: 'agent', ...agentConfig(['default']) },
           stopPolicy: 'evaluate-after-step',
+          planRef: { $ref: ['plan', 'steps'] },
         },
       },
-      { id: 'answer', type: 'synthesize', config: {} },
+      {
+        id: 'answer',
+        type: 'synthesize',
+        config: { observationsRef: { $ref: ['execute', 'observations'] } },
+      },
     ],
     edges: [
       { from: 'start', to: 'plan' },

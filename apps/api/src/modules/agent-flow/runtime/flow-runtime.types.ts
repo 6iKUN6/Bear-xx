@@ -1,5 +1,7 @@
 import type {
+  FlowApprovalPolicy,
   FlowConditionCase,
+  FlowRef,
   FlowDefinition,
   FlowNodeType,
   FlowPlanLoopStopPolicy,
@@ -37,6 +39,8 @@ export type FlowRuntimeValidationContext =
 /** 编译后节点共享字段。 */
 export interface CompiledFlowNodeBase {
   key: string;
+  /** Definition 里的显示别名；缺省时展示层回退到节点类型标题 */
+  name?: string;
   type: FlowNodeType;
   next: Readonly<Record<string, string>>;
 }
@@ -60,6 +64,8 @@ export interface CompiledPlanFlowNode extends CompiledFlowNodeBase {
 /** 编译后的 PlanLoop 节点。 */
 export interface CompiledPlanLoopFlowNode extends CompiledFlowNodeBase {
   type: 'plan-loop';
+  /** 要执行哪份计划；校验期已保证它指向某个上游节点的 steps */
+  planRef: FlowRef;
   planLoopPolicy: {
     stopPolicy: FlowPlanLoopStopPolicy;
     planReview: 'disabled';
@@ -72,11 +78,17 @@ export interface CompiledPlanLoopFlowNode extends CompiledFlowNodeBase {
 export interface CompiledApprovalFlowNode extends CompiledFlowNodeBase {
   type: 'approval';
   kind: 'plan-review';
+  /** 门禁策略；model 由模型判断是否需要人工确认，失败一律闭合为需要 */
+  policy: FlowApprovalPolicy;
+  /** 要审的是哪份计划；校验期已保证它指向 plan 节点的 steps */
+  planRef: FlowRef;
 }
 
 /** 编译后的汇总节点。 */
 export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
   type: 'synthesize';
+  /** 要汇总谁的步骤观察；缺省即普通汇总 */
+  observationsRef?: FlowRef;
 }
 
 /** 编译后的起始节点。 */

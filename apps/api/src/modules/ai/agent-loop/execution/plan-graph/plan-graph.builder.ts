@@ -551,7 +551,7 @@ export class PlanGraphBuilder {
             ],
             stepInstruction: buildStepPrompt(
               input,
-              state.plan,
+              state.plan.steps,
               step,
               state.observations,
             ),

@@ -93,43 +93,47 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
-  it('拒绝前面没有 plan 节点的 plan-loop', () => {
-    // 运行时会抛 AGENT_FLOW_PLAN_STATE_MISSING，必须在发布期就拦住
+  it('拒绝引用了不存在计划来源的 plan-loop', () => {
+    // 取代已删除的 plan-prerequisite 规则：那条只能表达「前面某处有个 plan 节点」，
+    // 图上有两个 plan 时说不清用哪个。现在由 planRef + ref-dominates 精确表达。
     const definition = validDefinition();
-    const result = validateFlowDefinition({
-      ...definition,
-      nodes: definition.nodes.filter((node) => node.id !== 'plan'),
-      edges: [
-        { from: 'start', to: 'review' },
-        { from: 'review', to: 'execute', when: 'approved' },
-        { from: 'execute', to: 'answer' },
-      ],
-    });
-
     expectValidationError(
-      result,
-      (error) => error.rule === 'plan-prerequisite',
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.filter((node) => node.id !== 'plan'),
+        edges: [
+          { from: 'start', to: 'review' },
+          { from: 'review', to: 'execute', when: 'approved' },
+          { from: 'execute', to: 'answer' },
+        ],
+      }),
+      (error) => error.rule === 'ref-target',
     );
   });
 
-  it('拒绝前面没有 plan 节点的计划审批', () => {
+  it('拒绝引用了互斥分支里计划的 plan-loop', () => {
+    // 关键场景：图上连通，但被引的 plan 只在某条 case 分支里执行
     const definition = validDefinition();
-    const result = validateFlowDefinition({
-      ...definition,
-      nodes: definition.nodes.filter(
-        (node) => node.id !== 'plan' && node.id !== 'execute',
-      ),
-      edges: [
-        { from: 'start', to: 'review' },
-        { from: 'review', to: 'answer', when: 'approved' },
-      ],
-    });
-
-    // path 指向 review 在过滤后数组中的下标：start 占 0，review 是 1
     expectValidationError(
-      result,
-      (error) =>
-        error.rule === 'plan-prerequisite' && error.path === 'nodes.1.id',
+      validateFlowDefinition({
+        ...definition,
+        nodes: [
+          ...definition.nodes,
+          { id: 'plan2', type: 'plan', config: { maxSteps: 3 } },
+        ].map((node) =>
+          node.id === 'execute'
+            ? {
+                ...node,
+                config: {
+                  ...(node as { config: Record<string, unknown> }).config,
+                  planRef: { $ref: ['plan2', 'steps'] },
+                },
+              }
+            : node,
+        ),
+        edges: [...definition.edges, { from: 'answer', to: 'plan2' }],
+      }),
+      (error) => error.rule === 'ref-dominates',
     );
   });
 
@@ -423,7 +427,11 @@ function validDefinition() {
       {
         id: 'review',
         type: 'approval',
-        config: { kind: 'plan-review' },
+        config: {
+          kind: 'plan-review',
+          policy: 'always',
+          planRef: { $ref: ['plan', 'steps'] },
+        },
       },
       {
         id: 'execute',
@@ -437,9 +445,15 @@ function validDefinition() {
             maxToolIterations: 4,
           },
           stopPolicy: 'all-steps',
+          // 执行的是人确认过的那份计划
+          planRef: { $ref: ['review', 'steps'] },
         },
       },
-      { id: 'answer', type: 'synthesize', config: {} },
+      {
+        id: 'answer',
+        type: 'synthesize',
+        config: { observationsRef: { $ref: ['execute', 'observations'] } },
+      },
     ],
     edges: [
       { from: 'start', to: 'plan' },

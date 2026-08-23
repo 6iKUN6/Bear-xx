@@ -9,6 +9,7 @@ import { CommonChatAgentService } from '../../ai/agents';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
 import { STEP_EVALUATOR } from '../../ai/agent-loop/execution/step-evaluator';
+import { LlmService } from '../../llm/llm.service';
 import { AgentFlowActivities } from './agent-flow.activities';
 
 describe('AgentFlowActivities', () => {
@@ -26,6 +27,10 @@ describe('AgentFlowActivities', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
+    },
+    agentFlowNodeState: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
     },
     $transaction: jest.fn(),
     agentFlowApproval: {
@@ -54,6 +59,7 @@ describe('AgentFlowActivities', () => {
     resumeEvents: jest.fn(),
   };
   const planner = { plan: jest.fn() };
+  const llmService = { generateStructured: jest.fn() };
   const stepEvaluator = { enough: jest.fn() };
   const taskEventService = {
     persistInTransaction: jest.fn(),
@@ -70,6 +76,9 @@ describe('AgentFlowActivities', () => {
     // 默认「本节点尚无终局记录、尚未抢到 run.started」，各用例只覆盖它们关心的那一项
     prisma.agentFlowNodeExecution.findUnique.mockResolvedValue(null);
     prisma.agentFlowNodeExecution.findMany.mockResolvedValue([]);
+    // 默认「本节点还没有私有状态」，需要断言轮次或步骤进度的用例再各自覆盖
+    prisma.agentFlowNodeState.findUnique.mockResolvedValue(null);
+    prisma.agentFlowNodeState.upsert.mockResolvedValue({});
     prisma.streamTask.updateMany.mockResolvedValue({ count: 1 });
     prisma.streamTask.update.mockResolvedValue({
       flowModelCalls: 0,
@@ -95,6 +104,7 @@ describe('AgentFlowActivities', () => {
         { provide: PlannerService, useValue: planner },
         { provide: STEP_EVALUATOR, useValue: stepEvaluator },
         { provide: AgentFlowTaskEventService, useValue: taskEventService },
+        { provide: LlmService, useValue: llmService },
       ],
     }).compile();
     activities = module.get(AgentFlowActivities);
@@ -392,7 +402,7 @@ describe('AgentFlowActivities', () => {
     );
   });
 
-  it('plan 节点将生成的计划持久化到 Flow 执行状态后完成', async () => {
+  it('plan 节点把生成的计划写成自己的声明输出', async () => {
     mockExecutionContext({
       node: {
         key: 'plan',
@@ -428,22 +438,18 @@ describe('AgentFlowActivities', () => {
       3,
       [],
     );
-    expect(taskEventService.persistInTransaction).toHaveBeenLastCalledWith(
-      prisma,
-      expect.objectContaining({
-        eventName: 'flow.node.completed',
-        taskUpdate: expect.objectContaining({
-          executionState: expect.objectContaining({
-            agentFlow: expect.objectContaining({
-              plan: expect.objectContaining({
-                revision: 0,
-                steps: [{ id: 'step-1', goal: '确认目的地' }],
-              }),
-            }),
-          }),
-        }),
+    // 计划是本节点的**声明输出**，下游经 $ref 读它；此前它藏在 executionState 的全局
+    // blob 里，图上有两个 plan 节点时根本说不清用的是哪份
+    expect(prisma.agentFlowNodeExecution.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        nodeKey: 'plan',
+        result: 'COMPLETED',
+        outputs: {
+          steps: [{ id: 'step-1', goal: '确认目的地' }],
+          stepCount: 1,
+        },
       }),
-    );
+    });
   });
 
   it('approval 节点为计划审批写入持久化等待事实', async () => {
@@ -453,20 +459,20 @@ describe('AgentFlowActivities', () => {
         type: 'approval',
         next: { approved: 'execute' },
         kind: 'plan-review',
-      },
-      executionState: {
-        agentFlow: {
-          started: true,
-          completedNodes: {},
-          plan: {
-            steps: [{ id: 'step-1', goal: '确认目的地' }],
-            fromModel: true,
-            revision: 0,
-            feedback: [],
-          },
-        },
+        policy: 'always',
+        planRef: { $ref: ['plan', 'steps'] },
       },
     });
+    // 待审计划来自上游 plan 节点的声明输出，不再是全局状态
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'plan',
+        outputs: {
+          steps: [{ id: 'step-1', goal: '确认目的地' }],
+          stepCount: 1,
+        },
+      },
+    ]);
     prisma.agentFlowApproval.findFirst.mockResolvedValue(null);
     prisma.agentFlowApproval.create.mockResolvedValue({
       id: 'approval-plan-1',
@@ -524,20 +530,18 @@ describe('AgentFlowActivities', () => {
           maxToolIterations: 1,
           approvalToolNames: [],
         },
-      },
-      executionState: {
-        agentFlow: {
-          started: true,
-          completedNodes: {},
-          plan: {
-            steps: [{ id: 'step-1', goal: '确认目的地' }],
-            fromModel: true,
-            revision: 0,
-            feedback: [],
-          },
-        },
+        planRef: { $ref: ['plan', 'steps'] },
       },
     });
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'plan',
+        outputs: {
+          steps: [{ id: 'step-1', goal: '确认目的地' }],
+          stepCount: 1,
+        },
+      },
+    ]);
     capabilityResolver.resolve.mockResolvedValue({
       tools: [],
       systemPromptAdditions: [],
@@ -568,15 +572,22 @@ describe('AgentFlowActivities', () => {
         systemPrompt: expect.stringContaining('当前步骤'),
       }),
     );
-    expect(prisma.streamTask.update).toHaveBeenCalledWith(
+    // 步骤进度是**本节点私有**的 scratch，与存终局事实的 AgentFlowNodeExecution 分表：
+    // 后者「有行即已终结」，混在一起会把 create 变成 upsert，毁掉基于唯一键的幂等收敛
+    expect(prisma.agentFlowNodeState.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          executionState: expect.objectContaining({
-            agentFlow: expect.objectContaining({
-              planLoop: expect.objectContaining({ stepIndex: 1 }),
-            }),
+        where: {
+          taskId_nodeExecutionId: {
+            taskId: 'task-1',
+            nodeExecutionId: 'task-1:version-1:execute',
+          },
+        },
+        update: {
+          state: expect.objectContaining({
+            stepIndex: 1,
+            observations: ['已确认目的地'],
           }),
-        }),
+        },
       }),
     );
   });
@@ -650,21 +661,19 @@ describe('AgentFlowActivities', () => {
         type: 'approval',
         next: { approved: 'execute' },
         kind: 'plan-review',
-      },
-      executionState: {
-        agentFlow: {
-          started: true,
-          completedNodes: {},
-          plan: {
-            steps: [{ id: 'step-1', goal: '确认目的地' }],
-            fromModel: true,
-            maxSteps: 3,
-            revision: 0,
-            feedback: [],
-          },
-        },
+        policy: 'always',
+        planRef: { $ref: ['plan', 'steps'] },
       },
     });
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'plan',
+        outputs: {
+          steps: [{ id: 'step-1', goal: '确认目的地' }],
+          stepCount: 1,
+        },
+      },
+    ]);
     prisma.agentFlowApproval.findUnique.mockResolvedValue({
       taskId: 'task-1',
       nodeKey: 'review',
@@ -865,6 +874,41 @@ describe('AgentFlowActivities', () => {
   }
 
   /**
+   * 装配一个待审批节点的执行上下文
+   * @param policy 门禁策略
+   * @param budgetUsage 可选的历史预算用量，用于覆盖额度耗尽场景
+   * @returns 无返回值
+   * @description 待审计划来自上游 plan 节点的声明输出。
+   */
+  function mockApprovalNode(
+    policy: 'always' | 'never' | 'model',
+    budgetUsage?: { modelCalls: number; toolCalls: number },
+  ): void {
+    mockExecutionContext({
+      node: {
+        key: 'review',
+        type: 'approval',
+        next: { approved: 'execute' },
+        kind: 'plan-review',
+        policy,
+        planRef: { $ref: ['plan', 'steps'] },
+      },
+      ...(budgetUsage ? { budgetUsage } : {}),
+    });
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'plan',
+        outputs: {
+          steps: [{ id: 'step-1', goal: '确认目的地' }],
+          stepCount: 1,
+        },
+      },
+    ]);
+    prisma.agentFlowApproval.findFirst.mockResolvedValue(null);
+    prisma.agentFlowApproval.create.mockResolvedValue({ id: 'approval-1' });
+  }
+
+  /**
    * 装配一个条件分支节点的执行上下文
    * @returns 无返回值
    * @description Definition 必须真的含 condition 节点：分支键合法性由共享契约的
@@ -940,6 +984,156 @@ describe('AgentFlowActivities', () => {
         summary: '流程开始',
       },
     });
+  });
+
+  it('节点别名进入 flow.node.started 的展示标题', async () => {
+    // 别名是管理员为这张图里这个节点起的名字，比通用类型标题更能说明它在做什么
+    mockAgentNode();
+    flowCompiler.compile.mockReturnValue({
+      success: true,
+      plan: {
+        nodes: [
+          {
+            key: 'answer',
+            name: '生成客服回复',
+            type: 'agent',
+            next: {},
+            modelPreset: 'openai:test',
+            toolGroups: [],
+            skills: [],
+            maxToolIterations: 1,
+            approvalToolNames: [],
+          },
+        ],
+      },
+    });
+    commonChatAgentService.streamEvents.mockReturnValue(emptyEventStream());
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+    });
+
+    const started = taskEventService.persistInTransaction.mock.calls
+      .map(
+        (call: unknown[]) =>
+          call[1] as { eventName?: unknown; payload?: unknown },
+      )
+      .find((event) => event.eventName === 'flow.node.started');
+    expect((started?.payload as { title?: unknown } | undefined)?.title).toBe(
+      '生成客服回复',
+    );
+  });
+
+  it('没有别名时回退到节点类型标题', async () => {
+    mockAgentNode();
+    commonChatAgentService.streamEvents.mockReturnValue(emptyEventStream());
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+    });
+
+    const started = taskEventService.persistInTransaction.mock.calls
+      .map(
+        (call: unknown[]) =>
+          call[1] as { eventName?: unknown; payload?: unknown },
+      )
+      .find((event) => event.eventName === 'flow.node.started');
+    expect((started?.payload as { title?: unknown } | undefined)?.title).toBe(
+      '执行智能体节点',
+    );
+  });
+
+  it('门禁 never 时自动确认计划，不创建人工等待', async () => {
+    mockApprovalNode('never');
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'review',
+        nodeExecutionId: 'task-1:version-1:review',
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'approved',
+      summary: '按配置自动确认计划',
+    });
+    expect(prisma.agentFlowApproval.create).not.toHaveBeenCalled();
+    // 确认后的计划要成为本节点的输出，下游才能引用「人确认过的那份」
+    expect(prisma.agentFlowNodeExecution.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        outputs: expect.objectContaining({
+          approved: true,
+          steps: [{ id: 'step-1', goal: '确认目的地' }],
+        }),
+      }),
+    });
+  });
+
+  it('门禁 model 判定无需人工时自动确认', async () => {
+    mockApprovalNode('model');
+    llmService.generateStructured.mockResolvedValue({
+      needsReview: false,
+      reason: '纯查询无副作用',
+    });
+
+    const result = await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'review',
+      nodeExecutionId: 'task-1:version-1:review',
+    });
+
+    expect(result).toMatchObject({ kind: 'completed', outcome: 'approved' });
+    expect(prisma.agentFlowApproval.create).not.toHaveBeenCalled();
+  });
+
+  it('门禁 model 判定需要人工时照常等待', async () => {
+    mockApprovalNode('model');
+    llmService.generateStructured.mockResolvedValue({
+      needsReview: true,
+      reason: '涉及下单',
+    });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'review',
+        nodeExecutionId: 'task-1:version-1:review',
+      }),
+    ).resolves.toMatchObject({ kind: 'waiting_human' });
+  });
+
+  it.each([
+    ['输出非法', () => Promise.resolve(null)],
+    ['调用抛错', () => Promise.reject(new Error('upstream down'))],
+  ])('门禁 model 在%s时闭合为需要人工确认', async (_label, behavior) => {
+    // 失败闭合：漏掉一次该确认的，代价远大于多问一次。失败开放在门禁上不是可接受的默认值。
+    mockApprovalNode('model');
+    llmService.generateStructured.mockImplementation(behavior);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'review',
+        nodeExecutionId: 'task-1:version-1:review',
+      }),
+    ).resolves.toMatchObject({ kind: 'waiting_human' });
+  });
+
+  it('门禁 model 在模型额度已用尽时闭合为需要人工确认，且不再调模型', async () => {
+    mockApprovalNode('model', { modelCalls: 1, toolCalls: 0 });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'review',
+        nodeExecutionId: 'task-1:version-1:review',
+      }),
+    ).resolves.toMatchObject({ kind: 'waiting_human' });
+    expect(llmService.generateStructured).not.toHaveBeenCalled();
   });
 
   /**
@@ -1209,7 +1403,11 @@ function flowDefinition() {
       {
         id: 'review',
         type: 'approval' as const,
-        config: { kind: 'plan-review' as const },
+        config: {
+          kind: 'plan-review' as const,
+          policy: 'always' as const,
+          planRef: { $ref: ['plan', 'steps'] as [string, string] },
+        },
       },
       {
         id: 'answer',

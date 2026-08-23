@@ -123,10 +123,11 @@ export class FlowCompiler {
   ): CompiledFlowNode {
     switch (node.type) {
       case 'start':
-        return { key: node.id, type: 'start', next };
+        return { key: node.id, ...alias(node), type: 'start', next };
       case 'agent':
         return {
           key: node.id,
+          ...alias(node),
           type: 'agent',
           next,
           ...this.compileExecutor(node.config, context),
@@ -134,6 +135,7 @@ export class FlowCompiler {
       case 'plan':
         return {
           key: node.id,
+          ...alias(node),
           type: 'plan',
           next,
           maxSteps: node.config.maxSteps,
@@ -141,8 +143,10 @@ export class FlowCompiler {
       case 'plan-loop':
         return {
           key: node.id,
+          ...alias(node),
           type: 'plan-loop',
           next,
+          planRef: node.config.planRef,
           planLoopPolicy: {
             stopPolicy: node.config.stopPolicy,
             planReview: 'disabled',
@@ -151,12 +155,29 @@ export class FlowCompiler {
           executor: this.compileExecutor(node.config.executor, context),
         };
       case 'approval':
-        return { key: node.id, type: 'approval', next, kind: node.config.kind };
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'approval',
+          next,
+          kind: node.config.kind,
+          policy: node.config.policy,
+          planRef: node.config.planRef,
+        };
       case 'synthesize':
-        return { key: node.id, type: 'synthesize', next };
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'synthesize',
+          next,
+          ...(node.config.observationsRef
+            ? { observationsRef: node.config.observationsRef }
+            : {}),
+        };
       case 'condition':
         return {
           key: node.id,
+          ...alias(node),
           type: 'condition',
           next,
           cases: node.config.cases,
@@ -204,4 +225,16 @@ export class FlowCompiler {
       ),
     };
   }
+}
+
+/**
+ * 取出节点别名的可展开片段
+ * @param node 当前已校验节点
+ * @returns 有别名时返回 `{ name }`，否则返回空对象
+ * @description 用可展开片段而不是 `name: node.name`：后者会在没有别名时写入 `undefined`，
+ * 让编译结果多出一个恒为空的键。别名一路带到运行时，是为了让 trace 与 SSE 的节点标题显示
+ * 管理员起的名字而不是通用类型标题。
+ */
+function alias(node: FlowNode): { name?: string } {
+  return node.name ? { name: node.name } : {};
 }

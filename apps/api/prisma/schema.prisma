@@ -414,6 +414,7 @@ model StreamTask {
   agentFlowApprovals    AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
   agentFlowSignalOutbox AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxTask")
   agentFlowNodeRuns     AgentFlowNodeExecution[]    @relation("AgentFlowNodeExecutionTask")
+  agentFlowNodeStates   AgentFlowNodeState[]        @relation("AgentFlowNodeStateTask")
 
   @@index([userId, status])
   @@index([conversationId])
@@ -549,6 +550,30 @@ model AgentFlowNodeExecution {
   @@unique([taskId, nodeExecutionId])
   @@index([taskId])
   @@map("agent_flow_node_executions")
+}
+
+/// 一个 Flow 节点执行**过程中**的内部状态（scratch）。
+/// 与 AgentFlowNodeExecution 分表是有意的：那张表「有行即已终结」，是幂等回放的依据；
+/// 这张表在节点还没结束时就要写（plan-loop 每步一次 checkpoint、approval 每轮打回一次），
+/// 混进同一行会让 create 变成 upsert，毁掉「唯一键冲突 -> 回滚 -> 重试命中缓存」那条收敛路径。
+/// 只由节点自己读写，不跨节点共享，因此并发节点之间不存在覆盖。
+model AgentFlowNodeState {
+  id              String   @id @default(cuid())
+  taskId          String   @map("task_id")
+  /// Workflow 侧按 (workflow, nodeKey) 生成的稳定执行标识
+  nodeExecutionId String   @map("node_execution_id")
+  nodeKey         String   @map("node_key")
+  /// 节点私有状态：approval 的 revision/feedback、plan-loop 的 stepIndex/observations。
+  /// 不存提示词、工具原始出参或审批决定正文。
+  state           Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  task StreamTask @relation("AgentFlowNodeStateTask", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, nodeExecutionId])
+  @@index([taskId])
+  @@map("agent_flow_node_states")
 }
 
 /// 一次工具或计划审批的持久化业务事实；id 同时作为对外 approvalId。

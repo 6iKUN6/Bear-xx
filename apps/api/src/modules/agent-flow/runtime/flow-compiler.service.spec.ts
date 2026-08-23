@@ -4,6 +4,7 @@ import { CapabilityRegistry } from '../../ai/agent-loop/capability/capability.re
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import { FlowCompiler } from './flow-compiler.service';
 import { FlowRuntimeValidator } from './flow-runtime-validator.service';
+import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
 
 describe('FlowCompiler', () => {
   let compiler: FlowCompiler;
@@ -61,6 +62,31 @@ describe('FlowCompiler', () => {
     ]);
   });
 
+  it('把节点别名带进编译结果，供 trace 与 SSE 展示', () => {
+    // 反向验证时发现这条链路没有测试：activities 的用例直接 mock 了 compile，
+    // 去掉编译器里的别名传递不会让任何用例失败
+    const base = definition();
+    const result = compiler.compile(
+      {
+        ...base,
+        nodes: base.nodes.map((node) =>
+          node.id === 'answer' ? { ...node, name: '生成客服回复' } : node,
+        ),
+      },
+      { agentDefaultModelPreset: 'model-enabled' },
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error('有效 Flow 不应编译失败');
+    }
+    const answer = result.plan.nodes.find((node) => node.key === 'answer');
+    const finish = result.plan.nodes.find((node) => node.key === 'finish');
+    expect(answer?.name).toBe('生成客服回复');
+    // 没起别名的节点不该多出一个恒为空的 name 键
+    expect(finish && 'name' in finish).toBe(false);
+  });
+
   it('在任务默认模型未锁定时拒绝编译 agent-default 节点', () => {
     const result = compiler.compile(definition(), {
       agentDefaultModelPreset: null,
@@ -102,7 +128,7 @@ describe('FlowCompiler', () => {
  */
 function definition(): FlowDefinition {
   return {
-    schemaVersion: 1,
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
     kind: 'agent-flow',
     name: '编译测试',
     policy: {
@@ -135,7 +161,7 @@ function definition(): FlowDefinition {
  */
 function planLoopDefinition(): FlowDefinition {
   return {
-    schemaVersion: 1,
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
     kind: 'agent-flow',
     name: 'PlanLoop 编译测试',
     policy: {

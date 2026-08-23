@@ -1,11 +1,12 @@
 /**
  * AgentFlow Definition 当前支持的 JSON schema 版本。
  * @description 2 引入变量模型（`$ref`）、condition 分支与泛化的分支键；3 引入必需的 start 节点，
- * 并用它取代 `$input` 这个凭空存在的变量来源。schemaVersion 的职责就是「本工件符合第 N 版形状」，
+ * 并用它取代 `$input` 这个凭空存在的变量来源；4 把计划数据从隐式的全局状态改为显式 `$ref`
+ * 传递，并给计划审批加上门禁策略。schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 3 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 4 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -52,7 +53,14 @@ export const FLOW_NODE_OUTPUTS: Readonly<
   agent: { text: "string" },
   plan: { steps: "array", stepCount: "number" },
   "plan-loop": { text: "string", observations: "array" },
-  approval: { approved: "boolean", comment: "string" },
+  // approval 的 steps 是**确认或编辑后**的计划，可能与上游 plan 节点的不同；
+  // 下游要执行「人确认过的那份」就引用它，要执行原始计划才引用 plan 节点
+  approval: {
+    approved: "boolean",
+    comment: "string",
+    steps: "array",
+    stepCount: "number",
+  },
   synthesize: { text: "string" },
   condition: {},
 };
@@ -91,11 +99,33 @@ export type FlowPlanLoopStopPolicy = "all-steps" | "evaluate-after-step";
 export interface FlowPlanLoopNodeConfig {
   readonly executor: FlowPlanLoopExecutorConfig;
   readonly stopPolicy: FlowPlanLoopStopPolicy;
+  /**
+   * 要执行哪份计划
+   * @description 指向任何带 `steps` 数组输出的上游节点：接 plan 即执行原始计划，
+   * 接 approval 即执行人确认过的那份。此前这层关系是隐式的（全局只有一份计划），
+   * 图上有两个 plan 节点时根本无法表达要执行哪个。
+   */
+  readonly planRef: FlowRef;
 }
+
+/**
+ * 计划审批的门禁策略
+ * @description `always` 每次都等人工确认；`never` 自动通过（保留节点与它的 steps 输出，
+ * 便于按环境切换门禁而不用改图）；`model` 由模型判断这份计划是否值得人工过目。
+ *
+ * `model` **不是**安全边界：工具审批完全走另一条路（`CapabilityRegistry.requiresApproval`
+ * 推导出 approvalToolNames，Flow JSON 没有降低工具风险等级的入口），不受本策略影响。
+ * 这里判定的只是「要不要请人确认计划」这一层控制。
+ * 且它必须**失败闭合**：模型不可用、输出非法或额度耗尽时一律按「需要人工确认」处理。
+ */
+export type FlowApprovalPolicy = "always" | "never" | "model";
 
 /** 当前仅开放计划审批节点。 */
 export interface FlowApprovalNodeConfig {
   readonly kind: "plan-review";
+  readonly policy: FlowApprovalPolicy;
+  /** 要审的是哪份计划；必须指向 plan 节点（重规划要用它的 maxSteps） */
+  readonly planRef: FlowRef;
 }
 
 /** 条件判定的算子闭集。 */
@@ -221,10 +251,20 @@ export interface FlowApprovalNode extends FlowNodeBase {
   readonly config: FlowApprovalNodeConfig;
 }
 
+/** 汇总节点配置。 */
+export interface FlowSynthesizeNodeConfig {
+  /**
+   * 要汇总谁的步骤观察
+   * @description 可选：缺省时退化为不带工具的普通汇总（保留原有语义），有值时读取被引节点的
+   * `observations` 数组作为汇总素材。
+   */
+  readonly observationsRef?: FlowRef;
+}
+
 /** 汇总节点。 */
 export interface FlowSynthesizeNode extends FlowNodeBase {
   readonly type: "synthesize";
-  readonly config: Record<string, never>;
+  readonly config: FlowSynthesizeNodeConfig;
 }
 
 /** 起始节点；每张图有且仅有一个，是唯一入口，并提供用户本轮消息。 */

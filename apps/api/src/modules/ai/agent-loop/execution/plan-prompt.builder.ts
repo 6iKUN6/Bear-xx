@@ -6,7 +6,7 @@
  */
 
 import type { AgentLoopInput } from '../agent-loop.types';
-import type { AgentPlan, PlanStep } from './plan.types';
+import type { PlanStep } from './plan.types';
 
 /**
  * 构建单步执行提示词
@@ -19,7 +19,7 @@ import type { AgentPlan, PlanStep } from './plan.types';
  */
 export function buildStepPrompt(
   input: AgentLoopInput,
-  plan: AgentPlan,
+  steps: readonly PlanStep[],
   step: PlanStep,
   observations: string[],
 ): string {
@@ -29,9 +29,9 @@ export function buildStepPrompt(
   }
 
   // 计划概览标出当前步：给模型连贯感，但下面的工具约束会明确禁止它越界执行后续步骤。
-  const currentIndex = plan.steps.findIndex((item) => item.id === step.id);
+  const currentIndex = steps.findIndex((item) => item.id === step.id);
   sections.push(
-    `## 任务计划（你只负责其中一步）\n${plan.steps
+    `## 任务计划（你只负责其中一步）\n${steps
       .map(
         (item, index) =>
           `${index + 1}. ${item.goal}${index === currentIndex ? '  ← 当前步骤' : ''}`,

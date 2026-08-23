@@ -10,10 +10,12 @@ import {
   StreamTaskStatus,
 } from '@prisma/client';
 import { ApplicationFailure } from '@temporalio/client';
+import { z } from 'zod';
 import {
   FLOW_CONDITION_ELSE_BRANCH,
   flowNodeBranchKeys,
   type FlowConditionCase,
+  type FlowRef,
   type FlowConditionPredicate,
   type FlowDefinition,
   type FlowNodeType,
@@ -28,7 +30,7 @@ import {
   type TaskErrorCategory,
 } from '@litter-bear/types/protocol';
 import { isRetryableTaskErrorCategory } from '../../llm/llm-error';
-import { chatAgentCommonPrompt } from '../../../prompts';
+import { chatAgentCommonPrompt, planReviewGatePrompt } from '../../../prompts';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
 import type {
@@ -42,6 +44,7 @@ import {
   buildSynthesisPrompt,
 } from '../../ai/agent-loop/execution/plan-prompt.builder';
 import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
+import { LlmService } from '../../llm/llm.service';
 import {
   STEP_EVALUATOR,
   type StepEvaluator,
@@ -74,8 +77,18 @@ import type {
 const FLOW_APPROVAL_TIMEOUT_SECONDS = 900;
 
 /**
+ * 计划审批门禁的结构化输出闭集
+ * @description 只接受这两个字段。模型给出别的形状时 generateStructured 返回 null，
+ * 调用方按「需要人工确认」闭合处理。
+ */
+const planReviewGateSchema = z.object({
+  needsReview: z.boolean(),
+  reason: z.string(),
+});
+
+/**
  * 把不可信字符串收窄为协议错误类别
- * @param value 来自 executionState JSON 的候选值
+ * @param value 来自数据库 JSON 的候选值
  * @returns 落在闭集内时返回该类别，否则返回 undefined
  * @description 成员判断直接借 TASK_ERROR_CATEGORY_LABELS 的键：它是
  * `Record<TaskErrorCategory, string>`，新增类别时编译器会强制补文案，
@@ -90,17 +103,17 @@ function toTaskErrorCategory(
   return undefined;
 }
 
-/** Flow 计划节点写入的可恢复计划状态。 */
-interface PersistedFlowPlan {
-  steps: PlanStep[];
-  fromModel: boolean;
-  maxSteps: number;
+/** 审批节点自己的轮次状态；steps 是本轮待审计划（可能是打回后重新生成的）。 */
+interface ApprovalScratch {
+  [key: string]: unknown;
   revision: number;
   feedback: string[];
+  steps?: PlanStep[];
 }
 
 /** Flow PlanLoop 节点写入的可恢复步骤进度。 */
 interface PersistedFlowPlanLoop {
+  [key: string]: unknown;
   stepIndex: number;
   observations: string[];
   lastStepHadToolCalls: boolean;
@@ -117,17 +130,6 @@ interface PersistedFlowBudgetUsage {
   toolCalls: number;
 }
 
-/**
- * 仍然保存在 StreamTask.executionState 里的 Flow 级状态
- * @description 只剩计划相关的跨节点数据：plan 由 plan 节点写、approval / plan-loop /
- * synthesize 节点读，因此它不是单节点内部状态（V2 设计文档一度这样描述，与代码不符）。
- * 它同样是整块读改写，在并行落地前必须由 V2 的变量模型（$ref）接管。
- */
-interface PersistedFlowExecutionState {
-  plan?: PersistedFlowPlan;
-  planLoop?: PersistedFlowPlanLoop;
-}
-
 interface AgentFlowExecutionContext {
   task: {
     id: string;
@@ -138,7 +140,6 @@ interface AgentFlowExecutionContext {
     streamId: string | null;
     agentId: string;
     fullContent: string;
-    executionState: Prisma.JsonValue | null;
     budgetUsage: PersistedFlowBudgetUsage;
     /** Flow 级根变量 `$input.text`：本轮用户消息正文，供条件判定引用 */
     inputText: string;
@@ -168,6 +169,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     private readonly planner: PlannerService,
     @Inject(STEP_EVALUATOR) private readonly stepEvaluator: StepEvaluator,
     private readonly taskEventService: AgentFlowTaskEventService,
+    private readonly llmService: LlmService,
   ) {}
 
   /**
@@ -249,7 +251,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * 执行一个 Flow 节点
    * @param input 节点键与稳定 execution identity
    * @returns 返回完成分支、人工等待或明确停止结果
-   * @description 从冻结 FlowVersion 重新编译当前节点，不进入 StrategyRouter。已完成和待审批节点从 StreamTask.executionState 读取幂等结果；新执行先写 `flow.node.started`，再消费底层 agent 事件。
+   * @description 从冻结 FlowVersion 重新编译当前节点，不进入 StrategyRouter。已完成和待审批节点回放已落库的事实；新执行先写 `flow.node.started`，再消费底层 agent 事件。
    */
   async executeNode(
     input: AgentFlowNodeExecutionInput,
@@ -261,7 +263,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * 继续推进已开始但未结束的节点
    * @param input 节点键与稳定 execution identity
    * @returns 返回完成分支、继续推进、人工等待或明确停止结果
-   * @description 供 plan-loop 逐步执行：每次调用只推进一步，从 executionState 的
+   * @description 供 plan-loop 逐步执行：每次调用只推进一步，从节点私有状态里的
    * stepIndex 续跑。与 resumeNode 一样不重发 `flow.node.started`，否则同一节点会
    * 按步数刷出多条开始事件。
    */
@@ -332,7 +334,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * @returns 命中已落库结果或待审批事实时返回可直接交给 Workflow 的结果，否则返回 null
    * @description 幂等只依据两个数据库事实：`AgentFlowNodeExecution` 的唯一键
    * `(taskId, nodeExecutionId)`，以及本节点是否还有 PENDING 审批。原先靠
-   * `executionState` 里的 JSON map，整块读改写下并发节点会互相覆盖，丢一条完成记录就等于
+   * `executionState` 里的 JSON map（现已删除），整块读改写下并发节点会互相覆盖，丢一条完成记录就等于
    * 让重试重新调用模型与工具。审批不再另存一份 pendingApproval 快照：`AgentFlowApproval`
    * 本身就是唯一事实源，快照只能容纳一个等待中的节点，并行下必然失真。
    */
@@ -614,7 +616,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         currentRunId: true,
         agentId: true,
         fullContent: true,
-        executionState: true,
         flowModelCalls: true,
         flowToolCalls: true,
         requestPayload: true,
@@ -687,7 +688,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         streamId: task.currentRunId,
         agentId: task.agentId,
         fullContent: task.fullContent,
-        executionState: task.executionState,
         budgetUsage: {
           modelCalls: task.flowModelCalls,
           toolCalls: task.flowToolCalls,
@@ -758,7 +758,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           payload: {
             nodeKey: context.node.key,
             nodeType: context.node.type,
-            title: getNodeTitle(context.node.type),
+            title: getNodeTitle(context.node),
             traceKey: createNodeTraceKey(nodeExecutionId),
           },
           taskUpdate: {
@@ -795,7 +795,12 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       );
     }
     if (context.node.type === 'synthesize') {
-      return this.executeSynthesizeNode(context, input, resumeDecision);
+      return this.executeSynthesizeNode(
+        context,
+        input,
+        context.node,
+        resumeDecision,
+      );
     }
     if (context.node.type === 'plan') {
       return this.executePlanNode(context, input, context.node.maxSteps);
@@ -804,6 +809,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return this.executePlanReviewNode(
         context,
         input,
+        context.node,
         resumeDecision as PlanReviewDecision | undefined,
       );
     }
@@ -845,37 +851,23 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     input: AgentFlowNodeExecutionInput,
     maxSteps: number,
   ): Promise<AgentFlowNodeExecutionResult> {
-    const state = readFlowExecutionState(context.task.executionState);
     const budget = this.createBudgetTracker(context);
     if (budget.modelCallExhausted()) {
-      return this.stopOnBudgetExceeded(context, input, state, 'maxModelCalls');
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
     const plan = await this.createPlan(context, maxSteps, []);
-    // 只在真的调了模型时记账：fromModel 为 false 说明 Planner 已降级为规则单步计划
+    // 只在真的调了模型时记账：fromModel 为 false 说明 Planner 已降级为规则单步计划。
+    // fromModel 只在这里用于记账，不再持久化——它唯一的下游消费者 buildStepPrompt 从不读它。
     if (plan.fromModel) {
       budget.countModelCall();
     }
     await budget.flush();
-    const nextState: PersistedFlowExecutionState = {
-      ...state,
-      plan: {
-        steps: plan.steps,
-        fromModel: plan.fromModel,
-        maxSteps,
-        revision: 0,
-        feedback: [],
-      },
-      planLoop: undefined,
-    };
     return this.completeNode(
       context,
       input,
       'default',
       `已生成 ${plan.steps.length} 个计划步骤`,
-      {
-        state: nextState,
-        outputs: { steps: plan.steps, stepCount: plan.steps.length },
-      },
+      { outputs: { steps: plan.steps, stepCount: plan.steps.length } },
     );
   }
 
@@ -890,39 +882,27 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   private async executePlanReviewNode(
     context: AgentFlowExecutionContext,
     input: AgentFlowNodeExecutionInput,
+    node: Extract<CompiledFlowNode, { type: 'approval' }>,
     decision: PlanReviewDecision | undefined,
   ): Promise<AgentFlowNodeExecutionResult> {
-    const state = readFlowExecutionState(context.task.executionState);
-    const plan = requirePersistedPlan(state);
+    const scratch = await this.readApprovalScratch(context, input);
+    const steps =
+      scratch.steps ?? (await this.readPlanSteps(context, node.planRef));
+
     if (!decision) {
-      return this.createPlanReviewApprovalWait(context, input, state);
+      return this.openPlanReview(context, input, node, steps, scratch);
     }
 
     if (decision.decision === 'approve') {
-      return this.completeNode(context, input, 'approved', '计划已确认', {
-        outputs: { approved: true, comment: '' },
-      });
+      return this.completeApproval(context, input, steps, '计划已确认');
     }
     if (decision.decision === 'edit') {
-      const steps = toEditedPlanSteps(decision.editedSteps);
-      const nextState: PersistedFlowExecutionState = {
-        ...state,
-        plan: {
-          ...plan,
-          steps,
-          fromModel: false,
-        },
-        planLoop: undefined,
-      };
-      return this.completeNode(
+      const edited = toEditedPlanSteps(decision.editedSteps);
+      return this.completeApproval(
         context,
         input,
-        'approved',
-        `已确认修改后的 ${steps.length} 个计划步骤`,
-        {
-          state: nextState,
-          outputs: { approved: true, comment: '' },
-        },
+        edited,
+        `已确认修改后的 ${edited.length} 个计划步骤`,
       );
     }
     if (decision.decision === 'reject_terminate') {
@@ -936,14 +916,14 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     }
 
     const feedback = decision.feedback?.trim() || '请重新规划';
-    const nextFeedback = [...plan.feedback, feedback];
+    const nextFeedback = [...scratch.feedback, feedback];
     const budget = this.createBudgetTracker(context);
     if (budget.modelCallExhausted()) {
-      return this.stopOnBudgetExceeded(context, input, state, 'maxModelCalls');
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
     const replanned = await this.createPlan(
       context,
-      plan.maxSteps,
+      this.readPlanNodeMaxSteps(context, node.planRef),
       nextFeedback,
     );
     // 重新规划同样是一次真实模型调用，反复 reject_replan 必须计入预算
@@ -951,18 +931,135 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       budget.countModelCall();
     }
     await budget.flush();
-    const nextState: PersistedFlowExecutionState = {
-      ...state,
-      plan: {
-        steps: replanned.steps,
-        fromModel: replanned.fromModel,
-        maxSteps: plan.maxSteps,
-        revision: plan.revision + 1,
-        feedback: nextFeedback,
-      },
-      planLoop: undefined,
+    const nextScratch: ApprovalScratch = {
+      revision: scratch.revision + 1,
+      feedback: nextFeedback,
+      steps: replanned.steps,
     };
-    return this.createPlanReviewApprovalWait(context, input, nextState);
+    await this.writeNodeState(context, input, nextScratch);
+    return this.createPlanReviewApprovalWait(
+      context,
+      input,
+      replanned.steps,
+      nextScratch.revision,
+    );
+  }
+
+  /**
+   * 按门禁策略决定这轮审批是等人、还是自动通过
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 节点执行标识
+   * @param node 已编译的审批节点
+   * @param steps 待审的计划步骤
+   * @param scratch 本节点已持久化的审批轮次状态
+   * @returns 返回等待人工或直接确认的结果
+   * @description `model` 策略**失败闭合**：模型不可用、输出非法或模型额度已耗尽时一律按
+   * 「需要人工确认」处理。这道门禁只决定「要不要请人过目计划」，不是安全边界——工具审批由
+   * CapabilityRegistry 单独推导，Flow 配置没有降低工具风险等级的入口。
+   */
+  private async openPlanReview(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    node: Extract<CompiledFlowNode, { type: 'approval' }>,
+    steps: PlanStep[],
+    scratch: ApprovalScratch,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    if (node.policy === 'never') {
+      return this.completeApproval(context, input, steps, '按配置自动确认计划');
+    }
+    if (node.policy === 'model') {
+      const verdict = await this.judgePlanReviewNeeded(context, steps);
+      if (!verdict.needsReview) {
+        return this.completeApproval(
+          context,
+          input,
+          steps,
+          `模型判定无需人工确认：${verdict.reason}`,
+        );
+      }
+    }
+    await this.writeNodeState(context, input, { ...scratch, steps });
+    return this.createPlanReviewApprovalWait(
+      context,
+      input,
+      steps,
+      scratch.revision,
+    );
+  }
+
+  /**
+   * 由模型判断一份计划是否需要人工确认
+   * @param context 当前编译后的节点执行上下文
+   * @param steps 待审的计划步骤
+   * @returns 返回判定结果与一句理由
+   * @description 任何失败路径都返回「需要人工确认」：模型额度耗尽、调用异常、输出不符合闭集
+   * 都算失败。漏掉一次该确认的代价远大于多问一次，因此这里不能失败开放。
+   */
+  private async judgePlanReviewNeeded(
+    context: AgentFlowExecutionContext,
+    steps: PlanStep[],
+  ): Promise<{ needsReview: boolean; reason: string }> {
+    const budget = this.createBudgetTracker(context);
+    if (budget.modelCallExhausted()) {
+      return { needsReview: true, reason: '模型调用额度已用尽，转人工确认' };
+    }
+    try {
+      const parsed = await this.llmService.generateStructured(
+        [
+          { role: 'system', content: planReviewGatePrompt },
+          {
+            role: 'user',
+            content: steps
+              .map((step, index) => `${index + 1}. ${step.goal}`)
+              .join('\n'),
+          },
+        ],
+        planReviewGateSchema,
+        { schemaName: 'plan_review_gate' },
+      );
+      budget.countModelCall();
+      await budget.flush();
+      if (!parsed) {
+        return {
+          needsReview: true,
+          reason: '门禁判定未产出有效结果，转人工确认',
+        };
+      }
+      return {
+        needsReview: parsed.needsReview,
+        reason: parsed.reason.trim() || '模型未给出理由',
+      };
+    } catch {
+      // 计入已发出的调用后再返回：调用可能已经打到上游，不记账等于漏掉真实花费
+      await budget.flush();
+      return { needsReview: true, reason: '门禁判定失败，转人工确认' };
+    }
+  }
+
+  /**
+   * 以确认结果完成审批节点
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 节点执行标识
+   * @param steps 最终确认的计划步骤
+   * @param summary 可展示的完成摘要
+   * @returns 返回 approved 分支的完成结果
+   * @description 输出里带上 steps：下游要执行「人确认过的那份」计划就引用本节点，
+   * 要执行原始计划才引用上游 plan 节点。编辑过的计划只在这里可见。
+   */
+  private async completeApproval(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    steps: PlanStep[],
+    summary: string,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    return this.completeNode(context, input, 'approved', summary, {
+      outputs: {
+        approved: true,
+        comment: '',
+        steps,
+        stepCount: steps.length,
+      },
+    });
   }
 
   /**
@@ -980,13 +1077,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     node: Extract<CompiledFlowNode, { type: 'plan-loop' }>,
     resumeDecision: ApprovalDecision | undefined,
   ): Promise<AgentFlowNodeExecutionResult> {
-    const state = readFlowExecutionState(context.task.executionState);
-    const plan = requirePersistedPlan(state);
-    let planLoop = state.planLoop ?? {
-      stepIndex: 0,
-      observations: [],
-      lastStepHadToolCalls: false,
-    };
+    const steps = await this.readPlanSteps(context, node.planRef);
+    let planLoop = await this.readPlanLoopScratch(context, input);
     const budget = this.createBudgetTracker(context);
     const capabilities = await this.capabilityResolver.resolve(
       toFlowCapabilityDecision(node.executor),
@@ -1010,7 +1102,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       approvalToolNames: capabilities.approvalToolNames,
     };
 
-    const stepLimit = Math.min(plan.steps.length, node.planLoopPolicy.maxSteps);
+    const stepLimit = Math.min(steps.length, node.planLoopPolicy.maxSteps);
     // 单步执行：循环由 Workflow 驱动。整条循环压在一次 Activity 里时，实测 5 步
     // 已耗 197s / 300s 预算（约 40s/步），schema 允许的 24 步必然超时；且循环期间
     // Workflow 既检查不到 maxDurationSeconds 也收不到取消信号。
@@ -1020,23 +1112,15 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         'default',
         `已完成 ${planLoop.stepIndex} 个计划步骤`,
-        {
-          state: { ...state, planLoop },
-          outputs: toPlanLoopOutputs(planLoop),
-        },
+        { outputs: toPlanLoopOutputs(planLoop) },
       );
     }
 
     if (budget.modelCallExhausted()) {
-      return this.stopOnBudgetExceeded(
-        context,
-        input,
-        { ...state, planLoop },
-        'maxModelCalls',
-      );
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
 
-    const step = plan.steps[planLoop.stepIndex];
+    const step = steps[planLoop.stepIndex];
     const stepExecutionId = createPlanStepExecutionId(
       input.nodeExecutionId,
       step.id,
@@ -1051,7 +1135,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     );
     const stepPrompt = buildStepPrompt(
       agentInput,
-      { steps: plan.steps, fromModel: plan.fromModel },
+      steps,
       step,
       planLoop.observations,
     );
@@ -1083,13 +1167,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     resumeDecision = undefined;
     await budget.flush();
     if (result.overspent) {
-      // 已完成的观察保留在 planLoop 里：预算终止不回滚已产出的步骤成果
-      return this.stopOnBudgetExceeded(
-        context,
-        input,
-        { ...state, planLoop },
-        result.overspent,
-      );
+      // 已完成的观察留在 scratch 里：预算终止不回滚已产出的步骤成果
+      return this.stopOnBudgetExceeded(context, input, result.overspent);
     }
     if (result.approvals.length > 0) {
       return this.createToolApprovalWait(
@@ -1097,7 +1176,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         result.approvals,
         context.task.fullContent,
-        { ...state, planLoop },
         createApprovalTraceKey(stepExecutionId),
       );
     }
@@ -1107,11 +1185,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       observations: [...planLoop.observations, result.fullContent],
       lastStepHadToolCalls: result.hadToolCalls,
     };
-    const nextState: PersistedFlowExecutionState = {
-      ...state,
-      planLoop,
-    };
-    await this.persistPlanLoopCheckpoint(context, nextState);
+    await this.persistPlanLoopCheckpoint(context, input, planLoop);
 
     if (
       planLoop.stepIndex >= stepLimit ||
@@ -1119,7 +1193,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         this.stepEvaluator.enough({
           stepsDone: planLoop.stepIndex,
           maxSteps: node.planLoopPolicy.maxSteps,
-          plannedSteps: plan.steps.length,
+          plannedSteps: steps.length,
           lastResult: {
             text: result.fullContent,
             hadToolCalls: result.hadToolCalls,
@@ -1131,7 +1205,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         'default',
         `已完成 ${planLoop.stepIndex} 个计划步骤`,
-        { state: nextState, outputs: toPlanLoopOutputs(planLoop) },
+        { outputs: toPlanLoopOutputs(planLoop) },
       );
     }
 
@@ -1205,19 +1279,21 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * @param input Temporal 节点执行标识
    * @param resumeDecision 可选的工具审批决定
    * @returns 返回汇总回复完成或工具审批等待结果
-   * @description 汇总只读取 PlanLoop 已持久化的步骤观察，不把内部步骤文本直接下发客户端；没有计划的 Flow 保持普通无工具 Agent 汇总语义。
+   * @description 汇总素材由 observationsRef 显式指定，不再隐式读全局的 PlanLoop 状态——图上有
+   * 两个 plan-loop 时那种隐式读法根本说不清汇总的是谁。缺省引用时保持普通无工具 Agent 汇总语义。
+   * 步骤观察只进提示词，不直接下发客户端。
    */
   private async executeSynthesizeNode(
     context: AgentFlowExecutionContext,
     input: AgentFlowNodeExecutionInput,
+    node: Extract<CompiledFlowNode, { type: 'synthesize' }>,
     resumeDecision: ApprovalDecision | PlanReviewDecision | undefined,
   ): Promise<AgentFlowNodeExecutionResult> {
-    const state = readFlowExecutionState(context.task.executionState);
+    const observations = node.observationsRef
+      ? await this.readRefStringArray(context, node.observationsRef)
+      : [];
     const agentInput = await this.createAgentLoopInput(context, []);
-    const systemPrompt = buildSynthesisPrompt(
-      agentInput,
-      state.planLoop?.observations ?? [],
-    );
+    const systemPrompt = buildSynthesisPrompt(agentInput, observations);
     return this.executeAgentNode(
       context,
       input,
@@ -1279,9 +1355,9 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   private async createPlanReviewApprovalWait(
     context: AgentFlowExecutionContext,
     input: AgentFlowNodeExecutionInput,
-    state: PersistedFlowExecutionState,
+    steps: PlanStep[],
+    revision: number,
   ): Promise<AgentFlowNodeExecutionResult> {
-    const plan = requirePersistedPlan(state);
     const existing = await this.prisma.agentFlowApproval.findFirst({
       where: {
         taskId: context.task.id,
@@ -1302,10 +1378,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const expiresAt = new Date(
       Date.now() + FLOW_APPROVAL_TIMEOUT_SECONDS * 1_000,
     );
-    const traceKey = createPlanReviewTraceKey(
-      input.nodeExecutionId,
-      plan.revision,
-    );
+    const traceKey = createPlanReviewTraceKey(input.nodeExecutionId, revision);
     const result = await this.prisma.$transaction(async (transaction) => {
       const approval = await transaction.agentFlowApproval.create({
         data: {
@@ -1314,8 +1387,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           nodeKey: context.node.key,
           kind: AgentFlowApprovalKind.PLAN_REVIEW,
           requestSummary: toInputJsonValue({
-            steps: plan.steps.map((step) => ({ id: step.id, goal: step.goal })),
-            revision: plan.revision,
+            steps: steps.map((step) => ({ id: step.id, goal: step.goal })),
+            revision,
             allowedDecisions: [
               'approve',
               'edit',
@@ -1341,11 +1414,11 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
             traceKey,
             approval: {
               kind: 'plan-review',
-              steps: plan.steps.map((step) => ({
+              steps: steps.map((step) => ({
                 id: step.id,
                 goal: step.goal,
               })),
-              revision: plan.revision,
+              revision,
               allowedDecisions: [
                 'approve',
                 'edit',
@@ -1359,7 +1432,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
             currentStep: context.node.key,
             pausedAt: new Date(),
             expiresAt,
-            executionState: toFlowExecutionState(state),
           },
         },
       );
@@ -1411,10 +1483,9 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         context.agentSystemPrompt,
         capabilities.systemPromptAdditions,
       );
-    const state = readFlowExecutionState(context.task.executionState);
     const budget = this.createBudgetTracker(context);
     if (budget.modelCallExhausted()) {
-      return this.stopOnBudgetExceeded(context, input, state, 'maxModelCalls');
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
     const onModelTurn = budget.countModelCall;
     const stream = resumeDecision
@@ -1447,7 +1518,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return this.stopOnBudgetExceeded(
         context,
         input,
-        state,
         result.overspent,
         result.fullContent,
       );
@@ -1458,7 +1528,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         result.approvals,
         result.fullContent,
-        state,
       );
     }
     return this.completeNode(
@@ -1466,11 +1535,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       input,
       'default',
       result.fullContent ? '已生成回复' : '节点执行完成',
-      {
-        fullContent: result.fullContent,
-        state,
-        outputs: { text: result.nodeText },
-      },
+      { fullContent: result.fullContent, outputs: { text: result.nodeText } },
     );
   }
 
@@ -1580,7 +1645,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     input: AgentFlowNodeExecutionInput,
     requests: ApprovalRequiredPayload[],
     fullContent: string,
-    state = readFlowExecutionState(context.task.executionState),
     traceKey = createApprovalTraceKey(input.nodeExecutionId),
   ): Promise<AgentFlowNodeExecutionResult> {
     const allowedDecisions = resolveBatchAllowedDecisions(requests);
@@ -1657,7 +1721,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
             fullContent,
             pausedAt: new Date(),
             expiresAt,
-            executionState: toFlowExecutionState(state),
           },
         },
       );
@@ -1695,13 +1758,10 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     summary: string,
     options: {
       fullContent?: string;
-      state?: PersistedFlowExecutionState;
       outputs?: Record<string, unknown>;
     } = {},
   ): Promise<AgentFlowNodeCompletedResult> {
     const fullContent = options.fullContent ?? context.task.fullContent;
-    const state =
-      options.state ?? readFlowExecutionState(context.task.executionState);
     const event = await this.prisma.$transaction(async (transaction) => {
       await this.recordNodeExecutionInTransaction(transaction, context, input, {
         result: AgentFlowNodeExecutionResultKind.COMPLETED,
@@ -1728,7 +1788,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           currentStep: context.node.key,
           fullContent,
           pausedAt: null,
-          executionState: toFlowExecutionState(state),
         },
       });
     });
@@ -1786,15 +1845,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    */
   private async persistPlanLoopCheckpoint(
     context: AgentFlowExecutionContext,
-    state: PersistedFlowExecutionState,
+    input: AgentFlowNodeExecutionInput,
+    planLoop: PersistedFlowPlanLoop,
   ): Promise<void> {
+    await this.writeNodeState(context, input, planLoop);
     await this.prisma.streamTask.update({
       where: { id: context.task.id },
-      data: {
-        currentStep: context.node.key,
-        lastHeartbeatAt: new Date(),
-        executionState: toFlowExecutionState(state),
-      },
+      data: { currentStep: context.node.key, lastHeartbeatAt: new Date() },
     });
   }
 
@@ -1866,11 +1923,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     fullContent: string,
     options: {
       errorCategory?: TaskErrorCategory;
-      state?: PersistedFlowExecutionState;
     } = {},
   ): Promise<AgentFlowNodeExecutionResult> {
-    const state =
-      options.state ?? readFlowExecutionState(context.task.executionState);
     const failed = status === 'error';
     const errorCategory = failed
       ? (options.errorCategory ?? 'unknown')
@@ -1894,6 +1948,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
               status: StreamTaskStatus.STREAMING,
               payload: {
                 nodeKey: context.node.key,
+                title: getNodeTitle(context.node),
                 nodeType: context.node.type,
                 traceKey,
                 category: errorCategory,
@@ -1916,7 +1971,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           currentStep: context.node.key,
           fullContent,
           pausedAt: null,
-          executionState: toFlowExecutionState(state),
         },
       });
     });
@@ -1926,6 +1980,182 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       status,
       ...(errorCategory ? { errorCategory } : {}),
     };
+  }
+
+  /**
+   * 读取一个引用指向的计划步骤
+   * @param context 当前编译后的节点执行上下文
+   * @param ref 指向某个上游节点 steps 输出的引用
+   * @returns 返回该节点已落库的计划步骤
+   * @description 发布期的 ref-dominates 已保证被引节点在每条路径上都必定先完成，因此这里读不到
+   * 就是我们自己的写入漏了，显式失败而不是当作空计划——空计划会让 plan-loop 直接「完成 0 步」
+   * 静默走完，用户拿到一个没干活的回答。
+   */
+  private async readPlanSteps(
+    context: AgentFlowExecutionContext,
+    ref: FlowRef,
+  ): Promise<PlanStep[]> {
+    const [sourceId] = ref.$ref;
+    const outputs = (await this.loadUpstreamOutputs(context.task.id)).get(
+      sourceId,
+    );
+    const steps = outputs ? readPlanStepsValue(outputs.steps) : undefined;
+    if (!steps) {
+      throw createNonRetryableActivityFailure(
+        `节点「${context.node.key}」引用的计划「${sourceId}.steps」不可用`,
+        'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
+      );
+    }
+    return steps;
+  }
+
+  /**
+   * 读取一个引用指向的字符串数组
+   * @param context 当前编译后的节点执行上下文
+   * @param ref 指向某个上游节点数组输出的引用
+   * @returns 返回其中的字符串元素
+   * @description 用于 synthesize 读取步骤观察。与计划不同，观察为空是合法的（步骤可能一条
+   * 都没跑），因此读不到只退化为空数组而不失败。
+   */
+  private async readRefStringArray(
+    context: AgentFlowExecutionContext,
+    ref: FlowRef,
+  ): Promise<string[]> {
+    const [sourceId, field] = ref.$ref;
+    const outputs = (await this.loadUpstreamOutputs(context.task.id)).get(
+      sourceId,
+    );
+    const value = outputs?.[field];
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : [];
+  }
+
+  /**
+   * 取出被审计划所属 plan 节点声明的步数上限
+   * @param context 当前编译后的节点执行上下文
+   * @param ref 审批节点的 planRef
+   * @returns 返回该 plan 节点 config 里的 maxSteps
+   * @description 打回重规划要按同样的步数上限重来。校验期的 approval-plan-source 规则已保证
+   * planRef 指向 plan 节点，因此这里取不到就是快照损坏。
+   */
+  private readPlanNodeMaxSteps(
+    context: AgentFlowExecutionContext,
+    ref: FlowRef,
+  ): number {
+    const source = context.definition.nodes.find(
+      (node) => node.id === ref.$ref[0],
+    );
+    if (source?.type !== 'plan') {
+      throw createNonRetryableActivityFailure(
+        '计划审批引用的不是 plan 节点',
+        'AGENT_FLOW_INVALID_SNAPSHOT',
+      );
+    }
+    return source.config.maxSteps;
+  }
+
+  /**
+   * 读取审批节点自己的轮次状态
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 节点执行标识
+   * @returns 返回修订轮次、累计反馈与本轮待审步骤
+   * @description 首次进入时为空状态。steps 落在这里是必要的：打回重规划后的新计划由本节点
+   * 产出，还没成为任何节点的输出，只能先存在自己的 scratch 里。
+   */
+  private async readApprovalScratch(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<ApprovalScratch> {
+    const state = await this.readNodeState(context.task.id, input);
+    const steps = state ? readPlanStepsValue(state.steps) : undefined;
+    return {
+      revision: readNonNegativeInteger(state?.revision),
+      feedback: Array.isArray(state?.feedback)
+        ? state.feedback.filter(
+            (item): item is string => typeof item === 'string',
+          )
+        : [],
+      ...(steps ? { steps } : {}),
+    };
+  }
+
+  /**
+   * 读取 PlanLoop 节点自己的步骤进度
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 节点执行标识
+   * @returns 返回步骤下标、已产出的观察与上一步是否调过工具
+   * @description 首次进入时从零开始。这份状态只由本节点读写，因此并行节点之间不会互相覆盖。
+   */
+  private async readPlanLoopScratch(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<PersistedFlowPlanLoop> {
+    const state = await this.readNodeState(context.task.id, input);
+    return {
+      stepIndex: readNonNegativeInteger(state?.stepIndex),
+      observations: Array.isArray(state?.observations)
+        ? state.observations.filter(
+            (item): item is string => typeof item === 'string',
+          )
+        : [],
+      lastStepHadToolCalls: state?.lastStepHadToolCalls === true,
+    };
+  }
+
+  /**
+   * 读取一个节点的私有状态
+   * @param taskId 当前任务标识
+   * @param input Temporal 节点执行标识
+   * @returns 有记录且为对象时返回它，否则返回 null
+   */
+  private async readNodeState(
+    taskId: string,
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<Prisma.JsonObject | null> {
+    const row = await this.prisma.agentFlowNodeState.findUnique({
+      where: {
+        taskId_nodeExecutionId: {
+          taskId,
+          nodeExecutionId: input.nodeExecutionId,
+        },
+      },
+      select: { state: true },
+    });
+    return row && isJsonObject(row.state) ? row.state : null;
+  }
+
+  /**
+   * 覆盖写入一个节点的私有状态
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 节点执行标识
+   * @param state 该节点的完整私有状态
+   * @returns 无返回值
+   * @description upsert 而不是 create：这份状态在节点结束前会被反复更新（plan-loop 每步一次、
+   * approval 每轮打回一次）。它与存终局事实的 AgentFlowNodeExecution 分表，正是为了让那张表
+   * 保持「有行即已终结」，从而保住基于唯一键冲突的幂等收敛。
+   */
+  private async writeNodeState(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    state: Record<string, unknown>,
+  ): Promise<void> {
+    const value = toInputJsonValue(state);
+    await this.prisma.agentFlowNodeState.upsert({
+      where: {
+        taskId_nodeExecutionId: {
+          taskId: context.task.id,
+          nodeExecutionId: input.nodeExecutionId,
+        },
+      },
+      create: {
+        taskId: context.task.id,
+        nodeExecutionId: input.nodeExecutionId,
+        nodeKey: context.node.key,
+        state: value,
+      },
+      update: { state: value },
+    });
   }
 
   /**
@@ -1974,7 +2204,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   private async stopOnBudgetExceeded(
     context: AgentFlowExecutionContext,
     input: AgentFlowNodeExecutionInput,
-    state: PersistedFlowExecutionState,
     dimension: FlowBudgetDimension,
     fullContent = context.task.fullContent,
   ): Promise<AgentFlowNodeExecutionResult> {
@@ -1984,7 +2213,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       'error',
       toBudgetExceededSummary(dimension, context.definition.policy),
       fullContent,
-      { errorCategory: 'budget_exceeded', state },
+      { errorCategory: 'budget_exceeded' },
     );
   }
 }
@@ -2083,106 +2312,55 @@ function mergeSystemPrompt(
 }
 
 /**
- * 读取 Flow 在 StreamTask.executionState 中的最小运行状态
- * @param value StreamTask 的 JSON 执行状态
- * @returns 返回可安全重放的开始、完成和等待审批信息
- * @description 不信任历史 JSON：字段缺失或形状异常时回退为空状态，避免旧任务残留数据被解释为已完成 Flow 节点。
+ * 从持久化 JSON 读取计划步骤
+ * @param value 已落库的 steps 值
+ * @returns 形状合法时返回步骤数组，否则返回 undefined
+ * @description 只接受服务器自己写入的步骤闭集，避免手工改过的 JSON 被解释为可执行计划。
+ * 任一条目形状不对就整份判为不可用——半份计划比没有计划更危险。
  */
-function readFlowExecutionState(
-  value: Prisma.JsonValue | null,
-): PersistedFlowExecutionState {
-  const root = isJsonObject(value) ? value : undefined;
-  const flow =
-    root && isJsonObject(root.agentFlow) ? root.agentFlow : undefined;
-  const plan =
-    flow && isJsonObject(flow.plan) ? readPersistedPlan(flow.plan) : undefined;
-  const planLoop =
-    flow && isJsonObject(flow.planLoop)
-      ? readPersistedPlanLoop(flow.planLoop)
-      : undefined;
-  return {
-    ...(plan ? { plan } : {}),
-    ...(planLoop ? { planLoop } : {}),
-  };
-}
-
-/**
- * 将 Flow 级状态编码为 Prisma JSON
- * @param state 当前 Flow 级状态
- * @returns 返回可写入 StreamTask.executionState 的 JSON 对象
- * @description 只保存计划步骤与步骤观察摘要，不保存会话、提示词、工具原始出参或审批决定正文。
- * 节点幂等结果与预算用量已迁往 `AgentFlowNodeExecution` 表和 StreamTask 的计数列，
- * 不再经这里整块回写。
- */
-function toFlowExecutionState(
-  state: PersistedFlowExecutionState,
-): Prisma.InputJsonObject {
-  return JSON.parse(
-    JSON.stringify({
-      agentFlow: {
-        ...(state.plan ? { plan: state.plan } : {}),
-        ...(state.planLoop ? { planLoop: state.planLoop } : {}),
-      },
-    }),
-  ) as Prisma.InputJsonObject;
-}
-
-/**
- * 从持久化 JSON 读取计划状态
- * @param value 已校验为对象的 agentFlow.plan 字段
- * @returns 返回合法计划；形状不完整时返回 undefined
- * @description 只接受服务器自己写入的步骤、修订和反馈闭集，避免手工修改 executionState 后让 Flow 解释任意对象为可执行计划。
- */
-function readPersistedPlan(
-  value: Prisma.JsonObject,
-): PersistedFlowPlan | undefined {
-  const revision = value.revision;
-  if (
-    !Array.isArray(value.steps) ||
-    typeof revision !== 'number' ||
-    !Number.isInteger(revision)
-  ) {
+function readPlanStepsValue(value: unknown): PlanStep[] | undefined {
+  if (!Array.isArray(value)) {
     return undefined;
   }
   const steps: PlanStep[] = [];
-  for (const item of value.steps) {
+  for (const item of value) {
     if (
-      !isJsonObject(item) ||
-      typeof item.id !== 'string' ||
-      typeof item.goal !== 'string'
+      !isJsonObject(item as Prisma.JsonValue) ||
+      typeof (item as { id?: unknown }).id !== 'string' ||
+      typeof (item as { goal?: unknown }).goal !== 'string'
     ) {
       return undefined;
     }
-    const suggestedTools = Array.isArray(item.suggestedTools)
-      ? item.suggestedTools.filter(
-          (toolName): toolName is string => typeof toolName === 'string',
+    const entry = item as {
+      id: string;
+      goal: string;
+      suggestedTools?: unknown;
+    };
+    const suggestedTools = Array.isArray(entry.suggestedTools)
+      ? entry.suggestedTools.filter(
+          (name): name is string => typeof name === 'string',
         )
       : undefined;
     steps.push({
-      id: item.id,
-      goal: item.goal,
+      id: entry.id,
+      goal: entry.goal,
       ...(suggestedTools && suggestedTools.length > 0
         ? { suggestedTools }
         : {}),
     });
   }
-  const feedback = Array.isArray(value.feedback)
-    ? value.feedback.filter((item): item is string => typeof item === 'string')
-    : [];
-  const storedMaxSteps = value.maxSteps;
-  const maxSteps =
-    typeof storedMaxSteps === 'number' &&
-    Number.isInteger(storedMaxSteps) &&
-    storedMaxSteps > 0
-      ? storedMaxSteps
-      : Math.max(1, steps.length);
-  return {
-    steps,
-    fromModel: value.fromModel === true,
-    maxSteps,
-    revision,
-    feedback,
-  };
+  return steps;
+}
+
+/**
+ * 读取一个非负整数计数
+ * @param value 未经校验的 JSON 值
+ * @returns 合法时返回原值，否则返回 0
+ */
+function readNonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : 0;
 }
 
 /** 已被突破的预算维度，直接对应 FlowDefinition.policy 的字段名。 */
@@ -2472,57 +2650,6 @@ function toReplayedNodeResult(
 }
 
 /**
- * 从持久化 JSON 读取 PlanLoop 状态
- * @param value 已校验为对象的 agentFlow.planLoop 字段
- * @returns 返回合法步骤进度；形状不完整时返回 undefined
- * @description 观察只保存各步骤最终文本，不保存工具原始结果；读取时再次限定索引和文本数组，避免损坏快照导致越界续跑。
- */
-function readPersistedPlanLoop(
-  value: Prisma.JsonObject,
-): PersistedFlowPlanLoop | undefined {
-  const stepIndex = value.stepIndex;
-  if (
-    typeof stepIndex !== 'number' ||
-    !Number.isInteger(stepIndex) ||
-    stepIndex < 0
-  ) {
-    return undefined;
-  }
-  if (!Array.isArray(value.observations)) {
-    return undefined;
-  }
-  const observations = value.observations.filter(
-    (item): item is string => typeof item === 'string',
-  );
-  if (observations.length !== value.observations.length) {
-    return undefined;
-  }
-  return {
-    stepIndex,
-    observations,
-    lastStepHadToolCalls: value.lastStepHadToolCalls === true,
-  };
-}
-
-/**
- * 读取一个 Flow 计划节点必需的计划状态
- * @param state 当前 Flow 执行状态
- * @returns 返回可执行的已持久化计划
- * @description approval 与 plan-loop 必须消费同一个 plan 节点的快照；缺少计划说明 Flow 定义或执行顺序已损坏，不能静默创建新计划。
- */
-function requirePersistedPlan(
-  state: PersistedFlowExecutionState,
-): PersistedFlowPlan {
-  if (!state.plan) {
-    throw createNonRetryableActivityFailure(
-      '计划节点尚未生成可执行计划',
-      'AGENT_FLOW_PLAN_STATE_MISSING',
-    );
-  }
-  return state.plan;
-}
-
-/**
  * 将人工编辑后的计划步骤归一化
  * @param editedSteps 计划审批决定提交的可选步骤列表
  * @returns 返回后端重新编号后的步骤列表
@@ -2739,12 +2866,24 @@ function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
 }
 
 /**
- * 获取 Flow 节点的公共展示标题
+ * 获取 Flow 节点的展示标题
+ * @param node 已编译的当前节点
+ * @returns 返回面向 trace 和 SSE 的标题
+ * @description 有别名就用别名，否则回退到节点类型标题。别名是管理员为这张图里的这个节点起的
+ * 名字（如「人工确认退款」），比通用的类型标题（「等待计划确认」）更能说明它在做什么。
+ * 别名由发布期校验限长，且不含配置、提示词或工具参数，可以安全进 trace 与 SSE。
+ */
+function getNodeTitle(node: Pick<CompiledFlowNode, 'name' | 'type'>): string {
+  return node.name ?? getNodeTypeTitle(node.type);
+}
+
+/**
+ * 获取 Flow 节点类型的公共展示标题
  * @param type 当前节点类型
  * @returns 返回面向 trace 和 SSE 的中文标题
  * @description 标题只反映节点类型，不包含 Flow 配置、提示词或工具原始参数。
  */
-function getNodeTitle(type: FlowNodeType): string {
+function getNodeTypeTitle(type: FlowNodeType): string {
   switch (type) {
     case 'agent':
       return '执行智能体节点';

@@ -156,6 +156,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
             .extend({ type: z.literal('agent') })
             .strict(),
           stopPolicy: z.enum(['all-steps', 'evaluate-after-step']),
+          planRef: flowRefSchema,
         })
         .strict(),
     })
@@ -164,14 +165,20 @@ const flowNodeSchema = z.discriminatedUnion('type', [
     .object({
       ...nodeBaseShape,
       type: z.literal('approval'),
-      config: z.object({ kind: z.literal('plan-review') }).strict(),
+      config: z
+        .object({
+          kind: z.literal('plan-review'),
+          policy: z.enum(['always', 'never', 'model']),
+          planRef: flowRefSchema,
+        })
+        .strict(),
     })
     .strict(),
   z
     .object({
       ...nodeBaseShape,
       type: z.literal('synthesize'),
-      config: z.object({}).strict(),
+      config: z.object({ observationsRef: flowRefSchema.optional() }).strict(),
     })
     .strict(),
   z
