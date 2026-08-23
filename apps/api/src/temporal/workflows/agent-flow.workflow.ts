@@ -13,6 +13,7 @@ import type {
   AgentFlowApprovalSignalInput,
   AgentFlowFinalStatus,
   AgentFlowNodeCompletedResult,
+  AgentFlowNodeExecutionResult,
   AgentFlowRunSnapshot,
   AgentFlowWorkflowInput,
   AgentFlowWorkflowNode,
@@ -84,16 +85,17 @@ export async function agentFlowWorkflow(
     const snapshot = await activities.loadRunSnapshot(input);
     const nodesByKey = indexSnapshotNodes(snapshot);
     const deadlineMs = Date.now() + snapshot.maxDurationSeconds * 1_000;
-    let nodeKey: string | undefined = snapshot.entryNodeKey;
 
-    while (nodeKey) {
-      if (cancelled) {
-        return finalize('cancelled');
-      }
-      if (Date.now() >= deadlineMs) {
-        return finalize('timed_out');
-      }
-
+    /**
+     * 把一个节点推进到终局结果
+     * @param nodeKey 待推进节点键
+     * @returns 返回 completed 或 stopped；中途取消或超时抛出哨兵以让整条 Flow 收敛
+     * @description 原来的 waiting_human / continued 循环整段移到这里，于是每个并行分支各自
+     * 独立地等审批、逐步推进 plan-loop，互不阻塞。
+     */
+    const advanceNode = async (
+      nodeKey: string,
+    ): Promise<{ node: AgentFlowWorkflowNode; result: SettledNodeResult }> => {
       const node = getSnapshotNode(nodesByKey, nodeKey);
       lastNodeKey = node.key;
       const nodeExecutionId = createNodeExecutionId(input, node.key);
@@ -108,12 +110,7 @@ export async function agentFlowWorkflow(
       while (result.kind === 'waiting_human' || result.kind === 'continued') {
         // 逐步调度使得时长预算与取消信号在每个步骤之间都能生效，
         // 而不是只在节点边界——单个 plan-loop 节点可能持续数分钟。
-        if (cancelled) {
-          return finalize('cancelled');
-        }
-        if (Date.now() >= deadlineMs) {
-          return finalize('timed_out');
-        }
+        assertRunnable();
 
         if (result.kind === 'continued') {
           if (result.completedSteps <= observedSteps) {
@@ -142,10 +139,10 @@ export async function agentFlowWorkflow(
           waitTimeoutMs,
         );
         if (cancelled) {
-          return finalize('cancelled');
+          throw new RunHaltedError('cancelled');
         }
         if (!signalReceived || Date.now() >= deadlineMs) {
-          return finalize('timed_out');
+          throw new RunHaltedError('timed_out');
         }
         resolvedApprovalIds.delete(waitingResult.approvalId);
         // 恢复会补完被中断的那一步，进度基线随之失效
@@ -157,16 +154,99 @@ export async function agentFlowWorkflow(
           approvalId: waitingResult.approvalId,
         });
       }
+      return { node, result };
+    };
 
-      if (result.kind === 'stopped') {
-        return finalize(result.status, result.errorCategory);
+    /**
+     * 检查是否还允许继续推进
+     * @returns 无返回值
+     * @description 取消与超时用抛哨兵而不是 return：它在并行分支内部触发，只有抛出才能让
+     * 整条 Flow 收敛，return 只会结束当前分支、其余分支继续跑下去。
+     */
+    function assertRunnable(): void {
+      if (cancelled) {
+        throw new RunHaltedError('cancelled');
       }
-      nodeKey = selectNextNodeKey(node, result);
+      if (Date.now() >= deadlineMs) {
+        throw new RunHaltedError('timed_out');
+      }
+    }
+
+    /** 已完成的节点，用于 join 的汇聚判定 */
+    const completed = new Set<string>();
+    /** 已调度过的节点，防止同一节点被两条分支各调度一次 */
+    const scheduled = new Set<string>();
+    /** 正在推进中的节点；键排序后参与 race，保证重放时的调度顺序一致 */
+    const inFlight = new Map<
+      string,
+      Promise<{
+        key: string;
+        node: AgentFlowWorkflowNode;
+        result: SettledNodeResult;
+      }>
+    >();
+
+    const launch = (nodeKey: string): void => {
+      scheduled.add(nodeKey);
+      inFlight.set(
+        nodeKey,
+        advanceNode(nodeKey).then((settled) => ({ key: nodeKey, ...settled })),
+      );
+    };
+    // 入口节点也要先过一遍准入：取消信号可能在 loadRunSnapshot 的 await 期间就到了，
+    // 此时一个节点都不该执行。原来的单游标实现是在循环顶部检查，改成前沿后这里要显式补上。
+    assertRunnable();
+    launch(snapshot.entryNodeKey);
+
+    // 持续在飞而不是「一轮一屏障」：用 Promise.all 逐轮收口时，join(any) 仍要等当轮
+    // 全部节点结束才推进后继，等于把 any 退化成 all——配置说「任一完成即继续」就必须
+    // 真的这样跑。这里每有一个节点落地就重算一次前沿。
+    while (inFlight.size > 0) {
+      assertRunnable();
+
+      const settled = await Promise.race(
+        [...inFlight.keys()].sort().map((key) => inFlight.get(key)!),
+      );
+      inFlight.delete(settled.key);
+
+      if (settled.result.kind === 'stopped') {
+        // 不掀桌：其余分支的副作用已经发生，中途放弃会让事件序与预算账目对不上。
+        // 等它们各自落地后再收敛终态，且不再扩展前沿。
+        const stopped = settled.result;
+        while (inFlight.size > 0) {
+          const remaining = await Promise.race(
+            [...inFlight.keys()].sort().map((key) => inFlight.get(key)!),
+          );
+          inFlight.delete(remaining.key);
+        }
+        return finalize(stopped.status, stopped.errorCategory);
+      }
+
+      completed.add(settled.key);
+
+      // 排序让新增节点的启动顺序只由节点键决定，不受 Set 插入顺序影响
+      const candidates = [
+        ...new Set(selectNextNodeKeys(settled.node, settled.result)),
+      ].sort();
+      for (const target of candidates) {
+        if (scheduled.has(target)) {
+          continue;
+        }
+        if (!isJoinSatisfied(getSnapshotNode(nodesByKey, target), completed)) {
+          // 还没等齐；等其余分支落地后的某一次循环再进入
+          continue;
+        }
+        launch(target);
+      }
     }
 
     return finalize('completed');
   } catch (error) {
     if (!finalizationStarted) {
+      // 并行分支内部抛出的取消/超时哨兵：它不是失败，按对应终态收敛
+      if (error instanceof RunHaltedError) {
+        return finalize(error.status);
+      }
       // 原生取消不是失败：Activity 与 condition 都会抛 CancelledFailure，若按错误收敛
       // 会把运维的一次 Cancel 记成 WORKFLOW_ACTIVITY_FAILED，误导排障。
       if (isCancellation(error)) {
@@ -295,22 +375,64 @@ function getSnapshotNode(
  * @returns 返回下一节点键；终点返回 undefined
  * @description 只读取 FlowVersion 固化的 next 映射，不访问草稿、数据库或运行时随机状态。
  */
-function selectNextNodeKey(
+function selectNextNodeKeys(
   node: AgentFlowWorkflowNode,
   result: AgentFlowNodeCompletedResult,
-): string | undefined {
-  const nextNodeKey = node.next[result.outcome];
-  if (nextNodeKey) {
-    return nextNodeKey;
+): readonly string[] {
+  const targets = node.next[result.outcome];
+  if (targets && targets.length > 0) {
+    return targets;
   }
   if (Object.keys(node.next).length === 0) {
-    return undefined;
+    return [];
   }
   throw ApplicationFailure.nonRetryable(
     `节点「${node.key}」缺少结果「${result.outcome}」对应的边`,
     'AGENT_FLOW_INVALID_SNAPSHOT',
   );
 }
+
+/**
+ * 判断一个 join 节点是否已满足汇聚条件
+ * @param node 目标节点；非 join 一律视为满足
+ * @param completed 已完成的节点集合
+ * @returns 可以进入前沿时返回 true
+ * @description all 要等齐全部 waitFor，any 只要有一个到位。
+ * `any` 语义下**不取消**未完成的分支：取消会打乱预算计数与事件序，而让它们跑完只多花一点额度。
+ * 它们的结果不进入下游——下游能引用的只有「必定已完成」分析给出保证的那部分。
+ */
+function isJoinSatisfied(
+  node: AgentFlowWorkflowNode,
+  completed: ReadonlySet<string>,
+): boolean {
+  if (!node.join) {
+    return true;
+  }
+  return node.join.policy === 'all'
+    ? node.join.waitFor.every((key) => completed.has(key))
+    : node.join.waitFor.some((key) => completed.has(key));
+}
+
+/**
+ * 取消或超时的哨兵
+ * @description 并行分支内部无法用 return 让整条 Flow 收敛——那只会结束当前分支。
+ * 抛出后由外层统一翻译成终态。刻意不继承 ApplicationFailure：它不该进入
+ * FAILURE_TYPE_CATEGORY 的白名单，也不该被当作执行失败重试。
+ */
+class RunHaltedError extends Error {
+  constructor(
+    readonly status: Extract<AgentFlowFinalStatus, 'cancelled' | 'timed_out'>,
+  ) {
+    super(`flow halted: ${status}`);
+    this.name = 'RunHaltedError';
+  }
+}
+
+/** 节点推进到终局后只可能是这两种。 */
+type SettledNodeResult = Extract<
+  AgentFlowNodeExecutionResult,
+  { kind: 'completed' } | { kind: 'stopped' }
+>;
 
 /**
  * 创建节点 Activity 的稳定幂等键

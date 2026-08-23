@@ -385,6 +385,192 @@ describe('agentFlowWorkflow', () => {
    * @returns 返回 Workflow Handle、Worker 和运行 Promise
    * @description 每个测试使用独立队列，避免 Signal、Activity 重试次数或时间跳跃相互污染。
    */
+  it('扇出的两条分支并发执行，join(all) 等齐后才继续', async () => {
+    // 关键断言是「并发」而不只是「都跑了」：单游标执行器也会把两个节点都跑一遍，
+    // 但那是串行。用「第二个节点开始时第一个还没结束」来区分。
+    const started: string[] = [];
+    const finished: string[] = [];
+    let releaseBranches: (() => void) | undefined;
+    const bothStarted = new Promise<void>((resolve) => {
+      releaseBranches = resolve;
+    });
+    const order: string[] = [];
+
+    const { handle } = await startWorkflow({
+      loadRunSnapshot: () => Promise.resolve(parallelSnapshot('all')),
+      executeNode: async ({ nodeKey }) => {
+        started.push(nodeKey);
+        order.push(`start:${nodeKey}`);
+        if (nodeKey === 'branch_a' || nodeKey === 'branch_b') {
+          // 两条分支互相等待：只有真并发才能同时到达这里，串行执行会死等
+          if (started.filter((key) => key !== 'start').length >= 2) {
+            releaseBranches?.();
+          }
+          await bothStarted;
+        }
+        finished.push(nodeKey);
+        order.push(`done:${nodeKey}`);
+        return { kind: 'completed', outcome: 'default' };
+      },
+      continueNode: () => Promise.reject(new Error('不应被调用')),
+      resumeNode: () => Promise.reject(new Error('不应被调用')),
+      finalizeRun: () => Promise.resolve(),
+    });
+
+    await expect(handle.result()).resolves.toMatchObject({
+      status: 'completed',
+    });
+    // 两条分支都在对方结束前就已开始 —— 这才是并发
+    const aStart = order.indexOf('start:branch_a');
+    const bStart = order.indexOf('start:branch_b');
+    const aDone = order.indexOf('done:branch_a');
+    const bDone = order.indexOf('done:branch_b');
+    expect(bStart).toBeLessThan(aDone);
+    expect(aStart).toBeLessThan(bDone);
+    // join 在两条分支都完成之后才跑
+    expect(order.indexOf('start:merge')).toBeGreaterThan(
+      Math.max(aDone, bDone),
+    );
+    expect(started).toContain('tail');
+  });
+
+  it('join(all) 必须等齐慢分支才继续', async () => {
+    // 与 any 那条对称，用同一张图只换 policy。判据是 merge 必须在慢分支结束之后才开始——
+    // 这能区分 gate 是否真的生效：gate 失效时 merge 会在快分支一落地就启动。
+    const order: string[] = [];
+    let releaseSlow: (() => void) | undefined;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+
+    const { handle } = await startWorkflow({
+      loadRunSnapshot: () => Promise.resolve(parallelSnapshot('all')),
+      executeNode: async ({ nodeKey }) => {
+        order.push(`start:${nodeKey}`);
+        if (nodeKey === 'branch_a') {
+          // 快分支落地后放闸，让慢分支得以完成
+          releaseSlow?.();
+        }
+        if (nodeKey === 'branch_b') {
+          await slowGate;
+        }
+        order.push(`done:${nodeKey}`);
+        return { kind: 'completed', outcome: 'default' };
+      },
+      continueNode: () => Promise.reject(new Error('不应被调用')),
+      resumeNode: () => Promise.reject(new Error('不应被调用')),
+      finalizeRun: () => Promise.resolve(),
+    });
+
+    await expect(handle.result()).resolves.toMatchObject({
+      status: 'completed',
+    });
+    expect(order.indexOf('start:merge')).toBeGreaterThan(
+      order.indexOf('done:branch_b'),
+    );
+    expect(order.indexOf('start:merge')).toBeGreaterThan(
+      order.indexOf('done:branch_a'),
+    );
+  });
+
+  it('join(any) 不等慢分支就继续后继', async () => {
+    // 真正的判据是顺序：tail 必须在 branch_b 结束**之前**就开始。
+    // 用 Promise.all 逐轮收口的实现会让 any 退化成 all，这条就会失败。
+    const order: string[] = [];
+    let releaseSlow: (() => void) | undefined;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+
+    const { handle } = await startWorkflow({
+      loadRunSnapshot: () => Promise.resolve(parallelSnapshot('any')),
+      executeNode: async ({ nodeKey }) => {
+        order.push(`start:${nodeKey}`);
+        if (nodeKey === 'branch_b') {
+          await slowGate;
+        }
+        if (nodeKey === 'tail') {
+          // 后继已经开始，说明没等慢分支；放掉它让 workflow 收尾
+          releaseSlow?.();
+        }
+        order.push(`done:${nodeKey}`);
+        return { kind: 'completed', outcome: 'default' };
+      },
+      continueNode: () => Promise.reject(new Error('不应被调用')),
+      resumeNode: () => Promise.reject(new Error('不应被调用')),
+      finalizeRun: () => Promise.resolve(),
+    });
+
+    await expect(handle.result()).resolves.toMatchObject({
+      status: 'completed',
+    });
+    expect(order.indexOf('start:tail')).toBeGreaterThan(-1);
+    expect(order.indexOf('start:tail')).toBeLessThan(
+      order.indexOf('done:branch_b'),
+    );
+  });
+
+  it('一条分支停止时先等其余分支跑完，再收敛终态', async () => {
+    // 不掀桌：在飞分支的副作用已经发生，中途放弃会让事件序与预算账目对不上
+    const finished: string[] = [];
+
+    const { handle } = await startWorkflow({
+      loadRunSnapshot: () => Promise.resolve(parallelSnapshot('all')),
+      executeNode: ({ nodeKey }) => {
+        finished.push(nodeKey);
+        if (nodeKey === 'branch_a') {
+          return Promise.resolve({
+            kind: 'stopped' as const,
+            status: 'error' as const,
+            errorCategory: 'budget_exceeded' as const,
+          });
+        }
+        return Promise.resolve({
+          kind: 'completed' as const,
+          outcome: 'default',
+        });
+      },
+      continueNode: () => Promise.reject(new Error('不应被调用')),
+      resumeNode: () => Promise.reject(new Error('不应被调用')),
+      finalizeRun: () => Promise.resolve(),
+    });
+
+    await expect(handle.result()).resolves.toMatchObject({ status: 'error' });
+    // 另一条分支照样跑完了，没有被第一个 stopped 掀掉
+    expect(finished).toContain('branch_b');
+    // join 与后继不再进入前沿
+    expect(finished).not.toContain('merge');
+    expect(finished).not.toContain('tail');
+  });
+
+  /**
+   * 构造扇出 + join 的运行快照
+   * @param policy join 的等待策略
+   * @returns 返回 Workflow 可直接消费的脱敏快照
+   */
+  function parallelSnapshot(policy: 'all' | 'any'): AgentFlowRunSnapshot {
+    return {
+      entryNodeKey: 'start',
+      maxDurationSeconds: 600,
+      nodes: [
+        {
+          key: 'start',
+          type: 'start',
+          next: { default: ['branch_a', 'branch_b'] },
+        },
+        { key: 'branch_a', type: 'agent', next: { default: ['merge'] } },
+        { key: 'branch_b', type: 'agent', next: { default: ['merge'] } },
+        {
+          key: 'merge',
+          type: 'join',
+          next: { default: ['tail'] },
+          join: { waitFor: ['branch_a', 'branch_b'], policy },
+        },
+        { key: 'tail', type: 'synthesize', next: {} },
+      ],
+    };
+  }
+
   async function startWorkflow(activities: AgentFlowActivityApi) {
     if (!testEnvironment) {
       throw new Error('Temporal 测试环境未初始化');
@@ -581,7 +767,7 @@ function approvalSnapshot(): AgentFlowRunSnapshot {
       {
         key: 'review',
         type: 'approval',
-        next: { approved: 'answer' },
+        next: { approved: ['answer'] },
       },
       { key: 'answer', type: 'synthesize', next: {} },
     ],

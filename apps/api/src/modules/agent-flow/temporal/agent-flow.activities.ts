@@ -821,6 +821,11 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         outputs: { text: context.task.inputText },
       });
     }
+    if (context.node.type === 'join') {
+      // 汇聚本身不做任何事：等谁、等多少个由 Workflow 按快照判定，Activity 只留下一条
+      // 「已汇聚」的终局事实，让 trace 上能看到分支在这里合流。
+      return this.completeNode(context, input, 'default', '并行分支已汇聚');
+    }
     if (context.node.type === 'condition') {
       return this.executeConditionNode(context, input, context.node);
     }
@@ -2250,10 +2255,13 @@ function toRunSnapshot(definition: FlowDefinition): AgentFlowRunSnapshot {
     );
   }
 
-  const nextByNodeKey = new Map<string, Record<string, string>>();
+  const nextByNodeKey = new Map<string, Record<string, string[]>>();
   for (const edge of definition.edges) {
     const branches = nextByNodeKey.get(edge.from) ?? {};
-    branches[edge.when ?? 'default'] = edge.to;
+    const branch = edge.when ?? 'default';
+    // 同一分支键累积成数组：default 有多条出边即并行扇出。此前这里是直接赋值，
+    // 第二条扇出边会静默覆盖第一条。
+    branches[branch] = [...(branches[branch] ?? []), edge.to];
     nextByNodeKey.set(edge.from, branches);
   }
 
@@ -2264,6 +2272,9 @@ function toRunSnapshot(definition: FlowDefinition): AgentFlowRunSnapshot {
       key: node.id,
       type: node.type,
       next: nextByNodeKey.get(node.id) ?? {},
+      ...(node.type === 'join'
+        ? { join: { waitFor: node.config.waitFor, policy: node.config.policy } }
+        : {}),
     })),
   };
 }

@@ -127,12 +127,12 @@ describe('AgentFlowActivities', () => {
       entryNodeKey: 'start',
       maxDurationSeconds: 60,
       nodes: [
-        { key: 'start', type: 'start', next: { default: 'plan' } },
-        { key: 'plan', type: 'plan', next: { default: 'review' } },
+        { key: 'start', type: 'start', next: { default: ['plan'] } },
+        { key: 'plan', type: 'plan', next: { default: ['review'] } },
         {
           key: 'review',
           type: 'approval',
-          next: { approved: 'answer' },
+          next: { approved: ['answer'] },
         },
         { key: 'answer', type: 'synthesize', next: {} },
       ],

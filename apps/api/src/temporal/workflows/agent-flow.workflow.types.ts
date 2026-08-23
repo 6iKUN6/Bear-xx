@@ -23,11 +23,18 @@ export type AgentFlowWorkflowStartInput = Omit<
  */
 export type AgentFlowNodeOutcome = string;
 
-/** 存入 Temporal History 的最小节点投影。 */
+/**
+ * 存入 Temporal History 的最小节点投影
+ * @description `next` 的值是**数组**而不是单个键：同一个 default 分支可以有多条出边，那就是
+ * 并行扇出。此前是 `Record<string, string>`，一个分支键只存得下一个目标，扇出会被静默丢掉。
+ * join 的 waitFor 与 policy 也要进快照——汇聚判定发生在 Workflow 侧，它不能回头查数据库。
+ */
 export interface AgentFlowWorkflowNode {
   key: string;
   type: FlowNodeType;
-  next: Readonly<Record<string, string>>;
+  next: Readonly<Record<string, readonly string[]>>;
+  /** 仅 join 节点有：要等待哪些节点、等多少个 */
+  join?: { waitFor: readonly string[]; policy: 'all' | 'any' };
 }
 
 /** 从数据库冻结版本转换出的脱敏执行快照。 */

@@ -38,11 +38,14 @@
  *
  * ## 修订历史
  *
+ * - `3` 单游标改为前沿执行器：同一时刻可有多个节点在飞，`executeNode` 的调度数量与顺序
+ *   都与旧版不同，命令序列彻底变化。部署时依赖"无在途 run"，未加 patch——旧 run 的
+ *   History 里只有单条推进路径，无法用 patch 表达成多路并发。
  * - `2` plan-loop 改为逐步执行：新增 `continueNode` 调度，命令序列变化。
  *   部署时依赖"无在途 run"，未加 patch。
  * - `1` 初始版本：loadRunSnapshot -> executeNode/resumeNode 循环 -> finalizeRun。
  */
-export const AGENT_FLOW_WORKFLOW_REVISION = 2;
+export const AGENT_FLOW_WORKFLOW_REVISION = 3;
 
 /** memo 中记录启动修订号的键名。 */
 export const AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY =
