@@ -1,4 +1,5 @@
 import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
+import { StreamTaskEventType } from '@litter-bear/types/protocol';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AgentFlowWorkflowInput } from '../../../temporal/workflows/agent-flow.workflow.types';
@@ -1042,6 +1043,69 @@ describe('AgentFlowActivities', () => {
     );
   });
 
+  it('终节点吐字并把正文写进任务', async () => {
+    mockAgentNode();
+    commonChatAgentService.streamEvents.mockReturnValue(
+      textEventStream('你好'),
+    );
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+    });
+
+    expect(taskEventService.publishTransient).toHaveBeenCalledWith(
+      'task-1',
+      StreamTaskEventType.MessageDelta,
+      expect.stringContaining('你好'),
+    );
+    expect(readCompletedFullContent()).toBe('你好');
+  });
+
+  it('中间 agent 节点不吐字，正文只进声明输出', async () => {
+    // 并行分支里的 agent 节点走的就是这条路径：它的 token 不能进这条助手消息的正文，
+    // 否则两条分支会交错写同一段文本、并各写一次 fullContent 后互相覆盖。
+    mockExecutionContext({
+      node: {
+        key: 'draft',
+        type: 'agent',
+        modelPreset: 'openai:test',
+        toolGroups: [],
+        skills: [],
+        maxToolIterations: 1,
+        approvalToolNames: [],
+      },
+      definition: draftThenAnswerDefinition(),
+    });
+    capabilityResolver.resolve.mockResolvedValue({
+      tools: [],
+      systemPromptAdditions: [],
+      approvalToolNames: [],
+    });
+    chatContextService.buildContextBundle.mockResolvedValue({
+      messages: [{ role: 'user', content: '你好' }],
+    });
+    commonChatAgentService.streamEvents.mockReturnValue(
+      textEventStream('中间产出'),
+    );
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'draft',
+      nodeExecutionId: 'task-1:version-1:draft',
+    });
+
+    expect(taskEventService.publishTransient).not.toHaveBeenCalledWith(
+      'task-1',
+      StreamTaskEventType.MessageDelta,
+      expect.anything(),
+    );
+    // 正文没有被写进任务，但作为节点声明输出留给了下游 $ref
+    expect(readCompletedFullContent()).toBeUndefined();
+    expect(readCompletedOutputs()).toEqual({ text: '中间产出' });
+  });
+
   it('门禁 never 时自动确认计划，不创建人工等待', async () => {
     mockApprovalNode('never');
 
@@ -1172,6 +1236,36 @@ describe('AgentFlowActivities', () => {
   }
 
   /**
+   * 读取节点完成时回写任务的正文
+   * @returns 返回本次完成写入的 fullContent；未写入时为 undefined
+   * @description 「有没有写」和「写了什么」是两件事：中间节点必须完全不出现这个字段，
+   * 而不是写一个空串——写空串会把已有正文清掉。
+   */
+  function readCompletedFullContent(): unknown {
+    const calls = taskEventService.persistInTransaction.mock.calls as Array<
+      [unknown, { taskUpdate?: Record<string, unknown> }]
+    >;
+    for (let index = calls.length - 1; index >= 0; index -= 1) {
+      const update = calls[index][1]?.taskUpdate;
+      if (update && 'fullContent' in update) {
+        return update.fullContent;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 读取节点完成时落库的声明输出
+   * @returns 返回写入 AgentFlowNodeExecution 的 outputs
+   */
+  function readCompletedOutputs(): unknown {
+    const calls = prisma.agentFlowNodeExecution.create.mock.calls as Array<
+      [{ data?: Record<string, unknown> }]
+    >;
+    return calls[calls.length - 1]?.[0]?.data?.outputs;
+  }
+
+  /**
    * 读取落库的预算增量
    * @returns 返回本次 Activity 累加进计数列的模型与工具调用数
    * @description 断言的是原子 increment 而不是绝对值：整块回写绝对值会被并发节点互相吞掉，
@@ -1208,6 +1302,7 @@ describe('AgentFlowActivities', () => {
     executionState?: Record<string, unknown>;
     budgetUsage?: { modelCalls: number; toolCalls: number };
     status?: string;
+    definition?: ReturnType<typeof flowDefinition>;
   }): void {
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
@@ -1228,7 +1323,7 @@ describe('AgentFlowActivities', () => {
         id: 'version-1',
         flowId: 'flow-1',
         digest: 'a'.repeat(64),
-        definition: flowDefinition(),
+        definition: input.definition ?? flowDefinition(),
       },
     });
     prisma.agent.findUnique.mockResolvedValue({
@@ -1241,6 +1336,44 @@ describe('AgentFlowActivities', () => {
     });
   }
 });
+
+/**
+ * 构造「中间 agent 节点 + 终节点」的 FlowDefinition
+ * @returns 返回仅用于 Activity 输入的结构化 Definition
+ * @description draft 有出边因此不是终节点，用来验证中间节点静默执行。运行时会重新校验
+ * Definition，因此这里必须是一张真正合法的图（单入口、配置完整），不能只是形状凑数。
+ */
+function draftThenAnswerDefinition() {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow' as const,
+    name: '中间节点后汇总',
+    policy: {
+      maxSteps: 1,
+      maxModelCalls: 2,
+      maxToolCalls: 0,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
+      {
+        id: 'draft',
+        type: 'agent' as const,
+        config: {
+          modelPreset: 'agent-default',
+          toolGroups: [],
+          skills: [],
+          maxToolIterations: 1,
+        },
+      },
+      { id: 'answer', type: 'synthesize' as const, config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'draft' },
+      { from: 'draft', to: 'answer' },
+    ],
+  };
+}
 
 /**
  * 构造不产出文本或审批事件的底层 Agent 流

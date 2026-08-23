@@ -1508,18 +1508,26 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           approvalToolNames: capabilities.approvalToolNames,
           onModelTurn,
         });
+    // 只有终节点的产出会成为这条助手消息的正文；中间 agent 节点静默执行，正文进
+    // outputs.text 供下游 $ref 引用。理由见 isAnswerNode。
+    const isAnswer = isAnswerNode(context);
     const result = await this.consumeAgentStream(context, input, stream, {
-      initialContent: context.task.fullContent,
-      publishMessageDelta: true,
+      initialContent: isAnswer ? context.task.fullContent : '',
+      publishMessageDelta: isAnswer,
       budget,
     });
     await budget.flush();
+    // 中间节点的正文不能进任务：它是从空串起算的自己那一段，写进 fullContent 会
+    // 覆盖掉真正的回复。中止与等待两条路径都要按这个走。
+    const answerContent = isAnswer
+      ? result.fullContent
+      : context.task.fullContent;
     if (result.overspent) {
       return this.stopOnBudgetExceeded(
         context,
         input,
         result.overspent,
-        result.fullContent,
+        answerContent,
       );
     }
     if (result.approvals.length > 0) {
@@ -1527,15 +1535,18 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         context,
         input,
         result.approvals,
-        result.fullContent,
+        answerContent,
       );
     }
     return this.completeNode(
       context,
       input,
       'default',
-      result.fullContent ? '已生成回复' : '节点执行完成',
-      { fullContent: result.fullContent, outputs: { text: result.nodeText } },
+      isAnswer && result.fullContent ? '已生成回复' : '节点执行完成',
+      {
+        ...(isAnswer ? { fullContent: result.fullContent } : {}),
+        outputs: { text: result.nodeText },
+      },
     );
   }
 
@@ -1761,7 +1772,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       outputs?: Record<string, unknown>;
     } = {},
   ): Promise<AgentFlowNodeCompletedResult> {
-    const fullContent = options.fullContent ?? context.task.fullContent;
     const event = await this.prisma.$transaction(async (transaction) => {
       await this.recordNodeExecutionInTransaction(transaction, context, input, {
         result: AgentFlowNodeExecutionResultKind.COMPLETED,
@@ -1786,7 +1796,11 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         },
         taskUpdate: {
           currentStep: context.node.key,
-          fullContent,
+          // 只有真正算出了正文才写：没算就回写快照里读到的旧值是 read-modify-write，
+          // 并发节点之间会互相覆盖（现在写回的恰好是同一个旧值，但没有理由留这个形状）
+          ...(options.fullContent === undefined
+            ? {}
+            : { fullContent: options.fullContent }),
           pausedAt: null,
         },
       });
@@ -2990,4 +3004,25 @@ function createNonRetryableActivityFailure(
   type: string,
 ): ApplicationFailure {
   return ApplicationFailure.nonRetryable(message, type);
+}
+
+/**
+ * 判断当前节点是否产出这条助手消息的正文
+ * @param context 当前节点执行上下文
+ * @returns 返回该节点是否为图的终节点
+ * @description `task.fullContent` 与助手消息本质是**一段线性文本**，只能有一个生产者。
+ * 因此约定：只有图的终节点（没有出边）吐字并写正文；中间 agent 节点静默执行，产出进
+ * `outputs.text` 供下游 `$ref` 引用——这正是 plan-loop 步骤今天的行为。
+ *
+ * 没有这条约定，并行分支里的两个 agent 节点会把 token 交错写进同一段正文，且各自写一次
+ * `fullContent` 后互相覆盖。那不是渲染问题，是数据被写坏。
+ *
+ * 判定用 Definition 的边而不是编译节点：编译计划里那份跳转表已被删除（它压掉了扇出且
+ * 无人消费）。互斥的多个终节点（condition 各分支各自收尾）都会吐字，但只有一个会真的执行；
+ * 「两个可能并发的终节点」由 concurrent-answer-nodes 校验规则在保存期拦掉。
+ */
+function isAnswerNode(context: AgentFlowExecutionContext): boolean {
+  return !context.definition.edges.some(
+    (edge) => edge.from === context.node.key,
+  );
 }

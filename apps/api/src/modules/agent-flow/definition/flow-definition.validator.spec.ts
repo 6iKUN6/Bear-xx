@@ -284,6 +284,48 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
+  it('拒绝两个可能并发的回复终节点', () => {
+    // 去掉 join 与汇总节点后，两条分支各自成为终节点：运行时会让它们都吐字并各写一次
+    // fullContent，结果是交错的正文加互相覆盖
+    const definition = parallelDefinition('all');
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.filter(
+          (node) => node.id !== 'merge' && node.id !== 'tail',
+        ),
+        edges: definition.edges.filter(
+          (edge) => edge.to !== 'merge' && edge.from !== 'merge',
+        ),
+      }),
+      (error) => error.rule === 'concurrent-answer-nodes',
+    );
+  });
+
+  it('放行互斥的多个回复终节点', () => {
+    // condition 各分支各自收尾是常见形态：两个终节点都会吐字，但只有一个会执行
+    const definition = exclusiveJoinDefinition('any');
+    expect(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.filter(
+          (node) => node.id !== 'merge' && node.id !== 'tail',
+        ),
+        edges: definition.edges.filter(
+          (edge) => edge.to !== 'merge' && edge.from !== 'merge',
+        ),
+      }).success,
+    ).toBe(true);
+  });
+
+  it('放行并行分支里的 agent 节点', () => {
+    // 中间 agent 节点静默执行、产出进 outputs.text，因此并行分支里放 agent 是允许的——
+    // 这是并行最自然的用法，规则只针对终节点
+    expect(validateFlowDefinition(parallelDefinition('all')).success).toBe(
+      true,
+    );
+  });
+
   it('拒绝同一对端点之间重复的默认边', () => {
     // 放开 fan-out 之后仍要拦这个：同一条边画两次不是并行，是误操作
     const definition = parallelDefinition('all');

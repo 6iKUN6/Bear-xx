@@ -114,6 +114,8 @@ function validateGraphStructure(
   validateBranchCoverage(definition.nodes, validEdges, errors);
   validateStartNode(definition.nodes, validEdges, errors);
   validateJoinNodes(definition.nodes, validEdges, errors);
+  validateImplicitConvergence(definition.nodes, validEdges, errors);
+  validateConcurrentAnswerNodes(definition.nodes, validEdges, errors);
   validateEntryAndTerminalNodes(definition.nodes, validEdges, errors);
   if (hasCycle(definition.nodes, validEdges)) {
     errors.push({
@@ -729,4 +731,110 @@ function isMutuallyExclusive(
     }
   }
   return false;
+}
+
+/**
+ * 拒绝没有 join 的并行汇聚
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 一个非 join 节点若有两条入边，而它们的来源**不互斥**（即可能并发到达），
+ * 运行时就只能「谁先到就跑」——那既不是等齐也不是明确的择一，而是一个取决于时序的隐式行为。
+ * 要求显式用 join 表达，让「等全部还是等任一」成为图上可见的决定。
+ * 互斥来源（condition 的不同分支）不受影响：那本来就只有一条会到。
+ */
+function validateImplicitConvergence(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  errors: FlowDefinitionValidationError[],
+): void {
+  const mustComplete = flowMustCompleteBefore(nodes, edges);
+  nodes.forEach((node, index) => {
+    if (node.type === 'join') {
+      return;
+    }
+    const sources = edges
+      .filter((edge) => edge.to === node.id)
+      .map((edge) => edge.from);
+    if (sources.length < 2) {
+      return;
+    }
+    for (let i = 0; i < sources.length; i += 1) {
+      for (let j = i + 1; j < sources.length; j += 1) {
+        if (
+          !isMutuallyExclusive(
+            sources[i],
+            sources[j],
+            nodes,
+            edges,
+            mustComplete,
+          )
+        ) {
+          errors.push({
+            path: `nodes.${index}.id`,
+            rule: 'implicit-convergence',
+            message: `节点「${node.id}」同时被「${sources[i]}」与「${sources[j]}」连入，而它们可能并发到达；并行汇聚必须用 join 节点显式表达`,
+          });
+          return;
+        }
+      }
+    }
+  });
+}
+
+/** 能产出回复正文的节点类型；其余类型不吐字。 */
+const TEXT_PRODUCING_TYPES: ReadonlySet<string> = new Set([
+  'agent',
+  'synthesize',
+]);
+
+/**
+ * 拒绝两个可能并发的回复节点
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description `task.fullContent` 与助手消息本质是**一段线性文本**，只能有一个生产者。
+ * 运行时约定只有终节点吐字并写正文（见 activities 的 `isAnswerNode`），因此这里只需拦住
+ * 「两个可能并发的终节点」——它们会把 token 交错写进同一段正文，并各写一次 `fullContent`
+ * 后互相覆盖。那不是渲染问题，是数据被写坏。
+ *
+ * 只看终节点是关键：中间 agent 节点静默执行、产出进 `outputs.text`，因此并行分支里放
+ * agent 是允许的（这是并行最自然的用法，一开始把它一并拦掉是过度收紧）。
+ *
+ * 互斥的多个终节点（condition 各分支各自收尾）放行——只有一个会执行。
+ *
+ * 设计初稿的方案是给 `message.delta` 加 `nodeKey`、前端按节点分组渲染。那只能让前端把两段
+ * 分开显示，回答不了「刷新后这条消息的正文是什么」。约束在图上更准确，也就不需要那个字段——
+ * 一个没人消费的协议字段只会误导后来者以为分片已经做了。
+ */
+function validateConcurrentAnswerNodes(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  errors: FlowDefinitionValidationError[],
+): void {
+  const hasOutgoing = new Set(edges.map((edge) => edge.from));
+  const answers = nodes.filter(
+    (node) => TEXT_PRODUCING_TYPES.has(node.type) && !hasOutgoing.has(node.id),
+  );
+  if (answers.length < 2) {
+    return;
+  }
+  const mustComplete = flowMustCompleteBefore(nodes, edges);
+  for (let i = 0; i < answers.length; i += 1) {
+    for (let j = i + 1; j < answers.length; j += 1) {
+      const left = answers[i];
+      const right = answers[j];
+      if (isMutuallyExclusive(left.id, right.id, nodes, edges, mustComplete)) {
+        continue;
+      }
+      errors.push({
+        path: 'nodes',
+        rule: 'concurrent-answer-nodes',
+        message: `节点「${left.id}」与「${right.id}」都是产出回复的终节点且可能并发执行；请让它们互斥，或汇聚到单个节点产出回复`,
+      });
+      return;
+    }
+  }
 }
