@@ -1,3 +1,4 @@
+import { ApiError } from "@/api/client";
 import type { BadgeProps } from "@/components/ui/badge";
 import type { AgentFlowVersionStatus } from "@/api/types";
 
@@ -77,4 +78,25 @@ export function parseDefinition(text: string): ParsedDefinition {
 export function definitionName(definition: object): string {
   const name = (definition as { name?: unknown }).name;
   return typeof name === "string" && name ? name : "(未命名)";
+}
+
+/**
+ * 把 API 错误压成一句可读的 toast 文案
+ * @param err 捕获到的异常
+ * @param fallback 非 ApiError 时的兜底文案
+ * @returns 返回带首条明细定位的文案
+ * @description 校验类 400 的 message 是「FlowDefinition 校验失败」这种概括语，单独展示等于
+ * 什么都没说。带上第一条明细的 path 与原因，用户才知道该改哪个节点；其余条数用计数提示，
+ * 完整列表由页面的错误区展示。
+ */
+export function describeApiError(err: unknown, fallback: string): string {
+  if (!(err instanceof ApiError)) {
+    return fallback;
+  }
+  const [first, ...rest] = err.details;
+  if (!first) {
+    return err.message;
+  }
+  const more = rest.length > 0 ? `（另有 ${rest.length} 处）` : "";
+  return `${err.message}：${first.path} ${first.message}${more}`;
 }

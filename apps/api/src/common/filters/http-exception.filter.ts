@@ -31,6 +31,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
+    let errors: unknown;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -40,6 +41,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? res
           : (res as Record<string, unknown>).message?.toString() ||
             exception.message;
+      errors = typeof res === 'string' ? undefined : readErrors(res);
     } else if (exception instanceof Error) {
       message = exception.message;
     }
@@ -71,6 +73,34 @@ export class HttpExceptionFilter implements ExceptionFilter {
       code: status,
       data: null,
       message,
+      ...(errors ? { errors } : {}),
     });
   }
+}
+
+/**
+ * 取出业务异常携带的结构化错误明细
+ * @param response HttpException 的响应体
+ * @returns 形状符合时返回明细数组，否则返回 undefined
+ * @description 校验类 400（FlowDefinition 结构、Flow 运行前提等）会在 `errors` 里给出每条
+ * 问题的 path / rule / message。这一层原先只取 message，明细被整个丢掉，管理端只能看到
+ * 「FlowDefinition 校验失败」这类无法定位的文案，精心设计的 path 从未到达浏览器。
+ *
+ * 只透出我们自己构造的 `{path, rule, message}` 三元组：形状不符就不透出，避免把第三方
+ * 异常挂在 response 上的任意对象（可能含连接串或内部路径）当作明细下发。
+ */
+function readErrors(response: unknown): unknown[] | undefined {
+  const candidate = (response as { errors?: unknown } | null)?.errors;
+  if (!Array.isArray(candidate) || candidate.length === 0) {
+    return undefined;
+  }
+  const safe = candidate.filter((item) => {
+    const entry = item as Record<string, unknown> | null;
+    return (
+      typeof entry?.path === 'string' &&
+      typeof entry.rule === 'string' &&
+      typeof entry.message === 'string'
+    );
+  });
+  return safe.length > 0 ? safe : undefined;
 }
