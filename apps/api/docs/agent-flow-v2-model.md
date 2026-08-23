@@ -36,9 +36,9 @@ V1 的合法图**必然是一条直链**，这不是实现遗漏，是校验器�
 
 这两个护栏都是刚建立的，并行会把它们悄悄拆掉。**不拆表就不能开并行**，这是 V2 的 P0。
 
-### 1.2 `message.delta` 载荷没有节点归属
+### 1.2 并行吐字会写坏同一段正文
 
-`packages/types/src/protocol/payloads.ts`：
+`task.fullContent` 与助手消息本质是**一段线性文本**：
 
 ```ts
 export interface MessageDeltaPayload {
@@ -46,7 +46,7 @@ export interface MessageDeltaPayload {
 }
 ```
 
-两个 agent 节点并行吐 token，会交错进同一条助手消息与同一个 `task.fullContent`。这不是渲染问题，是**数据被写坏**。
+两个 agent 节点并行吐 token，会交错进同一条助手消息与同一个 `task.fullContent`，且各写一次 `fullContent` 后互相覆盖。这不是渲染问题，是**数据被写坏**。
 
 （`flow.node.started/completed/failed` 载荷已带 `nodeKey` 与 `traceKey`，节点级事件不需要改。）
 
@@ -173,7 +173,7 @@ condition 的多条出边互斥，只走一条，现有执行器直接就能跑�
 
 ## 4. 并行
 
-### 4.1 fan-out 隐式，fan-in 必须显式
+### 4.1 fan-out 隐式，fan-in 必须显式 —— **已落地**
 
 - **fan-out**：放开 `validateDuplicateBranches` 对 default 边的唯一性约束，一个节点可以有多条 default 出边，全部并发启动。
 - **fan-in**：不做隐式 join。
@@ -189,17 +189,45 @@ interface FlowJoinNodeConfig {
 
 新校验规则：`policy: "all"` 且 `waitFor` 中存在两个节点处于**互斥 case 分支**下 ⇒ 拒绝发布。这条规则能算，因为 case 划分是静态的。
 
-### 4.2 前沿执行器
+### 4.2 前沿执行器 —— **已落地**
+
+初稿草图是 `Promise.all` 逐轮收口，实做时发现它是错的：
 
 ```ts
-let frontier: string[] = [snapshot.entryNodeKey];
+// ✗ 这是个屏障：本轮所有节点都结束才推进下一轮
 while (frontier.length > 0) {
   const results = await Promise.all(frontier.map((key) => executeNode(key)));
-  frontier = nextFrontier(results);   // 含 join gate 判定
+  frontier = nextFrontier(results);
 }
 ```
 
-Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记录每个 Activity 的调度顺序），这条可行。`nodeExecutionId` 已按 `(workflow, nodeKey)` 生成，天然支持并行幂等。
+屏障会让 `join(any)` **退化成 `all`**——配置写着"任一完成即继续"，实际却等齐了全部。是 `join(any)` 的用例超时暴露的。
+
+实际做法是「持续在飞」：用 `Promise.race` 取最先落地的那个节点，立刻结算它的后继，其余节点保持在飞。
+
+```ts
+const inFlight = new Map<string, Promise<...>>();
+launch(snapshot.entryNodeKey);
+while (inFlight.size > 0) {
+  const settled = await Promise.race([...inFlight.keys()].sort().map(k => inFlight.get(k)!));
+  inFlight.delete(settled.key);
+  completed.add(settled.key);
+  for (const target of selectNextNodeKeys(settled.node, settled.result).sort()) {
+    if (scheduled.has(target)) continue;          // 扇入去重
+    if (!isJoinSatisfied(getSnapshotNode(target), completed)) continue;   // join gate
+    launch(target);
+  }
+}
+```
+
+确定性要点：
+
+- 调度顺序对 History 稳定 —— 遍历 `inFlight` 与后继候选前都排序
+- 取消 / 超时在并行分支里**不能用 `return`**（那只结束一个分支），改抛 `RunHaltedError` 哨兵
+- 一条分支停止时**不掀桌**：其余分支的副作用已经发生，等它们各自落地后再收敛终态
+- 入口节点也要先过 `assertRunnable()` —— 取消信号可能在 `loadRunSnapshot` 的 await 期间就到了（这条是回归用例抓到的）
+
+`nodeExecutionId` 已按 `(workflow, nodeKey)` 生成，天然支持并行幂等。
 
 ### 4.3 拆表（P0，对应 §1.1）——**已落地**
 
@@ -211,13 +239,13 @@ Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记�
 | `executionState.pendingApproval` | 删除。`AgentFlowApproval` 的 PENDING 记录本就是唯一事实源，快照只能容纳一个等待节点，并行下必然失真 |
 | `executionState.plan` / `planLoop` | **留在原处**。设计初稿称其为"单节点内的状态"，与代码不符：`plan` 由 plan 节点写，approval / plan-loop / synthesize 三个节点读，是跨节点数据。它由 §2 的变量模型接管，不是搬进 `AgentFlowNodeExecution` |
 
-落地后 `executionState.agentFlow` 只剩 `plan` / `planLoop`，仍是整块读改写。**因此 §4.3 完成不等于并行安全**，扇出前还欠 §2（变量模型接管 plan）、§4.5（`message.delta` 分片）与 §4.2（前沿执行器）。
+落地后 `executionState.agentFlow` 只剩 `plan` / `planLoop`，仍是整块读改写。**因此 §4.3 完成不等于并行安全**，扇出前还欠 §2（变量模型接管 plan）、§4.5（正文单一生产者）与 §4.2（前沿执行器）——三项现均已落地，`executionState` 已整块移除。
 
 顺带修掉一个此前不在计划内的幂等漏洞：`resumeNode` 原先没有回放短路，节点事务已提交而结果上报丢失时，Temporal 会带着同一份审批决定把节点整个重跑——模型重复调用，已放行的工具重复执行。
 
 仍未解决：`AgentFlowApproval` 缺 `(taskId, nodeKey, kind) where status = PENDING` 的**部分**唯一索引，并发创建审批会落出两条 PENDING 卡片。Prisma schema 无法声明部分索引，只能手写进 `migration.sql`，而本仓库禁止手写迁移 SQL，故留待人工决策。降级成完整唯一索引是错的——那会挡掉同一节点在前一轮已决议后的第二轮审批（`reject_replan` 的 revision 2）。
 
-### 4.4 预算判定移到 Workflow 侧
+### 4.4 预算判定移到 Workflow 侧 —— **已落地**
 
 并行分支各自计数后，"谁先撞线"变成竞态。做法：
 
@@ -226,11 +254,19 @@ Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记�
 
 语义上是"软刹车"。比让多个 Activity 互相抢判定要确定得多，也不需要分布式锁。
 
-### 4.5 消息分片（对应 §1.2）
+### 4.5 单一正文生产者（对应 §1.2）—— **已落地**
 
-`MessageDeltaPayload` 增加 `nodeKey?: string`。并行的 agent 节点各写自己的分片，前端按 `nodeKey` 分组渲染；`task.fullContent` 不再由多个节点直接追加，改由 `synthesize` / `join` 节点产出最终文本。
+初稿方案是给 `MessageDeltaPayload` 加 `nodeKey?: string`、前端按节点分组渲染。实做时发现它答不上一个问题：**刷新之后这条消息的正文是什么？** 分组渲染只能让前端把两段分开显示，落库的仍是两段交错的文本。约束在图上，不在协议上。
 
-**这一条不做，并行跑出来的回答就是交错的乱码。**
+实际做法：**只有图的终节点（没有出边）产出这条助手消息的正文**。中间 agent 节点静默执行——不下发 `message.delta`、不写 `fullContent`，产出进 `outputs.text` 供下游 `$ref` 引用。这正是 `plan-loop` 步骤今天的行为。
+
+- 运行时判定：`agent-flow.activities.ts` 的 `isAnswerNode`，按 Definition 的边算
+- 校验期护栏：`concurrent-answer-nodes` 拦住「两个可能并发的终节点」；互斥的多个终节点（condition 各分支各自收尾）放行
+- 并行分支里**可以**放 agent 节点——规则只针对终节点
+
+因此**不引入** `MessageDeltaPayload.nodeKey`：加了没有消费者，而一个没人消费的协议字段会让后来者以为分片已经做了。
+
+对四个内置模板零行为变化：它们都只有一个吐字节点，且都是终节点。
 
 ### 4.6 明确不做：图上的环
 
@@ -258,10 +294,10 @@ Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记�
 **第二批 —— V2 地基，无 UI**
 
 4. ~~拆表 + 原子预算（P0，不做则并行必然破坏护栏）~~ **已落地，见 §4.3**
-5. `message.delta` 增加 `nodeKey` 与分片渲染
+5. ~~`message.delta` 增加 `nodeKey` 与分片渲染~~ **已落地，但换了解法，见 §4.5**
 6. ~~变量模型 + `$ref` 静态校验（含 `ref-dominates`）~~ **已落地**
-7. `condition` + 分支键泛化 **已落地**；`join` 属并行段
-8. 前沿执行器重写
+7. ~~`condition` + 分支键泛化~~ **已落地**；~~`join`~~ **已落地，见 §4.1**
+8. ~~前沿执行器重写~~ **已落地，见 §4.2**
 
 第 6 与第 7 项必须同时落：`$ref` 单独声明出来没有任何消费者，就是死字段；condition 的
 `conditions[].ref` 是它的第一个真实消费者。
@@ -272,6 +308,6 @@ Temporal 下 `Promise.all` 并发调度 Activity 是确定性的（History 记�
 
 ## 7. 待决
 
-- `join` 的 `policy: "any"` 语义下，未完成分支是否需要取消？取消会影响预算计数与事件序，倾向"不取消、让其跑完但结果不进入下游"。
-- 变量引用能否跨 `join`？若 `join` 只透传，则下游引用的是 join 前的节点，`ref-dominates` 需要把 join 视作汇聚点特殊处理。
+- ~~`join` 的 `policy: "any"` 语义下，未完成分支是否需要取消？~~ **已定：不取消**。前沿执行器里慢分支留在 `inFlight` 中跑完，其输出正常落库；`scheduled` 去重保证它落地时不会把 join 再触发一次。取消会牵动预算计数与事件序，收益不抵复杂度。
+- ~~变量引用能否跨 `join`？~~ **已定：`policy: "all"` 可以，`"any"` 不行**。`flowMustCompleteBefore` 把 join 特殊处理：`all` 对 `waitFor` 求**并集**（都跑完了，都有保证），`any` 求交集（只保证公共前置）。这不是教科书支配集——支配集假设"多条出边只走一条"，那对 condition 成立、对并行扇出不成立。策略读不出来时缺省到 `any`，只少给保证、不虚报。
 - Flow 的删除 / 归档语义。当前 `AgentFlowVersion.flow` 是 `onDelete: Restrict`，`StreamTask.flowVersionId` 也是 `Restrict`，即"跑过任务的 Flow 不可删"由数据库强制。这是合理意图，但缺少面向管理端的"停用 / 归档 Flow"原语。
