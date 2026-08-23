@@ -114,6 +114,8 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
   }),
   approval: () => ({ kind: "plan-review", policy: "always" }),
   synthesize: () => ({}),
+  // waitFor 留空：新节点还没有入边，等谁只能由用户在 inspector 里选
+  join: () => ({ waitFor: [], policy: "all" }),
   condition: () => ({
     cases: [
       {

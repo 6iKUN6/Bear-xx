@@ -5,6 +5,7 @@ import {
   ListChecks,
   Play,
   Repeat,
+  Merge,
   UserCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -12,7 +13,7 @@ import {
   FLOW_CONDITION_ELSE_BRANCH,
   FLOW_DEFAULT_BRANCH,
   FLOW_NODE_OUTPUTS,
-  flowDominators,
+  flowMustCompleteBefore,
   flowNodeBranchKeys,
   type FlowEdge,
   type FlowNode,
@@ -190,6 +191,7 @@ export const NODE_TYPE_ICONS: Record<FlowNodeType, LucideIcon> = {
   approval: UserCheck,
   synthesize: FileText,
   condition: GitBranch,
+  join: Merge,
 };
 
 /** 节点类型的展示元数据；`type` 是契约里的英文类型名，与节点标识是两回事。 */
@@ -241,6 +243,11 @@ const NODE_TYPE_META: Record<FlowNodeType, NodeTypeMeta> = {
     name: "条件分支",
     type: "condition",
     desc: "按变量判定选择一条出边",
+  },
+  join: {
+    name: "汇聚分支",
+    type: "join",
+    desc: "等待并行分支后继续；all 等全部，any 等任一",
   },
 };
 
@@ -476,7 +483,7 @@ export function variableOptions(
   /** 只保留该字段名的输出；用于 planRef 这类固定字段的引用 */
   onlyField?: string,
 ): FlowVariableOption[] {
-  const dominators = flowDominators(definition.nodes, definition.edges);
+  const dominators = flowMustCompleteBefore(definition.nodes, definition.edges);
   const dominating = dominators.get(nodeId);
   if (!dominating) {
     return [];
