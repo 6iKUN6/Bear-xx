@@ -210,9 +210,10 @@ node apps/api/scripts/debug-{tool-call,agent,hitl,planner,router}.cjs
 - 已执行 ...
 - 未执行 ...，原因是 ...
 
-用户需本地补跑：
+需要你做：
 - ...
-(在需要用户补跑数据库迁移命令`db:migrate`时，需要附带上本次迁移的`migration name`)
+附带上本次更改用户需要做的事情。包括但不限于：手动测试，命令补跑（比如数据库迁移等）
+在需要用户补跑数据库迁移命令`db:migrate`时，需要附带上本次迁移的`migration name`
 ```
 
 不冗长解释，不复述无关过程，不编造已执行的命令。
