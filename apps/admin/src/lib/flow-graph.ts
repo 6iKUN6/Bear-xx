@@ -473,6 +473,8 @@ export interface FlowVariableOption {
 export function variableOptions(
   nodeId: string,
   definition: CanvasDefinition,
+  /** 只保留该字段名的输出；用于 planRef 这类固定字段的引用 */
+  onlyField?: string,
 ): FlowVariableOption[] {
   const dominators = flowDominators(definition.nodes, definition.edges);
   const dominating = dominators.get(nodeId);
@@ -485,6 +487,9 @@ export function variableOptions(
       continue;
     }
     for (const { field, valueType } of nodeOutputEntries(node.type)) {
+      if (onlyField && field !== onlyField) {
+        continue;
+      }
       options.push({
         ref: [node.id, field],
         sourceId: node.id,

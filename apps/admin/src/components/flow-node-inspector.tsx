@@ -217,6 +217,18 @@ function NodeConfig({
     return (
       <InspectorSection title="配置">
         <div className="space-y-2">
+          <RefField
+            label="执行哪份计划"
+            hint="接 plan 即执行原始计划，接 approval 即执行人确认过的那份"
+            nodeId={node.id}
+            definition={definition}
+            field="steps"
+            value={readRef(node.config.planRef)}
+            editing={editing}
+            onChange={(ref) =>
+              editing?.onChangeConfig({ ...node.config, planRef: ref })
+            }
+          />
           <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
             循环在**节点内部**：由 Workflow 反复调度同一节点逐步推进，步数上限取
             policy.maxSteps。图上没有回边，也画不出回边。
@@ -252,6 +264,77 @@ function NodeConfig({
                 ...node.config,
                 executor: { ...next, type: "agent" },
               })
+            }
+          />
+        </div>
+      </InspectorSection>
+    );
+  }
+
+  if (node.type === "synthesize") {
+    return (
+      <InspectorSection title="配置">
+        <RefField
+          label="汇总谁的步骤观察"
+          hint="留空则退化为普通汇总，不读取任何步骤观察"
+          nodeId={node.id}
+          definition={definition}
+          field="observations"
+          value={readRef(node.config.observationsRef)}
+          editing={editing}
+          optional
+          onChange={(ref) =>
+            editing?.onChangeConfig(ref ? { observationsRef: ref } : {})
+          }
+        />
+      </InspectorSection>
+    );
+  }
+
+  if (node.type === "approval") {
+    return (
+      <InspectorSection title="配置">
+        <div className="space-y-2">
+          <Field
+            label="审批门禁"
+            hint="这一层只决定要不要请人过目计划；工具审批由能力注册表单独判定，不受它影响"
+          >
+            <Select
+              value={
+                typeof node.config.policy === "string"
+                  ? node.config.policy
+                  : "always"
+              }
+              disabled={!editing}
+              onValueChange={(value) =>
+                editing?.onChangeConfig({ ...node.config, policy: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="always">总是等人工确认</SelectItem>
+                <SelectItem value="never">自动通过，不等人</SelectItem>
+                <SelectItem value="model">由模型判断是否需要人工</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          {node.config.policy === "model" ? (
+            <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+              模型不可用、输出非法或额度耗尽时一律转人工确认（失败闭合）。
+            </p>
+          ) : null}
+          <RefField
+            label="审哪份计划"
+            hint="只能引用 plan 节点：打回重规划要用它声明的步数上限"
+            nodeId={node.id}
+            definition={definition}
+            field="steps"
+            value={readRef(node.config.planRef)}
+            editing={editing}
+            onChange={(ref) =>
+              editing?.onChangeConfig({ ...node.config, planRef: ref })
             }
           />
         </div>
@@ -695,6 +778,106 @@ function PredicateRow({
       )}
     </div>
   );
+}
+
+/**
+ * 引用选择字段
+ * @param props 标签、可选项范围与变更回调
+ * @returns 返回一个只列合法引用的下拉
+ * @description 可选项来自共享 `flowDominators` 并按字段名过滤，与服务端的 ref-dominates /
+ * ref-field 两条规则同判据。已选中但不在可选项里的引用显式标红，不静默显示成正常值——
+ * 图改动后引用失效是很常见的，静默展示会让人以为还好着。
+ */
+function RefField({
+  label,
+  hint,
+  nodeId,
+  definition,
+  field,
+  value,
+  editing,
+  optional,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  nodeId: string;
+  definition: CanvasDefinition;
+  field: string;
+  value: string | null;
+  editing?: InspectorEditing;
+  optional?: boolean;
+  onChange: (ref: { $ref: [string, string] } | null) => void;
+}) {
+  const options = variableOptions(nodeId, definition, field);
+  const matched = options.find((option) => option.ref.join(".") === value);
+  return (
+    <Field label={label} hint={hint}>
+      <Select
+        value={matched ? (value ?? undefined) : undefined}
+        disabled={!editing}
+        onValueChange={(next) => {
+          if (next === CLEAR_REF_VALUE) {
+            onChange(null);
+            return;
+          }
+          const option = options.find((item) => item.ref.join(".") === next);
+          if (option) {
+            onChange({ $ref: [option.sourceId, option.field] });
+          }
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue
+            placeholder={
+              value
+                ? `${value}（当前不可引用）`
+                : optional
+                  ? "不引用"
+                  : "请选择"
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {optional ? (
+            <SelectItem value={CLEAR_REF_VALUE}>不引用</SelectItem>
+          ) : null}
+          {options.map((option) => (
+            <SelectItem key={option.ref.join(".")} value={option.ref.join(".")}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {!matched && value ? (
+        <p className="text-xs text-[var(--lb-danger)]">
+          引用「{value}」不在可引用范围内，保存会被拒绝
+        </p>
+      ) : null}
+      {!value && !optional ? (
+        <p className="text-xs text-[var(--lb-warning)]">
+          必填：没选之前这个节点保存会被拒绝
+        </p>
+      ) : null}
+    </Field>
+  );
+}
+
+/** Select 不接受空串作为选项值，用一个不会与引用冲突的哨兵表示「不引用」。 */
+const CLEAR_REF_VALUE = "__none__";
+
+/**
+ * 读取 config 上的引用并压成可比较的字符串
+ * @param value config 里的引用字段
+ * @returns 形如 `plan.steps` 的字符串；读不到时返回 null
+ */
+function readRef(value: unknown): string | null {
+  const ref = asRecord(value)?.$ref;
+  return Array.isArray(ref) &&
+    typeof ref[0] === "string" &&
+    typeof ref[1] === "string"
+    ? `${ref[0]}.${ref[1]}`
+    : null;
 }
 
 /** 面板内的一个分组。 */

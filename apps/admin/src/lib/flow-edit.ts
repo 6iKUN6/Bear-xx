@@ -100,6 +100,8 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
     maxToolIterations: 4,
   }),
   plan: () => ({ maxSteps: 6 }),
+  // planRef 留空对象：它是必填的引用，但新节点还没连线、没有可引用的上游，
+  // 只能由用户在 inspector 里选。保存时服务端会以 schema 错误拒绝，inspector 已就地提示。
   "plan-loop": () => ({
     executor: {
       type: "agent",
@@ -110,7 +112,7 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
     },
     stopPolicy: "all-steps",
   }),
-  approval: () => ({ kind: "plan-review" }),
+  approval: () => ({ kind: "plan-review", policy: "always" }),
   synthesize: () => ({}),
   condition: () => ({
     cases: [
