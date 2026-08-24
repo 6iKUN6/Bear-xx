@@ -21,6 +21,20 @@ x-application-volumes: &application-volumes
   - api_node_modules:/workspace/apps/api/node_modules
   - types_node_modules:/workspace/packages/types/node_modules
 
+# 注意根 /workspace/node_modules **不在**上面的列表里：它是镜像层，每个容器一份、
+# 互不相通，而 Prisma Client 恰恰生成在那里的 .pnpm 存储中。
+# apps/api/node_modules/@prisma/client 虽然在共享卷里，但只是软链，指回各容器
+# 自己的镜像层——所以卷共享给不了 client 共享。
+#
+# 因此三个应用服务的 command 各自带一次 `db:generate`。少做这一步的后果是静默的：
+# worker 会因为缺少新模型的类型而崩溃重启，前端只表现为接口 ERR_EMPTY_RESPONSE
+# 或 Flow 任务不动，控制台里看不出跟数据库有关。
+#
+# 不把根 node_modules 也做成命名卷是刻意的：命名卷只在为空时从镜像填充，之后镜像
+# 新增依赖会被旧卷遮住，得 down -v 才能恢复，比每次几百毫秒难查得多。
+#
+# generate 只读 schema.prisma 生成类型，不连数据库、不改数据，可无条件跑在启动前。
+
 services:
   app:
     build: *application-build
@@ -41,7 +55,7 @@ services:
         condition: service_completed_successfully
     volumes: *application-volumes
     working_dir: /workspace/apps/api
-    command: pnpm run start:dev
+    command: sh -c 'pnpm run db:generate && pnpm run start:dev'
 
   temporal-orchestrator-worker:
     build: *application-build
@@ -61,7 +75,7 @@ services:
         condition: service_completed_successfully
     volumes: *application-volumes
     working_dir: /workspace/apps/api
-    command: pnpm run start:temporal-worker:orchestrator:dev
+    command: sh -c 'pnpm run db:generate && pnpm run start:temporal-worker:orchestrator:dev'
     restart: unless-stopped
 
   temporal-activity-worker:
@@ -82,7 +96,7 @@ services:
         condition: service_completed_successfully
     volumes: *application-volumes
     working_dir: /workspace/apps/api
-    command: pnpm run start:temporal-worker:activity:dev
+    command: sh -c 'pnpm run db:generate && pnpm run start:temporal-worker:activity:dev'
     restart: unless-stopped
 
   workspace-bootstrap:
