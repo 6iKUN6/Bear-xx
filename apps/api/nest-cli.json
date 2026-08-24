@@ -4,6 +4,6 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["**/*.md"]
+    "assets": [{ "include": "**/*.md", "outDir": "dist/src" }]
   }
 }

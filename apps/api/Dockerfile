@@ -5,7 +5,6 @@ FROM ${NODE_IMAGE} AS dependencies
 RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
 
 WORKDIR /workspace
-ENV HUSKY=0
 ARG PNPM_REGISTRY=https://registry.npmjs.org/
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
@@ -48,8 +47,12 @@ FROM ${NODE_IMAGE} AS production
 RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
 
 WORKDIR /workspace
-ENV HUSKY=0
 ARG PNPM_REGISTRY=https://registry.npmjs.org/
+
+# --ignore-scripts 是必需的，不是图快：--prod 不装 devDependencies，因此根 package.json
+# 的 `prepare: husky` 会以 `husky: not found` 失败（HUSKY=0 要 husky 已安装才生效）。
+# 生产依赖里没有需要原生编译的包，唯一真正需要的安装脚本是 prisma generate ——
+# 下一行已显式执行。
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/admin/package.json apps/admin/
@@ -61,7 +64,7 @@ COPY packages/types/package.json packages/types/
 COPY apps/api/prisma apps/api/prisma
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
-    pnpm install --frozen-lockfile --prod \
+    pnpm install --frozen-lockfile --prod --ignore-scripts \
       --filter "{./apps/api}..." \
       --store-dir=/pnpm/store \
       --registry="${PNPM_REGISTRY}" \
