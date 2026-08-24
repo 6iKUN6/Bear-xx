@@ -363,6 +363,10 @@ function NodeConfig({
     );
   }
 
+  if (node.type === "join") {
+    return <JoinConfig node={node} definition={definition} editing={editing} />;
+  }
+
   if (node.type === "condition") {
     return (
       <ConditionConfig node={node} definition={definition} editing={editing} />
@@ -374,6 +378,103 @@ function NodeConfig({
       <pre className="overflow-auto rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
         {JSON.stringify(node.config, null, 2)}
       </pre>
+    </InspectorSection>
+  );
+}
+
+/**
+ * join 节点的等待配置
+ * @param props 当前 join 节点、整份草稿与编辑能力
+ * @returns 返回等待分支勾选与策略选择
+ * @description waitFor 只能从**真正连进来的**上游里选（服务端 `join-wait-for`：等一个不会到达
+ * 的分支就是死锁）。因此这里列的是入边来源，而不是全部节点——让用户勾出一个必然死锁的图，
+ * 再由保存时的 400 告诉他，是把可以当场避免的错误推到了最后一步。
+ *
+ * 策略的措辞刻意点出后果：all 与 any 的区别不只是等多久，还决定下游能不能引用分支的输出
+ * （any 语义下另一条分支可能还没跑完，引用会取到空值）。
+ */
+function JoinConfig({
+  node,
+  definition,
+  editing,
+}: {
+  node: EditableNode;
+  definition: CanvasDefinition;
+  editing?: InspectorEditing;
+}) {
+  const incoming = definition.edges
+    .filter((edge) => edge.to === node.id)
+    .map((edge) => edge.from);
+  const sources = [...new Set(incoming)];
+  const waitFor = asStringArray(node.config.waitFor);
+  const policy = node.config.policy === "any" ? "any" : "all";
+
+  const toggle = (id: string) => {
+    const next = waitFor.includes(id)
+      ? waitFor.filter((item) => item !== id)
+      : [...waitFor, id];
+    editing?.onChangeConfig({ ...node.config, waitFor: next });
+  };
+
+  return (
+    <InspectorSection title="配置">
+      <div className="space-y-2">
+        <Field
+          label="等待哪些分支"
+          hint="只能选连进本节点的上游；没被选中的分支会照常执行，但不会被等待"
+        >
+          {sources.length === 0 ? (
+            <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+              还没有分支连进来。先从上游节点连线到这里，再回来选择要等的分支。
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {sources.map((id) => (
+                <label
+                  key={id}
+                  className="flex items-center gap-2 text-xs text-foreground"
+                >
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-primary"
+                    checked={waitFor.includes(id)}
+                    disabled={!editing}
+                    onChange={() => toggle(id)}
+                  />
+                  <span className="font-mono">{id}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </Field>
+        <Field label="汇聚策略">
+          <Select
+            value={policy}
+            disabled={!editing}
+            onValueChange={(value) =>
+              editing?.onChangeConfig({ ...node.config, policy: value })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">等齐全部选中的分支</SelectItem>
+              <SelectItem value="any">任一分支完成即继续</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+        {policy === "any" ? (
+          <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+            any 语义下未完成的分支会继续跑完，但下游不能引用它们的输出——那时它可能还没有值。
+          </p>
+        ) : null}
+        {sources.length > 0 && waitFor.length === 0 ? (
+          <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+            还没有选中任何分支，保存时会被拒绝。
+          </p>
+        ) : null}
+      </div>
     </InspectorSection>
   );
 }

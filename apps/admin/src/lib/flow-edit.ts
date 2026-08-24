@@ -185,17 +185,52 @@ export function removeNode(
   }
   const layout = { ...(definition.layout?.nodes ?? {}) };
   delete layout[nodeId];
+  const edges = definition.edges.filter(
+    (edge) => edge.from !== nodeId && edge.to !== nodeId,
+  );
   return {
     ok: true,
     definition: {
       ...definition,
-      nodes: definition.nodes.filter((item) => item.id !== nodeId),
-      edges: definition.edges.filter(
-        (edge) => edge.from !== nodeId && edge.to !== nodeId,
+      nodes: pruneJoinWaitFor(
+        definition.nodes.filter((item) => item.id !== nodeId),
+        edges,
       ),
+      edges,
       layout: { nodes: layout },
     },
   };
+}
+
+/**
+ * 剪掉 join 节点上已经失效的 waitFor 引用
+ * @param nodes 当前节点集合
+ * @param edges 剪枝后的边集合
+ * @returns 返回 waitFor 与入边一致的节点集合
+ * @description join 只能等真正连进来的分支（服务端 `join-wait-for`）。删节点或断连线之后
+ * waitFor 里会残留悬空 id，保存时才报错，而用户早就忘了刚删的是什么。这里就地收敛。
+ *
+ * 留空是允许的中间态：新建 join 还没有入边时 waitFor 本来就是空的，inspector 会就地提示。
+ */
+function pruneJoinWaitFor(
+  nodes: EditableNode[],
+  edges: EditableEdge[],
+): EditableNode[] {
+  return nodes.map((node) => {
+    if (node.type !== "join" || !Array.isArray(node.config.waitFor)) {
+      return node;
+    }
+    const incoming = new Set(
+      edges.filter((edge) => edge.to === node.id).map((edge) => edge.from),
+    );
+    const waitFor = node.config.waitFor.filter(
+      (id): id is string => typeof id === "string" && incoming.has(id),
+    );
+    if (waitFor.length === node.config.waitFor.length) {
+      return node;
+    }
+    return { ...node, config: { ...node.config, waitFor } };
+  });
 }
 
 /**
@@ -205,12 +240,19 @@ export function removeNode(
  * @param to 终点节点
  * @param branch 分支键
  * @returns 返回新草稿，或被护栏挡住的原因
- * @description 三条护栏，都对应服务端一定会拒绝的图，先在这里挡住比让用户点保存再收 400 好：
+ * @description 五条护栏，都对应服务端一定会拒绝的图，先在这里挡住比让用户点保存再收 400 好：
  * 1. 分支键必须是源节点声明过的（`edge-when`）
- * 2. 同一分支只能连一条出边——**这同时意味着画布画不出 fan-out**，因为普通节点只有 default
- *    一个分支键。并行尚未落地，能画出来就是给一个后端 100% 拒绝的按钮
- * 3. 自环直接拒（`cycle` 的最简情形，在这里给的原因比图级报错精确）
- * 更复杂的环、可达性、ref-dominates 仍由服务端裁定，前端不重写那些规则。
+ * 2. **具名分支**只能连一条出边（`unique-edge-branch`）：condition 的一个 case 或 approval 的
+ *    一个决定连出两条边时，运行时无法确定走哪条
+ * 3. default 分支允许多条出边——那就是并行扇出，全部并发启动
+ * 4. 同一对端点之间不能重复连同一条边（`duplicate-edge`）：画两次不是并行，是误操作
+ * 5. 自环直接拒（`cycle` 的最简情形，在这里给的原因比图级报错精确）
+ *
+ * 刻意不在这里做的：`implicit-convergence`（非 join 节点被多条可能并发的边连入）与
+ * `concurrent-answer-nodes`（两个可能并发的回复终节点）。两者都要判定「这两条分支是否互斥」，
+ * 而互斥判定依赖服务端 validator 里的 `isMutuallyExclusive`。在前端复刻它就是两份事实源，
+ * 且判错会挡掉合法图——condition 各分支汇聚到同一节点是允许的。这类图级规则连同环、
+ * 可达性、ref-dominates 一起由服务端裁定，错误按 path 归组后展示。
  */
 export function connect(
   definition: EditableDefinition,
@@ -232,17 +274,20 @@ export function connect(
       reason: `节点「${from}」没有声明分支「${branch}」`,
     };
   }
-  const occupied = definition.edges.some(
+  const sameBranch = definition.edges.filter(
     (edge) =>
       edge.from === from && (edge.when ?? FLOW_DEFAULT_BRANCH) === branch,
   );
-  if (occupied) {
+  if (branch !== FLOW_DEFAULT_BRANCH && sameBranch.length > 0) {
     return {
       ok: false,
-      reason:
-        branch === FLOW_DEFAULT_BRANCH
-          ? `节点「${from}」已有一条出边；并行扇出尚未支持`
-          : `节点「${from}」的分支「${branch}」已有出边`,
+      reason: `节点「${from}」的分支「${branch}」已有出边`,
+    };
+  }
+  if (sameBranch.some((edge) => edge.to === to)) {
+    return {
+      ok: false,
+      reason: `已经有一条「${from}」到「${to}」的连线`,
     };
   }
   return {
@@ -275,18 +320,20 @@ export function disconnect(
   to: string,
   branch: string,
 ): EditResult {
+  const edges = definition.edges.filter(
+    (edge) =>
+      !(
+        edge.from === from &&
+        edge.to === to &&
+        (edge.when ?? FLOW_DEFAULT_BRANCH) === branch
+      ),
+  );
   return {
     ok: true,
     definition: {
       ...definition,
-      edges: definition.edges.filter(
-        (edge) =>
-          !(
-            edge.from === from &&
-            edge.to === to &&
-            (edge.when ?? FLOW_DEFAULT_BRANCH) === branch
-          ),
-      ),
+      nodes: pruneJoinWaitFor(definition.nodes, edges),
+      edges,
     },
   };
 }

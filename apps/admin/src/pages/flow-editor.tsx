@@ -52,6 +52,7 @@ const ADDABLE_NODE_TYPES: FlowNodeType[] = [
   "plan-loop",
   "synthesize",
   "condition",
+  "join",
 ];
 
 /**
@@ -206,7 +207,11 @@ export function FlowEditorPage() {
         .filter((edge) => edge.from === from)
         .map((edge) => edge.when ?? "default"),
     );
-    const branch = declared.find((key) => !covered.has(key));
+    // default 可重复连出（并行扇出），具名分支各自只能连一条。因此只在具名分支里找空位，
+    // 找不到再回落到 default——普通节点只有 default，扇出时它永远是"已占用"的。
+    const branch =
+      declared.find((key) => key !== "default" && !covered.has(key)) ??
+      (declared.includes("default") ? "default" : undefined);
     if (!branch) {
       toast.error(`节点「${from}」的所有分支都已连出`);
       return;
@@ -472,7 +477,7 @@ export function FlowEditorPage() {
             {canEdit ? (
               <p className="mt-2 shrink-0 text-xs text-muted-foreground">
                 从节点右侧圆点拖到另一节点即连线；右键节点或连线可删除。
-                普通节点只能连出一条边——并行扇出尚未支持。
+                普通节点连出多条边即并行扇出，汇聚请用 join 节点并在右侧选择要等的分支。
               </p>
             ) : null}
           </CardContent>

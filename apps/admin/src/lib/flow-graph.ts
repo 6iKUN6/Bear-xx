@@ -326,14 +326,35 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
     };
   });
 
+  // join 的入边额外标出「等 / 不等」：连进来但没被 waitFor 选中的分支照常执行，却不会被
+  // 等待——这个差别在画布上原本完全看不见，是会静默配错的地方。
+  const joinWaitFor = new Map<string, ReadonlySet<string>>();
+  for (const node of definition.nodes) {
+    if (node.type !== "join") {
+      continue;
+    }
+    const raw = (node.config as { waitFor?: unknown } | undefined)?.waitFor;
+    joinWaitFor.set(
+      node.id,
+      new Set(
+        Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [],
+      ),
+    );
+  }
+
   const edges = definition.edges.map((edge) => {
     const branch = edge.when ?? FLOW_DEFAULT_BRANCH;
+    const waited = joinWaitFor.get(edge.to);
     return {
       id: edgeId(edge),
       source: edge.from,
       target: edge.to,
       branch,
-      label: branchLabel(branch),
+      label: waited
+        ? waited.has(edge.from)
+          ? "等待"
+          : "不等待"
+        : branchLabel(branch),
     };
   });
 
