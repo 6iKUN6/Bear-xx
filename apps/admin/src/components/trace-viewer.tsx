@@ -112,11 +112,13 @@ export function TraceViewer({
   return (
     <section
       className={cn(
-        "min-h-0 overflow-hidden rounded-md border border-[var(--lb-line-strong)] bg-[var(--lb-surface)] text-[var(--lb-text-primary)]",
+        // flex 列 + 各段 shrink-0，只让节点列表滚：调用方传了 h-full，根元素被钉死在
+        // 容器高度，再加 overflow-hidden，超出部分会被直接裁掉而不是变成可滚动内容
+        "flex min-h-0 flex-col overflow-hidden rounded-md border border-[var(--lb-line-strong)] bg-[var(--lb-surface)] text-[var(--lb-text-primary)]",
         className,
       )}
     >
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--lb-line-soft)] px-4 py-3 text-xs text-[var(--lb-text-secondary)]">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--lb-line-soft)] px-4 py-3 text-xs text-[var(--lb-text-secondary)]">
         <TraceMetric
           icon={Clock3}
           label="Duration"
@@ -146,8 +148,8 @@ export function TraceViewer({
       </div>
 
       {sortedTrace.length > 0 ? (
-        <>
-          <div className="overflow-x-auto border-b border-[var(--lb-line-soft)] px-4 py-3">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 overflow-x-auto border-b border-[var(--lb-line-soft)] px-4 py-3">
             <div className="min-w-[34rem] space-y-1.5">
               {(Object.keys(laneConfig) as TraceLane[]).map((lane) => {
                 const config = laneConfig[lane];
@@ -195,7 +197,7 @@ export function TraceViewer({
             </div>
           </div>
 
-          <div className="border-b border-[var(--lb-line-soft)] px-4 py-2 text-[11px] font-medium uppercase text-[var(--lb-text-muted)]">
+          <div className="shrink-0 border-b border-[var(--lb-line-soft)] px-4 py-2 text-[11px] font-medium uppercase text-[var(--lb-text-muted)]">
             {turnLabel}
             <span className="ml-2 font-normal normal-case text-[var(--lb-text-muted)]">
               {visibleTrace.length === sortedTrace.length
@@ -204,7 +206,7 @@ export function TraceViewer({
             </span>
           </div>
 
-          <ol className="relative divide-y divide-[var(--lb-line-soft)] before:pointer-events-none before:absolute before:bottom-4 before:left-[1.85rem] before:top-4 before:w-px before:bg-[var(--lb-line-strong)]">
+          <ol className="relative min-h-0 flex-1 overflow-y-auto divide-y divide-[var(--lb-line-soft)] before:pointer-events-none before:absolute before:bottom-4 before:left-[1.85rem] before:top-4 before:w-px before:bg-[var(--lb-line-strong)]">
             {visibleTrace.length === 0 ? (
               <li className="px-4 py-10 text-center text-sm text-[var(--lb-text-muted)]">
                 未找到匹配的轨迹节点
@@ -277,7 +279,7 @@ export function TraceViewer({
               })
             )}
           </ol>
-        </>
+        </div>
       ) : (
         <div className="px-4 py-12 text-center text-sm text-[var(--lb-text-muted)]">
           无执行轨迹
