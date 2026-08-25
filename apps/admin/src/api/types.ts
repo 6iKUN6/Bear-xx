@@ -160,8 +160,16 @@ export interface ToolGroup {
   tools: CapabilityTool[];
 }
 
+/** 可写进节点 modelPreset 的预设选项；与后端 listAvailableModels 同一闭集。 */
+export interface ModelPresetOption {
+  id: string;
+  /** 底层模型名，仅用于界面区分同名预设 */
+  model: string;
+}
+
 export interface AgentCapabilities {
   toolGroups: ToolGroup[];
+  modelPresets: ModelPresetOption[];
 }
 
 export type AgentStrategy =

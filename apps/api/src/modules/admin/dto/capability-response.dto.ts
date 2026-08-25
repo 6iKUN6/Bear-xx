@@ -19,6 +19,20 @@ export class ToolGroupDto {
   tools: CapabilityToolDto[];
 }
 
+export class ModelPresetOptionDto {
+  @ApiProperty({
+    example: 'gpt-5.6-terra',
+    description: '预设标识，写进节点 modelPreset',
+  })
+  id: string;
+
+  @ApiProperty({
+    example: 'gpt-5.6',
+    description: '底层模型名，仅用于界面区分同名预设',
+  })
+  model: string;
+}
+
 export class AgentCapabilitiesDto {
   @ApiProperty({
     type: ToolGroupDto,
@@ -26,4 +40,12 @@ export class AgentCapabilitiesDto {
     description: '可分配给智能体的工具组闭集（来自能力注册表）',
   })
   toolGroups: ToolGroupDto[];
+
+  @ApiProperty({
+    type: ModelPresetOptionDto,
+    isArray: true,
+    description:
+      '可选的模型预设闭集。与 FlowRuntimeValidator 同一判据（listAvailableModels），因此不会列出发布期会被拒的选项；注册表加载时已过滤 enabled=false，故这里不含禁用预设。刻意不下发 baseURL 与 apiKeyHint——选择器只需要标识。',
+  })
+  modelPresets: ModelPresetOptionDto[];
 }

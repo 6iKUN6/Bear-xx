@@ -32,7 +32,11 @@ export interface InspectorEditing {
    * 工具组闭集，来自 /admin 的能力接口，不在前端硬编码
    * @description 没有 skills：admin API 目前不暴露技能闭集，因此技能只能自由输入。
    */
-  capabilities: { toolGroups: string[] };
+  capabilities: {
+    toolGroups: string[];
+    /** 模型预设闭集；与后端同一判据，因此不含发布期会被拒的选项 */
+    modelPresets: Array<{ id: string; model: string }>;
+  };
   /** 提交整份新 config */
   onChangeConfig: (config: Record<string, unknown>) => void;
   /** 改 condition 的 case 键；要连带改引用它的边，因此走单独回调 */
@@ -274,19 +278,35 @@ function NodeConfig({
   if (node.type === "synthesize") {
     return (
       <InspectorSection title="配置">
-        <RefField
-          label="汇总谁的步骤观察"
-          hint="留空则退化为普通汇总，不读取任何步骤观察"
-          nodeId={node.id}
-          definition={definition}
-          field="observations"
-          value={readRef(node.config.observationsRef)}
-          editing={editing}
-          optional
-          onChange={(ref) =>
-            editing?.onChangeConfig(ref ? { observationsRef: ref } : {})
-          }
-        />
+        <div className="space-y-2">
+          <ModelPresetField
+            value={node.config.modelPreset}
+            editing={editing}
+            onChange={(modelPreset) =>
+              editing?.onChangeConfig({ ...node.config, modelPreset })
+            }
+          />
+          <RefField
+            label="汇总谁的步骤观察"
+            hint="留空则退化为普通汇总，不读取任何步骤观察"
+            nodeId={node.id}
+            definition={definition}
+            field="observations"
+            value={readRef(node.config.observationsRef)}
+            editing={editing}
+            optional
+            onChange={(ref) => {
+              // 保留其余字段：原先是整份覆盖 config，改引用会把 modelPreset 抹掉
+              const next = { ...node.config };
+              if (ref) {
+                next.observationsRef = ref;
+              } else {
+                delete next.observationsRef;
+              }
+              editing?.onChangeConfig(next);
+            }}
+          />
+        </div>
       </InspectorSection>
     );
   }
@@ -479,6 +499,76 @@ function JoinConfig({
   );
 }
 
+/** 运行时解析为「任务锁定的智能体默认模型」的哨兵值，不是一个真实预设。 */
+const AGENT_DEFAULT_PRESET = "agent-default";
+
+/**
+ * 模型预设选择器
+ * @param props 当前值、编辑能力与提交回调
+ * @returns 返回闭集下拉，或只读态的文字
+ * @description agent 节点、plan-loop 内部 executor 与 synthesize 共用：三者在契约里都是
+ * 同义的可选 modelPreset，各写一份必然漂移。
+ *
+ * 闭集来自后端 listAvailableModels，与 FlowRuntimeValidator 同一判据，因此不会列出
+ * 发布期会被拒的选项。
+ */
+function ModelPresetField({
+  value,
+  editing,
+  onChange,
+}: {
+  value: unknown;
+  editing?: InspectorEditing;
+  onChange: (modelPreset: string) => void;
+}) {
+  const presets = editing?.capabilities.modelPresets ?? [];
+  const current =
+    typeof value === "string" && value ? value : AGENT_DEFAULT_PRESET;
+  const stale =
+    current !== AGENT_DEFAULT_PRESET &&
+    !presets.some((preset) => preset.id === current);
+
+  return (
+    <Field
+      label="模型预设"
+      hint="选「跟随智能体默认」时，运行时用该智能体自己的模型预设——智能体没配就会在任务创建时被拒"
+    >
+      {editing ? (
+        <Select value={current} onValueChange={onChange}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {/* 哨兵值放第一项：它原本是个「你得先知道」的魔法字符串 */}
+            <SelectItem value={AGENT_DEFAULT_PRESET}>
+              跟随智能体默认（agent-default）
+            </SelectItem>
+            {presets.map((preset) => (
+              <SelectItem key={preset.id} value={preset.id}>
+                {preset.id}
+                {preset.model && preset.model !== preset.id ? (
+                  <span className="ml-2 opacity-60">{preset.model}</span>
+                ) : null}
+              </SelectItem>
+            ))}
+            {/* 草稿里存着闭集外的预设时仍要能显示，否则 Select 显示成空、看起来像
+                「没配」，而实际存着一个保存会被拒的值 */}
+            {stale ? (
+              <SelectItem value={current}>{current}（不可用）</SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+      ) : (
+        <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+          {current === AGENT_DEFAULT_PRESET
+            ? "跟随智能体默认（agent-default）"
+            : current}
+        </p>
+      )}
+    </Field>
+  );
+}
+
 /**
  * Agent 执行器的公共字段
  * @param props 当前执行器配置、编辑能力与提交回调
@@ -499,15 +589,11 @@ function ExecutorFields({
   const skills = asStringArray(executor.skills);
   return (
     <div className="space-y-2">
-      <Field label="模型预设" hint="agent-default 表示运行时取智能体的默认模型">
-        <Input
-          value={String(executor.modelPreset ?? "")}
-          disabled={!editing}
-          onChange={(event) =>
-            onChange({ ...executor, modelPreset: event.target.value })
-          }
-        />
-      </Field>
+      <ModelPresetField
+        value={executor.modelPreset}
+        editing={editing}
+        onChange={(modelPreset) => onChange({ ...executor, modelPreset })}
+      />
       <Field label="工具组">
         {editing ? (
           <MultiSelect

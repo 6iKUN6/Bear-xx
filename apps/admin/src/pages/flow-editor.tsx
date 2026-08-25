@@ -512,6 +512,7 @@ export function FlowEditorPage() {
                           toolGroups: (capabilities?.toolGroups ?? []).map(
                             (group) => group.name,
                           ),
+                          modelPresets: capabilities?.modelPresets ?? [],
                         },
                         onChangeConfig: (config) =>
                           setDraft((current) =>
