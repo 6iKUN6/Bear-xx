@@ -91,15 +91,46 @@ describe('FlowCompiler', () => {
       agentDefaultModelPreset: null,
     });
 
-    expect(result).toEqual({
-      success: false,
-      errors: [
+    // agent 与 synthesize 都会报：synthesize 此前根本没有模型字段，只能吃智能体默认，
+    // 于是「agent 节点能选模型、synthesize 不能」。两者现在走同一条校验路径
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error('未锁定默认模型时不应编译成功');
+    }
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           path: 'nodes.0.config.modelPreset',
           rule: 'agent-default-resolved',
         }),
-      ],
-    });
+        expect.objectContaining({
+          path: 'nodes.1.config.modelPreset',
+          rule: 'agent-default-resolved',
+        }),
+      ]),
+    );
+  });
+
+  it('所有节点都指定具体预设时，智能体没配默认模型也能编译', () => {
+    // 这条锁住第 0 步的结论：agent-default 是「跟随智能体默认」的显式选择，不是
+    // 每张图都得先给智能体配一个用不到的模型的隐藏前置
+    const source = definition();
+    const result = compiler.compile(
+      {
+        ...source,
+        nodes: source.nodes.map((node) =>
+          node.type === 'agent' || node.type === 'synthesize'
+            ? {
+                ...node,
+                config: { ...node.config, modelPreset: 'model-enabled' },
+              }
+            : node,
+        ),
+      },
+      { agentDefaultModelPreset: null },
+    );
+
+    expect(result.success).toBe(true);
   });
 
   it('编译 PlanLoop 时沿用 Flow 步骤预算，而不是工具迭代上限', () => {

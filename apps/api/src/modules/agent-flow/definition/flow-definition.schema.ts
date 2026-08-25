@@ -180,7 +180,12 @@ const flowNodeSchema = z.discriminatedUnion('type', [
     .object({
       ...nodeBaseShape,
       type: z.literal('synthesize'),
-      config: z.object({ observationsRef: flowRefSchema.optional() }).strict(),
+      config: z
+        .object({
+          observationsRef: flowRefSchema.optional(),
+          modelPreset: nonEmptyKeySchema.optional(),
+        })
+        .strict(),
     })
     .strict(),
   z

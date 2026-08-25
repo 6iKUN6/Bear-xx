@@ -131,6 +131,10 @@ export class FlowCompiler {
           ...(node.config.observationsRef
             ? { observationsRef: node.config.observationsRef }
             : {}),
+          modelPreset: this.resolveModelPreset(
+            node.config.modelPreset,
+            context,
+          ),
         };
       case 'join':
         return {
@@ -173,15 +177,8 @@ export class FlowCompiler {
         toolNames.add(toolName);
       }
     }
-    const modelPreset =
-      config.modelPreset === 'agent-default' || !config.modelPreset
-        ? context.agentDefaultModelPreset
-        : config.modelPreset;
-    if (!modelPreset) {
-      throw new Error('agent-default 未在任务上下文中解析');
-    }
     return {
-      modelPreset,
+      modelPreset: this.resolveModelPreset(config.modelPreset, context),
       toolGroups: [...config.toolGroups],
       skills: [...config.skills],
       maxToolIterations: config.maxToolIterations,
@@ -189,6 +186,28 @@ export class FlowCompiler {
         this.capabilityRegistry.requiresApproval(toolName),
       ),
     };
+  }
+
+  /**
+   * 把节点声明的模型解析成具体预设
+   * @param declared 节点上声明的预设；缺省或 agent-default 即跟随智能体默认
+   * @param context 任务锁定的运行时上下文
+   * @returns 返回具体模型预设标识
+   * @description agent 节点与 synthesize 节点共用：两者都允许写 agent-default，解析口径
+   * 必须一致。任务期校验已先按节点判过一遍，这里的抛错只是防御性兜底。
+   */
+  private resolveModelPreset(
+    declared: string | undefined,
+    context: Omit<FlowTaskRuntimeContext, 'phase'>,
+  ): string {
+    const resolved =
+      declared === 'agent-default' || !declared
+        ? context.agentDefaultModelPreset
+        : declared;
+    if (!resolved) {
+      throw new Error('agent-default 未在任务上下文中解析');
+    }
+    return resolved;
   }
 }
 

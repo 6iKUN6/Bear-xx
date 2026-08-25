@@ -94,6 +94,19 @@ export class FlowRuntimeValidator {
         toolGroups,
         errors,
       );
+      return;
+    }
+    if (node.type === 'synthesize') {
+      // synthesize 没有工具与技能，只需要校验模型；走同一条路径以保证
+      // agent-default 的解析与报错口径一致
+      this.validateExecutor(
+        { ...node.config, toolGroups: [], skills: [] },
+        `nodes.${nodeIndex}.config`,
+        context,
+        availableModels,
+        toolGroups,
+        errors,
+      );
     }
   }
 

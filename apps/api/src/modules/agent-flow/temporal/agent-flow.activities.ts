@@ -149,7 +149,6 @@ interface AgentFlowExecutionContext {
   flowId: string;
   definition: FlowDefinition;
   node: CompiledFlowNode;
-  agentModelPreset: string;
   agentSystemPrompt: string | null;
   mcdonaldsCredentialId?: string;
 }
@@ -651,7 +650,10 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       where: { id: task.agentId },
       select: { modelPreset: true, systemPrompt: true },
     });
-    if (!agent?.modelPreset) {
+    // 只在图上真有节点写 agent-default 时才要求：此前这里无条件拒绝，于是即使每个节点
+    // 都指定了具体预设，也必须先给智能体配一个用不到的默认模型。按节点判定的精确报错由
+    // 任务期校验（agent-default-resolved）给出，这里只是防御性兜底。
+    if (!agent?.modelPreset && definitionNeedsAgentDefault(parsed.definition)) {
       throw createNonRetryableActivityFailure(
         'Flow 任务未锁定智能体默认模型',
         'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
@@ -662,7 +664,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       'mcdonaldsCredentialId',
     );
     const compiled = this.flowCompiler.compile(parsed.definition, {
-      agentDefaultModelPreset: agent.modelPreset,
+      agentDefaultModelPreset: agent?.modelPreset ?? null,
       ...(mcdonaldsCredentialId ? { mcdonaldsCredentialId } : {}),
     });
     if (!compiled.success) {
@@ -699,8 +701,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       flowId: task.flowVersion.flowId,
       definition: parsed.definition,
       node,
-      agentModelPreset: agent.modelPreset,
-      agentSystemPrompt: agent.systemPrompt,
+      agentSystemPrompt: agent?.systemPrompt ?? null,
       ...(mcdonaldsCredentialId ? { mcdonaldsCredentialId } : {}),
     };
   }
@@ -1302,7 +1303,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     return this.executeAgentNode(
       context,
       input,
-      toSynthesizeExecutor(context.agentModelPreset),
+      toSynthesizeExecutor(node.modelPreset),
       resumeDecision as ApprovalDecision | undefined,
       systemPrompt,
     );
@@ -3036,4 +3037,25 @@ function isAnswerNode(context: AgentFlowExecutionContext): boolean {
   return !context.definition.edges.some(
     (edge) => edge.from === context.node.key,
   );
+}
+
+/**
+ * 判断图上是否有节点依赖智能体默认模型
+ * @param definition 已通过结构校验的 Definition
+ * @returns 返回是否存在写了 agent-default（或省略模型）的节点
+ * @description agent / plan-loop 内部 executor / synthesize 三处都可以写 agent-default。
+ * 缺省等同于 agent-default，因此「没写」也算依赖。
+ */
+function definitionNeedsAgentDefault(definition: FlowDefinition): boolean {
+  const needs = (declared: string | undefined): boolean =>
+    !declared || declared === 'agent-default';
+  return definition.nodes.some((node) => {
+    if (node.type === 'agent' || node.type === 'synthesize') {
+      return needs(node.config.modelPreset);
+    }
+    if (node.type === 'plan-loop') {
+      return needs(node.config.executor.modelPreset);
+    }
+    return false;
+  });
 }

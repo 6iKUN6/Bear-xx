@@ -86,6 +86,8 @@ export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
   type: 'synthesize';
   /** 要汇总谁的步骤观察；缺省即普通汇总 */
   observationsRef?: FlowRef;
+  /** 汇总使用的模型；编译期已把 agent-default 解析成具体预设 */
+  modelPreset: string;
 }
 
 /** 编译后的起始节点。 */

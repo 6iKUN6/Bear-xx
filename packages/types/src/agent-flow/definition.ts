@@ -279,6 +279,13 @@ export interface FlowSynthesizeNodeConfig {
    * `observations` 数组作为汇总素材。
    */
   readonly observationsRef?: FlowRef;
+  /**
+   * 汇总使用的模型预设
+   * @description 与 agent 节点同义：缺省即 `agent-default`，运行时解析为任务锁定的智能体默认
+   * 模型。此前 synthesize 根本没有这个字段、只能用智能体默认模型，于是「agent 节点能选模型、
+   * synthesize 不能」，且任何含 synthesize 的图都强制要求智能体配了默认模型。
+   */
+  readonly modelPreset?: string;
 }
 
 /** 汇总节点。 */
