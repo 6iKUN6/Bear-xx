@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
 import { TemporalClientService } from '../agent-flow/temporal/temporal-client.service';
+import { BuiltinFlowService } from '../agent-flow/builtin-flow.service';
 import { FlowRuntimeValidator } from '../agent-flow/runtime/flow-runtime-validator.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -37,53 +38,68 @@ export class FlowTaskDispatcherService {
     private readonly prisma: PrismaService,
     private readonly temporalClientService: TemporalClientService,
     private readonly runtimeValidator: FlowRuntimeValidator,
+    private readonly builtinFlow: BuiltinFlowService,
   ) {}
 
   /**
-   * 解析测试任务应锁定的已发布 Flow 快照
+   * 解析任务应锁定的已发布 Flow 快照
    * @param tx 当前创建 StreamTask 所在的 Prisma 事务客户端
-   * @param input 包含回答 Agent 与测试会话标记的任务创建上下文
-   * @returns 返回可写入 StreamTask 的 Flow 快照；非测试任务或未绑定 Flow 的 Agent 返回 null
-   * @description 阶段 5 仅允许 admin 测试会话启用 Flow。查询、版本状态校验与入口节点解析均发生在创建任务的同一事务内，防止任务后续读取到 Agent 改绑后的 FlowVersion。
+   * @param input 包含回答 Agent 的任务创建上下文
+   * @returns 返回可写入 StreamTask 的 Flow 快照；库中一个可用 Agent 都没有时返回 null
+   * @description **Flow 是唯一编排路径**：所有聊天都从这里取图，不再有「绑了 Flow 才走 Flow」
+   * 的分叉。Agent 绑没绑 Flow 只决定用哪张图——绑了用它的，没绑用内置直接回复 Flow。
+   *
+   * 没有指定 Agent 时回落到 `isDefault` 的 Agent：内置 Flow 里的 `agent-default` 需要一个
+   * 具体的模型来源，而"没有 Agent"提供不了。库里连 isDefault 都没有才返回 null——那种情况下
+   * 旧链路也答不出什么，但让它继续走旧链路比在这里抛错温和。
+   *
+   * 查询与校验都在创建 StreamTask 的同一事务内，防止任务后续读到 Agent 改绑后的 FlowVersion。
    */
   async resolveTaskFlowSnapshot(
     tx: Prisma.TransactionClient,
-    input: { agentId?: string; isTest: boolean },
+    input: { agentId?: string },
   ): Promise<FlowTaskSnapshot | null> {
-    if (!input.isTest || !input.agentId) {
-      return null;
-    }
-
-    const agent = await tx.agent.findUnique({
-      where: { id: input.agentId },
-      select: {
-        modelPreset: true,
-        defaultFlowVersion: {
-          select: {
-            id: true,
-            digest: true,
-            status: true,
-            definition: true,
-          },
+    const agentSelect = {
+      modelPreset: true,
+      defaultFlowVersion: {
+        select: {
+          id: true,
+          digest: true,
+          status: true,
+          definition: true,
         },
       },
-    });
-    const flowVersion = agent?.defaultFlowVersion;
-    if (!flowVersion) {
+    } as const;
+    const agent = input.agentId
+      ? await tx.agent.findUnique({
+          where: { id: input.agentId },
+          select: agentSelect,
+        })
+      : await tx.agent.findFirst({
+          where: { isDefault: true, enabled: true },
+          select: agentSelect,
+        });
+    if (!agent) {
       return null;
     }
+    const bound = agent.defaultFlowVersion;
+    const flowVersion = bound ?? (await this.builtinFlow.findDirectVersion(tx));
+    if (!flowVersion) {
+      // 内置 Flow 由启动时 ensure 建立；拿不到说明那一步失败了。静默回落旧链路会让
+      // 这个故障一直不被发现，而用户拿到的是一条没人知道走了哪套编排的回复。
+      throw new BadRequestException('内置 Flow 尚未初始化，请检查服务启动日志');
+    }
+    const source = bound ? '智能体绑定的' : '内置';
     if (
       flowVersion.status !== AgentFlowVersionStatus.PUBLISHED ||
       !flowVersion.digest
     ) {
-      throw new BadRequestException(
-        '智能体绑定的 FlowVersion 未发布或缺少摘要',
-      );
+      throw new BadRequestException(`${source} FlowVersion 未发布或缺少摘要`);
     }
 
     const parsed = validateFlowDefinition(flowVersion.definition);
     if (!parsed.success) {
-      throw new BadRequestException('智能体绑定的 FlowVersion 定义无效');
+      throw new BadRequestException(`${source} FlowVersion 定义无效`);
     }
     const entryNodeIds = new Set(
       parsed.definition.edges.map((edge) => edge.to),
@@ -92,7 +108,7 @@ export class FlowTaskDispatcherService {
       (node) => !entryNodeIds.has(node.id),
     );
     if (!entryNode) {
-      throw new BadRequestException('智能体绑定的 FlowVersion 缺少入口节点');
+      throw new BadRequestException(`${source} FlowVersion 缺少入口节点`);
     }
 
     // 任务锁定期校验：节点上的 `agent-default` 到这一刻才能解析成具体预设。
@@ -101,11 +117,11 @@ export class FlowTaskDispatcherService {
     // 真实原因只能翻 worker 日志——错误必须还给发起者。
     const runtime = this.runtimeValidator.validate(parsed.definition, {
       phase: 'task',
-      agentDefaultModelPreset: agent?.modelPreset ?? null,
+      agentDefaultModelPreset: agent.modelPreset,
     });
     if (!runtime.valid) {
       throw new BadRequestException({
-        message: '智能体绑定的 Flow 在当前配置下无法运行',
+        message: `${source} Flow 在当前配置下无法运行`,
         errors: runtime.errors,
       });
     }

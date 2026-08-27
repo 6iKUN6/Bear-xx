@@ -8,6 +8,7 @@ import { AgentFlowApprovalService } from './agent-flow-approval.service';
 import { AgentFlowTaskEventService } from './agent-flow-task-event.service';
 import { AgentFlowController } from './agent-flow.controller';
 import { AgentFlowService } from './agent-flow.service';
+import { BuiltinFlowService } from './builtin-flow.service';
 import { AgentFlowVersionService } from './agent-flow-version.service';
 import { FlowCompiler } from './runtime/flow-compiler.service';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
@@ -29,6 +30,7 @@ import { AgentFlowCancellationDispatcherService } from './temporal/agent-flow-ca
   providers: [
     AgentFlowService,
     AgentFlowVersionService,
+    BuiltinFlowService,
     AgentFlowApprovalService,
     AgentFlowTaskEventService,
     FlowRuntimeValidator,
@@ -42,6 +44,7 @@ import { AgentFlowCancellationDispatcherService } from './temporal/agent-flow-ca
   exports: [
     AgentFlowService,
     AgentFlowVersionService,
+    BuiltinFlowService,
     AgentFlowApprovalService,
     AgentFlowTaskEventService,
     FlowRuntimeValidator,

@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUILTIN_DIRECT_FLOW_ID } from './builtin-flow.service';
 import {
   validateFlowDefinition,
   type FlowDefinitionValidationError,
@@ -173,6 +174,7 @@ export class AgentFlowService {
     input: unknown,
     actorId: string,
   ): Promise<AgentFlowVersionResponse> {
+    assertNotBuiltinFlow(flowId);
     const definition = this.requireValidDefinition(input);
     return this.runSerializableTransaction(async (transaction) => {
       const flow = await transaction.agentFlow.findUnique({
@@ -230,6 +232,7 @@ export class AgentFlowService {
     versionId: string,
     actorId: string,
   ): Promise<AgentFlowVersionResponse> {
+    assertNotBuiltinFlow(flowId);
     return this.runSerializableTransaction(async (transaction) => {
       const flow = await transaction.agentFlow.findUnique({
         where: { id: flowId },
@@ -298,6 +301,7 @@ export class AgentFlowService {
    * 是 `SetNull`，删了会让那个 Agent 无声地退回非 Flow 链路，必须让操作者先显式解绑。
    */
   async remove(flowId: string): Promise<void> {
+    assertNotBuiltinFlow(flowId);
     await this.runSerializableTransaction(async (transaction) => {
       const flow = await transaction.agentFlow.findUnique({
         where: { id: flowId },
@@ -453,5 +457,23 @@ export class AgentFlowService {
         ? toAgentFlowVersionResponse(flow.publishedVersion)
         : null,
     };
+  }
+}
+
+/**
+ * 内置 Flow 的写保护
+ * @param flowId 目标 Flow 标识
+ * @returns 无返回值
+ * @description 内置 Flow 由代码定义、启动时 ensure，且**所有未绑定 Flow 的 Agent 都在跑它**。
+ * 允许改或删它就是允许一次误操作打掉全站默认回复链路，而下次启动 ensure 又会把改动覆盖回去——
+ * 那种"改了但过一会儿又变回来"的行为比直接拒绝更难排查。
+ *
+ * 要基于它做自己的图，用导出/导入另存一份。
+ */
+function assertNotBuiltinFlow(flowId: string): void {
+  if (flowId === BUILTIN_DIRECT_FLOW_ID) {
+    throw new BadRequestException(
+      '内置 Flow 由系统维护，不可编辑或删除；如需自定义请导出后另存为新的 Flow',
+    );
   }
 }

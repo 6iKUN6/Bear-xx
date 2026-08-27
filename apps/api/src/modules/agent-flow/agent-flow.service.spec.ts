@@ -1,4 +1,5 @@
 import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
+import { BUILTIN_DIRECT_FLOW_ID } from './builtin-flow.service';
 import { Prisma } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -473,5 +474,22 @@ describe('AgentFlowService', () => {
     findFlow.mockResolvedValue(null);
 
     await expect(service.remove('missing')).rejects.toThrow('Flow 不存在');
+  });
+
+  it('拒绝编辑或删除内置 Flow', async () => {
+    // 内置 Flow 由代码定义、启动时 ensure，且所有未绑定 Flow 的 Agent 都在跑它。
+    // 允许改删就是允许一次误操作打掉全站默认回复链路，而下次启动 ensure 又会覆盖回去——
+    // 那种"改了但过一会儿又变回来"比直接拒绝更难排查。
+    await expect(service.remove(BUILTIN_DIRECT_FLOW_ID)).rejects.toThrow(
+      '内置 Flow 由系统维护',
+    );
+    await expect(
+      service.importDefinition(BUILTIN_DIRECT_FLOW_ID, {}, 'admin-1'),
+    ).rejects.toThrow('内置 Flow 由系统维护');
+    await expect(
+      service.rollback(BUILTIN_DIRECT_FLOW_ID, 'version-1', 'admin-1'),
+    ).rejects.toThrow('内置 Flow 由系统维护');
+    // 守卫在事务之前，因此一次数据库都不该碰
+    expect(transaction).not.toHaveBeenCalled();
   });
 });

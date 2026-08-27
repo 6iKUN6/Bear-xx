@@ -583,7 +583,6 @@ export class StreamTaskService {
       const flowSnapshot =
         await this.flowTaskDispatcher.resolveTaskFlowSnapshot(tx, {
           agentId,
-          isTest,
         });
       const task = await tx.streamTask.create({
         data: {

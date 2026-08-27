@@ -6,6 +6,7 @@ import {
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUILTIN_DIRECT_FLOW_ID } from './builtin-flow.service';
 import type { AgentFlowVersionResponse } from './agent-flow.service';
 import {
   calculateFlowDefinitionDigest,
@@ -54,6 +55,13 @@ export class AgentFlowVersionService {
       });
       if (!version) {
         throw new NotFoundException('Flow 版本不存在');
+      }
+      // 内置版本恒为 PUBLISHED，下面的状态检查本就挡得住；这里显式拦一次是为了给出
+      // 准确原因，而不是让人以为「再建个草稿就能改」
+      if (version.flowId === BUILTIN_DIRECT_FLOW_ID) {
+        throw new BadRequestException(
+          '内置 Flow 由系统维护，不可编辑；如需自定义请导出后另存为新的 Flow',
+        );
       }
       if (version.status !== AgentFlowVersionStatus.DRAFT) {
         throw new BadRequestException('已发布或归档版本不可编辑');
@@ -104,6 +112,11 @@ export class AgentFlowVersionService {
       });
       if (!version) {
         throw new NotFoundException('Flow 版本不存在');
+      }
+      if (version.flowId === BUILTIN_DIRECT_FLOW_ID) {
+        throw new BadRequestException(
+          '内置 Flow 由系统维护，不可发布新版本；如需自定义请导出后另存为新的 Flow',
+        );
       }
       if (version.status !== AgentFlowVersionStatus.DRAFT) {
         throw new BadRequestException('只有草稿版本可以发布');

@@ -42,7 +42,7 @@ packages/assets/  前后端共享静态资产（头像等），按子路径直�
 | --------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `apps/api/`**                           | `apps/api/AGENTS.md`                                                                   | `diagnosing-bugs` / `code-review`                    |
 | agent 链路：工具 / 策略路由 / Plan·Hybrid / HITL | `apps/api/AGENTS.md` + `apps/api/docs/{agent-loop-evolution,agent-chat-chain,hitl}.md` | `diagnosing-bugs`                                    |
-| AgentFlow：Definition / 版本发布 / Temporal 编排 / 画布演进 | `apps/api/AGENTS.md` + `apps/api/docs/{agent-flow-architecture,agent-flow-v2-model}.md` | `diagnosing-bugs`                                    |
+| AgentFlow：Definition / 版本发布 / Temporal 编排 / 画布演进 | `apps/api/AGENTS.md` + `apps/api/docs/{agent-flow-architecture,agent-flow-v2-model,agent-flow-as-single-runtime}.md` | `diagnosing-bugs`                                    |
 | 流式任务 / SSE / 任务生命周期                     | `apps/api/AGENTS.md` + `apps/api/docs/stream-task-architecture.md`                     | —                                                    |
 | `apps/mobile/**`                        | `apps/mobile/AGENTS.md`                                                                | 新组件 `impeccable`；新交互先 `shape`                        |
 | 移动端 UI 设计打磨                             | `apps/mobile/AGENTS.md`                                                                | `critique` / `polish` / `adapt` / `harden`           |
