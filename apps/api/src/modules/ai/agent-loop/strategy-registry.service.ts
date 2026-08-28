@@ -5,6 +5,20 @@ import { DirectAnswerGraph } from './graphs/direct-answer.graph';
 import { HybridPlanReactGraph } from './graphs/hybrid-plan-react.graph';
 import { PlanExecuteGraph } from './graphs/plan-execute.graph';
 
+/**
+ * @deprecated 旧编排链路，**已不可达**，等待删除。
+ *
+ * Flow 已成为唯一编排路径：`resolveTaskFlowSnapshot` 现在总会给聊天任务锁定一份
+ * Definition（Agent 绑了用它的，没绑用内置 direct Flow），因此 `ensureTaskExecution`
+ * 永远走 Flow 分支，`runChatTask` 及其下游整条链都进不去。
+ *
+ * 保留数个版本再删，不是因为还有用，而是给回滚留余地。删除时机与边界见
+ * `apps/api/docs/agent-flow-as-single-runtime.md` §2、§7。
+ *
+ * 不要在这里加新功能，也不要把它当作「长短任务分流」的复用基础——那条路要基于
+ * Flow 的 activities 重写，与本链路无关。
+ */
+
 @Injectable()
 export class StrategyRegistryService {
   private readonly strategyRegistry: Record<
