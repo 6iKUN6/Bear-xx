@@ -1,4 +1,3 @@
-import { AgentStrategy } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AgentResponseDto {
@@ -26,24 +25,17 @@ export class AgentResponseDto {
 
   @ApiProperty({
     nullable: true,
-    description: '默认执行的已发布 FlowVersion ID；null=沿用历史策略配置',
+    description:
+      '默认执行的已发布 FlowVersion ID；null=执行内置的直接回复 Flow',
   })
   defaultFlowVersionId: string | null;
 
-  @ApiProperty({ enum: AgentStrategy })
-  defaultStrategy: AgentStrategy;
-
-  @ApiProperty({ enum: AgentStrategy, isArray: true })
-  allowedStrategies: AgentStrategy[];
-
-  @ApiProperty({ example: ['default'] })
+  @ApiProperty({
+    example: ['default'],
+    description:
+      '该智能体可用的工具组，仅供列表展示。当前仍读 Agent 上的历史字段，待改为从绑定的 Flow 节点推导',
+  })
   toolGroups: string[];
-
-  @ApiProperty({ example: [] })
-  skills: string[];
-
-  @ApiProperty({ nullable: true, example: 6 })
-  maxSteps: number | null;
 
   @ApiProperty({ example: true })
   enabled: boolean;

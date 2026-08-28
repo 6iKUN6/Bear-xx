@@ -3,6 +3,8 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { Agent, AgentStrategy, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDefinitionService } from './agent-definition.service';
+import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
+import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import { AgentService } from './agent.service';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 
@@ -118,6 +120,50 @@ describe('AgentService', () => {
     service = module.get(AgentService);
   });
 
+  it('工具标签从绑定 Flow 的图上推导，不读 Agent 那一列', async () => {
+    // 收敛后 Agent.toolGroups 已不驱动执行；展示仍读它就会与实际能调的长期不一致。
+    // 因此把两边设成相反的值：图上有 default，列上是别的东西
+    findUnique.mockResolvedValue({
+      ...buildAgent({ toolGroups: ['这一列不该被读到'] }),
+      defaultFlowVersion: { definition: createFlowDefinitionPreset('react') },
+    } as never);
+
+    const result = await service.get('agent-id');
+
+    expect(result.toolGroups).toEqual(['default']);
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { id: 'agent-id' },
+      include: { defaultFlowVersion: { select: { definition: true } } },
+    });
+  });
+
+  it('未绑定 Flow 时按内置 direct 形态推导', async () => {
+    // ⚠️ 这条区分不了「从预设推导」与「写死空数组」：direct 预设的工具组恒为空，两种
+    // 实现当前行为完全等价。断言写成调用 collectFlowToolGroups 是为了让期望值跟着预设
+    // 走——内置形态哪天带上工具，这条会自动开始有区分力，而不需要有人记得回来改。
+    findUnique.mockResolvedValue({
+      ...buildAgent({ toolGroups: ['这一列不该被读到'] }),
+      defaultFlowVersion: null,
+    } as never);
+
+    const result = await service.get('agent-id');
+
+    expect(result.toolGroups).toEqual(
+      collectFlowToolGroups(createFlowDefinitionPreset('direct')),
+    );
+  });
+
+  it('绑定版本的 Definition 损坏时标签为空，不让列表整个报错', async () => {
+    findUnique.mockResolvedValue({
+      ...buildAgent(),
+      defaultFlowVersion: { definition: { nonsense: true } },
+    } as never);
+
+    await expect(service.get('agent-id')).resolves.toMatchObject({
+      toolGroups: [],
+    });
+  });
+
   it('切换默认智能体时在事务内清除旧默认并设置目标后失效缓存', async () => {
     const target = buildAgent({ id: 'target-id' });
     findUnique.mockResolvedValue(target);
@@ -141,6 +187,9 @@ describe('AgentService', () => {
     expect(update).toHaveBeenCalledWith({
       where: { id: target.id },
       data: { isDefault: true },
+      // 必须带上 include：响应里的 toolGroups 从绑定 Flow 的 Definition 推导，
+      // 漏了不会报错，只会静默返回空标签
+      include: { defaultFlowVersion: { select: { definition: true } } },
     });
     expect(updateMany.mock.invocationCallOrder[0]).toBeLessThan(
       update.mock.invocationCallOrder[0],

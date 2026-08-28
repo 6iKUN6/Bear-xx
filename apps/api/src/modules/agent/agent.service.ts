@@ -5,6 +5,9 @@ import {
 } from '@nestjs/common';
 import { AgentFlowVersionStatus, type Agent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
+import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
+import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
 import { AgentDefinitionService } from './agent-definition.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
@@ -27,12 +30,16 @@ export class AgentService {
   async list(): Promise<AgentResponseDto[]> {
     const agents = await this.prisma.agent.findMany({
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      include: AGENT_FLOW_INCLUDE,
     });
     return agents.map((agent) => this.toResponse(agent));
   }
 
   async get(id: string): Promise<AgentResponseDto> {
-    const agent = await this.prisma.agent.findUnique({ where: { id } });
+    const agent = await this.prisma.agent.findUnique({
+      where: { id },
+      include: AGENT_FLOW_INCLUDE,
+    });
     if (!agent) {
       throw new NotFoundException('智能体不存在');
     }
@@ -42,6 +49,7 @@ export class AgentService {
   async create(dto: CreateAgentDto, userId: string): Promise<AgentResponseDto> {
     await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
     const agent = await this.prisma.agent.create({
+      include: AGENT_FLOW_INCLUDE,
       data: {
         name: dto.name,
         description: dto.description ?? '',
@@ -49,11 +57,6 @@ export class AgentService {
         systemPrompt: dto.systemPrompt ?? null,
         modelPreset: dto.modelPreset ?? null,
         defaultFlowVersionId: dto.defaultFlowVersionId ?? null,
-        defaultStrategy: dto.defaultStrategy ?? undefined,
-        allowedStrategies: dto.allowedStrategies ?? [],
-        toolGroups: dto.toolGroups ?? [],
-        skills: dto.skills ?? [],
-        maxSteps: dto.maxSteps ?? null,
         enabled: dto.enabled ?? true,
         createdById: userId,
       },
@@ -72,11 +75,6 @@ export class AgentService {
       systemPrompt: dto.systemPrompt,
       modelPreset: dto.modelPreset,
       defaultFlowVersionId: dto.defaultFlowVersionId,
-      defaultStrategy: dto.defaultStrategy,
-      allowedStrategies: dto.allowedStrategies,
-      toolGroups: dto.toolGroups,
-      skills: dto.skills,
-      maxSteps: dto.maxSteps,
       enabled: dto.enabled,
     };
 
@@ -89,7 +87,11 @@ export class AgentService {
         if (currentAgent.isDefault) {
           throw new BadRequestException('默认智能体不可停用');
         }
-        return tx.agent.update({ where: { id }, data });
+        return tx.agent.update({
+          where: { id },
+          data,
+          include: AGENT_FLOW_INCLUDE,
+        });
       });
 
       this.agentDefinitionService.invalidate();
@@ -97,7 +99,11 @@ export class AgentService {
     }
 
     await this.ensureExists(id);
-    const agent = await this.prisma.agent.update({ where: { id }, data });
+    const agent = await this.prisma.agent.update({
+      where: { id },
+      data,
+      include: AGENT_FLOW_INCLUDE,
+    });
     this.agentDefinitionService.invalidate();
     return this.toResponse(agent);
   }
@@ -125,6 +131,7 @@ export class AgentService {
       return tx.agent.update({
         where: { id },
         data: { isDefault: true },
+        include: AGENT_FLOW_INCLUDE,
       });
     });
 
@@ -208,7 +215,7 @@ export class AgentService {
     }
   }
 
-  private toResponse(agent: Agent): AgentResponseDto {
+  private toResponse(agent: AgentWithFlow): AgentResponseDto {
     return {
       id: agent.id,
       name: agent.name,
@@ -217,15 +224,49 @@ export class AgentService {
       systemPrompt: agent.systemPrompt,
       modelPreset: agent.modelPreset,
       defaultFlowVersionId: agent.defaultFlowVersionId,
-      defaultStrategy: agent.defaultStrategy,
-      allowedStrategies: agent.allowedStrategies,
-      toolGroups: agent.toolGroups,
-      skills: agent.skills,
-      maxSteps: agent.maxSteps,
+      toolGroups: resolveAgentToolGroups(agent.defaultFlowVersion?.definition),
       enabled: agent.enabled,
       isDefault: agent.isDefault,
       createdAt: agent.createdAt.getTime(),
       updatedAt: agent.updatedAt.getTime(),
     };
   }
+}
+
+/**
+ * 读取智能体时一并取出绑定 Flow 的 Definition
+ * @description 工具组要从图上推导，逐个再查一次就是 N+1。
+ */
+const AGENT_FLOW_INCLUDE = {
+  defaultFlowVersion: { select: { definition: true } },
+} as const;
+
+/** Agent 行加上绑定 Flow 版本的 Definition。 */
+type AgentWithFlow = Agent & {
+  /**
+   * 绑定版本的 Definition
+   * @description 刻意**不可选**：写成可选的话，忘了带 `AGENT_FLOW_INCLUDE` 的查询依然
+   * 编译通过，只是运行时静默返回空工具组——那种错误要靠肉眼看界面才会发现。
+   */
+  defaultFlowVersion: { definition: Prisma.JsonValue } | null;
+};
+
+/**
+ * 推导一个智能体可用的工具组
+ * @param boundDefinition 绑定 FlowVersion 的 Definition 原文；未绑定时为空
+ * @returns 返回可直接展示的工具组名
+ * @description 未绑定 Flow 的智能体执行内置 direct Flow，因此这里取同一份代码预设去算，
+ * 而不是写死一个空数组——内置形态哪天加了工具，展示会跟着变，不会静默漂移。
+ *
+ * Definition 解析失败时返回空数组：这是个纯展示字段，为了它让整个智能体列表报错不值得；
+ * 真正的契约不兼容会在任务创建与画布读取时被明确拒绝。
+ */
+function resolveAgentToolGroups(
+  boundDefinition: Prisma.JsonValue | null | undefined,
+): string[] {
+  if (!boundDefinition) {
+    return [...collectFlowToolGroups(createFlowDefinitionPreset('direct'))];
+  }
+  const parsed = validateFlowDefinition(boundDefinition);
+  return parsed.success ? [...collectFlowToolGroups(parsed.definition)] : [];
 }

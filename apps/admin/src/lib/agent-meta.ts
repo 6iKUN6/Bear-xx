@@ -10,6 +10,10 @@ export interface StrategyMeta {
   desc: string;
 }
 
+/**
+ * @deprecated 编排策略已由 Flow 取代，Agent 上不再有 defaultStrategy/allowedStrategies。
+ * 保留是因为历史 trace 里仍有 STRATEGY_DECISION 记录需要展示策略名。
+ */
 export const STRATEGY_OPTIONS: StrategyMeta[] = [
   {
     value: "AUTO",
@@ -43,6 +47,9 @@ const strategyMetaByValue = new Map(
 );
 
 /** 策略中文名；未知值回退原始枚举串 */
+/**
+ * @deprecated 同 STRATEGY_OPTIONS；仅历史 trace 展示还会用到。
+ */
 export function strategyName(value: string): string {
   return strategyMetaByValue.get(value as AgentStrategy)?.name ?? value;
 }

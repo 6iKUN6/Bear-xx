@@ -1,15 +1,4 @@
-import { AgentStrategy } from '@prisma/client';
-import {
-  IsArray,
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateAgentDto {
@@ -58,52 +47,6 @@ export class CreateAgentDto {
   @IsOptional()
   @IsString()
   defaultFlowVersionId?: string | null;
-
-  @ApiPropertyOptional({
-    description: '默认/强制策略；AUTO=自动路由，具体值=强制',
-    enum: AgentStrategy,
-    default: AgentStrategy.AUTO,
-  })
-  @IsOptional()
-  @IsEnum(AgentStrategy)
-  defaultStrategy?: AgentStrategy;
-
-  @ApiPropertyOptional({
-    description: '允许使用的策略集合；空=不限制（全部已安装）',
-    enum: AgentStrategy,
-    isArray: true,
-  })
-  @IsOptional()
-  @IsArray()
-  @IsEnum(AgentStrategy, { each: true })
-  allowedStrategies?: AgentStrategy[];
-
-  @ApiPropertyOptional({
-    description: '允许的工具组；空=不覆盖',
-    example: ['default'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  toolGroups?: string[];
-
-  @ApiPropertyOptional({ description: '附加技能名；空=不覆盖' })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  skills?: string[];
-
-  @ApiPropertyOptional({
-    description: '步数预算；留空=不覆盖',
-    example: 6,
-    minimum: 1,
-    maximum: 10,
-  })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(10)
-  maxSteps?: number;
 
   @ApiPropertyOptional({ description: '是否启用', default: true })
   @IsOptional()

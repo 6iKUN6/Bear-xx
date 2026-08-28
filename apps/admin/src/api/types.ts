@@ -172,6 +172,9 @@ export interface AgentCapabilities {
   modelPresets: ModelPresetOption[];
 }
 
+/**
+ * @deprecated Agent 上已不再有策略字段；保留供历史 trace 的 STRATEGY_DECISION 展示。
+ */
 export type AgentStrategy =
   | "AUTO"
   | "DIRECT"
@@ -186,13 +189,10 @@ export interface Agent {
   avatar: string | null;
   systemPrompt: string | null;
   modelPreset: string | null;
-  /** 绑定的已发布 FlowVersion；null = 沿用历史策略配置，不走 Flow 链路 */
+  /** 绑定的已发布 FlowVersion；null = 执行内置的直接回复 Flow */
   defaultFlowVersionId: string | null;
-  defaultStrategy: AgentStrategy;
-  allowedStrategies: AgentStrategy[];
+  /** 可用工具组，仅供展示；执行用的工具由 Flow 节点声明 */
   toolGroups: string[];
-  skills: string[];
-  maxSteps: number | null;
   enabled: boolean;
   isDefault: boolean;
   createdAt: number;
@@ -344,10 +344,5 @@ export interface AgentInput {
   systemPrompt?: string | null;
   modelPreset?: string | null;
   defaultFlowVersionId?: string | null;
-  defaultStrategy?: AgentStrategy;
-  allowedStrategies?: AgentStrategy[];
-  toolGroups?: string[];
-  skills?: string[];
-  maxSteps?: number | null;
   enabled?: boolean;
 }
