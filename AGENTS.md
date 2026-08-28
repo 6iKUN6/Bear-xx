@@ -176,6 +176,10 @@ node apps/api/scripts/debug-{tool-call,agent,hitl,planner,router}.cjs
 - 修改或开发完一个功能后，**未经用户明确要求不要 `git commit`**；先留在工作区等 review。
 - 用户要求提交时，遵循 [ContributionGuide.md](ContributionGuide.md) 的 commitlint 格式、scope 与分类提交原则。
 - commitlint `subject-case` 禁止 subject 以大写词开头：subject 用中文或小写起头（`HITL`/`Redis` 等大写词放句中）。
+  实际被拒过的例子：`feat(admin): Flow 列表…`、`chore(mobile): TabBar 标记废弃`。改成
+  「让 Flow 成为…」「标记废弃已下线的 TabBar」即可。
+  ⚠️ 被拒后**暂存区不会回滚**：如果那条命令里先 `git add` 了文件，它们会留在暂存区被下一次
+  commit 一起带走，造成「消息与内容不符」的提交。重提前先 `git status` 确认。
 - 结构性大改按逻辑拆成多个可独立 review 的 commit。
 
 ## 维护本文（自进化）

@@ -332,7 +332,25 @@ pnpm run dev:docker:up      # = docker compose up --build，镜像构建期重�
 - 必要时写数据迁移逻辑
 - 不要默认可以直接清库
 
-### 4. 模型命名
+### 4. 改完 schema 之后
+
+开发容器的根 `/workspace/node_modules` 是**镜像层、每容器一份**，不是卷，而 Prisma
+Client 就生成在那里。`apps/api/node_modules/@prisma/client` 虽然在共享卷里，但只是软链，
+指回各容器自己的镜像层——**卷共享给不了 client 共享**。
+
+compose 已给三个应用服务的 command 前置了 `db:generate`，所以只需重启，不必重新构建：
+
+```bash
+pnpm --filter ./apps/api run db:migrate       # 宿主机，由用户执行
+docker compose restart app temporal-orchestrator-worker temporal-activity-worker
+```
+
+**顺序不能反**：先重启的话容器生成的还是旧 schema 的 client。
+
+漏做的后果是静默的：worker 会因为缺少新模型的类型而崩溃重启，前端只表现为接口
+`ERR_EMPTY_RESPONSE` 或 Flow 任务不动，控制台里看不出跟数据库有关。
+
+### 5. 模型命名
 
 Prisma 模型和字段命名应优先保持业务语义一致，不为短而短。
 
@@ -381,6 +399,14 @@ Prisma 模型和字段命名应优先保持业务语义一致，不为短而短�
 - conversation e2e
 - chat task create e2e
 - stream-task status/resume/cancel e2e
+
+### 偶发失败先重跑
+
+`src/temporal/workflows/agent-flow.workflow.spec.ts` 跑的是**真实 Temporal 服务端**
+（`TestWorkflowEnvironment.createTimeSkipping`），对时序敏感，偶发单个失败。看到单个
+用例挂掉先重跑一次，两次都挂再当真。
+
+其余用例都是替身，不应有偶发；那里挂了就是真问题。
 
 ## 提交前检查
 
