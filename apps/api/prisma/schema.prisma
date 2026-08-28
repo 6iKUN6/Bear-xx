@@ -120,8 +120,10 @@ enum StorageAssetStatus {
   DELETED
 }
 
-/// 数据化的智能体定义：把原本写死的 system prompt / 工具组 / 执行策略变成可管理的一等实体。
-/// 空/AUTO 字段表示"不覆盖"（沿用消息驱动的默认行为），而非"空集"。
+/// 智能体 = 身份 + 执行绑定。身份是 name/avatar/systemPrompt，执行绑定是 defaultFlowVersionId。
+/// 模型、工具、技能与编排全部在 Flow 节点上声明；modelPreset 只作为 Flow 节点写
+/// `agent-default` 时的解析源，不是"这个智能体用什么模型"。
+/// defaultFlowVersionId 为 null 时执行内置的「直接回复」Flow。
 model Agent {
   id                   String            @id @default(cuid())
   name                 String
@@ -130,11 +132,6 @@ model Agent {
   avatar               String?
   systemPrompt         String?           @map("system_prompt") @db.Text
   modelPreset          String?           @map("model_preset")
-  defaultStrategy      AgentStrategy     @default(AUTO) @map("default_strategy")
-  allowedStrategies    AgentStrategy[]   @default([]) @map("allowed_strategies")
-  toolGroups           String[]          @default([]) @map("tool_groups")
-  skills               String[]          @default([])
-  maxSteps             Int?              @map("max_steps")
   enabled              Boolean           @default(true)
   isDefault            Boolean           @default(false) @map("is_default")
   defaultFlowVersionId String?           @map("default_flow_version_id")
@@ -707,14 +704,6 @@ enum UserRole {
 enum ConversationType {
   SINGLE
   GROUP
-}
-
-enum AgentStrategy {
-  AUTO
-  DIRECT
-  REACT
-  PLAN_EXECUTE
-  HYBRID
 }
 
 enum AgentFlowVersionStatus {

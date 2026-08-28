@@ -1,6 +1,11 @@
-import { AgentStrategy } from '@prisma/client';
 import { AgentDefinitionService } from './agent-definition.service';
-import { AgentStrategyMode } from '../ai/agent-loop/agent-loop.types';
+
+/**
+ * @deprecated 随 agent-definition.service 一起废弃。
+ *
+ * 「枚举映射与 AUTO 过滤」那条用例已删除：策略/工具组/技能/步数四类列随方案 A 移除，
+ * 那段行为不再存在。剩下的两条（无行时回退合成默认、缓存与失效）仍描述真实行为。
+ */
 
 function buildService(findFirst: jest.Mock) {
   const prisma = { agent: { findFirst } };
@@ -13,11 +18,6 @@ const row = (over: Record<string, unknown> = {}) => ({
   description: '',
   systemPrompt: null,
   modelPreset: null,
-  defaultStrategy: AgentStrategy.AUTO,
-  allowedStrategies: [],
-  toolGroups: [],
-  skills: [],
-  maxSteps: null,
   enabled: true,
   isDefault: false,
   createdById: null,
@@ -39,31 +39,6 @@ describe('AgentDefinitionService', () => {
       skills: [],
       maxSteps: null,
     });
-  });
-
-  it('maps Prisma enums to lowercase modes and filters AUTO from allowed', async () => {
-    const service = buildService(
-      jest.fn().mockResolvedValue(
-        row({
-          defaultStrategy: AgentStrategy.REACT,
-          allowedStrategies: [
-            AgentStrategy.AUTO,
-            AgentStrategy.REACT,
-            AgentStrategy.DIRECT,
-          ],
-          toolGroups: ['default'],
-          maxSteps: 4,
-        }),
-      ),
-    );
-    const def = await service.resolve('a1');
-    expect(def.defaultStrategy).toBe(AgentStrategyMode.ReAct);
-    expect(def.allowedStrategies).toEqual([
-      AgentStrategyMode.ReAct,
-      AgentStrategyMode.Direct,
-    ]);
-    expect(def.toolGroups).toEqual(['default']);
-    expect(def.maxSteps).toBe(4);
   });
 
   it('caches by key and re-queries after invalidate', async () => {

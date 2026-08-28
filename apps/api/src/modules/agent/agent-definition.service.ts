@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { AgentStrategy, type Agent } from '@prisma/client';
+import type { Agent } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  AgentStrategyMode,
-  type AgentDefaultStrategy,
-  type AgentDefinition,
-} from '../ai/agent-loop/agent-loop.types';
+import { type AgentDefinition } from '../ai/agent-loop/agent-loop.types';
 
 /**
  * @deprecated 旧编排链路，**已不可达**，等待删除。
@@ -24,16 +20,6 @@ import {
 const DEFAULT_CACHE_KEY = '__default__';
 
 /** Prisma AgentStrategy → 内部 AgentStrategyMode（AUTO 无对应，单独处理） */
-const STRATEGY_MODE_MAP: Record<
-  Exclude<AgentStrategy, 'AUTO'>,
-  AgentStrategyMode
-> = {
-  [AgentStrategy.DIRECT]: AgentStrategyMode.Direct,
-  [AgentStrategy.REACT]: AgentStrategyMode.ReAct,
-  [AgentStrategy.PLAN_EXECUTE]: AgentStrategyMode.PlanExecute,
-  [AgentStrategy.HYBRID]: AgentStrategyMode.Hybrid,
-};
-
 /** DB 无 agent 时的合成默认定义：全部"不覆盖"，复刻当前默认行为 */
 const SYNTHETIC_DEFAULT: AgentDefinition = {
   systemPrompt: null,
@@ -89,25 +75,15 @@ export class AgentDefinitionService {
 
   /**
    * Prisma 行 → 内部定义
-   * @description 枚举转小写 mode；allowedStrategies 过滤掉 AUTO（仅具体策略有意义）。
    */
   private toDefinition(row: Agent): AgentDefinition {
+    // 策略、工具组、技能、步数四类字段的数据库列已随方案 A 删除（工具只在 Flow 节点上
+    // 声明）。本链路已不可达，因此这里让它们保持「不覆盖」缺省值，只为让这段废弃代码继续
+    // 编译——不代表运行时还有这套语义。整条链删除时这个方法一并消失。
     return {
+      ...SYNTHETIC_DEFAULT,
       systemPrompt: row.systemPrompt,
       modelPreset: row.modelPreset,
-      defaultStrategy: this.toDefaultStrategy(row.defaultStrategy),
-      allowedStrategies: row.allowedStrategies
-        .filter(
-          (s): s is Exclude<AgentStrategy, 'AUTO'> => s !== AgentStrategy.AUTO,
-        )
-        .map((s) => STRATEGY_MODE_MAP[s]),
-      toolGroups: row.toolGroups,
-      skills: row.skills,
-      maxSteps: row.maxSteps,
     };
-  }
-
-  private toDefaultStrategy(value: AgentStrategy): AgentDefaultStrategy {
-    return value === AgentStrategy.AUTO ? 'auto' : STRATEGY_MODE_MAP[value];
   }
 }

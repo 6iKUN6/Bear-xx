@@ -1,6 +1,6 @@
 import { randomBytes, scrypt as scryptCallback } from 'crypto';
 import { promisify } from 'util';
-import { AgentStrategy, PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const scrypt = promisify(scryptCallback);
@@ -58,14 +58,10 @@ async function main() {
     await prisma.agent.create({
       data: {
         name: '通用助手',
-        description: '默认对话智能体，行为与内置默认一致',
+        description: '默认对话智能体；未绑定 Flow 时执行内置的直接回复',
         systemPrompt: null,
+        // 留空即执行内置的「直接回复」Flow；模型由部署方在后台配置后再填
         modelPreset: null,
-        defaultStrategy: AgentStrategy.AUTO,
-        allowedStrategies: [],
-        toolGroups: [],
-        skills: [],
-        maxSteps: null,
         enabled: true,
         isDefault: true,
       },

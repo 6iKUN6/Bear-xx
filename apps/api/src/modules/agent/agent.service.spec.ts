@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { Agent, AgentStrategy, Prisma } from '@prisma/client';
+import { Agent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDefinitionService } from './agent-definition.service';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
@@ -51,11 +51,6 @@ function buildAgent(overrides: Partial<Agent> = {}): Agent {
     avatar: null,
     systemPrompt: null,
     modelPreset: null,
-    defaultStrategy: AgentStrategy.AUTO,
-    allowedStrategies: [],
-    toolGroups: [],
-    skills: [],
-    maxSteps: null,
     enabled: true,
     isDefault: false,
     defaultFlowVersionId: null,
@@ -120,11 +115,10 @@ describe('AgentService', () => {
     service = module.get(AgentService);
   });
 
-  it('工具标签从绑定 Flow 的图上推导，不读 Agent 那一列', async () => {
-    // 收敛后 Agent.toolGroups 已不驱动执行；展示仍读它就会与实际能调的长期不一致。
-    // 因此把两边设成相反的值：图上有 default，列上是别的东西
+  it('工具标签从绑定 Flow 的图上推导', async () => {
+    // Agent.toolGroups 那一列已随方案 A 删除，工具只在 Flow 节点上声明
     findUnique.mockResolvedValue({
-      ...buildAgent({ toolGroups: ['这一列不该被读到'] }),
+      ...buildAgent(),
       defaultFlowVersion: { definition: createFlowDefinitionPreset('react') },
     } as never);
 
@@ -142,7 +136,7 @@ describe('AgentService', () => {
     // 实现当前行为完全等价。断言写成调用 collectFlowToolGroups 是为了让期望值跟着预设
     // 走——内置形态哪天带上工具，这条会自动开始有区分力，而不需要有人记得回来改。
     findUnique.mockResolvedValue({
-      ...buildAgent({ toolGroups: ['这一列不该被读到'] }),
+      ...buildAgent(),
       defaultFlowVersion: null,
     } as never);
 
