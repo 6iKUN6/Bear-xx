@@ -14,12 +14,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/kpi-card";
-import { AgentFormSheet } from "@/components/agent-form-sheet";
+import { AgentFormDialog } from "@/components/agent-form-dialog";
 import { AgentAvatar } from "@/components/agent-identity";
 import { useAgents, useAgentMutations } from "@/hooks/queries";
 import { ApiError } from "@/api/client";
 import type { Agent } from "@/api/types";
-import { strategyName, toolGroupName } from "@/lib/agent-meta";
+import { toolGroupName } from "@/lib/agent-meta";
 
 export function AgentManagePage() {
   const { data, isLoading } = useAgents();
@@ -80,7 +80,7 @@ export function AgentManagePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>名称</TableHead>
-                  <TableHead>策略</TableHead>
+                  <TableHead>编排</TableHead>
                   <TableHead>工具组</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
@@ -112,8 +112,12 @@ export function AgentManagePage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
-                        {strategyName(a.defaultStrategy)}
+                      {/* 绑定的 Flow 才是决定行为的东西；不展开图名是为了不给列表页
+                          多加一次 Flow 列表请求，详情在编辑抽屉里 */}
+                      <Badge
+                        variant={a.defaultFlowVersionId ? "default" : "outline"}
+                      >
+                        {a.defaultFlowVersionId ? "已绑定 Flow" : "内置直接回复"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
@@ -171,7 +175,7 @@ export function AgentManagePage() {
         </CardContent>
       </Card>
 
-      <AgentFormSheet
+      <AgentFormDialog
         agent={editing}
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
