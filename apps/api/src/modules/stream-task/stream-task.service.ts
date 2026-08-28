@@ -556,6 +556,14 @@ export class StreamTaskService {
         });
       }
 
+      // 先锁定 Flow 快照：它会把「没指定 Agent」回落到 isDefault，而助手消息与流式任务
+      // 都必须记录那个**真实执行者**。只在解析时用回落结果、不写回去的话，任务上的
+      // agentId 仍是 null，Activity 读不到模型与人设，会以快照不一致失败。
+      const flowSnapshot =
+        await this.flowTaskDispatcher.resolveTaskFlowSnapshot(tx, {
+          agentId,
+        });
+
       //assistant 消息入库（agentId 记录发言者，供群聊消息归属与身份感知上下文）
       const assistantMessage = await tx.message.create({
         data: {
@@ -563,11 +571,13 @@ export class StreamTaskService {
           content: '',
           status: MessageStatus.STREAMING,
           conversationId: targetConversationId,
-          agentId: agentId ?? null,
+          agentId: flowSnapshot.agentId,
         },
       });
 
       // 首次被 @ 的智能体自动加入群成员（仅 GROUP；幂等）。SINGLE 保持绑定语义不动。
+      // 这里刻意用入参 agentId 而不是快照里的：回落到的默认 Agent 没被 @ 过，
+      // 不该因为回答了一句就成为群成员。
       if (agentId) {
         await tx.conversation.updateMany({
           where: {
@@ -580,21 +590,17 @@ export class StreamTaskService {
       }
 
       //流式任务入库
-      const flowSnapshot =
-        await this.flowTaskDispatcher.resolveTaskFlowSnapshot(tx, {
-          agentId,
-        });
       const task = await tx.streamTask.create({
         data: {
           type,
           status: StreamTaskStatus.PENDING,
           userId,
-          agentId: agentId ?? null,
           isTest,
           conversationId: targetConversationId,
           messageId: assistantMessage.id,
           requestPayload,
-          ...(flowSnapshot ?? {}),
+          // agentId 来自快照（可能是回落到的 isDefault Agent），不是入参
+          ...flowSnapshot,
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),
         },
       });

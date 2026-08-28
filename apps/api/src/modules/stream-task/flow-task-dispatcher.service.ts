@@ -11,6 +11,16 @@ export interface FlowTaskSnapshot {
   flowVersionId: string;
   flowDigest: string;
   currentStep: string;
+  /**
+   * 本轮实际执行的 Agent
+   * @description 必须一并写进 StreamTask：Activity 的 `loadExecutionContext` 要靠
+   * `task.agentId` 读模型与人设，缺了就抛 AGENT_FLOW_TASK_SNAPSHOT_MISMATCH。
+   *
+   * 没有指定 Agent 时这里是回落到的 `isDefault` Agent。只在解析时用它、不写回任务的话，
+   * 派发用的是它的模型、执行时却发现任务上没有 Agent——历史上没有 defaultAgentId 的
+   * 会话就是这样失败的。
+   */
+  agentId: string;
 }
 
 /** 派发一个已冻结 Flow 任务所需的最小持久化字段。 */
@@ -45,20 +55,23 @@ export class FlowTaskDispatcherService {
    * 解析任务应锁定的已发布 Flow 快照
    * @param tx 当前创建 StreamTask 所在的 Prisma 事务客户端
    * @param input 包含回答 Agent 的任务创建上下文
-   * @returns 返回可写入 StreamTask 的 Flow 快照；库中一个可用 Agent 都没有时返回 null
+   * @returns 返回可写入 StreamTask 的 Flow 快照；找不到可用 Agent 时抛错
    * @description **Flow 是唯一编排路径**：所有聊天都从这里取图，不再有「绑了 Flow 才走 Flow」
    * 的分叉。Agent 绑没绑 Flow 只决定用哪张图——绑了用它的，没绑用内置直接回复 Flow。
    *
    * 没有指定 Agent 时回落到 `isDefault` 的 Agent：内置 Flow 里的 `agent-default` 需要一个
-   * 具体的模型来源，而"没有 Agent"提供不了。库里连 isDefault 都没有才返回 null——那种情况下
-   * 旧链路也答不出什么，但让它继续走旧链路比在这里抛错温和。
+   * 具体的模型来源，而"没有 Agent"提供不了。
+   *
+   * 找不到可用 Agent 时**明确失败**，不返回 null。返回 null 会让任务落回已被废弃的旧编排
+   * 链路，那是一条不可达的路；而"系统一个可用智能体都没有"本就是必须立刻发现的配置事故，
+   * 不该被一句含糊的回复盖住。
    *
    * 查询与校验都在创建 StreamTask 的同一事务内，防止任务后续读到 Agent 改绑后的 FlowVersion。
    */
   async resolveTaskFlowSnapshot(
     tx: Prisma.TransactionClient,
     input: { agentId?: string },
-  ): Promise<FlowTaskSnapshot | null> {
+  ): Promise<FlowTaskSnapshot> {
     const agentSelect = {
       modelPreset: true,
       defaultFlowVersion: {
@@ -73,14 +86,20 @@ export class FlowTaskDispatcherService {
     const agent = input.agentId
       ? await tx.agent.findUnique({
           where: { id: input.agentId },
-          select: agentSelect,
+          select: { id: true, ...agentSelect },
         })
       : await tx.agent.findFirst({
           where: { isDefault: true, enabled: true },
-          select: agentSelect,
+          select: { id: true, ...agentSelect },
         });
     if (!agent) {
-      return null;
+      // 明确失败而不是返回 null：返回 null 会让任务落回已被删除的旧编排链路，那是一条
+      // 不存在的路；而「系统一个可用智能体都没有」本就是必须立刻发现的配置事故
+      throw new BadRequestException(
+        input.agentId
+          ? '指定的智能体不存在或已停用'
+          : '系统未配置可用的默认智能体，请先在后台启用一个',
+      );
     }
     const bound = agent.defaultFlowVersion;
     const flowVersion = bound ?? (await this.builtinFlow.findDirectVersion(tx));
@@ -130,6 +149,7 @@ export class FlowTaskDispatcherService {
       flowVersionId: flowVersion.id,
       flowDigest: flowVersion.digest,
       currentStep: entryNode.id,
+      agentId: agent.id,
     };
   }
 

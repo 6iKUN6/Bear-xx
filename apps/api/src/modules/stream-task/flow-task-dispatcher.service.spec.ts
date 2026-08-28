@@ -60,6 +60,7 @@ describe('FlowTaskDispatcherService', () => {
   it('仅为测试会话锁定 Agent 已发布 FlowVersion', async () => {
     const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
       modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: {
         id: 'flow-version-1',
@@ -79,6 +80,7 @@ describe('FlowTaskDispatcherService', () => {
       flowDigest: 'a'.repeat(64),
       // 入口现在是声明式的 start 节点，不再是「第一个没有入边的业务节点」
       currentStep: 'start',
+      agentId: 'agent-1',
     });
   });
 
@@ -114,6 +116,7 @@ describe('FlowTaskDispatcherService', () => {
     // 这条替代了原先的「普通聊天不查询 FlowVersion」：Flow 已是唯一编排路径
     const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
       modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: null,
     });
@@ -131,6 +134,7 @@ describe('FlowTaskDispatcherService', () => {
     // 现存 34 个单聊里有 17 个没有 defaultAgentId，这条路径不是边角情况。
     const { service, prisma } = createService();
     prisma.agent.findFirst.mockResolvedValue({
+      id: 'default-agent-id',
       modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: null,
     });
@@ -146,18 +150,21 @@ describe('FlowTaskDispatcherService', () => {
       }),
     );
     expect(snapshot?.flowVersionId).toBe('builtin-version-1');
+    // 回落到的 Agent 必须回传，调用方要把它写进 StreamTask 与助手消息。只在解析时
+    // 用、不写回去，任务上的 agentId 就是 null，Activity 会以快照不一致失败——
+    // 历史上没有 defaultAgentId 的会话就是这样断的
+    expect(snapshot?.agentId).toBe('default-agent-id');
   });
 
-  it('连 isDefault Agent 都没有时返回 null', async () => {
+  it('连 isDefault Agent 都没有时明确失败', async () => {
+    // 返回 null 会让任务落回已被废弃的旧编排链路，那是一条不可达的路；而「系统一个
+    // 可用智能体都没有」本就是必须立刻发现的配置事故
     const { service, prisma } = createService();
     prisma.agent.findFirst.mockResolvedValue(null);
 
-    const snapshot = await service.resolveTaskFlowSnapshot(
-      { agent: prisma.agent } as never,
-      {},
-    );
-
-    expect(snapshot).toBeNull();
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {}),
+    ).rejects.toThrow('系统未配置可用的默认智能体');
   });
 
   it('使用 StreamTask ID 幂等启动 Temporal 并保存执行标识', async () => {
@@ -213,6 +220,7 @@ describe('FlowTaskDispatcherService', () => {
     // 这条是方案 A 的地基：Agent 绑没绑 Flow 不再决定走哪套编排，只决定用哪张图
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
       modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: null,
     });
@@ -230,12 +238,14 @@ describe('FlowTaskDispatcherService', () => {
       flowVersionId: 'builtin-version-1',
       flowDigest: 'b'.repeat(64),
       currentStep: 'start',
+      agentId: 'agent-1',
     });
   });
 
   it('绑定了 Flow 时不去读内置 Flow', async () => {
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
       modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: {
         id: 'flow-version-1',
@@ -262,6 +272,7 @@ describe('FlowTaskDispatcherService', () => {
     // 走了哪套编排的回复
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
       modelPreset: 'openai:gpt-5.5',
       defaultFlowVersion: null,
     });
@@ -275,19 +286,15 @@ describe('FlowTaskDispatcherService', () => {
     ).rejects.toThrow('内置 Flow 尚未初始化');
   });
 
-  it('Agent 不存在时返回 null，不去跑内置 Flow', async () => {
+  it('指定的 Agent 不存在时明确失败，不去跑内置 Flow', async () => {
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue(null);
 
-    const snapshot = await service.resolveTaskFlowSnapshot(
-      { agent: prisma.agent } as never,
-      {
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
         agentId: 'missing',
-        isTest: true,
-      },
-    );
-
-    expect(snapshot).toBeNull();
+      }),
+    ).rejects.toThrow('指定的智能体不存在或已停用');
     expect(builtinFlow.findDirectVersion).not.toHaveBeenCalled();
   });
 });
