@@ -1,6 +1,7 @@
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { LlmService } from '../llm/llm.service';
 import { GroupRouterService } from './group-router.service';
+import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
 
 describe('GroupRouterService', () => {
   /**
@@ -28,14 +29,14 @@ describe('GroupRouterService', () => {
       id: 'agent-general',
       name: '通用助手',
       description: '全能对话',
-      toolGroups: ['default'],
+      ...boundFlowWith(['default']),
       isDefault: true,
     },
     {
       id: 'agent-painter',
       name: '画师',
       description: '文生图',
-      toolGroups: ['image-gen'],
+      ...boundFlowWith(['image-gen']),
       isDefault: false,
     },
   ];
@@ -182,3 +183,26 @@ describe('GroupRouterService', () => {
     expect(result.source).toBe('fallback');
   });
 });
+
+/**
+ * 构造一个「绑定了含指定工具组的 Flow」的成员
+ * @param toolGroups 该成员 agent 节点上声明的工具组
+ * @returns 返回可交给 prisma 替身的绑定投影
+ * @description 能力标签已改为从绑定 Flow 的图上推导，替身必须给出真实 Definition 而不是
+ * 一个 toolGroups 数组——否则测的就不是现在的链路。以 react 预设为底改工具组，保证图合法。
+ */
+function boundFlowWith(toolGroups: string[]) {
+  const preset = createFlowDefinitionPreset('react');
+  return {
+    defaultFlowVersion: {
+      definition: {
+        ...preset,
+        nodes: preset.nodes.map((node) =>
+          node.type === 'agent'
+            ? { ...node, config: { ...node.config, toolGroups } }
+            : node,
+        ),
+      },
+    },
+  };
+}

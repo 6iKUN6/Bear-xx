@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ChatContextService } from './chat-context.service';
 import { ConversationSummaryService } from './conversation-summary.service';
 import { CHAT_CONTEXT_RECENT_MESSAGE_LIMIT } from './memory.constants';
+import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
 
 describe('ChatContextService', () => {
   /**
@@ -178,13 +179,13 @@ describe('ChatContextService', () => {
         id: 'agent-painter',
         name: '画师一号',
         description: '文生图',
-        toolGroups: ['image-gen'],
+        ...boundFlowWith(['image-gen']),
       },
       {
         id: 'agent-general',
         name: '通用助手',
         description: '',
-        toolGroups: ['default'],
+        ...boundFlowWith(['default']),
       },
     ]);
 
@@ -245,3 +246,26 @@ describe('ChatContextService', () => {
     ]);
   });
 });
+
+/**
+ * 构造一个「绑定了含指定工具组的 Flow」的成员
+ * @param toolGroups 该成员 agent 节点上声明的工具组
+ * @returns 返回可交给 prisma 替身的绑定投影
+ * @description 能力标签已改为从绑定 Flow 的图上推导，替身必须给出真实 Definition 而不是
+ * 一个 toolGroups 数组——否则测的就不是现在的链路。以 react 预设为底改工具组，保证图合法。
+ */
+function boundFlowWith(toolGroups: string[]) {
+  const preset = createFlowDefinitionPreset('react');
+  return {
+    defaultFlowVersion: {
+      definition: {
+        ...preset,
+        nodes: preset.nodes.map((node) =>
+          node.type === 'agent'
+            ? { ...node, config: { ...node.config, toolGroups } }
+            : node,
+        ),
+      },
+    },
+  };
+}

@@ -1,4 +1,6 @@
+import type { Prisma } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
+import { validateFlowDefinition } from './flow-definition.validator';
 
 /**
  * 汇总一张 Flow 图上声明的全部工具组
@@ -31,4 +33,27 @@ export function collectFlowToolGroups(
     }
   }
   return [...groups].sort();
+}
+
+/**
+ * 从绑定的 FlowVersion 原文推导工具组
+ * @param boundDefinition 绑定 FlowVersion 的 Definition JSON；未绑定时为空
+ * @returns 返回可直接展示的工具组名
+ * @description 三处消费同一份推导：智能体列表的能力标签、群聊选人提示词里的「成员擅长
+ * 什么」、以及群聊语境注入的花名册。抄三遍必然漂移。
+ *
+ * 未绑定 Flow 的智能体执行内置 direct Flow（不带工具），因此为空。
+ *
+ * Definition 解析失败时返回空而不是抛错：这三处都是**展示与提示词**用途，为了它让智能体
+ * 列表报错、或让整个群聊选不出人，代价远大于少显示一行能力。真正的契约不兼容会在任务创建
+ * 与画布读取时被明确拒绝。
+ */
+export function resolveBoundFlowToolGroups(
+  boundDefinition: Prisma.JsonValue | null | undefined,
+): string[] {
+  if (!boundDefinition) {
+    return [];
+  }
+  const parsed = validateFlowDefinition(boundDefinition);
+  return parsed.success ? [...collectFlowToolGroups(parsed.definition)] : [];
 }

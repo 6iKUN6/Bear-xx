@@ -3,6 +3,7 @@ import { ConversationType, MessageRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeToolGroups } from '../ai/agent-loop/capability/tool-group-labels';
 import { groupContextPrompt } from '../../prompts';
+import { resolveBoundFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import type { LlmMessage } from '../llm/llm.types';
 import { ConversationSummaryService } from './conversation-summary.service';
 import { CHAT_CONTEXT_RECENT_MESSAGE_LIMIT } from './memory.constants';
@@ -248,11 +249,19 @@ export class ChatContextService {
 
     const agents = await this.prisma.agent.findMany({
       where: { id: { in: ids } },
-      select: { id: true, name: true, description: true, toolGroups: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        // 能力从绑定 Flow 的图上推导；Agent.toolGroups 那一列已删除
+        defaultFlowVersion: { select: { definition: true } },
+      },
     });
 
     const describe = (agent: (typeof agents)[number]) => {
-      const capability = describeToolGroups(agent.toolGroups);
+      const capability = describeToolGroups(
+        resolveBoundFlowToolGroups(agent.defaultFlowVersion?.definition),
+      );
       return agent.description
         ? `${capability}（${agent.description}）`
         : capability;
