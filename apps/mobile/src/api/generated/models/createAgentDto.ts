@@ -5,8 +5,7 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { CreateAgentDtoAllowedStrategiesItem } from './createAgentDtoAllowedStrategiesItem';
-import type { CreateAgentDtoDefaultStrategy } from './createAgentDtoDefaultStrategy';
+import type { CreateAgentDtoDefaultFlowVersionId } from './createAgentDtoDefaultFlowVersionId';
 
 export interface CreateAgentDto {
   /** 智能体名称 */
@@ -22,20 +21,11 @@ export interface CreateAgentDto {
   systemPrompt?: string;
   /** 模型预设 id；留空则用请求指定或全局默认模型 */
   modelPreset?: string;
-  /** 默认/强制策略；AUTO=自动路由，具体值=强制 */
-  defaultStrategy?: CreateAgentDtoDefaultStrategy;
-  /** 允许使用的策略集合；空=不限制（全部已安装） */
-  allowedStrategies?: CreateAgentDtoAllowedStrategiesItem[];
-  /** 允许的工具组；空=不覆盖 */
-  toolGroups?: string[];
-  /** 附加技能名；空=不覆盖 */
-  skills?: string[];
   /**
-     * 步数预算；留空=不覆盖
-     * @minimum 1
-     * @maximum 10
+     * 默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置
+     * @nullable
      */
-  maxSteps?: number;
+  defaultFlowVersionId?: CreateAgentDtoDefaultFlowVersionId;
   /** 是否启用 */
   enabled?: boolean;
 }

@@ -15,6 +15,8 @@ export interface SubmitPlanReviewDto {
   editedSteps?: PlanReviewStepDto[];
   /** reject_replan 决定时的意见 */
   feedback?: string;
+  /** AgentFlow 计划审批事实 ID；Flow 任务提交时必填 */
+  approvalId?: string;
   /** 客户端已收到的最后一个事件 ID，用于恢复续跑时只接收新帧 */
   lastEventId?: string;
 }

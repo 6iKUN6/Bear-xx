@@ -5,8 +5,7 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { UpdateModelPresetDtoPlatform } from './updateModelPresetDtoPlatform';
-import type { UpdateModelPresetDtoProvider } from './updateModelPresetDtoProvider';
+import type { UpdateModelPresetDtoUpstreamFormat } from './updateModelPresetDtoUpstreamFormat';
 
 export interface UpdateModelPresetDto {
   /** 业务预设 id（供 agent 引用） */
@@ -15,14 +14,16 @@ export interface UpdateModelPresetDto {
   name?: string;
   /** 描述 */
   description?: string;
-  /** provider */
-  provider?: UpdateModelPresetDtoProvider;
-  /** platform */
-  platform?: UpdateModelPresetDtoPlatform;
+  /** 上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置 */
+  upstreamFormat?: UpdateModelPresetDtoUpstreamFormat;
+  /** 平台标签，仅用于分组展示，可自由填写（如 openai / kimi / 自建中转站） */
+  platform?: string;
   /** 模型名 */
   model?: string;
-  /** 自定义 baseURL；留空用 env 默认 */
+  /** 上游 baseURL；留空用 SDK 默认地址 */
   baseURL?: string;
+  /** apiKey 明文；仅在写入时提交，加密落库后永不回显。留空表示不修改 */
+  apiKey?: string;
   /** temperature */
   temperature?: number;
   /** 最大输出 token */

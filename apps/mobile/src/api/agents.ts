@@ -7,7 +7,7 @@ export interface AgentSummary {
   description: string;
   /** 头像 URL；null = 显示名称首字 */
   avatar: string | null;
-  /** 工具组（通讯录能力标签展示用） */
+  /** 工具组，仅供「智能体」页卡片上的能力标签展示；由后端从绑定 Flow 的图上推导 */
   toolGroups: string[];
   enabled: boolean;
   isDefault: boolean;

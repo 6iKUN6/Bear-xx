@@ -5,9 +5,7 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
-import type { AgentResponseDtoAllowedStrategiesItem } from './agentResponseDtoAllowedStrategiesItem';
-import type { AgentResponseDtoDefaultStrategy } from './agentResponseDtoDefaultStrategy';
-import type { AgentResponseDtoMaxSteps } from './agentResponseDtoMaxSteps';
+import type { AgentResponseDtoDefaultFlowVersionId } from './agentResponseDtoDefaultFlowVersionId';
 import type { AgentResponseDtoModelPreset } from './agentResponseDtoModelPreset';
 import type { AgentResponseDtoSystemPrompt } from './agentResponseDtoSystemPrompt';
 
@@ -27,12 +25,13 @@ export interface AgentResponseDto {
   systemPrompt: AgentResponseDtoSystemPrompt;
   /** @nullable */
   modelPreset: AgentResponseDtoModelPreset;
-  defaultStrategy: AgentResponseDtoDefaultStrategy;
-  allowedStrategies: AgentResponseDtoAllowedStrategiesItem[];
+  /**
+     * 默认执行的已发布 FlowVersion ID；null=执行内置的直接回复 Flow
+     * @nullable
+     */
+  defaultFlowVersionId: AgentResponseDtoDefaultFlowVersionId;
+  /** 该智能体可用的工具组，仅供列表展示。当前仍读 Agent 上的历史字段，待改为从绑定的 Flow 节点推导 */
   toolGroups: string[];
-  skills: string[];
-  /** @nullable */
-  maxSteps: AgentResponseDtoMaxSteps;
   enabled: boolean;
   isDefault: boolean;
   createdAt: number;

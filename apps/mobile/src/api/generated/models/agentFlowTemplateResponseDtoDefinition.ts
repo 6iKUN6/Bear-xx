@@ -7,6 +7,6 @@
  */
 
 /**
- * @nullable
+ * 可直接提交给创建接口的完整 FlowDefinition
  */
-export type AgentResponseDtoMaxSteps = { [key: string]: unknown } | null;
+export type AgentFlowTemplateResponseDtoDefinition = { [key: string]: unknown };

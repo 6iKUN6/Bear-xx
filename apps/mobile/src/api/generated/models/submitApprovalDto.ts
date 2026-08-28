@@ -15,6 +15,8 @@ export interface SubmitApprovalDto {
   editedArgs?: SubmitApprovalDtoEditedArgs;
   /** reject 决定时的说明 */
   reason?: string;
+  /** AgentFlow 审批事实 ID；Flow 任务提交时必填 */
+  approvalId?: string;
   /** 客户端已收到的最后一个事件 ID，用于恢复续跑时只接收新帧 */
   lastEventId?: string;
 }

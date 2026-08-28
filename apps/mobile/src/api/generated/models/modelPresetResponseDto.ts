@@ -5,16 +5,23 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { ModelPresetResponseDtoApiKeyHint } from './modelPresetResponseDtoApiKeyHint';
 import type { ModelPresetResponseDtoBaseURL } from './modelPresetResponseDtoBaseURL';
+import type { ModelPresetResponseDtoCapability } from './modelPresetResponseDtoCapability';
+import type { ModelPresetResponseDtoLastCheckedAt } from './modelPresetResponseDtoLastCheckedAt';
+import type { ModelPresetResponseDtoLastCheckError } from './modelPresetResponseDtoLastCheckError';
 import type { ModelPresetResponseDtoMaxOutputTokens } from './modelPresetResponseDtoMaxOutputTokens';
 import type { ModelPresetResponseDtoTemperature } from './modelPresetResponseDtoTemperature';
 import type { ModelPresetResponseDtoTopP } from './modelPresetResponseDtoTopP';
+import type { ModelPresetResponseDtoUpstreamFormat } from './modelPresetResponseDtoUpstreamFormat';
 
 export interface ModelPresetResponseDto {
   id: string;
   presetId: string;
   name: string;
   description: string;
+  upstreamFormat: ModelPresetResponseDtoUpstreamFormat;
+  /** provider，由 upstreamFormat 推导 */
   provider: string;
   platform: string;
   model: string;
@@ -28,8 +35,19 @@ export interface ModelPresetResponseDto {
   topP: ModelPresetResponseDtoTopP;
   enabled: boolean;
   isDefault: boolean;
-  /** 该 platform 对应的 env 密钥是否已配置（apiKey 不落库） */
+  /** apiKey 是否已配置；密钥本身与完整指纹永不下发 */
   apiKeyConfigured: boolean;
+  /**
+     * apiKey 脱敏标识（取自不可逆指纹尾部）
+     * @nullable
+     */
+  apiKeyHint: ModelPresetResponseDtoApiKeyHint;
+  /** 探针实测的能力档位 */
+  capability: ModelPresetResponseDtoCapability;
+  /** @nullable */
+  lastCheckedAt: ModelPresetResponseDtoLastCheckedAt;
+  /** @nullable */
+  lastCheckError: ModelPresetResponseDtoLastCheckError;
   createdAt: number;
   updatedAt: number;
 }

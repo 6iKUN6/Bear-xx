@@ -39,4 +39,10 @@ export const StreamTaskEventType = {
   planreviewrequired: 'plan.review.required',
   planreviewresolved: 'plan.review.resolved',
   conversationtitleupdated: 'conversation.title.updated',
+  flowrunstarted: 'flow.run.started',
+  flownodestarted: 'flow.node.started',
+  flownodecompleted: 'flow.node.completed',
+  flownodefailed: 'flow.node.failed',
+  flowwaiting_human: 'flow.waiting_human',
+  flowrunresumed: 'flow.run.resumed',
 } as const;

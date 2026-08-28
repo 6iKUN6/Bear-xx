@@ -15,6 +15,11 @@ import type {
   AdminControllerTasksParams,
   AdminControllerToolsParams,
   AgentCapabilitiesDto,
+  AgentFlowDetailResponseDto,
+  AgentFlowResponseDto,
+  AgentFlowTemplateResponseDto,
+  AgentFlowValidationResponseDto,
+  AgentFlowVersionResponseDto,
   AgentResponseDto,
   AgentTestDto,
   AgentUsageDto,
@@ -26,6 +31,7 @@ import type {
   CosUploadCredentialDto,
   CosUploadCredentialResponseDto,
   CreateAgentDto,
+  CreateAgentFlowDto,
   CreateConversationDto,
   CreateImageDto,
   CreateModelPresetDto,
@@ -36,19 +42,23 @@ import type {
   HealthControllerCheck200,
   ImageGenerationDto,
   ImageGenerationResultDto,
+  ImportAgentFlowDto,
   LoginResultDto,
   McDonaldsCredentialResponseDto,
   McDonaldsOrderControllerListParams,
   McDonaldsOrderPageDto,
   McDonaldsOrderResponseDto,
   McDonaldsPaymentLinkDto,
+  ModelPresetProbeResultDto,
   ModelPresetResponseDto,
   ObservabilityOverviewDto,
   PhoneLoginDto,
+  ProbeModelPresetDto,
   RecentTasksDto,
   RefreshTokenDto,
   RegisterAssetDto,
   ResumeStreamTaskDto,
+  RollbackAgentFlowDto,
   SendCodeDto,
   StorageAssetDto,
   StorageControllerListAssetsParams,
@@ -62,6 +72,7 @@ import type {
   TestSessionDto,
   ToolUsageDto,
   UpdateAgentDto,
+  UpdateAgentFlowVersionDto,
   UpdateAssetStatusDto,
   UpdateConversationDto,
   UpdateModelPresetDto,
@@ -633,7 +644,7 @@ export const getAdminCapabilityControllerCapabilitiesUrl = () => {
 }
 
 /**
- * @summary 工具组与工具闭集（管理员）
+ * @summary 工具组、工具与模型预设闭集（管理员）
  */
 export const adminCapabilityControllerCapabilities = async ( options?: RequestInit): Promise<AgentCapabilitiesDto> => {
 
@@ -859,6 +870,56 @@ export const adminModelPresetControllerRemove = async (id: string, options?: Req
   {
     ...options,
     method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminModelPresetControllerProbeDraftUrl = () => {
+
+
+
+
+  return `/api/admin/model-presets/probe`
+}
+
+/**
+ * 两级探测：L1 验证连通性，L2 验证工具往返闭环。不落库、不改动任何预设。
+ * @summary 探测尚未保存的模型连接（管理员）
+ */
+export const adminModelPresetControllerProbeDraft = async (probeModelPresetDto: ProbeModelPresetDto, options?: RequestInit): Promise<ModelPresetProbeResultDto> => {
+
+  return taroRequest<ModelPresetProbeResultDto>(getAdminModelPresetControllerProbeDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(probeModelPresetDto)
+  }
+);}
+
+
+
+export const getAdminModelPresetControllerProbeExistingUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/model-presets/${id}/probe`
+}
+
+/**
+ * 使用已落库的密文密钥；结论写入 capability 与 lastCheck* 字段。
+ * @summary 探测已保存的模型预设并写回能力档位（管理员）
+ */
+export const adminModelPresetControllerProbeExisting = async (id: string, options?: RequestInit): Promise<ModelPresetProbeResultDto> => {
+
+  return taroRequest<ModelPresetProbeResultDto>(getAdminModelPresetControllerProbeExistingUrl(id),
+  {
+    ...options,
+    method: 'POST'
 
 
   }
@@ -1432,6 +1493,273 @@ export const mcDonaldsOrderControllerPaymentQr = async (id: string, options?: Re
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAgentFlowControllerCreateUrl = () => {
+
+
+
+
+  return `/api/admin/agent-flows`
+}
+
+/**
+ * @summary 创建 Flow 与首个草稿版本（管理员）
+ */
+export const agentFlowControllerCreate = async (createAgentFlowDto: CreateAgentFlowDto, options?: RequestInit): Promise<AgentFlowResponseDto> => {
+
+  return taroRequest<AgentFlowResponseDto>(getAgentFlowControllerCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createAgentFlowDto)
+  }
+);}
+
+
+
+export const getAgentFlowControllerListUrl = () => {
+
+
+
+
+  return `/api/admin/agent-flows`
+}
+
+/**
+ * @summary 获取 Flow 列表（管理员）
+ */
+export const agentFlowControllerList = async ( options?: RequestInit): Promise<AgentFlowResponseDto[]> => {
+
+  return taroRequest<AgentFlowResponseDto[]>(getAgentFlowControllerListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerListTemplatesUrl = () => {
+
+
+
+
+  return `/api/admin/agent-flow-templates`
+}
+
+/**
+ * @summary 获取内置 Flow 模板（管理员）
+ */
+export const agentFlowControllerListTemplates = async ( options?: RequestInit): Promise<AgentFlowTemplateResponseDto[]> => {
+
+  return taroRequest<AgentFlowTemplateResponseDto[]>(getAgentFlowControllerListTemplatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerGetUrl = (flowId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flows/${flowId}`
+}
+
+/**
+ * @summary 获取 Flow 详情与版本历史（管理员）
+ */
+export const agentFlowControllerGet = async (flowId: string, options?: RequestInit): Promise<AgentFlowDetailResponseDto> => {
+
+  return taroRequest<AgentFlowDetailResponseDto>(getAgentFlowControllerGetUrl(flowId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerRemoveUrl = (flowId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flows/${flowId}`
+}
+
+/**
+ * @summary 删除未运行过的 Flow（管理员）
+ */
+export const agentFlowControllerRemove = async (flowId: string, options?: RequestInit): Promise<EmptyResultDto> => {
+
+  return taroRequest<EmptyResultDto>(getAgentFlowControllerRemoveUrl(flowId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerUpdateDraftUrl = (versionId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flow-versions/${versionId}`
+}
+
+/**
+ * @summary 覆盖草稿版本的 FlowDefinition（管理员）
+ */
+export const agentFlowControllerUpdateDraft = async (versionId: string,
+    updateAgentFlowVersionDto: UpdateAgentFlowVersionDto, options?: RequestInit): Promise<AgentFlowVersionResponseDto> => {
+
+  return taroRequest<AgentFlowVersionResponseDto>(getAgentFlowControllerUpdateDraftUrl(versionId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAgentFlowVersionDto)
+  }
+);}
+
+
+
+export const getAgentFlowControllerValidateUrl = (versionId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flow-versions/${versionId}/validate`
+}
+
+/**
+ * @summary 校验 FlowDefinition 结构（管理员）
+ */
+export const agentFlowControllerValidate = async (versionId: string, options?: RequestInit): Promise<AgentFlowValidationResponseDto> => {
+
+  return taroRequest<AgentFlowValidationResponseDto>(getAgentFlowControllerValidateUrl(versionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerPublishUrl = (versionId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flow-versions/${versionId}/publish`
+}
+
+/**
+ * @summary 发布草稿版本（管理员）
+ */
+export const agentFlowControllerPublish = async (versionId: string, options?: RequestInit): Promise<AgentFlowVersionResponseDto> => {
+
+  return taroRequest<AgentFlowVersionResponseDto>(getAgentFlowControllerPublishUrl(versionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerExportDefinitionUrl = (versionId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flow-versions/${versionId}/export`
+}
+
+/**
+ * @summary 导出 FlowDefinition JSON（管理员）
+ */
+export const agentFlowControllerExportDefinition = async (versionId: string, options?: RequestInit): Promise<void> => {
+
+  return taroRequest<void>(getAgentFlowControllerExportDefinitionUrl(versionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerImportDefinitionUrl = (flowId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flows/${flowId}/import`
+}
+
+/**
+ * @summary 导入 JSON 为新草稿版本（管理员）
+ */
+export const agentFlowControllerImportDefinition = async (flowId: string,
+    importAgentFlowDto: ImportAgentFlowDto, options?: RequestInit): Promise<AgentFlowVersionResponseDto> => {
+
+  return taroRequest<AgentFlowVersionResponseDto>(getAgentFlowControllerImportDefinitionUrl(flowId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(importAgentFlowDto)
+  }
+);}
+
+
+
+export const getAgentFlowControllerRollbackUrl = (flowId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flows/${flowId}/rollback`
+}
+
+/**
+ * @summary 回滚到历史发布版本（管理员）
+ */
+export const agentFlowControllerRollback = async (flowId: string,
+    rollbackAgentFlowDto: RollbackAgentFlowDto, options?: RequestInit): Promise<AgentFlowVersionResponseDto> => {
+
+  return taroRequest<AgentFlowVersionResponseDto>(getAgentFlowControllerRollbackUrl(flowId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(rollbackAgentFlowDto)
   }
 );}
 

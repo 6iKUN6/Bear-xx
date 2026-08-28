@@ -798,7 +798,7 @@
             "bearer": []
           }
         ],
-        "summary": "工具组与工具闭集（管理员）",
+        "summary": "工具组、工具与模型预设闭集（管理员）",
         "tags": [
           "管理-能力"
         ]
@@ -1116,6 +1116,81 @@
           }
         ],
         "summary": "删除模型预设（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      }
+    },
+    "/api/admin/model-presets/probe": {
+      "post": {
+        "description": "两级探测：L1 验证连通性，L2 验证工具往返闭环。不落库、不改动任何预设。",
+        "operationId": "AdminModelPresetController_probeDraft",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeModelPresetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPresetProbeResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "探测尚未保存的模型连接（管理员）",
+        "tags": [
+          "管理-模型预设"
+        ]
+      }
+    },
+    "/api/admin/model-presets/{id}/probe": {
+      "post": {
+        "description": "使用已落库的密文密钥；结论写入 capability 与 lastCheck* 字段。",
+        "operationId": "AdminModelPresetController_probeExisting",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPresetProbeResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "探测已保存的模型预设并写回能力档位（管理员）",
         "tags": [
           "管理-模型预设"
         ]
@@ -2002,6 +2077,410 @@
         ]
       }
     },
+    "/api/admin/agent-flows": {
+      "post": {
+        "operationId": "AgentFlowController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentFlowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建 Flow 与首个草稿版本（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      },
+      "get": {
+        "operationId": "AgentFlowController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentFlowResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取 Flow 列表（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flow-templates": {
+      "get": {
+        "operationId": "AgentFlowController_listTemplates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentFlowTemplateResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取内置 Flow 模板（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flows/{flowId}": {
+      "get": {
+        "operationId": "AgentFlowController_get",
+        "parameters": [
+          {
+            "name": "flowId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowDetailResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取 Flow 详情与版本历史（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      },
+      "delete": {
+        "operationId": "AgentFlowController_remove",
+        "parameters": [
+          {
+            "name": "flowId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除未运行过的 Flow（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flow-versions/{versionId}": {
+      "put": {
+        "operationId": "AgentFlowController_updateDraft",
+        "parameters": [
+          {
+            "name": "versionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentFlowVersionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "覆盖草稿版本的 FlowDefinition（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flow-versions/{versionId}/validate": {
+      "post": {
+        "operationId": "AgentFlowController_validate",
+        "parameters": [
+          {
+            "name": "versionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowValidationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "校验 FlowDefinition 结构（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flow-versions/{versionId}/publish": {
+      "post": {
+        "operationId": "AgentFlowController_publish",
+        "parameters": [
+          {
+            "name": "versionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "发布草稿版本（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flow-versions/{versionId}/export": {
+      "get": {
+        "operationId": "AgentFlowController_exportDefinition",
+        "parameters": [
+          {
+            "name": "versionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "标准 FlowDefinition JSON 工件"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "导出 FlowDefinition JSON（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flows/{flowId}/import": {
+      "post": {
+        "operationId": "AgentFlowController_importDefinition",
+        "parameters": [
+          {
+            "name": "flowId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAgentFlowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "导入 JSON 为新草稿版本（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flows/{flowId}/rollback": {
+      "post": {
+        "operationId": "AgentFlowController_rollback",
+        "parameters": [
+          {
+            "name": "flowId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackAgentFlowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "回滚到历史发布版本（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
     "/api/conversations": {
       "get": {
         "description": "返回当前用户的所有会话及消息列表",
@@ -2774,49 +3253,20 @@
             "nullable": true,
             "example": "kimi"
           },
-          "defaultStrategy": {
-            "type": "string",
-            "enum": [
-              "AUTO",
-              "DIRECT",
-              "REACT",
-              "PLAN_EXECUTE",
-              "HYBRID"
-            ]
-          },
-          "allowedStrategies": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "AUTO",
-                "DIRECT",
-                "REACT",
-                "PLAN_EXECUTE",
-                "HYBRID"
-              ]
-            }
+          "defaultFlowVersionId": {
+            "type": "object",
+            "nullable": true,
+            "description": "默认执行的已发布 FlowVersion ID；null=执行内置的直接回复 Flow"
           },
           "toolGroups": {
             "example": [
               "default"
             ],
+            "description": "该智能体可用的工具组，仅供列表展示。当前仍读 Agent 上的历史字段，待改为从绑定的 Flow 节点推导",
             "type": "array",
             "items": {
               "type": "string"
             }
-          },
-          "skills": {
-            "example": [],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "maxSteps": {
-            "type": "object",
-            "nullable": true,
-            "example": 6
           },
           "enabled": {
             "type": "boolean",
@@ -2842,11 +3292,8 @@
           "avatar",
           "systemPrompt",
           "modelPreset",
-          "defaultStrategy",
-          "allowedStrategies",
+          "defaultFlowVersionId",
           "toolGroups",
-          "skills",
-          "maxSteps",
           "enabled",
           "isDefault",
           "createdAt",
@@ -2881,55 +3328,10 @@
             "description": "模型预设 id；留空则用请求指定或全局默认模型",
             "example": "kimi"
           },
-          "defaultStrategy": {
-            "type": "string",
-            "description": "默认/强制策略；AUTO=自动路由，具体值=强制",
-            "enum": [
-              "AUTO",
-              "DIRECT",
-              "REACT",
-              "PLAN_EXECUTE",
-              "HYBRID"
-            ],
-            "default": "AUTO"
-          },
-          "allowedStrategies": {
-            "type": "array",
-            "description": "允许使用的策略集合；空=不限制（全部已安装）",
-            "items": {
-              "type": "string",
-              "enum": [
-                "AUTO",
-                "DIRECT",
-                "REACT",
-                "PLAN_EXECUTE",
-                "HYBRID"
-              ]
-            }
-          },
-          "toolGroups": {
-            "description": "允许的工具组；空=不覆盖",
-            "example": [
-              "default"
-            ],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "skills": {
-            "description": "附加技能名；空=不覆盖",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "maxSteps": {
-            "type": "number",
-            "description": "步数预算；留空=不覆盖",
-            "example": 6,
-            "minimum": 1,
-            "maximum": 10
+          "defaultFlowVersionId": {
+            "type": "object",
+            "description": "默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置",
+            "nullable": true
           },
           "enabled": {
             "type": "boolean",
@@ -2969,55 +3371,10 @@
             "description": "模型预设 id；留空则用请求指定或全局默认模型",
             "example": "kimi"
           },
-          "defaultStrategy": {
-            "type": "string",
-            "description": "默认/强制策略；AUTO=自动路由，具体值=强制",
-            "enum": [
-              "AUTO",
-              "DIRECT",
-              "REACT",
-              "PLAN_EXECUTE",
-              "HYBRID"
-            ],
-            "default": "AUTO"
-          },
-          "allowedStrategies": {
-            "type": "array",
-            "description": "允许使用的策略集合；空=不限制（全部已安装）",
-            "items": {
-              "type": "string",
-              "enum": [
-                "AUTO",
-                "DIRECT",
-                "REACT",
-                "PLAN_EXECUTE",
-                "HYBRID"
-              ]
-            }
-          },
-          "toolGroups": {
-            "description": "允许的工具组；空=不覆盖",
-            "example": [
-              "default"
-            ],
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "skills": {
-            "description": "附加技能名；空=不覆盖",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "maxSteps": {
-            "type": "number",
-            "description": "步数预算；留空=不覆盖",
-            "example": 6,
-            "minimum": 1,
-            "maximum": 10
+          "defaultFlowVersionId": {
+            "type": "object",
+            "description": "默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置",
+            "nullable": true
           },
           "enabled": {
             "type": "boolean",
@@ -3527,6 +3884,25 @@
           "tools"
         ]
       },
+      "ModelPresetOptionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "gpt-5.6-terra",
+            "description": "预设标识，写进节点 modelPreset"
+          },
+          "model": {
+            "type": "string",
+            "example": "gpt-5.6",
+            "description": "底层模型名，仅用于界面区分同名预设"
+          }
+        },
+        "required": [
+          "id",
+          "model"
+        ]
+      },
       "AgentCapabilitiesDto": {
         "type": "object",
         "properties": {
@@ -3536,10 +3912,18 @@
             "items": {
               "$ref": "#/components/schemas/ToolGroupDto"
             }
+          },
+          "modelPresets": {
+            "description": "可选的模型预设闭集。与 FlowRuntimeValidator 同一判据（listAvailableModels），因此不会列出发布期会被拒的选项；注册表加载时已过滤 enabled=false，故这里不含禁用预设。刻意不下发 baseURL 与 apiKeyHint——选择器只需要标识。",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelPresetOptionDto"
+            }
           }
         },
         "required": [
-          "toolGroups"
+          "toolGroups",
+          "modelPresets"
         ]
       },
       "TestSessionDto": {
@@ -3691,8 +4075,17 @@
           "description": {
             "type": "string"
           },
+          "upstreamFormat": {
+            "type": "string",
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages"
+            ]
+          },
           "provider": {
-            "type": "string"
+            "type": "string",
+            "description": "provider，由 upstreamFormat 推导"
           },
           "platform": {
             "type": "string"
@@ -3724,8 +4117,32 @@
           },
           "apiKeyConfigured": {
             "type": "boolean",
-            "description": "该 platform 对应的 env 密钥是否已配置（apiKey 不落库）",
+            "description": "apiKey 是否已配置；密钥本身与完整指纹永不下发",
             "example": true
+          },
+          "apiKeyHint": {
+            "type": "object",
+            "description": "apiKey 脱敏标识（取自不可逆指纹尾部）",
+            "nullable": true,
+            "example": "Key ...a1b2c3"
+          },
+          "capability": {
+            "type": "string",
+            "description": "探针实测的能力档位",
+            "enum": [
+              "unverified",
+              "unreachable",
+              "basic",
+              "tools"
+            ]
+          },
+          "lastCheckedAt": {
+            "type": "object",
+            "nullable": true
+          },
+          "lastCheckError": {
+            "type": "object",
+            "nullable": true
           },
           "createdAt": {
             "type": "number"
@@ -3739,6 +4156,7 @@
           "presetId",
           "name",
           "description",
+          "upstreamFormat",
           "provider",
           "platform",
           "model",
@@ -3749,6 +4167,10 @@
           "enabled",
           "isDefault",
           "apiKeyConfigured",
+          "apiKeyHint",
+          "capability",
+          "lastCheckedAt",
+          "lastCheckError",
           "createdAt",
           "updatedAt"
         ]
@@ -3770,24 +4192,19 @@
             "type": "string",
             "description": "描述"
           },
-          "provider": {
+          "upstreamFormat": {
             "type": "string",
-            "description": "provider",
+            "description": "上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置",
             "enum": [
-              "openai",
-              "anthropic"
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages"
             ]
           },
           "platform": {
             "type": "string",
-            "description": "platform",
-            "enum": [
-              "openai",
-              "anthropic",
-              "deepseek",
-              "kimi",
-              "doubao"
-            ]
+            "description": "平台标签，仅用于分组展示，可自由填写（如 openai / kimi / 自建中转站）",
+            "example": "openai"
           },
           "model": {
             "type": "string",
@@ -3796,7 +4213,11 @@
           },
           "baseURL": {
             "type": "string",
-            "description": "自定义 baseURL；留空用 env 默认"
+            "description": "上游 baseURL；留空用 SDK 默认地址"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "apiKey 明文；仅在写入时提交，加密落库后永不回显。留空表示不修改"
           },
           "temperature": {
             "type": "number",
@@ -3824,7 +4245,7 @@
         "required": [
           "presetId",
           "name",
-          "provider",
+          "upstreamFormat",
           "platform",
           "model"
         ]
@@ -3846,24 +4267,19 @@
             "type": "string",
             "description": "描述"
           },
-          "provider": {
+          "upstreamFormat": {
             "type": "string",
-            "description": "provider",
+            "description": "上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置",
             "enum": [
-              "openai",
-              "anthropic"
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages"
             ]
           },
           "platform": {
             "type": "string",
-            "description": "platform",
-            "enum": [
-              "openai",
-              "anthropic",
-              "deepseek",
-              "kimi",
-              "doubao"
-            ]
+            "description": "平台标签，仅用于分组展示，可自由填写（如 openai / kimi / 自建中转站）",
+            "example": "openai"
           },
           "model": {
             "type": "string",
@@ -3872,7 +4288,11 @@
           },
           "baseURL": {
             "type": "string",
-            "description": "自定义 baseURL；留空用 env 默认"
+            "description": "上游 baseURL；留空用 SDK 默认地址"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "apiKey 明文；仅在写入时提交，加密落库后永不回显。留空表示不修改"
           },
           "temperature": {
             "type": "number",
@@ -3897,6 +4317,77 @@
             "default": false
           }
         }
+      },
+      "ProbeModelPresetDto": {
+        "type": "object",
+        "properties": {
+          "upstreamFormat": {
+            "type": "string",
+            "description": "上游 wire 格式",
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages"
+            ]
+          },
+          "platform": {
+            "type": "string",
+            "description": "平台标签",
+            "example": "openai"
+          },
+          "model": {
+            "type": "string",
+            "description": "模型名",
+            "example": "gpt-5.5"
+          },
+          "baseURL": {
+            "type": "string",
+            "description": "上游 baseURL"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "apiKey 明文；对已落库预设探测时可省略，此时使用已保存的密钥"
+          }
+        },
+        "required": [
+          "upstreamFormat",
+          "platform",
+          "model"
+        ]
+      },
+      "ModelPresetProbeResultDto": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "string",
+            "description": "探测出的能力档位",
+            "enum": [
+              "unverified",
+              "unreachable",
+              "basic",
+              "tools"
+            ]
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "L1 连通性是否通过"
+          },
+          "toolRoundTrip": {
+            "type": "boolean",
+            "description": "L2 工具往返是否闭环"
+          },
+          "error": {
+            "type": "object",
+            "description": "失败原因（安全文本）",
+            "nullable": true
+          }
+        },
+        "required": [
+          "capability",
+          "reachable",
+          "toolRoundTrip",
+          "error"
+        ]
       },
       "StreamTaskEventType": {
         "type": "string",
@@ -3926,7 +4417,13 @@
           "approval.resolved",
           "plan.review.required",
           "plan.review.resolved",
-          "conversation.title.updated"
+          "conversation.title.updated",
+          "flow.run.started",
+          "flow.node.started",
+          "flow.node.completed",
+          "flow.node.failed",
+          "flow.waiting_human",
+          "flow.run.resumed"
         ],
         "description": "事件类型"
       },
@@ -4114,6 +4611,11 @@
             "type": "string",
             "description": "reject 决定时的说明"
           },
+          "approvalId": {
+            "type": "string",
+            "description": "AgentFlow 审批事实 ID；Flow 任务提交时必填",
+            "example": "cmf_approval_123"
+          },
           "lastEventId": {
             "type": "string",
             "description": "客户端已收到的最后一个事件 ID，用于恢复续跑时只接收新帧",
@@ -4160,6 +4662,11 @@
           "feedback": {
             "type": "string",
             "description": "reject_replan 决定时的意见"
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "AgentFlow 计划审批事实 ID；Flow 任务提交时必填",
+            "example": "cmf_approval_123"
           },
           "lastEventId": {
             "type": "string",
@@ -4746,6 +5253,297 @@
         "required": [
           "url",
           "expiresAt"
+        ]
+      },
+      "CreateAgentFlowDto": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "type": "object",
+            "description": "完整的 FlowDefinition JSON 工件",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "definition"
+        ]
+      },
+      "FlowDefinitionValidationErrorDto": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "rule",
+          "message"
+        ]
+      },
+      "AgentFlowVersionResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED",
+              "ARCHIVED"
+            ]
+          },
+          "definition": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "schemaCompatible": {
+            "type": "boolean"
+          },
+          "schemaErrors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowDefinitionValidationErrorDto"
+            }
+          },
+          "digest": {
+            "type": "object",
+            "nullable": true
+          },
+          "schemaVersion": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "publishedAt": {
+            "type": "object",
+            "nullable": true
+          },
+          "archivedAt": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "flowId",
+          "version",
+          "status",
+          "definition",
+          "schemaCompatible",
+          "digest",
+          "schemaVersion",
+          "createdAt",
+          "updatedAt",
+          "publishedAt",
+          "archivedAt"
+        ]
+      },
+      "AgentFlowResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "publishedVersionId": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "publishedVersion": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+              }
+            ]
+          },
+          "draftVersion": {
+            "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "publishedVersionId",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "AgentFlowTemplateResponseDto": {
+        "type": "object",
+        "properties": {
+          "preset": {
+            "type": "string",
+            "description": "预设标识",
+            "enum": [
+              "direct",
+              "react",
+              "plan_execute",
+              "hybrid"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "模板 Definition 声明的名称"
+          },
+          "description": {
+            "type": "string",
+            "description": "模板 Definition 声明的描述"
+          },
+          "definition": {
+            "type": "object",
+            "description": "可直接提交给创建接口的完整 FlowDefinition",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "preset",
+          "name",
+          "description",
+          "definition"
+        ]
+      },
+      "AgentFlowDetailResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "publishedVersionId": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "publishedVersion": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+              }
+            ]
+          },
+          "draftVersion": {
+            "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "publishedVersionId",
+          "createdAt",
+          "updatedAt",
+          "versions"
+        ]
+      },
+      "UpdateAgentFlowVersionDto": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "type": "object",
+            "description": "完整替换 DRAFT 版本的 FlowDefinition JSON 工件",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "definition"
+        ]
+      },
+      "AgentFlowValidationResponseDto": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowDefinitionValidationErrorDto"
+            }
+          },
+          "digest": {
+            "type": "string",
+            "description": "合法 Definition 的布局无关 SHA-256 摘要"
+          }
+        },
+        "required": [
+          "valid",
+          "errors"
+        ]
+      },
+      "ImportAgentFlowDto": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "type": "object",
+            "description": "从 JSON 文件解析出的完整 FlowDefinition；不接受数据库 ID 或审计字段",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "definition"
+        ]
+      },
+      "RollbackAgentFlowDto": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "description": "同一 Flow 下要恢复的 PUBLISHED 或 ARCHIVED 版本 ID"
+          }
+        },
+        "required": [
+          "versionId"
         ]
       },
       "ConversationMessageTraceItemDto": {
