@@ -1,6 +1,12 @@
 # Flow 成为唯一执行路径
 
-**状态**：方案已定稿，尚未开始实施。
+**状态**：第 1～3 步已落地；第 4、5 步待做。
+
+- ✅ 第 1 步 内置 Flow + Flow 成为唯一编排路径
+- ✅ 第 2 步 旧编排链路标记 `@deprecated`（**未删除**，过几个版本再删）
+- ✅ 第 3 步 DTO 与 admin 表单收敛
+- ⬜ 第 4 步 移动端工具标签改为从 Flow 推导
+- ⬜ 第 5 步 数据库迁移删列
 
 本文只描述**这一次收敛**：把 Agent 从"既是身份又是编排配置"收敛成"身份 + 执行绑定"，让 Flow 成为唯一的编排路径。V2 的并行 / 变量 / 条件模型见 `agent-flow-v2-model.md`，运行时分层见 `agent-flow-architecture.md`，本文不重复。
 
@@ -177,22 +183,49 @@ commonChatAgentService.streamEvents({ tools, approvalToolNames })
 - 验证：全量测试 + 手动跑「未绑 Flow 的 Agent」「绑 direct 的」「绑 plan_execute 的」「群聊」
 - **这是唯一有行为风险的一步**，可整步回滚
 
-**第 2 步 · 删死代码**
-- 删 §2 列出的 ~1457 行 + 相关 spec
-- 验证：`tsc` + 全量测试通过即证明真的无人引用
-- 纯删除，风险极低
+**第 2 步 · 标记废弃（暂不删除）**
+
+初稿把这一步写成"纯删除、风险极低"，**不准确**。实测发现 `common-chat-agent-runner`
+的唯一调用者是 `stream-task.service.ts` 的 `runChatTask`（约 370 行的进程内 SSE
+producer 循环），而 `common-chat-agent-runner → agent-loop-runner → strategy-router`
+是一条链，删任何一环都会把整条拽下来。真实规模约 **2000+ 行**，横跨 stream-task 核心。
+
+因此改为：**先标记 `@deprecated`，过几个版本再删**。
+
+这条链现在**已不可达**：`resolveTaskFlowSnapshot` 总会给聊天任务锁定 Definition
+（找不到可用 Agent 则明确抛错，不再返回 null），因此 `ensureTaskExecution` 永远走
+Flow 分支。留着不影响运行，只是读代码的人要多确认一次。
+
+删除时要注意的边界（`registry` 不是 producer 专属）：
+
+| | 用途 | 处置 |
+| --- | --- | --- |
+| `registry.publish()` | SSE 事件扇出，**Flow 链路也在用** | ⚠️ 必须保留 |
+| `registry.markRunning / isRunning / clearRunning / abortRunning` | 进程内运行注册 | 随 producer 一起删 |
+
+`AGENT_WORKFLOW` 这个 StreamTaskType 枚举值**没有任何地方创建**，是死值，可一并清理。
 
 **第 3 步 · DTO 与 admin 表单**
 - Agent 的 create / update DTO 与响应去掉 5 个字段
 - admin 表单删「编排策略」「允许策略」「工具组」「技能」「最大步数」，只留身份 + 默认模型 + Flow 绑定
 - admin 手写 `src/api/types.ts` 同步（**两边漂移不会有任何工具报错**，必须手动核对）
 
-**第 4 步 · 数据库迁移**
+**第 4 步 · 移动端工具标签改为从 Flow 推导**
+- Agent 卡片的工具标签（`apps/mobile/src/pages/agents/index.tsx:74` 读 `agent.toolGroups`）
+  改为遍历绑定 Flow 节点的 `toolGroups` 求并集，由 Agent 列表接口返回
+- 需在 `apps/mobile/` 跑 `pnpm generate:api:local` 重新生成 orval 客户端
+
+**⚠️ 顺序修正**：初稿把迁移排在移动端之前，错了。`AgentResponseDto.toolGroups` 是
+移动端与 admin **共用**的字段（`@Controller('agents')` 同时服务两端），在改为从 Flow
+推导之前它仍读 `Agent.toolGroups` 列。先删列会让移动端标签直接空掉。
+
+**第 5 步 · 数据库迁移**
 - 改 `schema.prisma` 删 5 个字段与 `AgentStrategy` 枚举
 - 迁移名：`drop_agent_strategy_and_capability_fields`
-- 放在第 3 步之后：字段先没人读、再删列，任何一步回滚都不会撞上"代码读一个已删的列"
+- 必须最后做：字段先没人读、再删列，任何一步回滚都不会撞上"代码读一个已删的列"
+- 删列会让仍标记为 `@deprecated` 的 `AgentDefinitionService` 编译失败（它 select 那些
+  字段）。到时最小处理是删掉那几行 select，不必被迫删整条链
 
-**第 5 步 · 移动端**
 - Agent 卡片的工具标签（`apps/mobile/src/pages/agents/index.tsx:74` 读 `agent.toolGroups`）改为**从绑定 Flow 推导**：遍历 Flow 节点的 `toolGroups` 求并集，由 Agent 列表接口返回
 - 需在 `apps/mobile/` 跑 `pnpm generate:api:local` 重新生成 orval 客户端
 
