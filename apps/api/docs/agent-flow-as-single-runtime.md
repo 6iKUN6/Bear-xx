@@ -1,12 +1,15 @@
 # Flow 成为唯一执行路径
 
-**状态**：第 1～3 步已落地；第 4、5 步待做。
+**状态**：**全部完成**。
 
 - ✅ 第 1 步 内置 Flow + Flow 成为唯一编排路径
 - ✅ 第 2 步 旧编排链路标记 `@deprecated`（**未删除**，过几个版本再删）
 - ✅ 第 3 步 DTO 与 admin 表单收敛
-- ⬜ 第 4 步 移动端工具标签改为从 Flow 推导
-- ⬜ 第 5 步 数据库迁移删列
+- ✅ 第 4 步 工具标签改为从绑定 Flow 推导
+- ✅ 第 5 步 数据库迁移删列（`20260828092901_drop_agent_strategy_and_capability_fields`）
+
+**遗留一件事**：§2 列出的约 2000 行旧编排链路仍带着 `@deprecated` 留在代码库里。删除时
+机与边界见 §7 第 2 步。
 
 本文只描述**这一次收敛**：把 Agent 从"既是身份又是编排配置"收敛成"身份 + 执行绑定"，让 Flow 成为唯一的编排路径。V2 的并行 / 变量 / 条件模型见 `agent-flow-v2-model.md`，运行时分层见 `agent-flow-architecture.md`，本文不重复。
 
@@ -210,10 +213,21 @@ Flow 分支。留着不影响运行，只是读代码的人要多确认一次。
 - admin 表单删「编排策略」「允许策略」「工具组」「技能」「最大步数」，只留身份 + 默认模型 + Flow 绑定
 - admin 手写 `src/api/types.ts` 同步（**两边漂移不会有任何工具报错**，必须手动核对）
 
-**第 4 步 · 移动端工具标签改为从 Flow 推导**
-- Agent 卡片的工具标签（`apps/mobile/src/pages/agents/index.tsx:74` 读 `agent.toolGroups`）
-  改为遍历绑定 Flow 节点的 `toolGroups` 求并集，由 Agent 列表接口返回
+**第 4 步 · 工具标签改为从绑定 Flow 推导**
+- `AgentResponseDto.toolGroups` 改为遍历绑定 Flow 节点的 `toolGroups` 求并集
 - 需在 `apps/mobile/` 跑 `pnpm generate:api:local` 重新生成 orval 客户端
+
+**⚠️ 落地时发现该列有三个消费者，不止一个。** 方案初稿只预判到智能体列表，实际删列时
+编译器揪出另外两处**活代码**：
+
+| 消费者 | 用途 |
+| --- | --- |
+| `AgentService.toResponse` | 智能体列表 / 移动端「智能体」页的能力标签 |
+| `group-router.service` | 群聊选人提示词里的「这个成员擅长什么」 |
+| `chat-context.service` | 群聊语境注入的花名册「群里还有谁 + 各自专长」 |
+
+三处共用 `resolveBoundFlowToolGroups`（`definition/flow-tool-groups.ts`）。后两处不处理
+就删列，群聊选人与身份注入会失去能力描述，而它们都在用模型做判断。
 
 **⚠️ 顺序修正**：初稿把迁移排在移动端之前，错了。`AgentResponseDto.toolGroups` 是
 移动端与 admin **共用**的字段（`@Controller('agents')` 同时服务两端），在改为从 Flow

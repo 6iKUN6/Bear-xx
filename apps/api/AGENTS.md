@@ -473,6 +473,33 @@ LLM 调用、流式任务、第三方 API 调用和认证流程应保留必要�
 - SSE 接口显式跳过统一响应包裹
 - 项目当前更接近“单进程可恢复流式任务”，不是多实例完全恢复架构
 
+### ⚠️ 代码库里有一条**不可达**的旧编排链路
+
+`Flow 是唯一编排路径`：`resolveTaskFlowSnapshot` 总会给聊天任务锁定一份 Definition
+（Agent 绑了用它的，没绑用内置 direct Flow），因此 `ensureTaskExecution` 永远走 Flow
+分支。下面这些文件**已标记 `@deprecated`，永远不会被执行**，保留只为回滚余地：
+
+```
+ai/agent-loop/strategy-router.service.ts        LLM 猜策略
+ai/agent-loop/strategy-registry.service.ts
+ai/agent-loop/agent-loop-runner.service.ts
+ai/agent-loop/graphs/                            4 张策略图
+ai/agents/common-chat-agent/common-chat-agent-runner.service.ts
+agent/agent-definition.service.ts
+stream-task/stream-task.service.ts 的 runChatTask 及其下游 producer
+```
+
+**改后端前请先确认你要改的不是它们**——它们看起来像在跑，实际不是。
+
+删除时唯一容易切错的边界：
+
+| | 用途 | 处置 |
+| --- | --- | --- |
+| `registry.publish()` | SSE 事件扇出，**Flow 链路也在用** | ⚠️ 必须保留，误删会让所有流式输出静默失效 |
+| `registry.markRunning / isRunning / clearRunning / abortRunning` | 进程内运行注册 | 随 producer 一起删 |
+
+背景与删除步骤见 `docs/agent-flow-as-single-runtime.md`。
+
 ## 更新本文件的原则
 
 当以下情况出现时，应优先更新本文件：
