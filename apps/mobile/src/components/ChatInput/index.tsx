@@ -41,7 +41,7 @@ interface ChatInputProps {
   onRecordComplete?: (filePath: string) => void;
   isStreaming?: boolean;
   disabled?: boolean;
-  /** 底部是否预留 safe-area（上方另有 TabBar 占位时传 false 避免双重留白） */
+  /** 底部是否预留 safe-area（上方另有固定栏占位时传 false 避免双重留白） */
   reserveSafeArea?: boolean;
   mode?: ChatInputMode;
   /** @ 提及候选（群聊=成员列表）；缺省用全部智能体 */
