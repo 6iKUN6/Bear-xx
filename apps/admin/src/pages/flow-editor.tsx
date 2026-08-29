@@ -22,6 +22,7 @@ import {
   useAgentFlowMutations,
 } from "@/hooks/queries";
 import { describeApiError, versionStatusMeta } from "@/lib/flow-meta";
+import { flowAdvisories } from "@/lib/flow-advisories";
 import {
   NODE_TYPE_ICONS,
   layoutPositions,
@@ -135,6 +136,16 @@ export function FlowEditorPage() {
     }
     return grouped;
   }, [validation, draft]);
+
+  /**
+   * 编辑期提示：合法但大概率不是本意的图
+   * @description 与校验错误分开。校验要点保存、且描述的是「服务端会拒」；提示随草稿实时算，
+   * 描述的是「能存能跑，但结果可能不是你要的」。两者混在一起会让人以为提示也阻塞保存。
+   */
+  const advisories = useMemo(
+    () => (draft ? flowAdvisories(draft) : []),
+    [draft],
+  );
 
   /** 没能归到具体节点的错误（边、图级规则）单独展示，不能悄悄丢掉 */
   const graphErrors = useMemo(() => {
@@ -495,6 +506,35 @@ export function FlowEditorPage() {
                     <li key={`${error.path}:${error.rule}`}>
                       <span className="font-mono">{error.rule}</span>{" "}
                       {error.message}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+            {advisories.length > 0 ? (
+              <section className="mb-3 rounded-md border border-[var(--lb-warning)] bg-[var(--lb-warning-soft)] px-2 py-1.5">
+                <h3 className="text-xs font-medium text-foreground">
+                  编辑建议（不阻塞保存）
+                </h3>
+                <ul className="mt-1 space-y-1.5 text-xs">
+                  {advisories.map((advisory) => (
+                    <li key={advisory.id}>
+                      {advisory.nodeId ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedNodeId(advisory.nodeId!)}
+                          className="text-left font-medium text-foreground underline decoration-dotted hover:decoration-solid"
+                        >
+                          {advisory.title}
+                        </button>
+                      ) : (
+                        <span className="font-medium text-foreground">
+                          {advisory.title}
+                        </span>
+                      )}
+                      <p className="mt-0.5 text-muted-foreground">
+                        {advisory.detail}
+                      </p>
                     </li>
                   ))}
                 </ul>
