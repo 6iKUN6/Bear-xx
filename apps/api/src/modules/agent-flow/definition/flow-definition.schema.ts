@@ -37,6 +37,12 @@ export const FLOW_DEFINITION_LIMITS = {
   nodeNameLength: 60,
   /** 单个 join 节点允许等待的最大分支数。 */
   joinWaitForCount: 16,
+  /**
+   * 单个 loop 节点允许的最大轮数。
+   * @description 这是**配置上限**，不是运行时兜底——每轮消耗巨大时真正拦住死循环的是
+   * policy 的 maxModelCalls / maxToolCalls / maxDurationSeconds。
+   */
+  loopIterations: 20,
 } as const;
 
 const NODE_ID_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -199,6 +205,25 @@ const flowNodeSchema = z.discriminatedUnion('type', [
             .min(1)
             .max(FLOW_DEFINITION_LIMITS.joinWaitForCount),
           policy: z.enum(['all', 'any']),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
+      type: z.literal('loop'),
+      config: z
+        .object({
+          maxIterations: z
+            .number()
+            .int()
+            .min(1)
+            .max(FLOW_DEFINITION_LIMITS.loopIterations),
+          // 允许为空：等价于「只按 maxIterations 跑满」的固定轮数循环
+          continueWhen: z
+            .array(conditionCaseSchema)
+            .max(FLOW_DEFINITION_LIMITS.conditionCaseCount),
         })
         .strict(),
     })

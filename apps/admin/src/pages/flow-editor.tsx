@@ -45,7 +45,13 @@ import {
 } from "@/lib/flow-edit";
 import type { AgentFlowValidation } from "@/api/types";
 
-/** 左栏可添加的节点类型；start 不在其中——它有且仅有一个，由模板带来。 */
+/**
+ * 左栏可添加的节点类型
+ * @description start 不在其中——它有且仅有一个，由模板带来。
+ *
+ * `loop` 也刻意不在其中：契约已就绪，但执行器与校验器尚未支持（校验器的 `cycle` 规则仍
+ * 硬拒任何环）。现在放出来等于给一个必然保存失败的按钮。等 issue #9 的第 4、5 步落地后再加。
+ */
 const ADDABLE_NODE_TYPES: FlowNodeType[] = [
   "agent",
   "plan",

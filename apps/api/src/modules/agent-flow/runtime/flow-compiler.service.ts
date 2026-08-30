@@ -151,6 +151,14 @@ export class FlowCompiler {
           type: 'condition',
           cases: node.config.cases,
         };
+      case 'loop':
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'loop',
+          maxIterations: node.config.maxIterations,
+          continueWhen: node.config.continueWhen,
+        };
     }
   }
 

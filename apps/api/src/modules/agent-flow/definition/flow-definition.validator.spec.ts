@@ -570,6 +570,70 @@ describe('FlowDefinitionValidator', () => {
 
     expectValidationError(result, (error) => error.rule === 'branch-coverage');
   });
+
+  it('接受 loop 节点的契约形状', () => {
+    // 契约先行：节点类型、分支键与 Zod 都已支持 loop。但图上的**环**仍被 cycle 规则拒绝
+    // （见下一条），因此这里只验证节点本身能通过结构校验，不连回边。
+    const definition = validDefinition();
+    expect(
+      validateFlowDefinition({
+        ...definition,
+        nodes: [
+          ...definition.nodes,
+          {
+            id: 'lp',
+            type: 'loop',
+            config: { maxIterations: 3, continueWhen: [] },
+          },
+        ],
+        edges: [...definition.edges, { from: 'answer', to: 'lp' }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('loop 的回边目前仍被 cycle 规则拒绝', () => {
+    // 这条锁住「契约已就绪但运行时未支持」这个中间状态：放开 cycle 属于 issue #9 的第 5 步，
+    // 在那之前带回边的图必须存不进去，否则用户会存下一张跑不了的图。
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: [
+          ...definition.nodes,
+          {
+            id: 'lp',
+            type: 'loop',
+            config: { maxIterations: 3, continueWhen: [] },
+          },
+        ],
+        edges: [
+          ...definition.edges,
+          { from: 'answer', to: 'lp' },
+          { from: 'lp', to: 'answer', when: 'again' },
+        ],
+      }),
+      (error) => error.rule === 'cycle',
+    );
+  });
+
+  it('拒绝超出上限的 maxIterations', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: [
+          ...definition.nodes,
+          {
+            id: 'lp',
+            type: 'loop',
+            config: { maxIterations: 999, continueWhen: [] },
+          },
+        ],
+        edges: [...definition.edges, { from: 'answer', to: 'lp' }],
+      }),
+      (error) => error.rule === 'schema',
+    );
+  });
 });
 
 /**
