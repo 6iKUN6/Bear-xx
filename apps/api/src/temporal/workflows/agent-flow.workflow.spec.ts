@@ -354,6 +354,46 @@ describe('agentFlowWorkflow', () => {
     }
   });
 
+  it('幂等键带轮次段，且节点生命周期内始终一致', async () => {
+    // issue #9 第 2 步。两件事都要成立，缺一不可：
+    //   1. 键里带轮次 —— 否则循环第二轮写入撞 (taskId, nodeExecutionId) 唯一键，而
+    //      replayFinishedNode 更会直接回放第一轮结果，让循环静默退化成只跑一轮
+    //   2. 同一节点的 execute / continue / resume 必须拿到**同一个**键 —— 否则 Temporal
+    //      重试会绕过幂等短路，把已放行的工具再执行一遍
+    const seen: string[] = [];
+    let continueCalls = 0;
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: singleNodeSnapshot(),
+        executeNode: ({ nodeExecutionId }) => {
+          seen.push(nodeExecutionId);
+          return Promise.resolve({ kind: 'continued', completedSteps: 1 });
+        },
+        continueNode: ({ nodeExecutionId }) => {
+          seen.push(nodeExecutionId);
+          continueCalls += 1;
+          return Promise.resolve(
+            continueCalls < 2
+              ? { kind: 'continued', completedSteps: continueCalls + 1 }
+              : { kind: 'completed', outcome: 'default' },
+          );
+        },
+        finalizeRun: () => Promise.resolve(),
+      }),
+    );
+
+    try {
+      await running.handle.result();
+      // 轮次段存在（当前恒为 0，递增属于第 4 步）
+      expect(seen[0]).toMatch(/#0$/);
+      // 整个节点生命周期共用同一个键
+      expect(new Set(seen).size).toBe(1);
+      expect(seen).toHaveLength(3);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
   it('continued 未推进步骤时拒绝空转并终止 Flow', async () => {
     const finalized: Array<{ status: string }> = [];
     const running = await startWorkflow(

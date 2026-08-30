@@ -98,7 +98,9 @@ export async function agentFlowWorkflow(
     ): Promise<{ node: AgentFlowWorkflowNode; result: SettledNodeResult }> => {
       const node = getSnapshotNode(nodesByKey, nodeKey);
       lastNodeKey = node.key;
-      const nodeExecutionId = createNodeExecutionId(input, node.key);
+      // 轮次恒为 0：识别循环体并在 `again` 分支时递增属于 issue #9 的第 4 步。这一步只把
+      // 轮次穿进幂等键的形状，避免那一步再改一次键。
+      const nodeExecutionId = createNodeExecutionId(input, node.key, 0);
       let result = await activities.executeNode({
         workflow: input,
         nodeKey: node.key,
@@ -439,13 +441,24 @@ type SettledNodeResult = Extract<
  * @param input 当前 Workflow 的最小业务标识
  * @param nodeKey 当前节点键
  * @returns 返回跨 Activity retry 与 Workflow replay 不变的执行标识
- * @description V1 Flow 不允许图级循环，同一冻结版本中的节点最多推进一次，因此 task、version 与 nodeKey 足以标识一次节点业务执行。
+ * @description 循环下同一个 nodeKey 会跑多轮，因此标识里必须带轮次——否则第二轮写入撞
+ * `(taskId, nodeExecutionId)` 唯一键，而 `replayFinishedNode` 更会直接回放第一轮的结果、
+ * 让循环静默退化成只跑一轮。
+ *
+ * 轮次由 Workflow 侧持有并随 Activity 输入下传，**不能在 Activity 里从数据库推算**：
+ * 推算会让 Temporal 重试算出不同的轮次、绕过幂等短路，把已放行的工具再执行一遍。
+ *
+ * ⚠️ 加轮次段改变了标识形状（`…:nodeKey` → `…:nodeKey#0`），因此**此前已落库的
+ * `AgentFlowNodeExecution` 记录不再被命中**。影响面：正在途中的 run 若跨这次部署，会把已
+ * 完成的节点重跑一遍。部署前应确认无在途 run（判断依据见 `agent-flow.workflow-revision.ts`
+ * 的修订号说明），这也是那份文件要求递增修订号的原因。
  */
 function createNodeExecutionId(
   input: AgentFlowWorkflowInput,
   nodeKey: string,
+  iteration: number,
 ): string {
-  return `${input.streamTaskId}:${input.flowVersionId}:${nodeKey}`;
+  return `${input.streamTaskId}:${input.flowVersionId}:${nodeKey}#${iteration}`;
 }
 
 /**
