@@ -38,6 +38,10 @@
  *
  * ## 修订历史
  *
+ * - `4` 幂等键加轮次段（`…:nodeKey` → `…:nodeKey#0`）：为图上的循环做准备。**标识形状变了，
+ *   此前已落库的 AgentFlowNodeExecution 记录不再被命中**，跨这次部署的在途 run 会把已完成
+ *   节点重跑一遍。部署时依赖"无在途 run"，未加 patch——patch 只能表达分支，表达不了
+ *   "同一个键换了算法"。
  * - `3` 单游标改为前沿执行器：同一时刻可有多个节点在飞，`executeNode` 的调度数量与顺序
  *   都与旧版不同，命令序列彻底变化。部署时依赖"无在途 run"，未加 patch——旧 run 的
  *   History 里只有单条推进路径，无法用 patch 表达成多路并发。
@@ -45,7 +49,7 @@
  *   部署时依赖"无在途 run"，未加 patch。
  * - `1` 初始版本：loadRunSnapshot -> executeNode/resumeNode 循环 -> finalizeRun。
  */
-export const AGENT_FLOW_WORKFLOW_REVISION = 3;
+export const AGENT_FLOW_WORKFLOW_REVISION = 4;
 
 /** memo 中记录启动修订号的键名。 */
 export const AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY =
