@@ -108,6 +108,17 @@ export interface CompiledConditionFlowNode extends CompiledFlowNodeBase {
   cases: readonly FlowConditionCase[];
 }
 
+/**
+ * 编译后的循环节点
+ * @description 循环的唯一入口与出口；回边必须指回它。详见 `docs/agent-flow-loops.md`。
+ */
+export interface CompiledLoopFlowNode extends CompiledFlowNodeBase {
+  type: 'loop';
+  maxIterations: number;
+  /** 继续循环的判定；空数组即「只按 maxIterations 跑满」 */
+  continueWhen: readonly FlowConditionCase[];
+}
+
 /** 编译后的节点闭集。 */
 export type CompiledFlowNode =
   | CompiledStartFlowNode
@@ -117,7 +128,8 @@ export type CompiledFlowNode =
   | CompiledApprovalFlowNode
   | CompiledSynthesizeFlowNode
   | CompiledConditionFlowNode
-  | CompiledJoinFlowNode;
+  | CompiledJoinFlowNode
+  | CompiledLoopFlowNode;
 
 /** 已冻结且可被节点执行器消费的 Flow 计划。 */
 export interface CompiledFlowPlan {

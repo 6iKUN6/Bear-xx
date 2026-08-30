@@ -2927,6 +2927,8 @@ function getNodeTypeTitle(type: FlowNodeType): string {
       return '开始';
     case 'join':
       return '汇聚并行分支';
+    case 'loop':
+      return '判定是否继续循环';
   }
 }
 

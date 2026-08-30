@@ -7,7 +7,7 @@
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 5 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 6 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -18,7 +18,8 @@ export type FlowNodeType =
   | "approval"
   | "synthesize"
   | "condition"
-  | "join";
+  | "join"
+  | "loop";
 
 /**
  * 变量可以承载的值类型闭集；不做泛型与嵌套类型参数
@@ -67,6 +68,9 @@ export const FLOW_NODE_OUTPUTS: Readonly<
   condition: {},
   // join 只做汇聚，不产出自己的值；下游要用某条分支的结果就直接引用那个节点
   join: {},
+  // loop 只声明轮次：循环体内节点的输出由它们自己声明，下游经 $ref 取到的是**最近一轮**
+  // 的值（见 agent-flow-loops.md §2.3）。iteration 从 1 开始，方便直接展示给用户。
+  loop: { iteration: "number" },
 };
 
 /** Flow 的运行预算策略。 */
@@ -294,6 +298,35 @@ export interface FlowSynthesizeNode extends FlowNodeBase {
   readonly config: FlowSynthesizeNodeConfig;
 }
 
+/**
+ * 循环节点配置
+ * @description 循环的**唯一入口与出口**：回边必须指回它，否则轮次归属不明、校验期也算不出
+ * 循环体范围。详见 `apps/api/docs/agent-flow-loops.md`。
+ *
+ * `continueWhen` 复用 condition 的 case 形状而不另造一套判定语法：命中任一 case 即走
+ * `again` 分支，否则走 `done`。
+ */
+export interface FlowLoopNodeConfig {
+  /**
+   * 最大轮数
+   * @description 必填且有上限。它防的是「配置写错」，防不住「每轮消耗巨大」——后者的兜底是
+   * `policy.maxModelCalls` / `maxToolCalls` / `maxDurationSeconds`。没有这个硬上限等于把
+   * 死循环的兜底完全交给预算。
+   */
+  readonly maxIterations: number;
+  /**
+   * 继续循环的判定
+   * @description 空数组表示「只按 maxIterations 跑满」，是合法配置（等价于固定轮数循环）。
+   */
+  readonly continueWhen: readonly FlowConditionCase[];
+}
+
+/** 循环节点；图上环的唯一合法形态。 */
+export interface FlowLoopNode extends FlowNodeBase {
+  readonly type: "loop";
+  readonly config: FlowLoopNodeConfig;
+}
+
 /** 汇聚节点；等待并行分支后继续。 */
 export interface FlowJoinNode extends FlowNodeBase {
   readonly type: "join";
@@ -321,7 +354,8 @@ export type FlowNode =
   | FlowApprovalNode
   | FlowSynthesizeNode
   | FlowConditionNode
-  | FlowJoinNode;
+  | FlowJoinNode
+  | FlowLoopNode;
 
 /**
  * 边上的分支键
@@ -335,6 +369,12 @@ export const FLOW_DEFAULT_BRANCH = "default" as const;
 
 /** Condition 节点未命中任何 case 时走的隐含分支。 */
 export const FLOW_CONDITION_ELSE_BRANCH = "else" as const;
+
+/** Loop 节点判定「继续下一轮」时走的分支，指向循环体入口。 */
+export const FLOW_LOOP_AGAIN_BRANCH = "again" as const;
+
+/** Loop 节点判定「结束循环」时走的分支。 */
+export const FLOW_LOOP_DONE_BRANCH = "done" as const;
 
 /**
  * 列出一个节点声明的全部分支键
@@ -354,6 +394,9 @@ export function flowNodeBranchKeys(node: FlowNode): readonly string[] {
   // 正确处理成业务终态。现在声明 rejected 只会多一个无处可去的分支键。
   if (node.type === "approval") {
     return ["approved"];
+  }
+  if (node.type === "loop") {
+    return [FLOW_LOOP_AGAIN_BRANCH, FLOW_LOOP_DONE_BRANCH];
   }
   return [FLOW_DEFAULT_BRANCH];
 }

@@ -6,6 +6,7 @@ import {
   Play,
   Repeat,
   Merge,
+  RefreshCw,
   UserCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -192,6 +193,7 @@ export const NODE_TYPE_ICONS: Record<FlowNodeType, LucideIcon> = {
   synthesize: FileText,
   condition: GitBranch,
   join: Merge,
+  loop: RefreshCw,
 };
 
 /** 节点类型的展示元数据；`type` 是契约里的英文类型名，与节点标识是两回事。 */
@@ -248,6 +250,11 @@ const NODE_TYPE_META: Record<FlowNodeType, NodeTypeMeta> = {
     name: "汇聚分支",
     type: "join",
     desc: "等待并行分支后继续；all 等全部，any 等任一",
+  },
+  loop: {
+    name: "循环",
+    type: "loop",
+    desc: "按条件或轮数重复执行循环体；回边须指回本节点",
   },
 };
 
