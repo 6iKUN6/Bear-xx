@@ -408,6 +408,22 @@ Prisma 模型和字段命名应优先保持业务语义一致，不为短而短�
 
 其余用例都是替身，不应有偶发；那里挂了就是真问题。
 
+### Temporal 集成套件跑完不会自己退出
+
+同一份 spec 跑完后，测试用的 Temporal 服务端已停、而 worker 还在轮询，于是刷大量：
+
+```
+ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 78 times
+  error=Status { code: Unavailable, message: "tcp connect error" ... Connection refused }
+```
+
+**这不是失败。** 先往上翻找 `Tests: N passed`——通过了就是通过了，那堆错误是收尾噪音。
+进程可能挂住不退，直接 `pkill -f jest` 即可。
+
+因此**不要用它的退出码判断成败**，也不要因为看到满屏 ERROR 就以为自己改坏了。跑整套时
+可以用 `--testPathIgnorePatterns "workflows/agent-flow.workflow.spec"` 把它排除，再单独跑
+它一次。
+
 ## 提交前检查
 
 在完成代码修改后，至少执行与本次改动相关的检查。
