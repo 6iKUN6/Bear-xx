@@ -6,6 +6,8 @@ import {
   Download,
   GitBranch,
   Loader2,
+  Pencil,
+  ScanSearch,
   Rocket,
   Save,
   Undo2,
@@ -25,6 +27,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FlowCanvas } from "@/components/flow-canvas";
+import { FlowMetadataSheet } from "@/components/flow-metadata-sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAgentFlow, useAgentFlowMutations } from "@/hooks/queries";
 import {
   describeApiError,
@@ -45,7 +54,9 @@ export function FlowDetailPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [validation, setValidation] = useState<AgentFlowValidation | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [metadataOpen, setMetadataOpen] = useState(false);
+  const [previewVersion, setPreviewVersion] =
+    useState<AgentFlowVersion | null>(null);
 
   const versions = flow?.versions ?? [];
   // 默认落在草稿上——那是唯一可编辑的版本
@@ -191,18 +202,62 @@ export function FlowDetailPage() {
 
   return (
     <div className="space-y-4">
+      <FlowMetadataSheet
+        flow={flow}
+        open={metadataOpen}
+        onClose={() => setMetadataOpen(false)}
+      />
+      <Dialog
+        open={Boolean(previewVersion)}
+        onOpenChange={(open) => !open && setPreviewVersion(null)}
+      >
+        <DialogContent className="flex h-[82vh] w-[92vw] max-w-[92vw] flex-col">
+          <div className="shrink-0">
+            <DialogTitle>
+              v{previewVersion?.version} 结构预览
+            </DialogTitle>
+            <DialogDescription>
+              {previewVersion
+                ? versionStatusMeta(previewVersion.status).name
+                : "只读画布"}
+            </DialogDescription>
+          </div>
+          {previewVersion ? (
+            <div className="min-h-0 flex-1">
+              <FlowCanvas
+                definition={previewVersion.definition}
+                fitViewKey={previewVersion.id}
+              />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" asChild>
           <Link to="/flows">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold text-foreground">{flow.name}</h1>
           <p className="text-xs text-muted-foreground">
             {flow.description || "无描述"}
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setMetadataOpen(true)}
+          disabled={flow.id === "builtin-direct-flow"}
+          title={
+            flow.id === "builtin-direct-flow"
+              ? "内置 Flow 由系统维护"
+              : "编辑名称与描述"
+          }
+        >
+          <Pencil className="h-4 w-4" />
+          编辑基本信息
+        </Button>
       </div>
 
       <Card>
@@ -266,14 +321,26 @@ export function FlowDetailPage() {
                         : "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link
-                          to={`/flows/${flow.id}/versions/${version.id}/edit`}
+                      {version.status === "DRAFT" &&
+                      version.schemaCompatible ? (
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link
+                            to={`/flows/${flow.id}/versions/${version.id}/edit`}
+                          >
+                            <GitBranch className="h-4 w-4" />
+                            编辑画布
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setPreviewVersion(version)}
                         >
-                          <GitBranch className="h-4 w-4" />
-                          画布
-                        </Link>
-                      </Button>
+                          <ScanSearch className="h-4 w-4" />
+                          预览结构
+                        </Button>
+                      )}
                       {canRollback ? (
                         <Button
                           variant="ghost"
@@ -293,49 +360,6 @@ export function FlowDetailPage() {
           </Table>
         </CardContent>
       </Card>
-
-      {selected ? (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle className="flex items-center gap-2">
-              v{selected.version} 结构图
-              <Badge variant="outline">只读</Badge>
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {dirty
-                ? "画布显示的是已保存的版本，不含下方未保存的改动"
-                : "点节点可查看它在 JSON 中的位置"}
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {incompatible ? (
-              <div className="rounded-md border border-[var(--lb-warning)] bg-[var(--lb-warning-soft)] px-3 py-2">
-                <p className="text-sm font-medium text-foreground">
-                  此版本不符合当前 Definition 契约，无法编辑或发布
-                </p>
-                <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                  {selected.schemaErrors?.map((error) => (
-                    <li key={`${error.path}:${error.rule}`}>
-                      <span className="font-mono">{error.path}</span>（
-                      {error.rule}）{error.message}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  结构图仍按原文渲染，可对照它从模板新建一份草稿。
-                </p>
-              </div>
-            ) : null}
-            {/* 刻意画已保存的 definition 而不是编辑器里的文本：编辑中途的 JSON 往往语法都不完整，
-                跟着每次击键重画会让画布不断闪成「无法渲染」。脏状态由上面那行文案说明。 */}
-            <FlowCanvas
-              definition={selected.definition}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
 
       {selected ? (
         <Card>

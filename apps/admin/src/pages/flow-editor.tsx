@@ -47,10 +47,7 @@ import type { AgentFlowValidation } from "@/api/types";
 
 /**
  * 左栏可添加的节点类型
- * @description start 不在其中——它有且仅有一个，由模板带来。
- *
- * `loop` 也刻意不在其中：契约已就绪，但执行器与校验器尚未支持（校验器的 `cycle` 规则仍
- * 硬拒任何环）。现在放出来等于给一个必然保存失败的按钮。等 issue #9 的第 4、5 步落地后再加。
+ * @description start 与 end 不在其中——它们都唯一，由模板带来且不能删除。
  */
 const ADDABLE_NODE_TYPES: FlowNodeType[] = [
   "agent",
@@ -60,6 +57,7 @@ const ADDABLE_NODE_TYPES: FlowNodeType[] = [
   "synthesize",
   "condition",
   "join",
+  "loop",
 ];
 
 /**
@@ -214,7 +212,7 @@ export function FlowEditorPage() {
     }
   };
 
-  const handleConnect = (from: string, to: string) => {
+  const handleConnect = (from: string, to: string, requestedBranch?: string) => {
     if (!draft) return;
     const source = draft.nodes.find((node) => node.id === from);
     if (!source) return;
@@ -226,9 +224,10 @@ export function FlowEditorPage() {
     );
     // default 可重复连出（并行扇出），具名分支各自只能连一条。因此只在具名分支里找空位，
     // 找不到再回落到 default——普通节点只有 default，扇出时它永远是"已占用"的。
-    const branch =
-      declared.find((key) => key !== "default" && !covered.has(key)) ??
-      (declared.includes("default") ? "default" : undefined);
+    const branch = requestedBranch
+      ? requestedBranch
+      : declared.find((key) => key !== "default" && !covered.has(key)) ??
+        (declared.includes("default") ? "default" : undefined);
     if (!branch) {
       toast.error(`节点「${from}」的所有分支都已连出`);
       return;
@@ -484,6 +483,7 @@ export function FlowEditorPage() {
                   }}
                   onDeleteNode={handleDeleteNode}
                   onDropNodeType={handleAddNode}
+                  fitViewKey={version.id}
                 />
               </div>
             ) : (
@@ -493,8 +493,10 @@ export function FlowEditorPage() {
             )}
             {canEdit ? (
               <p className="mt-2 shrink-0 text-xs text-muted-foreground">
-                从节点右侧圆点拖到另一节点即连线；右键节点或连线可删除。
-                普通节点连出多条边即并行扇出，汇聚请用 join 节点并在右侧选择要等的分支。
+                从节点出口拖到另一节点即连线；loop 的 again/done 必须从对应出口拖出，
+                循环体回到顶部返回口。右键节点或连线可删除。
+                普通节点连出多条边即并行扇出，汇聚请用 join
+                节点并在右侧选择要等的分支。
               </p>
             ) : null}
           </CardContent>

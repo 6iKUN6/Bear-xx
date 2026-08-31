@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/kpi-card";
 import { FlowCreateDialog } from "@/components/flow-create-dialog";
+import { FlowMetadataSheet } from "@/components/flow-metadata-sheet";
 import {
   useAgentFlowMutations,
   useAgentFlowTemplates,
@@ -30,6 +31,7 @@ export function FlowsPage() {
   const { data: templates } = useAgentFlowTemplates();
   const { create, remove } = useAgentFlowMutations();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingFlow, setEditingFlow] = useState<AgentFlow | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   // 用本地集合而非 mutation.variables：后者是整个 hook 共享的，批量删除时
   // 只会反映最后一次调用，前面几行的 spinner 会提前消失
@@ -39,10 +41,17 @@ export function FlowsPage() {
 
   const rows = data ?? [];
 
-  const handleCreate = async (template: AgentFlowTemplate) => {
+  const handleCreate = async (
+    template: AgentFlowTemplate,
+    metadata: { name: string; description: string },
+  ) => {
     try {
-      await create.mutateAsync(template.definition);
-      toast.success(`已从「${template.name}」创建草稿`);
+      await create.mutateAsync({
+        ...template.definition,
+        name: metadata.name,
+        description: metadata.description,
+      });
+      toast.success(`已创建「${metadata.name}」草稿`);
       setCreateOpen(false);
     } catch (err) {
       // 失败时保持弹窗打开：关掉会让用户丢掉刚才的选择，还得重新选一遍
@@ -128,6 +137,11 @@ export function FlowsPage() {
         templates={templates ?? []}
         creating={create.isPending}
         onCreate={handleCreate}
+      />
+      <FlowMetadataSheet
+        flow={editingFlow}
+        open={Boolean(editingFlow)}
+        onClose={() => setEditingFlow(null)}
       />
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
@@ -261,6 +275,15 @@ export function FlowsPage() {
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="sm" asChild>
                             <Link to={`/flows/${flow.id}`}>版本与编辑</Link>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="编辑名称与描述"
+                            onClick={() => setEditingFlow(flow)}
+                            disabled={flow.id === "builtin-direct-flow"}
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"

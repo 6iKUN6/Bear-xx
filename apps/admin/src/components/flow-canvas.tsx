@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -7,6 +7,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   applyNodeChanges,
+  useNodesInitialized,
   useReactFlow,
   type Edge,
   type Node,
@@ -48,12 +49,27 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
   return (
     <div
       className={cn(
-        "min-w-[168px] rounded-md border bg-background px-3 py-2 shadow-sm transition-colors",
+        "relative min-w-[168px] rounded-md border bg-background px-3 py-2 shadow-sm transition-colors",
         data.selected ? "border-primary ring-1 ring-primary" : "border-border",
       )}
       title={meta.desc}
     >
-      <Handle type="target" position={Position.Left} />
+      {data.nodeType === "start" ? null : data.nodeType === "loop" ? (
+        <>
+          <Handle id="loop-entry" type="target" position={Position.Left} />
+          <Handle
+            id="loop-return"
+            type="target"
+            position={Position.Top}
+            className="!bg-[var(--lb-warning)]"
+          />
+          <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-muted-foreground">
+            返回下一轮
+          </span>
+        </>
+      ) : (
+        <Handle type="target" position={Position.Left} />
+      )}
       <div className="flex items-center gap-1.5">
         {Icon ? <Icon className="h-3.5 w-3.5 text-muted-foreground" /> : null}
         <span className="text-sm font-medium text-foreground">
@@ -69,7 +85,32 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
         {meta.name}
         <span className="ml-1 font-mono opacity-70">{meta.type}</span>
       </div>
-      <Handle type="source" position={Position.Right} />
+      {data.nodeType === "end" ? null : data.nodeType === "loop" ? (
+        <>
+          <Handle
+            id="again"
+            type="source"
+            position={Position.Right}
+            style={{ top: "38%" }}
+            className="!bg-primary"
+          />
+          <span className="absolute -right-10 top-[calc(38%-8px)] text-[10px] font-medium text-primary">
+            again
+          </span>
+          <Handle
+            id="done"
+            type="source"
+            position={Position.Right}
+            style={{ top: "72%" }}
+            className="!bg-[var(--lb-success)]"
+          />
+          <span className="absolute -right-9 top-[calc(72%-8px)] text-[10px] font-medium text-[var(--lb-success)]">
+            done
+          </span>
+        </>
+      ) : (
+        <Handle id="default" type="source" position={Position.Right} />
+      )}
     </div>
   );
 }
@@ -102,11 +143,13 @@ interface FlowCanvasProps {
    */
   editable?: boolean;
   onMoveNode?: (nodeId: string, position: FlowNodePosition) => void;
-  onConnect?: (from: string, to: string) => void;
+  onConnect?: (from: string, to: string, branch?: string) => void;
   onDeleteEdge?: (from: string, to: string, branch: string) => void;
   onDeleteNode?: (nodeId: string) => void;
   /** 从左侧面板拖入一种节点类型时的落点回调 */
   onDropNodeType?: (type: FlowNodeType, position: FlowNodePosition) => void;
+  /** 控制只读画布何时重新适配视口；同一键内编辑节点时不反复缩放 */
+  fitViewKey?: string | number;
 }
 
 /**
@@ -134,8 +177,11 @@ function FlowCanvasInner({
   onDeleteEdge,
   onDeleteNode,
   onDropNodeType,
+  fitViewKey,
 }: FlowCanvasProps) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const lastFittedGraph = useRef<FlowGraph | string | number | null>(null);
   const [menu, setMenu] = useState<ContextTarget | null>(null);
 
   const parsed = useMemo(
@@ -180,14 +226,29 @@ function FlowCanvasInner({
     [rfNodes, selectedNodeId],
   );
 
+  useEffect(() => {
+    if (!graph || graph.nodes.length === 0 || !nodesInitialized) {
+      return;
+    }
+    const fitIdentity = fitViewKey ?? graph;
+    if (lastFittedGraph.current === fitIdentity) {
+      return;
+    }
+    lastFittedGraph.current = fitIdentity;
+    void fitView({ padding: 0.18, duration: 180 });
+  }, [fitView, fitViewKey, graph, nodesInitialized]);
+
   const edges = useMemo<Edge[]>(
     () =>
       (graph?.edges ?? []).map((edge) => ({
         id: edge.id,
         source: edge.source,
         target: edge.target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
         label: edge.label || undefined,
-        animated: false,
+        type: edge.targetHandle === "loop-return" ? "smoothstep" : undefined,
+        animated: edge.targetHandle === "loop-return",
         deletable: editable,
       })),
     [graph, editable],
@@ -252,7 +313,11 @@ function FlowCanvasInner({
         onNodeDragStop={(_, node) => onMoveNode?.(node.id, node.position)}
         onConnect={(connection) => {
           if (connection.source && connection.target) {
-            onConnect?.(connection.source, connection.target);
+            onConnect?.(
+              connection.source,
+              connection.target,
+              connection.sourceHandle ?? undefined,
+            );
           }
         }}
         onNodeContextMenu={(event, node) => {

@@ -35,9 +35,11 @@ import {
   listTestSessions,
   setDefaultAgent,
   updateAgent,
+  updateAgentFlowMetadata,
   updateModelPreset,
 } from "@/api/endpoints";
 import type {
+  AgentFlowMetadataInput,
   AgentInput,
   ModelPresetInput,
   ModelPresetProbeInput,
@@ -116,7 +118,6 @@ export function useAgentMutations() {
     mutationFn: (id: string) => deleteAgent(id),
     onSuccess: invalidate,
   });
-
   return { create, update, setDefault, remove };
 }
 
@@ -212,6 +213,11 @@ export function useAgentFlowMutations(flowId?: string) {
     mutationFn: (id: string) => deleteAgentFlow(id),
     onSuccess: invalidate,
   });
+  const updateMetadata = useMutation({
+    mutationFn: (input: { flowId: string; body: AgentFlowMetadataInput }) =>
+      updateAgentFlowMetadata(input.flowId, input.body),
+    onSuccess: invalidate,
+  });
   const saveDraft = useMutation({
     mutationFn: (input: { versionId: string; definition: object }) =>
       updateFlowDraft(input.versionId, input.definition),
@@ -238,6 +244,7 @@ export function useAgentFlowMutations(flowId?: string) {
 
   return {
     create,
+    updateMetadata,
     remove,
     saveDraft,
     validate,

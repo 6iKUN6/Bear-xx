@@ -1,6 +1,7 @@
 import {
   Bot,
   FileText,
+  Flag,
   GitBranch,
   ListChecks,
   Play,
@@ -14,6 +15,8 @@ import {
   FLOW_CONDITION_ELSE_BRANCH,
   FLOW_DEFAULT_BRANCH,
   FLOW_NODE_OUTPUTS,
+  flowLoopBoundarySources,
+  flowLoopRegions,
   flowMustCompleteBefore,
   flowNodeBranchKeys,
   type FlowEdge,
@@ -64,6 +67,10 @@ export interface FlowGraphEdge {
   target: string;
   branch: string;
   label: string;
+  /** loop 的显式 again/done 出口；普通边缺省 */
+  sourceHandle?: string;
+  /** loop 的首次入口或返回口；普通目标缺省 */
+  targetHandle?: string;
 }
 
 /** 一次 Definition 投影结果。 */
@@ -186,6 +193,7 @@ function readLayout(value: unknown): Pick<CanvasDefinition, "layout"> {
  */
 export const NODE_TYPE_ICONS: Record<FlowNodeType, LucideIcon> = {
   start: Play,
+  end: Flag,
   agent: Bot,
   plan: ListChecks,
   "plan-loop": Repeat,
@@ -215,6 +223,11 @@ const NODE_TYPE_META: Record<FlowNodeType, NodeTypeMeta> = {
     name: "开始",
     type: "start",
     desc: "流程入口；输出用户本轮消息，供下游引用",
+  },
+  end: {
+    name: "结束",
+    type: "end",
+    desc: "流程唯一出口；所有路径最终都必须到达这里",
   },
   agent: {
     name: "智能体",
@@ -336,6 +349,7 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
   // join 的入边额外标出「等 / 不等」：连进来但没被 waitFor 选中的分支照常执行，却不会被
   // 等待——这个差别在画布上原本完全看不见，是会静默配错的地方。
   const joinWaitFor = new Map<string, ReadonlySet<string>>();
+  const loopRegions = flowLoopRegions(definition.nodes, definition.edges);
   for (const node of definition.nodes) {
     if (node.type !== "join") {
       continue;
@@ -344,7 +358,9 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
     joinWaitFor.set(
       node.id,
       new Set(
-        Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [],
+        Array.isArray(raw)
+          ? raw.filter((id): id is string => typeof id === "string")
+          : [],
       ),
     );
   }
@@ -352,11 +368,27 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
   const edges = definition.edges.map((edge) => {
     const branch = edge.when ?? FLOW_DEFAULT_BRANCH;
     const waited = joinWaitFor.get(edge.to);
+    const source = definition.nodes.find((node) => node.id === edge.from);
+    const target = definition.nodes.find((node) => node.id === edge.to);
+    const loopRegion =
+      target?.type === "loop" ? loopRegions.get(target.id) : undefined;
+    const isLoopBackEdge = Boolean(
+      loopRegion?.backEdges.some(
+        (candidate) =>
+          candidate.from === edge.from &&
+          candidate.to === edge.to &&
+          (candidate.when ?? FLOW_DEFAULT_BRANCH) === branch,
+      ),
+    );
     return {
       id: edgeId(edge),
       source: edge.from,
       target: edge.to,
       branch,
+      ...(source?.type === "loop" ? { sourceHandle: branch } : {}),
+      ...(target?.type === "loop"
+        ? { targetHandle: isLoopBackEdge ? "loop-return" : "loop-entry" }
+        : {}),
       label: waited
         ? waited.has(edge.from)
           ? "等待"
@@ -450,7 +482,7 @@ function computeDepths(definition: CanvasDefinition): Map<string, number> {
  * @param node 目标节点
  * @param edges 当前全部边
  * @returns 返回缺少出边的分支键
- * @description 服务端的 `branch-coverage` 规则要求「声明分支全连或全不连」。画布用它在保存前
+ * @description 服务端的 `branch-coverage` 规则要求除 end 外每条声明分支都连出。画布用它在保存前
  * 就把缺口标出来，而不是让用户点了保存才收到一个指向节点的错误。
  */
 export function missingBranches(
@@ -463,9 +495,6 @@ export function missingBranches(
       .filter((edge) => edge.from === node.id)
       .map((edge) => edge.when ?? FLOW_DEFAULT_BRANCH),
   );
-  if (covered.size === 0) {
-    return [];
-  }
   return declared.filter((branch) => !covered.has(branch));
 }
 
@@ -502,8 +531,9 @@ export interface FlowVariableOption {
  * @param nodeId 目标节点标识
  * @param definition 当前画布定义
  * @returns 返回按来源节点顺序排列的可选项
- * @description 只列**支配**目标节点的来源，与服务端 `ref-dominates` 用的是共享契约里同一个
- * `flowDominators`：让选择器里出现一个后端注定拒绝的选项，等于把用户往错误里推。
+ * @description 通常只列**支配**目标节点的来源；loop 边界额外列出每轮回边前必定完成的体内
+ * 来源。两类判据都来自共享图分析，与服务端 `ref-dominates` 同源：让选择器里出现一个后端
+ * 注定拒绝的选项，等于把用户往错误里推。
  */
 export function variableOptions(
   nodeId: string,
@@ -516,9 +546,18 @@ export function variableOptions(
   if (!dominating) {
     return [];
   }
+  const region = flowLoopRegions(definition.nodes, definition.edges).get(
+    nodeId,
+  );
+  const loopBoundarySources = region
+    ? flowLoopBoundarySources(region, dominators)
+    : new Set<string>();
   const options: FlowVariableOption[] = [];
   for (const node of definition.nodes) {
-    if (node.id === nodeId || !dominating.has(node.id)) {
+    if (
+      node.id === nodeId ||
+      (!dominating.has(node.id) && !loopBoundarySources.has(node.id))
+    ) {
       continue;
     }
     for (const { field, valueType } of nodeOutputEntries(node.type)) {
