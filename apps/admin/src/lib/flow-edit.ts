@@ -93,6 +93,7 @@ export function toEditableDefinition(definition: object): EditResult {
 /** 每种节点类型新建时的默认 config；与后端 Zod schema 的必填项对齐。 */
 const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
   start: () => ({}),
+  end: () => ({}),
   agent: () => ({
     modelPreset: "agent-default",
     toolGroups: [],
@@ -136,7 +137,7 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
  * @param type 节点类型
  * @param position 新节点的画布落点
  * @param currentPositions 现有节点当前实际渲染的坐标（来自 layoutPositions）
- * @returns 返回新草稿；start 已存在时拒绝
+ * @returns 返回新草稿；start 或 end 已存在时拒绝
  * @description 默认 config 与后端 Zod 的必填项对齐，否则新建的节点一定校验不过，用户得先去
  * JSON 编辑器补字段才能保存。start 有且仅有一个，直接在这里挡住。
  *
@@ -152,6 +153,9 @@ export function addNode(
 ): EditResult {
   if (type === "start" && definition.nodes.some((n) => n.type === "start")) {
     return { ok: false, reason: "start 节点有且仅有一个" };
+  }
+  if (type === "end" && definition.nodes.some((n) => n.type === "end")) {
+    return { ok: false, reason: "end 节点有且仅有一个" };
   }
   const id = nextNodeId(definition, type);
   return {
@@ -171,7 +175,7 @@ export function addNode(
  * 删除一个节点及其所有连边
  * @param definition 当前草稿
  * @param nodeId 目标节点
- * @returns 返回新草稿；start 节点拒绝删除
+ * @returns 返回新草稿；start 与 end 节点拒绝删除
  * @description 连带删掉相关边，避免留下端点不存在的悬空边——那会让服务端报一堆
  * edge-node-exists，掩盖用户真正关心的问题。
  */
@@ -185,6 +189,9 @@ export function removeNode(
   }
   if (node.type === "start") {
     return { ok: false, reason: "start 是流程入口，不能删除" };
+  }
+  if (node.type === "end") {
+    return { ok: false, reason: "end 是流程唯一出口，不能删除" };
   }
   const layout = { ...(definition.layout?.nodes ?? {}) };
   delete layout[nodeId];
@@ -249,13 +256,13 @@ function pruneJoinWaitFor(
  *    一个决定连出两条边时，运行时无法确定走哪条
  * 3. default 分支允许多条出边——那就是并行扇出，全部并发启动
  * 4. 同一对端点之间不能重复连同一条边（`duplicate-edge`）：画两次不是并行，是误操作
- * 5. 自环直接拒（`cycle` 的最简情形，在这里给的原因比图级报错精确）
+ * 5. 自环直接拒：合法循环至少要有一个体内节点，不能把 loop 直接连回自己
  *
  * 刻意不在这里做的：`implicit-convergence`（非 join 节点被多条可能并发的边连入）与
  * `concurrent-answer-nodes`（两个可能并发的回复终节点）。两者都要判定「这两条分支是否互斥」，
  * 而互斥判定依赖服务端 validator 里的 `isMutuallyExclusive`。在前端复刻它就是两份事实源，
- * 且判错会挡掉合法图——condition 各分支汇聚到同一节点是允许的。这类图级规则连同环、
- * 可达性、ref-dominates 一起由服务端裁定，错误按 path 归组后展示。
+ * 且判错会挡掉合法图——condition 各分支汇聚、由 loop 圈定的回边都是允许的。这类图级规则
+ * 连同普通环、可达性、ref-dominates 一起由服务端裁定，错误按 path 归组后展示。
  */
 export function connect(
   definition: EditableDefinition,
@@ -263,12 +270,18 @@ export function connect(
   to: string,
   branch: string,
 ): EditResult {
-  if (from === to) {
-    return { ok: false, reason: "不能连到自己：Flow 不允许图上的环" };
-  }
   const source = definition.nodes.find((node) => node.id === from);
   if (!source || !definition.nodes.some((node) => node.id === to)) {
     return { ok: false, reason: "端点节点不存在" };
+  }
+  if (from === to) {
+    return {
+      ok: false,
+      reason:
+        source.type === "loop"
+          ? "loop 不能直接连回自己：循环体必须至少包含一个节点"
+          : "节点不能直接连回自己",
+    };
   }
   const declared = branchKeysOf(source);
   if (!declared.includes(branch)) {

@@ -163,7 +163,7 @@ export function FlowNodeInspector({
 
       <NodeConfig node={node} definition={definition} editing={editing} />
 
-      {editing && node.type !== "start" ? (
+      {editing && node.type !== "start" && node.type !== "end" ? (
         <Button
           variant="outline"
           size="sm"
@@ -199,6 +199,16 @@ function NodeConfig({
         <p className="text-xs text-muted-foreground">
           无需配置。它的 <span className="font-mono">text</span>{" "}
           输出是用户本轮消息，下游节点可直接引用。
+        </p>
+      </InspectorSection>
+    );
+  }
+
+  if (node.type === "end") {
+    return (
+      <InspectorSection title="配置">
+        <p className="text-xs text-muted-foreground">
+          无需配置。它是流程唯一出口，不产生输出，也不能再连接后继节点。
         </p>
       </InspectorSection>
     );
@@ -393,6 +403,10 @@ function NodeConfig({
     );
   }
 
+  if (node.type === "loop") {
+    return <LoopConfig node={node} definition={definition} editing={editing} />;
+  }
+
   return (
     <InspectorSection title="配置">
       <pre className="overflow-auto rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
@@ -486,7 +500,8 @@ function JoinConfig({
         </Field>
         {policy === "any" ? (
           <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-            any 语义下未完成的分支会继续跑完，但下游不能引用它们的输出——那时它可能还没有值。
+            any
+            语义下未完成的分支会继续跑完，但下游不能引用它们的输出——那时它可能还没有值。
           </p>
         ) : null}
         {sources.length > 0 && waitFor.length === 0 ? (
@@ -658,6 +673,195 @@ function ExecutorFields({
 }
 
 /**
+ * Loop 节点的轮次与继续条件配置
+ * @param props 当前 loop 节点、整份草稿与编辑能力
+ * @returns 返回最大轮数输入和按组编辑的 continueWhen 条件
+ * @description continueWhen 复用 condition 的判定结构，但组键不对应图上分支；任一组命中
+ * 就走 again，全不命中或达到最大轮数时走 done。变量选项包含每轮回到 loop 前必定完成的
+ * 体内输出，与后端 loop 边界引用校验使用共享图分析。
+ */
+function LoopConfig({
+  node,
+  definition,
+  editing,
+}: {
+  node: EditableNode;
+  definition: CanvasDefinition;
+  editing?: InspectorEditing;
+}) {
+  const options = variableOptions(node.id, definition);
+  const cases = readConditionCaseArray(node.config.continueWhen);
+  const writeCases = (next: ConditionCase[]) => {
+    editing?.onChangeConfig({
+      ...node.config,
+      continueWhen: serializeConditionCases(next),
+    });
+  };
+
+  return (
+    <InspectorSection title="循环配置">
+      <div className="space-y-3">
+        <Field label="最大轮数" hint="允许 1 至 20 轮；达到上限后无条件走 done">
+          <Input
+            type="number"
+            min={1}
+            max={20}
+            value={String(node.config.maxIterations ?? "")}
+            disabled={!editing}
+            onChange={(event) =>
+              editing?.onChangeConfig({
+                ...node.config,
+                maxIterations: Number(event.target.value),
+              })
+            }
+          />
+        </Field>
+
+        <Field
+          label="继续条件"
+          hint="任一条件组命中即进入下一轮；不配置时固定执行到最大轮数"
+        >
+          <div className="space-y-2">
+            {cases.map((branch, caseIndex) => (
+              <div
+                key={`${branch.key}:${caseIndex}`}
+                className="space-y-2 rounded-md border border-border px-2 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 text-xs text-muted-foreground">
+                    条件组 {caseIndex + 1}
+                  </span>
+                  <Select
+                    value={branch.logic}
+                    disabled={!editing}
+                    onValueChange={(value) =>
+                      writeCases(
+                        cases.map((item, index) =>
+                          index === caseIndex
+                            ? { ...item, logic: value === "or" ? "or" : "and" }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-[104px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="and">全部成立</SelectItem>
+                      <SelectItem value="or">任一成立</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {editing ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() =>
+                        writeCases(
+                          cases.filter((_, index) => index !== caseIndex),
+                        )
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+
+                {branch.conditions.map((predicate, predicateIndex) => (
+                  <PredicateRow
+                    key={predicateIndex}
+                    predicate={predicate}
+                    options={options}
+                    editing={editing}
+                    onChange={(next) =>
+                      writeCases(
+                        cases.map((item, index) =>
+                          index === caseIndex
+                            ? {
+                                ...item,
+                                conditions: item.conditions.map((entry, i) =>
+                                  i === predicateIndex ? next : entry,
+                                ),
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                    onRemove={() =>
+                      writeCases(
+                        cases.map((item, index) =>
+                          index === caseIndex
+                            ? {
+                                ...item,
+                                conditions: item.conditions.filter(
+                                  (_, i) => i !== predicateIndex,
+                                ),
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                ))}
+
+                {editing ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={options.length === 0}
+                    onClick={() =>
+                      writeCases(
+                        cases.map((item, index) =>
+                          index === caseIndex
+                            ? {
+                                ...item,
+                                conditions: [
+                                  ...item.conditions,
+                                  defaultPredicate(options[0]),
+                                ],
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    添加判定
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {editing ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 w-full"
+              disabled={options.length === 0}
+              onClick={() =>
+                writeCases([
+                  ...cases,
+                  {
+                    key: nextCaseKey(cases),
+                    logic: "and",
+                    conditions: [defaultPredicate(options[0])],
+                  },
+                ])
+              }
+            >
+              <Plus className="h-3.5 w-3.5" />
+              添加继续条件组
+            </Button>
+          ) : null}
+        </Field>
+      </div>
+    </InspectorSection>
+  );
+}
+
+/**
  * Condition 节点的判定配置
  * @param props 节点、当前定义与可选编辑能力
  * @returns 返回按 case 分组的判定编辑器
@@ -679,15 +883,7 @@ function ConditionConfig({
   const writeCases = (next: ConditionCase[]) => {
     editing?.onChangeConfig({
       ...node.config,
-      cases: next.map((item) => ({
-        key: item.key,
-        logic: item.logic,
-        conditions: item.conditions.map((predicate) => ({
-          ref: { $ref: predicate.ref },
-          operator: predicate.operator,
-          ...(predicate.value === undefined ? {} : { value: predicate.value }),
-        })),
-      })),
+      cases: serializeConditionCases(next),
     });
   };
 
@@ -1150,6 +1346,24 @@ function defaultPredicate(option: FlowVariableOption): ConditionPredicate {
   };
 }
 
+/**
+ * 把面板内条件组序列化回共享契约形状
+ * @param cases 已收窄的条件组
+ * @returns 返回可写入 condition.cases 或 loop.continueWhen 的普通对象数组
+ * @description 两种节点复用完全相同的判定契约，集中序列化避免引用元组或比较值在两处漂移。
+ */
+function serializeConditionCases(cases: ConditionCase[]) {
+  return cases.map((item) => ({
+    key: item.key,
+    logic: item.logic,
+    conditions: item.conditions.map((predicate) => ({
+      ref: { $ref: predicate.ref },
+      operator: predicate.operator,
+      ...(predicate.value === undefined ? {} : { value: predicate.value }),
+    })),
+  }));
+}
+
 /** 生成不冲突的 case 键。 */
 function nextCaseKey(cases: ConditionCase[]): string {
   const used = new Set(cases.map((item) => item.key));
@@ -1186,12 +1400,21 @@ function coerceValue(
  * @description 草稿允许 config 还不合法，因此逐项检查而不是断言。
  */
 function readConditionCases(node: EditableNode): ConditionCase[] {
-  const cases = node.config.cases;
-  if (!Array.isArray(cases)) {
+  return readConditionCaseArray(node.config.cases);
+}
+
+/**
+ * 从未知配置值读取 condition case 数组
+ * @param value condition.cases 或 loop.continueWhen 的未知草稿值
+ * @returns 返回逐项收窄后的条件组；形状损坏的条目跳过
+ * @description 草稿可能尚未通过服务端校验，两种节点的条件编辑器共用这一防御性读取路径。
+ */
+function readConditionCaseArray(value: unknown): ConditionCase[] {
+  if (!Array.isArray(value)) {
     return [];
   }
   const result: ConditionCase[] = [];
-  for (const item of cases) {
+  for (const item of value) {
     const candidate = asRecord(item);
     if (!candidate || typeof candidate.key !== "string") {
       continue;

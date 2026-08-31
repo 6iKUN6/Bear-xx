@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input, Label, Textarea } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +24,10 @@ interface FlowCreateDialogProps {
   onOpenChange: (open: boolean) => void;
   templates: AgentFlowTemplate[];
   creating: boolean;
-  onCreate: (template: AgentFlowTemplate) => void;
+  onCreate: (
+    template: AgentFlowTemplate,
+    metadata: { name: string; description: string },
+  ) => void;
 }
 
 /**
@@ -43,6 +47,7 @@ export function FlowCreateDialog({
   onCreate,
 }: FlowCreateDialogProps) {
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState({ name: "", description: "" });
 
   // blank 排最前：从空白起步比从某个预设改起更常用。后端已经这样排，这里不再重排，
   // 只在缺失时兜底提示，避免前端和后端各有一套顺序
@@ -57,6 +62,7 @@ export function FlowCreateDialog({
       onOpenChange={(next) => {
         if (!next) {
           setSelectedPreset(null);
+          setMetadata({ name: "", description: "" });
         }
         onOpenChange(next);
       }}
@@ -81,11 +87,51 @@ export function FlowCreateDialog({
                 key={template.preset}
                 template={template}
                 active={template.preset === selectedPreset}
-                onSelect={() => setSelectedPreset(template.preset)}
+                onSelect={() => {
+                  setSelectedPreset(template.preset);
+                  setMetadata({
+                    name: template.name,
+                    description: template.description,
+                  });
+                }}
               />
             ))}
           </div>
         )}
+
+        {selected ? (
+          <div className="grid gap-3 rounded-md border border-border p-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-flow-name">名称</Label>
+              <Input
+                id="new-flow-name"
+                value={metadata.name}
+                maxLength={100}
+                onChange={(event) =>
+                  setMetadata((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-flow-description">描述</Label>
+              <Textarea
+                id="new-flow-description"
+                value={metadata.description}
+                maxLength={2000}
+                className="min-h-[72px]"
+                onChange={(event) =>
+                  setMetadata((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -98,10 +144,13 @@ export function FlowCreateDialog({
           </Button>
           <Button
             size="sm"
-            disabled={!selected || creating}
+            disabled={!selected || !metadata.name.trim() || creating}
             onClick={() => {
               if (selected) {
-                onCreate(selected);
+                onCreate(selected, {
+                  name: metadata.name.trim(),
+                  description: metadata.description.trim(),
+                });
               }
             }}
           >

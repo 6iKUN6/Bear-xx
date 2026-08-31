@@ -10,6 +10,7 @@ import type {
   ErrorCategoryCount,
   AgentFlow,
   AgentFlowDetail,
+  AgentFlowMetadataInput,
   AgentFlowTemplate,
   AgentFlowValidation,
   AgentFlowVersion,
@@ -140,6 +141,15 @@ export const listAgentFlows = () => request<AgentFlow[]>("/admin/agent-flows");
 
 export const getAgentFlow = (flowId: string) =>
   request<AgentFlowDetail>(`/admin/agent-flows/${flowId}`);
+
+export const updateAgentFlowMetadata = (
+  flowId: string,
+  body: AgentFlowMetadataInput,
+) =>
+  request<AgentFlow>(`/admin/agent-flows/${flowId}`, {
+    method: "PATCH",
+    body,
+  });
 
 /** 创建 Flow 与其 version 1 草稿；definition 即完整 FlowDefinition */
 export const createAgentFlow = (definition: object) =>

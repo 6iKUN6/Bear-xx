@@ -83,10 +83,9 @@ function detachedNodes(
 }
 
 /**
- * 具名分支没连出去
- * @description condition 的某个 case 或 approval 的某个决定没连边——命中那条分支时流程会
- * 直接停在这里。服务端的 `branch-coverage` 拒的是完全没覆盖，但「漏了一个 case」在编辑
- * 过程中更常见，且从画布上不容易看出来。
+ * 声明分支没连出去
+ * @description 普通节点的 default、condition 的某个 case、approval 的某个决定或 loop 的
+ * again/done 没连边——命中那条分支时流程会直接停在这里。end 没有声明分支，不参与检查。
  */
 function uncoveredBranches(
   nodes: EditableNode[],
@@ -95,7 +94,7 @@ function uncoveredBranches(
   const advisories: FlowAdvisory[] = [];
   for (const node of nodes) {
     const declared = branchKeysOf(node);
-    if (declared.length <= 1) {
+    if (declared.length === 0) {
       continue;
     }
     const covered = new Set(
@@ -119,35 +118,32 @@ function uncoveredBranches(
 }
 
 /**
- * 走到底却产不出回复的路径
- * @description 终节点不是 agent / synthesize，意味着那条路走完也没有正文——运行时约定只有
- * 终节点产出这条助手消息的正文（见 `agent-flow-as-single-runtime.md`）。服务端不拒这种图，
- * 但它几乎一定不是本意。
+ * 到达 end 前没有产出回复的路径
+ * @description 运行时约定只有直接连接 end 的 agent / synthesize 会产出这条助手消息的正文。
+ * 若其他节点直接进入 end，流程虽能正常结束，但用户拿不到回答。
  */
 function deadEndPaths(
   nodes: EditableNode[],
   edges: EditableDefinition["edges"],
 ): FlowAdvisory[] {
-  const hasOutgoing = new Set(edges.map((edge) => edge.from));
-  const touched = new Set<string>();
-  for (const edge of edges) {
-    touched.add(edge.from);
-    touched.add(edge.to);
-  }
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const endIds = new Set(
+    nodes.filter((node) => node.type === "end").map((node) => node.id),
+  );
   return nodes
     .filter(
       (node) =>
-        !hasOutgoing.has(node.id) &&
-        // 孤立节点已由 detachedNodes 单独提示，不重复报
-        touched.has(node.id) &&
+        edges.some((edge) => edge.from === node.id && endIds.has(edge.to)) &&
         !TEXT_PRODUCING.has(node.type),
     )
     .map((node) => ({
       id: `deadend:${node.id}`,
       nodeId: node.id,
-      title: `路径终点「${node.name || node.id}」不会产出回复`,
-      detail:
-        "只有图的终节点会产出这条助手消息的正文，而它不是 agent 或 synthesize，所以走到这里用户拿不到回答。后面接一个 agent 或 synthesize 节点。",
+      title: `节点「${node.name || node.id}」进入结束前不会产出回复`,
+      detail: `只有直接连接结束节点的 agent 或 synthesize 会产出正文。请在「${node.name || node.id}」与「${edges
+        .filter((edge) => edge.from === node.id && endIds.has(edge.to))
+        .map((edge) => nodeById.get(edge.to)?.name || edge.to)
+        .join("、")}」之间接入一个回复节点。`,
     }));
 }
 
@@ -215,4 +211,3 @@ function budgetTooTight(definition: EditableDefinition): FlowAdvisory[] {
     },
   ];
 }
-

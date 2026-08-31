@@ -323,6 +323,12 @@ export interface AgentFlowDetail extends AgentFlow {
   versions: AgentFlowVersion[];
 }
 
+/** Flow 基本信息编辑输入；后端会同步最高版本号的草稿 Definition。 */
+export interface AgentFlowMetadataInput {
+  name: string;
+  description?: string;
+}
+
 /** 内置模板：新建 Flow 的起点，避免手写整份 Definition */
 export interface AgentFlowTemplate {
   preset: string;
