@@ -135,6 +135,13 @@ const flowNodeSchema = z.discriminatedUnion('type', [
   z
     .object({
       ...nodeBaseShape,
+      type: z.literal('end'),
+      config: z.object({}).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
       type: z.literal('agent'),
       config: agentNodeConfigSchema,
     })

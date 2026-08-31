@@ -58,6 +58,7 @@ describe('FlowCompiler', () => {
         approvalToolNames: ['generateImage'],
       }),
       expect.objectContaining({ key: 'finish', type: 'synthesize' }),
+      expect.objectContaining({ key: 'end', type: 'end' }),
     ]);
   });
 
@@ -179,8 +180,12 @@ function definition(): FlowDefinition {
         },
       },
       { id: 'finish', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
     ],
-    edges: [{ from: 'answer', to: 'finish' }],
+    edges: [
+      { from: 'answer', to: 'finish' },
+      { from: 'finish', to: 'end' },
+    ],
   };
 }
 
@@ -217,10 +222,12 @@ function planLoopDefinition(): FlowDefinition {
         },
       },
       { id: 'finish', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'plan', to: 'execute' },
       { from: 'execute', to: 'finish' },
+      { from: 'finish', to: 'end' },
     ],
   };
 }

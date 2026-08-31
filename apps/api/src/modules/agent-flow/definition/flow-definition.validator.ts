@@ -1,12 +1,16 @@
 import {
   FLOW_CONDITION_OPERATORS,
   FLOW_DEFAULT_BRANCH,
+  FLOW_LOOP_AGAIN_BRANCH,
   FLOW_NODE_OUTPUTS,
+  flowLoopBoundarySources,
+  flowLoopRegions,
   flowMustCompleteBefore,
   flowNodeBranchKeys,
   type FlowDefinition,
   type FlowEdge,
   type FlowNode,
+  type FlowLoopRegion,
   type FlowValueType,
 } from '@litter-bear/types/agent-flow';
 import { FlowDefinitionSchema } from './flow-definition.schema';
@@ -113,26 +117,35 @@ function validateGraphStructure(
   validateDuplicateBranches(validEdges, errors);
   validateBranchCoverage(definition.nodes, validEdges, errors);
   validateStartNode(definition.nodes, validEdges, errors);
-  validateJoinNodes(definition.nodes, validEdges, errors);
-  validateImplicitConvergence(definition.nodes, validEdges, errors);
+  validateEndNode(definition.nodes, definition.edges, errors);
+  const loopRegions = flowLoopRegions(definition.nodes, validEdges);
+  validateLoopRegions(definition.nodes, validEdges, loopRegions, errors);
+  const loopBackEdges = new Set<FlowEdge>(
+    [...loopRegions.values()].flatMap((region) => [...region.backEdges]),
+  );
+  const forwardEdges = validEdges.filter((edge) => !loopBackEdges.has(edge));
+  validateJoinNodes(definition.nodes, forwardEdges, errors);
+  // 回边表示下一轮重新进入 loop，不会和首轮正常入边并发到达。
+  validateImplicitConvergence(definition.nodes, forwardEdges, errors);
   validateConcurrentAnswerNodes(definition.nodes, validEdges, errors);
   validateEntryAndTerminalNodes(definition.nodes, validEdges, errors);
-  if (hasCycle(definition.nodes, validEdges)) {
+  if (hasCycle(definition.nodes, forwardEdges)) {
     errors.push({
       path: 'edges',
       rule: 'cycle',
-      message: 'Flow 不允许节点之间形成环；PlanLoop 的循环必须保留在节点内部',
+      message: 'Flow 只允许由 loop 节点圈定且回到该 loop 的环',
     });
     return errors;
   }
 
-  // 「必定已完成」分析只在无环图上有意义；入口唯一性由它自己判定，入口不唯一时返回空映射，
-  // 而那种情况已经由 unique-entry / unique-start 报过更准确的错，不再叠加噪音
+  // 「必定已完成」分析会把合法回边视作下一轮入口并忽略；其余环已在上面拒绝。
+  // 入口唯一性由它自己判定，入口不唯一时返回空映射，而那种情况已经由
+  // unique-entry / unique-start 报过更准确的错，不再叠加噪音。
   const dominators = flowMustCompleteBefore(definition.nodes, validEdges);
   if (dominators.size === 0) {
     return errors;
   }
-  validateVariableReferences(definition.nodes, dominators, errors);
+  validateVariableReferences(definition.nodes, dominators, loopRegions, errors);
   return errors;
 }
 
@@ -172,9 +185,42 @@ function validateStartNode(
 }
 
 /**
+ * 校验结束节点
+ * @param nodes 全部节点
+ * @param edges 端点与分支均有效的边集合
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 每张图必须显式声明唯一 end，且 end 不能再连接任何后继。唯一性让运行时与
+ * 管理端都能明确判断流程在哪收口；无出边避免“结束后仍继续执行”的矛盾图形。
+ */
+function validateEndNode(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  errors: FlowDefinitionValidationError[],
+): void {
+  const endNodes = nodes.filter((node) => node.type === 'end');
+  if (endNodes.length !== 1) {
+    errors.push({
+      path: 'nodes',
+      rule: 'unique-end',
+      message: `Flow 必须有且仅有一个 end 节点，当前为 ${endNodes.length} 个`,
+    });
+    return;
+  }
+  if (edges.some((edge) => edge.from === endNodes[0].id)) {
+    errors.push({
+      path: 'nodes',
+      rule: 'end-is-terminal',
+      message: `end 节点「${endNodes[0].id}」不能有出边`,
+    });
+  }
+}
+
+/**
  * 校验节点配置里的全部变量引用
  * @param nodes 全部节点
  * @param dominators 每个节点的支配集
+ * @param loopRegions 每个 loop 圈定的循环体与唯一回边分析
  * @param errors 用于累积校验错误的数组
  * @returns 无返回值
  * @description 三件事一起查：被引来源存在、被引字段是该来源声明的输出、算子与该输出的类型匹配，
@@ -186,27 +232,43 @@ function validateStartNode(
 function validateVariableReferences(
   nodes: readonly FlowNode[],
   dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  loopRegions: ReadonlyMap<string, FlowLoopRegion>,
   errors: FlowDefinitionValidationError[],
 ): void {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
 
   nodes.forEach((node, nodeIndex) => {
-    validateConfigRefs(node, nodeIndex, nodesById, dominators, errors);
+    validateConfigRefs(
+      node,
+      nodeIndex,
+      nodesById,
+      dominators,
+      loopRegions,
+      errors,
+    );
   });
 
   nodes.forEach((node, nodeIndex) => {
-    if (node.type !== 'condition') {
+    const cases =
+      node.type === 'condition'
+        ? node.config.cases
+        : node.type === 'loop'
+          ? node.config.continueWhen
+          : undefined;
+    if (!cases) {
       return;
     }
-    node.config.cases.forEach((branch, caseIndex) => {
+    cases.forEach((branch, caseIndex) => {
       branch.conditions.forEach((predicate, predicateIndex) => {
-        const path = `nodes.${nodeIndex}.config.cases.${caseIndex}.conditions.${predicateIndex}`;
+        const collection = node.type === 'loop' ? 'continueWhen' : 'cases';
+        const path = `nodes.${nodeIndex}.config.${collection}.${caseIndex}.conditions.${predicateIndex}`;
         const valueType = checkRef(
           predicate.ref,
           node,
           `${path}.ref`,
           nodesById,
           dominators,
+          loopRegions,
           errors,
         );
         if (!valueType) {
@@ -246,6 +308,7 @@ function validateVariableReferences(
  * @param nodeIndex 节点在数组中的下标，用于拼错误路径
  * @param nodesById 节点索引
  * @param dominators 每个节点的支配集
+ * @param loopRegions 每个 loop 圈定的循环体与唯一回边分析
  * @param errors 用于累积校验错误的数组
  * @returns 无返回值
  * @description plan-loop 与 approval 用 planRef 指明要执行/审批哪份计划，synthesize 用
@@ -258,6 +321,7 @@ function validateConfigRefs(
   nodeIndex: number,
   nodesById: ReadonlyMap<string, FlowNode>,
   dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  loopRegions: ReadonlyMap<string, FlowLoopRegion>,
   errors: FlowDefinitionValidationError[],
 ): void {
   if (node.type === 'plan-loop') {
@@ -268,6 +332,7 @@ function validateConfigRefs(
       `nodes.${nodeIndex}.config.planRef`,
       nodesById,
       dominators,
+      loopRegions,
       errors,
     );
     return;
@@ -281,6 +346,7 @@ function validateConfigRefs(
       path,
       nodesById,
       dominators,
+      loopRegions,
       errors,
     );
     // 重规划要复用 plan 节点 config 里的 maxSteps，因此审批只能挂在 plan 节点上；
@@ -302,6 +368,7 @@ function validateConfigRefs(
       `nodes.${nodeIndex}.config.observationsRef`,
       nodesById,
       dominators,
+      loopRegions,
       errors,
     );
   }
@@ -315,6 +382,7 @@ function validateConfigRefs(
  * @param path 错误路径
  * @param nodesById 节点索引
  * @param dominators 每个节点的支配集
+ * @param loopRegions 每个 loop 圈定的循环体与唯一回边分析
  * @param errors 用于累积校验错误的数组
  * @returns 通过时返回 true
  * @description 字段名固定：planRef 只能指 `steps`、observationsRef 只能指 `observations`。
@@ -327,9 +395,18 @@ function requireArrayRef(
   path: string,
   nodesById: ReadonlyMap<string, FlowNode>,
   dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  loopRegions: ReadonlyMap<string, FlowLoopRegion>,
   errors: FlowDefinitionValidationError[],
 ): boolean {
-  const valueType = checkRef(ref, node, path, nodesById, dominators, errors);
+  const valueType = checkRef(
+    ref,
+    node,
+    path,
+    nodesById,
+    dominators,
+    loopRegions,
+    errors,
+  );
   if (!valueType) {
     return false;
   }
@@ -351,6 +428,7 @@ function requireArrayRef(
  * @param path 错误路径
  * @param nodesById 节点索引
  * @param dominators 每个节点的支配集
+ * @param loopRegions 每个 loop 圈定的循环体与唯一回边分析
  * @param errors 用于累积校验错误的数组
  * @returns 通过时返回被引输出的值类型，否则返回 undefined
  * @description condition 的判定与节点 config 上的引用共用这一份检查，避免两处各写一遍
@@ -362,6 +440,7 @@ function checkRef(
   path: string,
   nodesById: ReadonlyMap<string, FlowNode>,
   dominators: ReadonlyMap<string, ReadonlySet<string>>,
+  loopRegions: ReadonlyMap<string, FlowLoopRegion>,
   errors: FlowDefinitionValidationError[],
 ): FlowValueType | undefined {
   const [sourceId, field] = ref.$ref;
@@ -374,8 +453,29 @@ function checkRef(
     });
     return undefined;
   }
+  const sourceLoop = findContainingLoop(sourceId, loopRegions);
+  const targetLoop = findContainingLoop(node.id, loopRegions);
+  const targetLoopId = node.type === 'loop' ? node.id : targetLoop?.loopId;
+  const boundaryRegion =
+    node.type === 'loop' && sourceLoop?.loopId === node.id
+      ? sourceLoop
+      : undefined;
+  const isLoopBoundaryReadingBody =
+    boundaryRegion !== undefined &&
+    flowLoopBoundarySources(boundaryRegion, dominators).has(sourceId);
+  if (sourceLoop && sourceLoop.loopId !== targetLoopId) {
+    errors.push({
+      path,
+      rule: 'loop-ref-across',
+      message: `节点「${node.id}」不能跨出循环「${sourceLoop.loopId}」引用体内节点「${sourceId}」`,
+    });
+    return undefined;
+  }
   const dominating = dominators.get(node.id);
-  if (!dominating?.has(sourceId) || sourceId === node.id) {
+  if (
+    (!dominating?.has(sourceId) && !isLoopBoundaryReadingBody) ||
+    sourceId === node.id
+  ) {
     errors.push({
       path,
       rule: 'ref-dominates',
@@ -409,8 +509,9 @@ function resolveRefValueType(
  * @param edges 端点与分支均有效的边集合
  * @param errors 用于累积校验错误的数组
  * @returns 无返回值
- * @description 一个节点声明的分支要么全部有出边，要么全部没有（即它是终点）。
- * 不允许部分覆盖：漏掉的那条分支在运行时命中就无处可去，Flow 会在那里静默停住。
+ * @description end 不声明分支且必须无出边；其余节点声明的每条分支都必须连接。
+ * 不允许部分覆盖或隐式终点：命中未连接分支会让 Flow 静默停住，而显式 end 正是为消除
+ * 这种模糊终止语义而引入。
  */
 function validateBranchCoverage(
   nodes: readonly FlowNode[],
@@ -427,14 +528,14 @@ function validateBranchCoverage(
   nodes.forEach((node, index) => {
     const declared = flowNodeBranchKeys(node);
     const covered = outgoingBranches.get(node.id) ?? new Set<string>();
-    if (covered.size === 0 || covered.size === declared.length) {
+    if (covered.size === declared.length) {
       return;
     }
     const missing = declared.filter((branch) => !covered.has(branch));
     errors.push({
       path: `nodes.${index}.id`,
       rule: 'branch-coverage',
-      message: `节点「${node.id}」的分支「${missing.join('、')}」没有出边；分支必须全部连出或全部不连`,
+      message: `节点「${node.id}」的分支「${missing.join('、')}」没有出边；除 end 外每条分支都必须显式连接`,
     });
   });
 }
@@ -499,7 +600,8 @@ function validateDuplicateBranches(
  * @param edges 已验证端点的边集合
  * @param errors 用于累积校验错误的数组
  * @returns 无返回值
- * @description 运行时从唯一入口开始推进；所有节点必须可达，且至少存在一个从入口可达的终点。
+ * @description 运行时从唯一入口开始推进；所有节点必须可达，且每个可达节点最终都必须能到
+ * 唯一 end。这样 condition、并行与 loop 的任意合法路径都不会在中途静默耗尽前沿。
  */
 function validateEntryAndTerminalNodes(
   nodes: readonly FlowNode[],
@@ -545,16 +647,140 @@ function validateEntryAndTerminalNodes(
     }
   }
 
-  const hasReachableTerminal = nodes.some(
-    (node) => reachable.has(node.id) && !(outgoing.get(node.id)?.length ?? 0),
-  );
-  if (!hasReachableTerminal) {
+  const end = nodes.find((node) => node.type === 'end');
+  if (!end || !reachable.has(end.id)) {
     errors.push({
       path: 'nodes',
       rule: 'reachable-terminal',
-      message: 'Flow 必须至少有一个从入口可达的终点节点',
+      message: 'Flow 的 end 节点必须能从入口到达',
     });
+    return;
   }
+
+  const predecessors = new Map<string, string[]>();
+  for (const edge of edges) {
+    predecessors.set(edge.to, [
+      ...(predecessors.get(edge.to) ?? []),
+      edge.from,
+    ]);
+  }
+  const canReachEnd = new Set<string>();
+  const reversePending = [end.id];
+  while (reversePending.length > 0) {
+    const nodeId = reversePending.pop();
+    if (!nodeId || canReachEnd.has(nodeId)) {
+      continue;
+    }
+    canReachEnd.add(nodeId);
+    reversePending.push(...(predecessors.get(nodeId) ?? []));
+  }
+  for (const node of nodes) {
+    if (reachable.has(node.id) && !canReachEnd.has(node.id)) {
+      errors.push({
+        path: 'nodes',
+        rule: 'path-reaches-end',
+        message: `节点「${node.id}」不存在最终到达 end 的路径`,
+      });
+    }
+  }
+}
+
+/**
+ * 校验 loop 节点圈定的循环区域
+ * @param nodes Definition 内的全部节点
+ * @param edges 已验证端点和分支键的边集合
+ * @param regions 共享图分析得到的循环区域
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description 第一版只允许单层、串行轮次的循环：每个 loop 有唯一 again 入口与唯一回边，
+ * 循环体所有路径都必须回到该 loop，且不能含 approval 或 join(any)。体内可以 fan-out，
+ * 但必须由 join(all) 收口后再走唯一回边，避免上一轮慢分支和下一轮并发执行。
+ */
+function validateLoopRegions(
+  nodes: readonly FlowNode[],
+  edges: readonly FlowEdge[],
+  regions: ReadonlyMap<string, FlowLoopRegion>,
+  errors: FlowDefinitionValidationError[],
+): void {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const ownerByBodyNode = new Map<string, string>();
+
+  nodes.forEach((node, nodeIndex) => {
+    if (node.type !== 'loop') {
+      return;
+    }
+    const region = regions.get(node.id);
+    if (!region) {
+      return;
+    }
+    const nodePath = `nodes.${nodeIndex}.id`;
+    if (region.againTargets.size !== 1 || region.backEdges.length !== 1) {
+      errors.push({
+        path: nodePath,
+        rule: 'loop-back-edge',
+        message: `loop 节点「${node.id}」必须有唯一 again 入口，且循环体必须通过唯一回边返回该节点`,
+      });
+    }
+
+    const escaped = [...region.reachableFromAgain].filter(
+      (target) => target !== node.id && !region.body.has(target),
+    );
+    const bypassEntries = edges.filter(
+      (edge) =>
+        region.body.has(edge.to) &&
+        !region.body.has(edge.from) &&
+        !(edge.from === node.id && edge.when === FLOW_LOOP_AGAIN_BRANCH),
+    );
+    if (escaped.length > 0 || bypassEntries.length > 0) {
+      errors.push({
+        path: nodePath,
+        rule: 'loop-body-reachable',
+        message: `loop 节点「${node.id}」的循环体必须只从 again 进入，且体内所有路径都返回该 loop`,
+      });
+    }
+
+    for (const memberId of region.body) {
+      const previousOwner = ownerByBodyNode.get(memberId);
+      const member = nodesById.get(memberId);
+      if (previousOwner || member?.type === 'loop') {
+        errors.push({
+          path: nodePath,
+          rule: 'loop-nesting',
+          message: `loop 节点「${node.id}」与「${previousOwner ?? memberId}」形成嵌套或重叠循环，第一版不支持`,
+        });
+      } else {
+        ownerByBodyNode.set(memberId, node.id);
+      }
+      if (member?.type === 'approval') {
+        errors.push({
+          path: nodePath,
+          rule: 'loop-approval',
+          message: `loop 节点「${node.id}」的循环体不能包含 approval；第一版不反复弹出人工审批`,
+        });
+      }
+      if (member?.type === 'join' && member.config.policy === 'any') {
+        errors.push({
+          path: nodePath,
+          rule: 'loop-parallel-overlap',
+          message: `loop 节点「${node.id}」的循环体不能使用 join(any)；慢分支未结束时进入下一轮会造成多轮并发`,
+        });
+      }
+    }
+  });
+}
+
+/**
+ * 查找一个节点所属的循环体
+ * @param nodeId 待查节点标识
+ * @param regions 全部 loop 区域
+ * @returns 节点在某个循环体内时返回该区域；loop 边界自身不算体内节点
+ * @description validator 已拒绝嵌套与重叠，因此合法图最多命中一个区域。
+ */
+function findContainingLoop(
+  nodeId: string,
+  regions: ReadonlyMap<string, FlowLoopRegion>,
+): FlowLoopRegion | undefined {
+  return [...regions.values()].find((region) => region.body.has(nodeId));
 }
 
 /**
@@ -796,14 +1022,14 @@ const TEXT_PRODUCING_TYPES: ReadonlySet<string> = new Set([
  * @param errors 用于累积校验错误的数组
  * @returns 无返回值
  * @description `task.fullContent` 与助手消息本质是**一段线性文本**，只能有一个生产者。
- * 运行时约定只有终节点吐字并写正文（见 activities 的 `isAnswerNode`），因此这里只需拦住
- * 「两个可能并发的终节点」——它们会把 token 交错写进同一段正文，并各写一次 `fullContent`
+ * 运行时约定只有直接连接 end 的回复节点吐字并写正文（见 activities 的 `isAnswerNode`），
+ * 因此这里只需拦住「两个可能并发的 end 前回复节点」——它们会把 token 交错写进同一段正文，并各写一次 `fullContent`
  * 后互相覆盖。那不是渲染问题，是数据被写坏。
  *
- * 只看终节点是关键：中间 agent 节点静默执行、产出进 `outputs.text`，因此并行分支里放
+ * 只看 end 前节点是关键：中间 agent 节点静默执行、产出进 `outputs.text`，因此并行分支里放
  * agent 是允许的（这是并行最自然的用法，一开始把它一并拦掉是过度收紧）。
  *
- * 互斥的多个终节点（condition 各分支各自收尾）放行——只有一个会执行。
+ * 互斥的多个回复节点（condition 各分支各自收尾）放行——只有一个会执行。
  *
  * 设计初稿的方案是给 `message.delta` 加 `nodeKey`、前端按节点分组渲染。那只能让前端把两段
  * 分开显示，回答不了「刷新后这条消息的正文是什么」。约束在图上更准确，也就不需要那个字段——
@@ -814,9 +1040,15 @@ function validateConcurrentAnswerNodes(
   edges: readonly FlowEdge[],
   errors: FlowDefinitionValidationError[],
 ): void {
-  const hasOutgoing = new Set(edges.map((edge) => edge.from));
+  const endIds = new Set(
+    nodes.filter((node) => node.type === 'end').map((node) => node.id),
+  );
+  const directlyReachesEnd = new Set(
+    edges.filter((edge) => endIds.has(edge.to)).map((edge) => edge.from),
+  );
   const answers = nodes.filter(
-    (node) => TEXT_PRODUCING_TYPES.has(node.type) && !hasOutgoing.has(node.id),
+    (node) =>
+      TEXT_PRODUCING_TYPES.has(node.type) && directlyReachesEnd.has(node.id),
   );
   if (answers.length < 2) {
     return;
@@ -832,7 +1064,7 @@ function validateConcurrentAnswerNodes(
       errors.push({
         path: 'nodes',
         rule: 'concurrent-answer-nodes',
-        message: `节点「${left.id}」与「${right.id}」都是产出回复的终节点且可能并发执行；请让它们互斥，或汇聚到单个节点产出回复`,
+        message: `节点「${left.id}」与「${right.id}」都直接连接 end 且可能并发产出回复；请让它们互斥，或汇聚到单个节点产出回复`,
       });
       return;
     }

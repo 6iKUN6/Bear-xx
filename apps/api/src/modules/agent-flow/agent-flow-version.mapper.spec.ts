@@ -22,8 +22,12 @@ const validDefinition: FlowDefinition = {
       type: 'agent',
       config: { toolGroups: [], skills: [], maxToolIterations: 1 },
     },
+    { id: 'end', type: 'end', config: {} },
   ],
-  edges: [{ from: 'start', to: 'answer' }],
+  edges: [
+    { from: 'start', to: 'answer' },
+    { from: 'answer', to: 'end' },
+  ],
 };
 
 /**

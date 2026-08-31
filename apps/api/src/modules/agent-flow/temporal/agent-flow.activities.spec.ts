@@ -134,7 +134,8 @@ describe('AgentFlowActivities', () => {
           type: 'approval',
           next: { approved: ['answer'] },
         },
-        { key: 'answer', type: 'synthesize', next: {} },
+        { key: 'answer', type: 'synthesize', next: { default: ['end'] } },
+        { key: 'end', type: 'end', next: {} },
       ],
     });
   });
@@ -153,6 +154,33 @@ describe('AgentFlowActivities', () => {
 
     await expect(activities.loadRunSnapshot(workflowInput())).rejects.toThrow(
       'Flow digest 与任务快照不一致',
+    );
+  });
+
+  it('循环快照冻结排序后的体内节点清单', async () => {
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      flowVersionId: 'version-1',
+      flowDigest: 'a'.repeat(64),
+      flowVersion: {
+        id: 'version-1',
+        digest: 'a'.repeat(64),
+        definition: loopFlowDefinition(conditionalLoopCases()),
+      },
+    });
+
+    await expect(activities.loadRunSnapshot(workflowInput())).resolves.toEqual(
+      expect.objectContaining({
+        entryNodeKey: 'start',
+        nodes: expect.arrayContaining([
+          {
+            key: 'lp',
+            type: 'loop',
+            next: { again: ['body'], done: ['answer'] },
+            loop: { body: ['body'] },
+          },
+        ]),
+      }),
     );
   });
 
@@ -211,6 +239,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'answer',
         nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -242,6 +271,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'answer',
         nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -265,6 +295,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'answer',
         nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'stopped',
@@ -287,6 +318,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'answer',
         nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'stopped',
@@ -310,6 +342,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'answer',
         nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -366,6 +399,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'execute',
         nodeExecutionId: 'task-1:version-1:execute',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'waiting_human',
@@ -423,6 +457,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'plan',
         nodeExecutionId: 'task-1:version-1:plan',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -482,6 +517,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'review',
         nodeExecutionId: 'task-1:version-1:review',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'waiting_human',
@@ -558,6 +594,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'execute',
         nodeExecutionId: 'task-1:version-1:execute',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -646,6 +683,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'answer',
         nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
       }),
     ).resolves.toEqual({ kind: 'stopped', status: 'cancelled' });
 
@@ -685,6 +723,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'review',
         nodeExecutionId: 'task-1:version-1:review',
+        iteration: 0,
         approvalId: 'approval-plan-1',
       }),
     ).resolves.toEqual({
@@ -694,7 +733,7 @@ describe('AgentFlowActivities', () => {
     });
   });
 
-  it('节点已有完成记录时直接回放，不再调用模型', async () => {
+  it('同一轮已有完成记录时直接回放，不再调用模型或工具', async () => {
     mockAgentNode();
     prisma.agentFlowNodeExecution.findUnique.mockResolvedValue({
       result: 'COMPLETED',
@@ -707,7 +746,8 @@ describe('AgentFlowActivities', () => {
       activities.executeNode({
         workflow: workflowInput(),
         nodeKey: 'answer',
-        nodeExecutionId: 'task-1:version-1:answer',
+        nodeExecutionId: 'task-1:version-1:answer#2',
+        iteration: 2,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -715,6 +755,20 @@ describe('AgentFlowActivities', () => {
       summary: '已生成回复',
     });
     expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+    expect(prisma.agentFlowNodeExecution.findUnique).toHaveBeenCalledWith({
+      where: {
+        taskId_nodeExecutionId: {
+          taskId: 'task-1',
+          nodeExecutionId: 'task-1:version-1:answer#2',
+        },
+      },
+      select: {
+        result: true,
+        outcome: true,
+        summary: true,
+        errorCategory: true,
+      },
+    });
   });
 
   it('审批恢复路径同样回放已完成节点，不重跑已审批通过的工具', async () => {
@@ -742,7 +796,8 @@ describe('AgentFlowActivities', () => {
       activities.resumeNode({
         workflow: workflowInput(),
         nodeKey: 'answer',
-        nodeExecutionId: 'task-1:version-1:answer',
+        nodeExecutionId: 'task-1:version-1:answer#2',
+        iteration: 2,
         approvalId: 'approval-1',
       }),
     ).resolves.toEqual({
@@ -763,6 +818,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'answer',
       nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
     });
 
     // 事件发出而幂等记录缺失，重试就会重复执行副作用；两者必须同生共死
@@ -790,6 +846,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'answer',
       nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
     });
 
     const eventNames = taskEventService.persistInTransaction.mock.calls.map(
@@ -802,7 +859,11 @@ describe('AgentFlowActivities', () => {
   it('condition 节点按上游已落库的输出命中分支', async () => {
     mockConditionNode();
     prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
-      { nodeKey: 'plan', outputs: { steps: [], stepCount: 5 } },
+      {
+        nodeKey: 'plan',
+        nodeExecutionId: 'task-1:version-1:plan#0',
+        outputs: { steps: [], stepCount: 5 },
+      },
     ]);
 
     await expect(
@@ -810,6 +871,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'classify',
         nodeExecutionId: 'task-1:version-1:classify',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -818,6 +880,36 @@ describe('AgentFlowActivities', () => {
     });
     // 条件判定不该调模型：它只读已落库的输出
     expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+    expect(prisma.agentFlowNodeExecution.findMany).toHaveBeenCalledWith({
+      where: { taskId: 'task-1' },
+      select: { nodeKey: true, nodeExecutionId: true, outputs: true },
+      orderBy: { nodeExecutionId: 'asc' },
+    });
+  });
+
+  it('$ref 按数字轮次读取同一节点最近一次完成的输出', async () => {
+    mockConditionNode();
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'plan',
+        nodeExecutionId: 'task-1:version-1:plan#10',
+        outputs: { steps: [], stepCount: 5 },
+      },
+      {
+        nodeKey: 'plan',
+        nodeExecutionId: 'task-1:version-1:plan#2',
+        outputs: { steps: [], stepCount: 1 },
+      },
+    ]);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'classify',
+        nodeExecutionId: 'task-1:version-1:classify#0',
+        iteration: 0,
+      }),
+    ).resolves.toMatchObject({ kind: 'completed', outcome: 'case_1' });
   });
 
   it('condition 全不命中时走隐含的 else 分支', async () => {
@@ -832,6 +924,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'classify',
         nodeExecutionId: 'task-1:version-1:classify',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -851,8 +944,109 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'classify',
         nodeExecutionId: 'task-1:version-1:classify',
+        iteration: 0,
       }),
     ).rejects.toThrow('没有已落库的输出');
+  });
+
+  it('loop 首次到达时不读取体内输出并进入第 1 轮', async () => {
+    mockLoopNode(conditionalLoopCases());
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'lp',
+        nodeExecutionId: 'task-1:version-1:lp#0',
+        iteration: 0,
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'again',
+      summary: '进入第 1 轮循环',
+    });
+    expect(prisma.agentFlowNodeExecution.findMany).not.toHaveBeenCalled();
+    expect(readCompletedOutputs()).toEqual({ iteration: 1 });
+  });
+
+  it('loop 按最近一轮输出决定继续或结束', async () => {
+    mockLoopNode(conditionalLoopCases());
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'body',
+        nodeExecutionId: 'task-1:version-1:body#1',
+        outputs: { steps: [], stepCount: 5 },
+      },
+    ]);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'lp',
+        nodeExecutionId: 'task-1:version-1:lp#1',
+        iteration: 1,
+      }),
+    ).resolves.toMatchObject({ outcome: 'again' });
+    expect(readCompletedOutputs()).toEqual({ iteration: 2 });
+
+    jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(
+      (operation: (transaction: typeof prisma) => unknown) => operation(prisma),
+    );
+    prisma.agentFlowNodeExecution.findUnique.mockResolvedValue(null);
+    prisma.agentFlowApproval.findFirst.mockResolvedValue(null);
+    prisma.streamTask.updateMany.mockResolvedValue({ count: 0 });
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'body',
+        nodeExecutionId: 'task-1:version-1:body#2',
+        outputs: { steps: [], stepCount: 1 },
+      },
+    ]);
+    mockLoopNode(conditionalLoopCases());
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'lp',
+        nodeExecutionId: 'task-1:version-1:lp#2',
+        iteration: 2,
+      }),
+    ).resolves.toMatchObject({ outcome: 'done' });
+    expect(readCompletedOutputs()).toEqual({ iteration: 2 });
+  });
+
+  it('loop 达到 maxIterations 后无条件结束', async () => {
+    mockLoopNode(conditionalLoopCases());
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'lp',
+        nodeExecutionId: 'task-1:version-1:lp#3',
+        iteration: 3,
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'done',
+      summary: '循环在第 3 轮后结束',
+    });
+    expect(prisma.agentFlowNodeExecution.findMany).not.toHaveBeenCalled();
+    expect(readCompletedOutputs()).toEqual({ iteration: 3 });
+  });
+
+  it('loop 未配置 continueWhen 时固定执行到最大轮数', async () => {
+    mockLoopNode([]);
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'lp',
+        nodeExecutionId: 'task-1:version-1:lp#1',
+        iteration: 1,
+      }),
+    ).resolves.toMatchObject({ outcome: 'again' });
+    expect(prisma.agentFlowNodeExecution.findMany).not.toHaveBeenCalled();
+    expect(readCompletedOutputs()).toEqual({ iteration: 2 });
   });
 
   /**
@@ -953,6 +1147,27 @@ describe('AgentFlowActivities', () => {
     });
   }
 
+  /**
+   * 装配一个可执行的 loop 节点上下文
+   * @param continueWhen 循环继续条件；空数组表示固定轮数
+   * @returns 无返回值
+   * @description Definition 使用 plan 作为循环体，以便用稳定的 stepCount 数字输出验证条件，
+   * 编译结果只保留 Activity 执行 loop 所需的配置。
+   */
+  function mockLoopNode(
+    continueWhen: ReturnType<typeof conditionalLoopCases>,
+  ): void {
+    mockExecutionContext({
+      node: {
+        key: 'lp',
+        type: 'loop',
+        maxIterations: 3,
+        continueWhen,
+      },
+      definition: loopFlowDefinition(continueWhen),
+    });
+  }
+
   it('start 节点把用户消息作为声明输出落库，不调模型', async () => {
     // start.text 是下游经 $ref 引用的锚点；不落库的话 condition 会撞上
     // 「上游节点没有已落库的输出」并显式失败
@@ -963,6 +1178,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'start',
         nodeExecutionId: 'task-1:version-1:start',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -980,6 +1196,35 @@ describe('AgentFlowActivities', () => {
         outputs: { text: '帮我查一下' },
         summary: '流程开始',
       },
+    });
+  });
+
+  it('end 节点只记录流程结束，不调用模型或工具', async () => {
+    mockExecutionContext({ node: { key: 'end', type: 'end' } });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'end',
+        nodeExecutionId: 'task-1:version-1:end#0',
+        iteration: 0,
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '流程结束',
+    });
+    expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+    expect(capabilityResolver.resolve).not.toHaveBeenCalled();
+    expect(prisma.agentFlowNodeExecution.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        taskId: 'task-1',
+        nodeKey: 'end',
+        nodeExecutionId: 'task-1:version-1:end#0',
+        result: 'COMPLETED',
+        outcome: 'default',
+        summary: '流程结束',
+      }),
     });
   });
 
@@ -1009,6 +1254,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'answer',
       nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
     });
 
     const started = taskEventService.persistInTransaction.mock.calls
@@ -1030,6 +1276,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'answer',
       nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
     });
 
     const started = taskEventService.persistInTransaction.mock.calls
@@ -1053,6 +1300,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'answer',
       nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
     });
 
     expect(taskEventService.publishTransient).toHaveBeenCalledWith(
@@ -1094,6 +1342,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'draft',
       nodeExecutionId: 'task-1:version-1:draft',
+      iteration: 0,
     });
 
     expect(taskEventService.publishTransient).not.toHaveBeenCalledWith(
@@ -1114,6 +1363,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'review',
         nodeExecutionId: 'task-1:version-1:review',
+        iteration: 0,
       }),
     ).resolves.toEqual({
       kind: 'completed',
@@ -1143,6 +1393,7 @@ describe('AgentFlowActivities', () => {
       workflow: workflowInput(),
       nodeKey: 'review',
       nodeExecutionId: 'task-1:version-1:review',
+      iteration: 0,
     });
 
     expect(result).toMatchObject({ kind: 'completed', outcome: 'approved' });
@@ -1161,6 +1412,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'review',
         nodeExecutionId: 'task-1:version-1:review',
+        iteration: 0,
       }),
     ).resolves.toMatchObject({ kind: 'waiting_human' });
   });
@@ -1178,6 +1430,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'review',
         nodeExecutionId: 'task-1:version-1:review',
+        iteration: 0,
       }),
     ).resolves.toMatchObject({ kind: 'waiting_human' });
   });
@@ -1190,6 +1443,7 @@ describe('AgentFlowActivities', () => {
         workflow: workflowInput(),
         nodeKey: 'review',
         nodeExecutionId: 'task-1:version-1:review',
+        iteration: 0,
       }),
     ).resolves.toMatchObject({ kind: 'waiting_human' });
     expect(llmService.generateStructured).not.toHaveBeenCalled();
@@ -1302,7 +1556,7 @@ describe('AgentFlowActivities', () => {
     executionState?: Record<string, unknown>;
     budgetUsage?: { modelCalls: number; toolCalls: number };
     status?: string;
-    definition?: ReturnType<typeof flowDefinition>;
+    definition?: object;
   }): void {
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
@@ -1367,10 +1621,12 @@ function draftThenAnswerDefinition() {
         },
       },
       { id: 'answer', type: 'synthesize' as const, config: {} },
+      { id: 'end', type: 'end' as const, config: {} },
     ],
     edges: [
       { from: 'start', to: 'draft' },
       { from: 'draft', to: 'answer' },
+      { from: 'answer', to: 'end' },
     ],
   };
 }
@@ -1492,12 +1748,76 @@ function conditionFlowDefinition() {
       },
       { id: 'answer', type: 'synthesize' as const, config: {} },
       { id: 'brief', type: 'synthesize' as const, config: {} },
+      { id: 'end', type: 'end' as const, config: {} },
     ],
     edges: [
       { from: 'start', to: 'plan' },
       { from: 'plan', to: 'classify' },
       { from: 'classify', to: 'answer', when: 'case_1' },
       { from: 'classify', to: 'brief', when: 'else' },
+      { from: 'answer', to: 'end' },
+      { from: 'brief', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造 loop 继续条件
+ * @returns 返回命中 body.stepCount 大于 3 时继续的单条 case
+ * @description 测试复用真实条件结构，避免 Activity 用例绕过编译节点的字段形状。
+ */
+function conditionalLoopCases() {
+  return [
+    {
+      key: 'needs_retry',
+      logic: 'and' as const,
+      conditions: [
+        {
+          ref: { $ref: ['body', 'stepCount'] as [string, string] },
+          operator: 'gt' as const,
+          value: 3,
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * 构造 plan 节点作为循环体的合法 FlowDefinition
+ * @param continueWhen loop 节点的继续条件
+ * @returns 返回 start -> loop -> body -> loop / done -> answer 的完整图
+ * @description loop 首次进入不读 body，后续轮次读取 body 最近一次声明的 stepCount。
+ */
+function loopFlowDefinition(
+  continueWhen: ReturnType<typeof conditionalLoopCases>,
+) {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow' as const,
+    name: '循环计划',
+    policy: {
+      maxSteps: 5,
+      maxModelCalls: 10,
+      maxToolCalls: 0,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
+      {
+        id: 'lp',
+        type: 'loop' as const,
+        config: { maxIterations: 3, continueWhen },
+      },
+      { id: 'body', type: 'plan' as const, config: { maxSteps: 5 } },
+      { id: 'answer', type: 'synthesize' as const, config: {} },
+      { id: 'end', type: 'end' as const, config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'lp' },
+      { from: 'lp', to: 'body', when: 'again' },
+      { from: 'body', to: 'lp' },
+      { from: 'lp', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
     ],
   };
 }
@@ -1541,11 +1861,13 @@ function flowDefinition() {
         type: 'synthesize' as const,
         config: {},
       },
+      { id: 'end', type: 'end' as const, config: {} },
     ],
     edges: [
       { from: 'start', to: 'plan' },
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'answer', when: 'approved' as const },
+      { from: 'answer', to: 'end' },
     ],
   };
 }

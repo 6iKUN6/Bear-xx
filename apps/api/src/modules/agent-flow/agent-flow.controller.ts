@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Put,
   UseGuards,
@@ -35,6 +36,7 @@ import { FlowTemplateRegistry } from './runtime/flow-template.registry';
 import { ImportAgentFlowDto } from './dto/import-agent-flow.dto';
 import { RollbackAgentFlowDto } from './dto/rollback-agent-flow.dto';
 import { UpdateAgentFlowVersionDto } from './dto/update-agent-flow-version.dto';
+import { UpdateAgentFlowDto } from './dto/update-agent-flow.dto';
 
 /**
  * AgentFlow 管理端控制器
@@ -109,6 +111,25 @@ export class AgentFlowController {
   @ApiOkResponse({ type: AgentFlowDetailResponseDto })
   get(@Param('flowId') flowId: string) {
     return this.flowService.get(flowId);
+  }
+
+  /**
+   * 更新 Flow 基本信息
+   * @param flowId 逻辑 Flow ID
+   * @param dto 新名称与可选描述
+   * @param actorId 当前管理员用户ID
+   * @returns 返回更新后的 Flow 基本信息
+   * @description 同步更新最高版本号的 DRAFT 顶层名称和描述；已发布与已归档版本保持不可变。
+   */
+  @Patch('agent-flows/:flowId')
+  @ApiOperation({ summary: '更新 Flow 名称与描述（管理员）' })
+  @ApiOkResponse({ type: AgentFlowResponseDto })
+  updateMetadata(
+    @Param('flowId') flowId: string,
+    @Body() dto: UpdateAgentFlowDto,
+    @CurrentUser('id') actorId: string,
+  ) {
+    return this.flowService.updateMetadata(flowId, dto, actorId);
   }
 
   /**

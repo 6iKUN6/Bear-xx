@@ -95,6 +95,11 @@ export interface CompiledStartFlowNode extends CompiledFlowNodeBase {
   type: 'start';
 }
 
+/** 编译后的结束节点；只记录流程显式收口，不执行模型或工具。 */
+export interface CompiledEndFlowNode extends CompiledFlowNodeBase {
+  type: 'end';
+}
+
 /** 编译后的汇聚节点。 */
 export interface CompiledJoinFlowNode extends CompiledFlowNodeBase {
   type: 'join';
@@ -122,6 +127,7 @@ export interface CompiledLoopFlowNode extends CompiledFlowNodeBase {
 /** 编译后的节点闭集。 */
 export type CompiledFlowNode =
   | CompiledStartFlowNode
+  | CompiledEndFlowNode
   | CompiledAgentFlowNode
   | CompiledPlanFlowNode
   | CompiledPlanLoopFlowNode

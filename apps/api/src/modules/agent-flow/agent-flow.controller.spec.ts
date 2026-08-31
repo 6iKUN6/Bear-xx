@@ -12,10 +12,18 @@ import { FlowTemplateRegistry } from './runtime/flow-template.registry';
 describe('AgentFlowController', () => {
   let controller: AgentFlowController;
   let create: jest.Mock<Promise<Record<string, unknown>>, [unknown, string]>;
+  let updateMetadata: jest.Mock<
+    Promise<Record<string, unknown>>,
+    [string, unknown, string]
+  >;
   let remove: jest.Mock<Promise<void>, [string]>;
 
   beforeEach(async () => {
     create = jest.fn<Promise<Record<string, unknown>>, [unknown, string]>();
+    updateMetadata = jest.fn<
+      Promise<Record<string, unknown>>,
+      [string, unknown, string]
+    >();
     remove = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -23,7 +31,7 @@ describe('AgentFlowController', () => {
       providers: [
         {
           provide: AgentFlowService,
-          useValue: { create, remove },
+          useValue: { create, updateMetadata, remove },
         },
         {
           provide: AgentFlowVersionService,
@@ -80,6 +88,27 @@ describe('AgentFlowController', () => {
     (first.definition as { name: string }).name = '被改过了';
 
     expect(controller.listTemplates()[0].name).not.toBe('被改过了');
+  });
+
+  it('将 Flow 基本信息更新交给服务层', async () => {
+    updateMetadata.mockResolvedValue({
+      id: 'flow-1',
+      name: '新名称',
+      description: '新描述',
+    });
+
+    await expect(
+      controller.updateMetadata(
+        'flow-1',
+        { name: '新名称', description: '新描述' },
+        'admin-1',
+      ),
+    ).resolves.toMatchObject({ name: '新名称', description: '新描述' });
+    expect(updateMetadata).toHaveBeenCalledWith(
+      'flow-1',
+      { name: '新名称', description: '新描述' },
+      'admin-1',
+    );
   });
 
   it('删除端点把 flowId 交给服务层并返回成功信封', async () => {

@@ -105,6 +105,7 @@ describe('FlowDefinitionValidator', () => {
           { from: 'start', to: 'review' },
           { from: 'review', to: 'execute', when: 'approved' },
           { from: 'execute', to: 'answer' },
+          { from: 'answer', to: 'end' },
         ],
       }),
       (error) => error.rule === 'ref-target',
@@ -180,6 +181,47 @@ describe('FlowDefinitionValidator', () => {
         edges: [...definition.edges, { from: 'answer', to: 'start' }],
       }),
       (error) => error.rule === 'start-is-entry' || error.rule === 'cycle',
+    );
+  });
+
+  it('要求每张图有且仅有一个 end 节点', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.filter((node) => node.type !== 'end'),
+        edges: definition.edges.filter((edge) => edge.to !== 'end'),
+      }),
+      (error) => error.rule === 'unique-end',
+    );
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: [...definition.nodes, { id: 'end2', type: 'end', config: {} }],
+      }),
+      (error) => error.rule === 'unique-end',
+    );
+  });
+
+  it('拒绝 end 节点继续连接后继', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: [...definition.edges, { from: 'end', to: 'answer' }],
+      }),
+      (error) => error.rule === 'end-is-terminal',
+    );
+  });
+
+  it('除 end 外的节点不能成为隐式终点', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: definition.edges.filter((edge) => edge.from !== 'answer'),
+      }),
+      (error) => error.rule === 'branch-coverage',
     );
   });
 
@@ -284,8 +326,8 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
-  it('拒绝两个可能并发的回复终节点', () => {
-    // 去掉 join 与汇总节点后，两条分支各自成为终节点：运行时会让它们都吐字并各写一次
+  it('拒绝两个可能并发的 end 前回复节点', () => {
+    // 去掉 join 与汇总节点后，两条分支都直接连接 end：运行时会让它们都吐字并各写一次
     // fullContent，结果是交错的正文加互相覆盖
     const definition = parallelDefinition('all');
     expectValidationError(
@@ -294,16 +336,23 @@ describe('FlowDefinitionValidator', () => {
         nodes: definition.nodes.filter(
           (node) => node.id !== 'merge' && node.id !== 'tail',
         ),
-        edges: definition.edges.filter(
-          (edge) => edge.to !== 'merge' && edge.from !== 'merge',
-        ),
+        edges: [
+          ...definition.edges.filter(
+            (edge) =>
+              edge.to !== 'merge' &&
+              edge.from !== 'merge' &&
+              edge.from !== 'tail',
+          ),
+          { from: 'branch_a', to: 'end' },
+          { from: 'branch_b', to: 'end' },
+        ],
       }),
       (error) => error.rule === 'concurrent-answer-nodes',
     );
   });
 
-  it('放行互斥的多个回复终节点', () => {
-    // condition 各分支各自收尾是常见形态：两个终节点都会吐字，但只有一个会执行
+  it('放行互斥的多个 end 前回复节点', () => {
+    // condition 各分支各自收尾是常见形态：两个回复节点都会吐字，但只有一个会执行
     const definition = exclusiveJoinDefinition('any');
     expect(
       validateFlowDefinition({
@@ -311,9 +360,16 @@ describe('FlowDefinitionValidator', () => {
         nodes: definition.nodes.filter(
           (node) => node.id !== 'merge' && node.id !== 'tail',
         ),
-        edges: definition.edges.filter(
-          (edge) => edge.to !== 'merge' && edge.from !== 'merge',
-        ),
+        edges: [
+          ...definition.edges.filter(
+            (edge) =>
+              edge.to !== 'merge' &&
+              edge.from !== 'merge' &&
+              edge.from !== 'tail',
+          ),
+          { from: 'branch_a', to: 'end' },
+          { from: 'branch_b', to: 'end' },
+        ],
       }).success,
     ).toBe(true);
   });
@@ -492,6 +548,8 @@ describe('FlowDefinitionValidator', () => {
         { from: 'heavy', to: 'recheck' },
         { from: 'recheck', to: 'answer', when: 'case_1' },
         { from: 'recheck', to: 'tail', when: 'else' },
+        { from: 'answer', to: 'end' },
+        { from: 'tail', to: 'end' },
       ],
     });
 
@@ -571,48 +629,201 @@ describe('FlowDefinitionValidator', () => {
     expectValidationError(result, (error) => error.rule === 'branch-coverage');
   });
 
-  it('接受 loop 节点的契约形状', () => {
-    // 契约先行：节点类型、分支键与 Zod 都已支持 loop。但图上的**环**仍被 cycle 规则拒绝
-    // （见下一条），因此这里只验证节点本身能通过结构校验，不连回边。
-    const definition = validDefinition();
-    expect(
-      validateFlowDefinition({
-        ...definition,
-        nodes: [
-          ...definition.nodes,
-          {
-            id: 'lp',
-            type: 'loop',
-            config: { maxIterations: 3, continueWhen: [] },
-          },
-        ],
-        edges: [...definition.edges, { from: 'answer', to: 'lp' }],
-      }).success,
-    ).toBe(true);
+  it('接受由 loop 圈定的回边，且不把回边误判成隐式并发汇聚', () => {
+    const result = validateFlowDefinition(loopDefinition());
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      expect(result.errors.map((error) => error.rule)).not.toContain('cycle');
+      expect(result.errors.map((error) => error.rule)).not.toContain(
+        'implicit-convergence',
+      );
+    }
   });
 
-  it('loop 的回边目前仍被 cycle 规则拒绝', () => {
-    // 这条锁住「契约已就绪但运行时未支持」这个中间状态：放开 cycle 属于 issue #9 的第 5 步，
-    // 在那之前带回边的图必须存不进去，否则用户会存下一张跑不了的图。
-    const definition = validDefinition();
+  it('loop continueWhen 可以引用每轮必定完成的体内节点输出', () => {
+    const definition = loopDefinition();
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id === 'lp'
+          ? {
+              ...node,
+              config: {
+                maxIterations: 3,
+                continueWhen: [
+                  {
+                    key: 'retry',
+                    logic: 'and',
+                    conditions: [
+                      {
+                        ref: { $ref: ['body', 'text'] },
+                        operator: 'contains',
+                        value: 'retry',
+                      },
+                    ],
+                  },
+                ],
+              },
+            }
+          : node,
+      ),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('拒绝没有返回 loop 的循环体路径', () => {
+    const definition = loopDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: definition.edges.map((edge) =>
+          edge.from === 'body' && edge.to === 'lp'
+            ? { from: 'body', to: 'answer' }
+            : edge,
+        ),
+      }),
+      (error) => error.rule === 'loop-back-edge',
+    );
+  });
+
+  it('拒绝从 again 以外的边旁路进入循环体', () => {
+    const definition = loopDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: [...definition.edges, { from: 'start', to: 'body' }],
+      }),
+      (error) => error.rule === 'loop-body-reachable',
+    );
+  });
+
+  it('拒绝循环体路径逃逸到 done 侧', () => {
+    const definition = loopDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        edges: [...definition.edges, { from: 'body', to: 'answer' }],
+      }),
+      (error) => error.rule === 'loop-body-reachable',
+    );
+  });
+
+  it('拒绝嵌套 loop', () => {
+    expectValidationError(
+      validateFlowDefinition(nestedLoopDefinition()),
+      (error) => error.rule === 'loop-nesting',
+    );
+  });
+
+  it('拒绝循环体外节点直接引用体内输出', () => {
+    const definition = loopDefinition();
     expectValidationError(
       validateFlowDefinition({
         ...definition,
         nodes: [
-          ...definition.nodes,
+          ...definition.nodes.filter((node) => node.id !== 'answer'),
           {
-            id: 'lp',
-            type: 'loop',
-            config: { maxIterations: 3, continueWhen: [] },
+            id: 'after',
+            type: 'condition',
+            config: {
+              cases: [
+                {
+                  key: 'has_text',
+                  logic: 'and',
+                  conditions: [
+                    {
+                      ref: { $ref: ['body', 'text'] },
+                      operator: 'notEmpty',
+                    },
+                  ],
+                },
+              ],
+            },
           },
+          { id: 'answer', type: 'synthesize', config: {} },
+          { id: 'empty', type: 'synthesize', config: {} },
         ],
         edges: [
-          ...definition.edges,
-          { from: 'answer', to: 'lp' },
-          { from: 'lp', to: 'answer', when: 'again' },
+          ...definition.edges.filter(
+            (edge) => !(edge.from === 'lp' && edge.when === 'done'),
+          ),
+          { from: 'lp', to: 'after', when: 'done' },
+          { from: 'after', to: 'answer', when: 'has_text' },
+          { from: 'after', to: 'empty', when: 'else' },
         ],
       }),
-      (error) => error.rule === 'cycle',
+      (error) => error.rule === 'loop-ref-across',
+    );
+  });
+
+  it('loop done 侧可以引用 loop 自己声明的 iteration', () => {
+    const definition = loopDefinition();
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: [
+        ...definition.nodes.filter((node) => node.id !== 'answer'),
+        {
+          id: 'after',
+          type: 'condition',
+          config: {
+            cases: [
+              {
+                key: 'ran',
+                logic: 'and',
+                conditions: [
+                  {
+                    ref: { $ref: ['lp', 'iteration'] },
+                    operator: 'gt',
+                    value: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { id: 'answer', type: 'synthesize', config: {} },
+        { id: 'empty', type: 'synthesize', config: {} },
+      ],
+      edges: [
+        ...definition.edges.filter(
+          (edge) => !(edge.from === 'lp' && edge.when === 'done'),
+        ),
+        { from: 'lp', to: 'after', when: 'done' },
+        { from: 'after', to: 'answer', when: 'ran' },
+        { from: 'after', to: 'empty', when: 'else' },
+        { from: 'empty', to: 'end' },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('拒绝循环体内的 approval 与 join(any)', () => {
+    const approvalResult = validateFlowDefinition(loopWithApprovalDefinition());
+    const joinAnyResult = validateFlowDefinition(loopWithJoinDefinition('any'));
+
+    expectValidationError(
+      approvalResult,
+      (error) => error.rule === 'loop-approval',
+    );
+    expectValidationError(
+      joinAnyResult,
+      (error) => error.rule === 'loop-parallel-overlap',
+    );
+  });
+
+  it('接受循环体内 fan-out 后由 join(all) 收口', () => {
+    expect(validateFlowDefinition(loopWithJoinDefinition('all')).success).toBe(
+      true,
+    );
+  });
+
+  it('loop continueWhen 不能引用并非每轮必定执行的体内分支', () => {
+    expectValidationError(
+      validateFlowDefinition(loopWithOptionalRefDefinition()),
+      (error) => error.rule === 'ref-dominates',
     );
   });
 
@@ -686,12 +897,14 @@ function validDefinition() {
         type: 'synthesize',
         config: { observationsRef: { $ref: ['execute', 'observations'] } },
       },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'start', to: 'plan' },
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'execute', when: 'approved' },
       { from: 'execute', to: 'answer' },
+      { from: 'answer', to: 'end' },
     ],
     layout: { nodes: { plan: { x: 80, y: 120 } } },
   };
@@ -740,13 +953,253 @@ function conditionDefinition(overrides: Record<string, unknown> = {}) {
       },
       { id: 'answer', type: 'synthesize', config: {} },
       { id: 'brief', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'start', to: 'plan' },
       { from: 'plan', to: 'classify' },
       { from: 'classify', to: 'answer', when: 'case_1' },
       { from: 'classify', to: 'brief', when: 'else' },
+      { from: 'answer', to: 'end' },
+      { from: 'brief', to: 'end' },
     ],
+  };
+}
+
+/**
+ * 构造最小合法图上循环
+ * @returns 返回 start -> loop -> body -> loop，并由 done 退出到 answer 的 Definition
+ * @description 循环体只有一个 agent，便于各用例只替换自己关心的边或引用规则。
+ */
+function loopDefinition() {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: '循环执行',
+    policy: {
+      maxSteps: 5,
+      maxModelCalls: 20,
+      maxToolCalls: 0,
+      maxDurationSeconds: 900,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'lp',
+        type: 'loop',
+        config: { maxIterations: 3, continueWhen: [] },
+      },
+      { id: 'body', type: 'agent', config: agentNodeConfig() },
+      { id: 'answer', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'lp' },
+      { from: 'lp', to: 'body', when: 'again' },
+      { from: 'body', to: 'lp' },
+      { from: 'lp', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造嵌套循环图
+ * @returns 返回 outer 循环体中包含 inner 循环的 Definition
+ * @description 两个 loop 都有唯一回边，确保失败准确来自第一版不支持嵌套，而不是缺边。
+ */
+function nestedLoopDefinition() {
+  const definition = loopDefinition();
+  return {
+    ...definition,
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'outer',
+        type: 'loop',
+        config: { maxIterations: 3, continueWhen: [] },
+      },
+      {
+        id: 'inner',
+        type: 'loop',
+        config: { maxIterations: 2, continueWhen: [] },
+      },
+      { id: 'body', type: 'agent', config: agentNodeConfig() },
+      { id: 'answer', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'outer' },
+      { from: 'outer', to: 'inner', when: 'again' },
+      { from: 'inner', to: 'body', when: 'again' },
+      { from: 'body', to: 'inner' },
+      { from: 'inner', to: 'outer', when: 'done' },
+      { from: 'outer', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造循环体含计划审批的图
+ * @returns 返回审批节点作为唯一循环体成员的 Definition
+ * @description plan 位于循环外并支配 review，让用例只命中 loop-approval 约束。
+ */
+function loopWithApprovalDefinition() {
+  const definition = loopDefinition();
+  return {
+    ...definition,
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      { id: 'plan', type: 'plan', config: { maxSteps: 3 } },
+      {
+        id: 'lp',
+        type: 'loop',
+        config: { maxIterations: 3, continueWhen: [] },
+      },
+      {
+        id: 'review',
+        type: 'approval',
+        config: {
+          kind: 'plan-review',
+          policy: 'always',
+          planRef: { $ref: ['plan', 'steps'] },
+        },
+      },
+      { id: 'answer', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'plan' },
+      { from: 'plan', to: 'lp' },
+      { from: 'lp', to: 'review', when: 'again' },
+      { from: 'review', to: 'lp', when: 'approved' },
+      { from: 'lp', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造循环体内并行扇出后汇聚的图
+ * @param policy join 的等待策略
+ * @returns 返回唯一入口、唯一回边的并行循环 Definition
+ * @description all 是第一版允许的串行轮次收口，any 会让慢分支跨到下一轮而被拒绝。
+ */
+function loopWithJoinDefinition(policy: 'all' | 'any') {
+  const definition = loopDefinition();
+  return {
+    ...definition,
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'lp',
+        type: 'loop',
+        config: { maxIterations: 3, continueWhen: [] },
+      },
+      { id: 'entry', type: 'agent', config: agentNodeConfig() },
+      { id: 'left', type: 'agent', config: agentNodeConfig() },
+      { id: 'right', type: 'agent', config: agentNodeConfig() },
+      {
+        id: 'merge',
+        type: 'join',
+        config: { waitFor: ['left', 'right'], policy },
+      },
+      { id: 'answer', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'lp' },
+      { from: 'lp', to: 'entry', when: 'again' },
+      { from: 'entry', to: 'left' },
+      { from: 'entry', to: 'right' },
+      { from: 'left', to: 'merge' },
+      { from: 'right', to: 'merge' },
+      { from: 'merge', to: 'lp' },
+      { from: 'lp', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造 continueWhen 引用可选分支输出的循环
+ * @returns 返回 measured 与 skipped 互斥、随后汇合再回到 loop 的 Definition
+ * @description measured 不是每轮必定完成；即使它属于循环体，loop 边界也不能读取其输出。
+ */
+function loopWithOptionalRefDefinition() {
+  const definition = loopDefinition();
+  return {
+    ...definition,
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'lp',
+        type: 'loop',
+        config: {
+          maxIterations: 3,
+          continueWhen: [
+            {
+              key: 'retry',
+              logic: 'and',
+              conditions: [
+                {
+                  ref: { $ref: ['measured', 'text'] },
+                  operator: 'notEmpty',
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: 'choose',
+        type: 'condition',
+        config: {
+          cases: [
+            {
+              key: 'measure',
+              logic: 'and',
+              conditions: [
+                {
+                  ref: { $ref: ['start', 'text'] },
+                  operator: 'notEmpty',
+                },
+              ],
+            },
+          ],
+        },
+      },
+      { id: 'measured', type: 'agent', config: agentNodeConfig() },
+      { id: 'skipped', type: 'agent', config: agentNodeConfig() },
+      { id: 'return', type: 'agent', config: agentNodeConfig() },
+      { id: 'answer', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'lp' },
+      { from: 'lp', to: 'choose', when: 'again' },
+      { from: 'choose', to: 'measured', when: 'measure' },
+      { from: 'choose', to: 'skipped', when: 'else' },
+      { from: 'measured', to: 'return' },
+      { from: 'skipped', to: 'return' },
+      { from: 'return', to: 'lp' },
+      { from: 'lp', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造测试用的最小 agent 配置
+ * @returns 返回不装配工具、继承智能体默认模型的合法配置
+ */
+function agentNodeConfig() {
+  return {
+    modelPreset: 'agent-default',
+    toolGroups: [],
+    skills: [],
+    maxToolIterations: 1,
   };
 }
 
@@ -798,6 +1251,7 @@ function parallelDefinition(policy: 'all' | 'any') {
         config: { waitFor: ['branch_a', 'branch_b'], policy },
       },
       { id: 'tail', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'start', to: 'branch_a' },
@@ -805,6 +1259,7 @@ function parallelDefinition(policy: 'all' | 'any') {
       { from: 'branch_a', to: 'merge' },
       { from: 'branch_b', to: 'merge' },
       { from: 'merge', to: 'tail' },
+      { from: 'tail', to: 'end' },
     ],
   };
 }
@@ -851,6 +1306,7 @@ function exclusiveJoinDefinition(policy: 'all' | 'any') {
         config: { waitFor: ['branch_a', 'branch_b'], policy },
       },
       { id: 'tail', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'start', to: 'classify' },
@@ -859,6 +1315,7 @@ function exclusiveJoinDefinition(policy: 'all' | 'any') {
       { from: 'branch_a', to: 'merge' },
       { from: 'branch_b', to: 'merge' },
       { from: 'merge', to: 'tail' },
+      { from: 'tail', to: 'end' },
     ],
   };
 }

@@ -35,7 +35,7 @@ describe('flowMustCompleteBefore', () => {
    */
   function before(
     nodes: FlowNode[],
-    edges: Array<{ from: string; to: string }>,
+    edges: Array<{ from: string; to: string; when?: string }>,
     probe: string,
   ): string[] {
     const set = flowMustCompleteBefore(nodes, edges).get(probe);
@@ -213,5 +213,23 @@ describe('flowMustCompleteBefore', () => {
     expect(
       flowMustCompleteBefore([node('a', 'agent'), node('b', 'agent')], []).size,
     ).toBe(0);
+  });
+
+  it('合法 loop 按单轮展开计算，不把体内输出泄漏到 done 侧', () => {
+    const nodes = [
+      node('start', 'start'),
+      node('lp', 'loop'),
+      node('body', 'agent'),
+      node('tail', 'agent'),
+    ];
+    const edges = [
+      { from: 'start', to: 'lp' },
+      { from: 'lp', to: 'body', when: 'again' },
+      { from: 'body', to: 'lp' },
+      { from: 'lp', to: 'tail', when: 'done' },
+    ];
+
+    expect(before(nodes, edges, 'body')).toEqual(['lp', 'start']);
+    expect(before(nodes, edges, 'tail')).toEqual(['lp', 'start']);
   });
 });
