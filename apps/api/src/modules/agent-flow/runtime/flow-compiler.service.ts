@@ -87,6 +87,8 @@ export class FlowCompiler {
     switch (node.type) {
       case 'start':
         return { key: node.id, ...alias(node), type: 'start' };
+      case 'end':
+        return { key: node.id, ...alias(node), type: 'end' };
       case 'agent':
         return {
           key: node.id,

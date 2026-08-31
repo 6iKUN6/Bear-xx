@@ -38,6 +38,11 @@
  *
  * ## 修订历史
  *
+ * - `6` 所有正常路径显式调度 end 节点：相较旧工件会多一次 `executeNode` Activity，命令
+ *   数量发生变化。部署时依赖“无在途 run”，未加 patch。
+ * - `5` 前沿执行器支持 loop 重入：Workflow 持有并下传真实轮次，`again` 后清除循环体与
+ *   loop 的 scheduled/completed 状态，再以新轮次重新调度。Activity 调用数量和顺序会随
+ *   循环轮数变化，部署时依赖“无在途 run”，未加 patch。
  * - `4` 幂等键加轮次段（`…:nodeKey` → `…:nodeKey#0`）：为图上的循环做准备。**标识形状变了，
  *   此前已落库的 AgentFlowNodeExecution 记录不再被命中**，跨这次部署的在途 run 会把已完成
  *   节点重跑一遍。部署时依赖"无在途 run"，未加 patch——patch 只能表达分支，表达不了
@@ -49,7 +54,7 @@
  *   部署时依赖"无在途 run"，未加 patch。
  * - `1` 初始版本：loadRunSnapshot -> executeNode/resumeNode 循环 -> finalizeRun。
  */
-export const AGENT_FLOW_WORKFLOW_REVISION = 4;
+export const AGENT_FLOW_WORKFLOW_REVISION = 6;
 
 /** memo 中记录启动修订号的键名。 */
 export const AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY =

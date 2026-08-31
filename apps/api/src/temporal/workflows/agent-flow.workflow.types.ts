@@ -35,6 +35,8 @@ export interface AgentFlowWorkflowNode {
   next: Readonly<Record<string, readonly string[]>>;
   /** 仅 join 节点有：要等待哪些节点、等多少个 */
   join?: { waitFor: readonly string[]; policy: 'all' | 'any' };
+  /** 仅 loop 节点有：进入下一轮时必须重置的体内节点 */
+  loop?: { body: readonly string[] };
 }
 
 /** 从数据库冻结版本转换出的脱敏执行快照。 */
@@ -49,6 +51,8 @@ export interface AgentFlowNodeExecutionInput {
   workflow: AgentFlowWorkflowInput;
   nodeKey: string;
   nodeExecutionId: string;
+  /** 由 Workflow 确定并持有的循环轮次；非循环节点固定为 0。 */
+  iteration: number;
 }
 
 /** Activity 恢复人工等待节点时所需的稳定身份。 */

@@ -60,8 +60,12 @@ const directDefinition: FlowDefinition = {
         maxToolIterations: 1,
       },
     },
+    { id: 'end', type: 'end', config: {} },
   ],
-  edges: [{ from: 'start', to: 'answer' }],
+  edges: [
+    { from: 'start', to: 'answer' },
+    { from: 'answer', to: 'end' },
+  ],
 };
 
 describe('AgentFlowService', () => {
@@ -312,6 +316,62 @@ describe('AgentFlowService', () => {
     });
   });
 
+  it('更新基本信息时同步最新草稿，但不修改发布版本', async () => {
+    const existingFlow = {
+      id: 'flow-1',
+      name: '旧名称',
+      description: '旧描述',
+      publishedVersionId: 'version-1',
+      createdAt: new Date('2026-08-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-16T00:00:00.000Z'),
+    };
+    findFlow.mockResolvedValue(existingFlow);
+    findLatestVersion.mockResolvedValue({
+      id: 'version-2',
+      definition: directDefinition,
+    });
+    updateFlow.mockResolvedValue({
+      ...existingFlow,
+      name: '新名称',
+      description: '新描述',
+      updatedAt: new Date('2026-08-17T00:00:00.000Z'),
+    });
+    updateVersion.mockResolvedValue({ id: 'version-2' });
+    createAudit.mockResolvedValue({ id: 'audit-1' });
+
+    const result = await service.updateMetadata(
+      'flow-1',
+      { name: '新名称', description: '新描述' },
+      'admin-1',
+    );
+
+    expect(findLatestVersion).toHaveBeenCalledWith({
+      where: { flowId: 'flow-1', status: 'DRAFT' },
+      orderBy: { version: 'desc' },
+      select: { id: true, definition: true },
+    });
+    expect(updateVersion).toHaveBeenCalledWith({
+      where: { id: 'version-2' },
+      data: {
+        definition: {
+          ...directDefinition,
+          name: '新名称',
+          description: '新描述',
+        },
+      },
+    });
+    expect(createAudit).toHaveBeenCalledWith({
+      data: {
+        flowId: 'flow-1',
+        versionId: 'version-2',
+        action: 'METADATA_UPDATED',
+        actorId: 'admin-1',
+        digest: null,
+      },
+    });
+    expect(result).toMatchObject({ name: '新名称', description: '新描述' });
+  });
+
   it('回滚时恢复历史版本并归档当前发布版本', async () => {
     findFlow.mockResolvedValue({
       id: 'flow-1',
@@ -488,6 +548,13 @@ describe('AgentFlowService', () => {
     ).rejects.toThrow('内置 Flow 由系统维护');
     await expect(
       service.rollback(BUILTIN_DIRECT_FLOW_ID, 'version-1', 'admin-1'),
+    ).rejects.toThrow('内置 Flow 由系统维护');
+    await expect(
+      service.updateMetadata(
+        BUILTIN_DIRECT_FLOW_ID,
+        { name: '不能改' },
+        'admin-1',
+      ),
     ).rejects.toThrow('内置 Flow 由系统维护');
     // 守卫在事务之前，因此一次数据库都不该碰
     expect(transaction).not.toHaveBeenCalled();

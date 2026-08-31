@@ -714,6 +714,7 @@ enum AgentFlowVersionStatus {
 
 enum AgentFlowAuditAction {
   CREATED
+  METADATA_UPDATED
   DRAFT_UPDATED
   IMPORTED
   VALIDATED

@@ -13,6 +13,9 @@ import { ApplicationFailure } from '@temporalio/client';
 import { z } from 'zod';
 import {
   FLOW_CONDITION_ELSE_BRANCH,
+  FLOW_LOOP_AGAIN_BRANCH,
+  FLOW_LOOP_DONE_BRANCH,
+  flowLoopRegions,
   flowNodeBranchKeys,
   type FlowConditionCase,
   type FlowRef,
@@ -62,6 +65,7 @@ import type {
   CompiledAgentFlowNode,
   CompiledConditionFlowNode,
   CompiledFlowNode,
+  CompiledLoopFlowNode,
 } from '../runtime/flow-runtime.types';
 import type {
   AgentFlowActivityApi,
@@ -822,6 +826,11 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         outputs: { text: context.task.inputText },
       });
     }
+    if (context.node.type === 'end') {
+      // end 不调模型、不调用工具，也不产生输出；仍落节点终局事实，让 trace 与幂等回放都能
+      // 明确看到流程确实经过了声明的结束节点。
+      return this.completeNode(context, input, 'default', '流程结束');
+    }
     if (context.node.type === 'join') {
       // 汇聚本身不做任何事：等谁、等多少个由 Workflow 按快照判定，Activity 只留下一条
       // 「已汇聚」的终局事实，让 trace 上能看到分支在这里合流。
@@ -829,6 +838,9 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     }
     if (context.node.type === 'condition') {
       return this.executeConditionNode(context, input, context.node);
+    }
+    if (context.node.type === 'loop') {
+      return this.executeLoopNode(context, input, context.node);
     }
     if (context.node.type === 'plan-loop') {
       return this.executePlanLoopNode(
@@ -1257,24 +1269,112 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   }
 
   /**
+   * 执行一个循环边界节点
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 下传的稳定轮次与节点执行标识
+   * @param node 已编译的循环配置
+   * @returns 返回 again 或 done 分支，并把面向下一轮的轮次声明为节点输出
+   * @description 第一次到达 loop 时 iteration 为 0，此时尚无循环体输出，必定进入第 1 轮。
+   * 后续到达先执行 continueWhen；达到 maxIterations 时无条件退出。轮次由 Workflow 持有，
+   * Activity 不查库推算，避免 Temporal 重试同一轮时改变幂等键并重复执行外部副作用。
+   */
+  private async executeLoopNode(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    node: CompiledLoopFlowNode,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    const iteration = input.iteration;
+    if (!Number.isInteger(iteration) || iteration < 0) {
+      throw createNonRetryableActivityFailure(
+        'Flow 循环轮次非法',
+        'AGENT_FLOW_INVALID_SNAPSHOT',
+      );
+    }
+
+    let shouldContinue = iteration === 0;
+    if (
+      iteration > 0 &&
+      iteration < node.maxIterations &&
+      node.continueWhen.length === 0
+    ) {
+      shouldContinue = true;
+    } else if (
+      iteration > 0 &&
+      iteration < node.maxIterations &&
+      node.continueWhen.length > 0
+    ) {
+      const upstream = await this.loadUpstreamOutputs(context.task.id);
+      const resolve = (ref: readonly [string, string]): unknown => {
+        const [sourceId, field] = ref;
+        const outputs = upstream.get(sourceId);
+        if (!outputs) {
+          throw createNonRetryableActivityFailure(
+            `循环引用的节点「${sourceId}」没有已落库的输出`,
+            'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
+          );
+        }
+        return outputs[field];
+      };
+      shouldContinue = node.continueWhen.some((branch) =>
+        evaluateConditionCase(branch, resolve),
+      );
+    }
+
+    const outcome = shouldContinue
+      ? FLOW_LOOP_AGAIN_BRANCH
+      : FLOW_LOOP_DONE_BRANCH;
+    const visibleIteration = shouldContinue ? iteration + 1 : iteration;
+    return this.completeNode(
+      context,
+      input,
+      outcome,
+      shouldContinue
+        ? `进入第 ${visibleIteration} 轮循环`
+        : `循环在第 ${visibleIteration} 轮后结束`,
+      { outputs: { iteration: visibleIteration } },
+    );
+  }
+
+  /**
    * 读取本任务已完成节点的声明输出
    * @param taskId 当前 Flow 任务标识
    * @returns 返回节点键到其输出对象的映射
-   * @description 输出随节点完成写在 AgentFlowNodeExecution 上，一行一节点，因此读取不需要
-   * 合并 JSON blob，也不存在并发覆盖。
+   * @description 循环会让同一 nodeKey 产生多行；以 nodeExecutionId 末尾的数字轮次比较，
+   * 只保留最近一轮。不能按 createdAt 排序：时间精度不足时同一毫秒仍无确定顺序。
+   * nodeExecutionId 同时作为相同轮次下的稳定次序；没有轮次段的旧记录按第 0 轮读取。
    */
   private async loadUpstreamOutputs(
     taskId: string,
   ): Promise<Map<string, Prisma.JsonObject>> {
     const rows = await this.prisma.agentFlowNodeExecution.findMany({
       where: { taskId },
-      select: { nodeKey: true, outputs: true },
+      select: { nodeKey: true, nodeExecutionId: true, outputs: true },
+      orderBy: { nodeExecutionId: 'asc' },
     });
     const outputs = new Map<string, Prisma.JsonObject>();
+    const latestIdentity = new Map<
+      string,
+      { iteration: number; nodeExecutionId: string }
+    >();
     for (const row of rows) {
-      if (isJsonObject(row.outputs)) {
-        outputs.set(row.nodeKey, row.outputs);
+      if (!isJsonObject(row.outputs)) {
+        continue;
       }
+      const candidate = {
+        iteration: readNodeExecutionIteration(row.nodeExecutionId),
+        nodeExecutionId: row.nodeExecutionId,
+      };
+      const current = latestIdentity.get(row.nodeKey);
+      if (
+        current &&
+        (current.iteration > candidate.iteration ||
+          (current.iteration === candidate.iteration &&
+            current.nodeExecutionId >= candidate.nodeExecutionId))
+      ) {
+        continue;
+      }
+      latestIdentity.set(row.nodeKey, candidate);
+      outputs.set(row.nodeKey, row.outputs);
     }
     return outputs;
   }
@@ -2257,6 +2357,7 @@ function toRunSnapshot(definition: FlowDefinition): AgentFlowRunSnapshot {
   }
 
   const nextByNodeKey = new Map<string, Record<string, string[]>>();
+  const loopRegions = flowLoopRegions(definition.nodes, definition.edges);
   for (const edge of definition.edges) {
     const branches = nextByNodeKey.get(edge.from) ?? {};
     const branch = edge.when ?? 'default';
@@ -2275,6 +2376,13 @@ function toRunSnapshot(definition: FlowDefinition): AgentFlowRunSnapshot {
       next: nextByNodeKey.get(node.id) ?? {},
       ...(node.type === 'join'
         ? { join: { waitFor: node.config.waitFor, policy: node.config.policy } }
+        : {}),
+      ...(node.type === 'loop'
+        ? {
+            loop: {
+              body: [...(loopRegions.get(node.id)?.body ?? [])].sort(),
+            },
+          }
         : {}),
     })),
   };
@@ -2882,6 +2990,22 @@ function isJsonObject(
 }
 
 /**
+ * 从节点执行标识读取 Workflow 已冻结的循环轮次
+ * @param nodeExecutionId 形如 `task:version:node#12` 的稳定节点执行标识
+ * @returns 返回非负整数轮次；没有轮次段的部署前历史标识按第 0 轮处理
+ * @description 只用于比较已完成行的新旧，不参与当前 Activity 的轮次决策。当前轮次必须由
+ * Workflow 直接下传，不能从数据库记录推算，否则 Temporal 重试会绕过幂等短路。
+ */
+function readNodeExecutionIteration(nodeExecutionId: string): number {
+  const match = /#(\d+)$/.exec(nodeExecutionId);
+  if (!match) {
+    return 0;
+  }
+  const iteration = Number(match[1]);
+  return Number.isSafeInteger(iteration) ? iteration : 0;
+}
+
+/**
  * 将普通值转换为 Prisma JSON 输入
  * @param value 已由服务端构造的安全对象
  * @returns 返回独立的 Prisma JSON 值
@@ -2925,6 +3049,8 @@ function getNodeTypeTitle(type: FlowNodeType): string {
       return '判定条件分支';
     case 'start':
       return '开始';
+    case 'end':
+      return '结束';
     case 'join':
       return '汇聚并行分支';
     case 'loop':
@@ -3023,21 +3149,26 @@ function createNonRetryableActivityFailure(
 /**
  * 判断当前节点是否产出这条助手消息的正文
  * @param context 当前节点执行上下文
- * @returns 返回该节点是否为图的终节点
+ * @returns 返回该节点是否直接连接唯一 end
  * @description `task.fullContent` 与助手消息本质是**一段线性文本**，只能有一个生产者。
- * 因此约定：只有图的终节点（没有出边）吐字并写正文；中间 agent 节点静默执行，产出进
+ * 因此约定：只有直接连接 end 的 agent/synthesize 吐字并写正文；中间 agent 节点静默执行，产出进
  * `outputs.text` 供下游 `$ref` 引用——这正是 plan-loop 步骤今天的行为。
  *
  * 没有这条约定，并行分支里的两个 agent 节点会把 token 交错写进同一段正文，且各自写一次
  * `fullContent` 后互相覆盖。那不是渲染问题，是数据被写坏。
  *
- * 判定用 Definition 的边而不是编译节点：编译计划里那份跳转表已被删除（它压掉了扇出且
- * 无人消费）。互斥的多个终节点（condition 各分支各自收尾）都会吐字，但只有一个会真的执行；
- * 「两个可能并发的终节点」由 concurrent-answer-nodes 校验规则在保存期拦掉。
+ * 判定用 Definition 的边而不是编译节点：end 是契约强制的唯一收口点，直接前驱正好对应
+ * schemaVersion 6 及以前的“无出边回复节点”。互斥的多个前驱都会吐字，但只有一个会执行；
+ * 「两个可能并发的回复节点」由 concurrent-answer-nodes 校验规则在保存期拦掉。
  */
 function isAnswerNode(context: AgentFlowExecutionContext): boolean {
-  return !context.definition.edges.some(
-    (edge) => edge.from === context.node.key,
+  const endIds = new Set(
+    context.definition.nodes
+      .filter((node) => node.type === 'end')
+      .map((node) => node.id),
+  );
+  return context.definition.edges.some(
+    (edge) => edge.from === context.node.key && endIds.has(edge.to),
   );
 }
 

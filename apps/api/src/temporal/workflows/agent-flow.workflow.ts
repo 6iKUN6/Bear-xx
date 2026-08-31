@@ -95,16 +95,20 @@ export async function agentFlowWorkflow(
      */
     const advanceNode = async (
       nodeKey: string,
-    ): Promise<{ node: AgentFlowWorkflowNode; result: SettledNodeResult }> => {
+      iteration: number,
+    ): Promise<{
+      node: AgentFlowWorkflowNode;
+      result: SettledNodeResult;
+      iteration: number;
+    }> => {
       const node = getSnapshotNode(nodesByKey, nodeKey);
       lastNodeKey = node.key;
-      // 轮次恒为 0：识别循环体并在 `again` 分支时递增属于 issue #9 的第 4 步。这一步只把
-      // 轮次穿进幂等键的形状，避免那一步再改一次键。
-      const nodeExecutionId = createNodeExecutionId(input, node.key, 0);
+      const nodeExecutionId = createNodeExecutionId(input, node.key, iteration);
       let result = await activities.executeNode({
         workflow: input,
         nodeKey: node.key,
         nodeExecutionId,
+        iteration,
       });
 
       // 已观测到的步骤进度，用于拒绝不推进的空转调度；人工恢复后重置
@@ -126,6 +130,7 @@ export async function agentFlowWorkflow(
             workflow: input,
             nodeKey: node.key,
             nodeExecutionId,
+            iteration,
           });
           continue;
         }
@@ -153,10 +158,11 @@ export async function agentFlowWorkflow(
           workflow: input,
           nodeKey: node.key,
           nodeExecutionId,
+          iteration,
           approvalId: waitingResult.approvalId,
         });
       }
-      return { node, result };
+      return { node, result, iteration };
     };
 
     /**
@@ -178,6 +184,8 @@ export async function agentFlowWorkflow(
     const completed = new Set<string>();
     /** 已调度过的节点，防止同一节点被两条分支各调度一次 */
     const scheduled = new Set<string>();
+    /** 每个节点下一次调度所属的轮次；不在循环体内时缺省为 0 */
+    const iterations = new Map<string, number>();
     /** 正在推进中的节点；键排序后参与 race，保证重放时的调度顺序一致 */
     const inFlight = new Map<
       string,
@@ -185,14 +193,19 @@ export async function agentFlowWorkflow(
         key: string;
         node: AgentFlowWorkflowNode;
         result: SettledNodeResult;
+        iteration: number;
       }>
     >();
 
     const launch = (nodeKey: string): void => {
+      const iteration = iterations.get(nodeKey) ?? 0;
       scheduled.add(nodeKey);
       inFlight.set(
         nodeKey,
-        advanceNode(nodeKey).then((settled) => ({ key: nodeKey, ...settled })),
+        advanceNode(nodeKey, iteration).then((settled) => ({
+          key: nodeKey,
+          ...settled,
+        })),
       );
     };
     // 入口节点也要先过一遍准入：取消信号可能在 loadRunSnapshot 的 await 期间就到了，
@@ -225,6 +238,24 @@ export async function agentFlowWorkflow(
       }
 
       completed.add(settled.key);
+
+      if (settled.node.type === 'loop' && settled.result.outcome === 'again') {
+        const body = settled.node.loop?.body;
+        if (!body || body.length === 0) {
+          throw ApplicationFailure.nonRetryable(
+            `循环节点「${settled.node.key}」缺少循环体快照`,
+            'AGENT_FLOW_INVALID_SNAPSHOT',
+          );
+        }
+        const nextIteration = settled.iteration + 1;
+        // 下一轮必须重新调度循环体并重新等待体内 join。loop 本身也要清掉，否则回边到达时
+        // scheduled 会把下一次判定误当成同一轮重复调度而跳过。
+        for (const member of [...body, settled.node.key]) {
+          scheduled.delete(member);
+          completed.delete(member);
+          iterations.set(member, nextIteration);
+        }
+      }
 
       // 排序让新增节点的启动顺序只由节点键决定，不受 Set 插入顺序影响
       const candidates = [

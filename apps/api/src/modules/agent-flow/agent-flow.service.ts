@@ -162,6 +162,63 @@ export class AgentFlowService {
   }
 
   /**
+   * 更新逻辑 Flow 的名称与描述
+   * @param flowId 逻辑 Flow ID
+   * @param input 已通过 DTO 校验的名称与可选描述
+   * @param actorId 发起操作的管理员用户ID
+   * @returns 返回更新后的 Flow 基本信息
+   * @description 在同一可串行化事务中更新 AgentFlow，并同步最高版本号 DRAFT 的 Definition
+   * 顶层元数据。已发布与已归档版本不变；没有草稿时只更新逻辑 Flow。内置 Flow 仍由系统维护。
+   */
+  async updateMetadata(
+    flowId: string,
+    input: { name: string; description?: string },
+    actorId: string,
+  ): Promise<AgentFlowResponse> {
+    assertNotBuiltinFlow(flowId);
+    return this.runSerializableTransaction(async (transaction) => {
+      const flow = await transaction.agentFlow.findUnique({
+        where: { id: flowId },
+      });
+      if (!flow) {
+        throw new NotFoundException('Flow 不存在');
+      }
+      const draft = await transaction.agentFlowVersion.findFirst({
+        where: { flowId, status: AgentFlowVersionStatus.DRAFT },
+        orderBy: { version: 'desc' },
+        select: { id: true, definition: true },
+      });
+      const description = input.description ?? '';
+      const updated = await transaction.agentFlow.update({
+        where: { id: flowId },
+        data: { name: input.name, description },
+      });
+      if (draft) {
+        await transaction.agentFlowVersion.update({
+          where: { id: draft.id },
+          data: {
+            definition: replaceDefinitionMetadata(
+              draft.definition,
+              input.name,
+              description,
+            ),
+          },
+        });
+      }
+      await transaction.agentFlowAuditLog.create({
+        data: {
+          flowId,
+          versionId: draft?.id ?? null,
+          action: 'METADATA_UPDATED',
+          actorId,
+          digest: null,
+        },
+      });
+      return this.toFlowResponse(updated);
+    });
+  }
+
+  /**
    * 将 Definition 导入为指定 Flow 的新草稿版本
    * @param flowId 导入目标的逻辑 Flow ID
    * @param input 外部导入的未知 FlowDefinition JSON
@@ -476,4 +533,30 @@ function assertNotBuiltinFlow(flowId: string): void {
       '内置 Flow 由系统维护，不可编辑或删除；如需自定义请导出后另存为新的 Flow',
     );
   }
+}
+
+/**
+ * 替换 Definition 顶层的 Flow 基本信息
+ * @param definition 数据库中现有的 JSON 工件
+ * @param name 新 Flow 名称
+ * @param description 新 Flow 描述
+ * @returns 返回保留其余字段的 Prisma JSON 输入对象
+ * @description 元数据编辑不等于升级旧工件，因此这里只要求根值是普通 JSON 对象，不要求它已
+ * 符合当前 schemaVersion；这样契约不兼容的历史草稿也能改名，同时仍保持“不兼容”状态。
+ */
+function replaceDefinitionMetadata(
+  definition: Prisma.JsonValue,
+  name: string,
+  description: string,
+): Prisma.InputJsonObject {
+  if (
+    typeof definition !== 'object' ||
+    definition === null ||
+    Array.isArray(definition)
+  ) {
+    throw new BadRequestException('Flow 草稿的 Definition 根节点不是对象');
+  }
+  return JSON.parse(
+    JSON.stringify({ ...definition, name, description }),
+  ) as Prisma.InputJsonObject;
 }

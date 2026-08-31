@@ -36,20 +36,22 @@ export function createFlowDefinitionPreset(
 
 /**
  * 生成空白预设
- * @returns 返回只含 start 节点的最小合法 Flow
- * @description 「只有 start」是结构合法的：唯一入口、且它本身就是可达终点。作为画布起点，
- * 用户从这里开始加节点。**它本身跑起来不产出任何回复**——描述里写明这一点，避免有人直接
- * 发布后拿到空回答还以为是坏了。
+ * @returns 返回只含 start 与 end 的最小合法 Flow
+ * @description start 与 end 之间保留一条可继续扩展的直连边。它本身跑起来不产出任何回复，
+ * 描述里写明这一点，避免有人直接发布后拿到空回答还以为是坏了。
  */
 function blankPreset(): FlowDefinition {
   return {
     schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
     kind: 'agent-flow',
     name: '空白流程',
-    description: '只有起始节点；加上节点并连线后才会产出回复',
+    description: '只有开始与结束节点；加上回复节点并连线后才会产出回复',
     policy: DEFAULT_POLICY,
-    nodes: [{ id: 'start', type: 'start', config: {} }],
-    edges: [],
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [{ from: 'start', to: 'end' }],
   };
 }
 
@@ -72,8 +74,12 @@ function directPreset(): FlowDefinition {
         type: 'agent',
         config: agentConfig([]),
       },
+      { id: 'end', type: 'end', config: {} },
     ],
-    edges: [{ from: 'start', to: 'answer' }],
+    edges: [
+      { from: 'start', to: 'answer' },
+      { from: 'answer', to: 'end' },
+    ],
   };
 }
 
@@ -96,8 +102,12 @@ function reactPreset(): FlowDefinition {
         type: 'agent',
         config: agentConfig(['default']),
       },
+      { id: 'end', type: 'end', config: {} },
     ],
-    edges: [{ from: 'start', to: 'answer' }],
+    edges: [
+      { from: 'start', to: 'answer' },
+      { from: 'answer', to: 'end' },
+    ],
   };
 }
 
@@ -140,12 +150,14 @@ function planExecutePreset(): FlowDefinition {
         type: 'synthesize',
         config: { observationsRef: { $ref: ['execute', 'observations'] } },
       },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'start', to: 'plan' },
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'execute', when: 'approved' },
       { from: 'execute', to: 'answer' },
+      { from: 'answer', to: 'end' },
     ],
   };
 }
@@ -179,11 +191,13 @@ function hybridPreset(): FlowDefinition {
         type: 'synthesize',
         config: { observationsRef: { $ref: ['execute', 'observations'] } },
       },
+      { id: 'end', type: 'end', config: {} },
     ],
     edges: [
       { from: 'start', to: 'plan' },
       { from: 'plan', to: 'execute' },
       { from: 'execute', to: 'answer' },
+      { from: 'answer', to: 'end' },
     ],
   };
 }

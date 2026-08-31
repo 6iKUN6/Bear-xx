@@ -2,16 +2,18 @@
  * AgentFlow Definition 当前支持的 JSON schema 版本。
  * @description 2 引入变量模型（`$ref`）、condition 分支与泛化的分支键；3 引入必需的 start 节点，
  * 并用它取代 `$input` 这个凭空存在的变量来源；4 把计划数据从隐式的全局状态改为显式 `$ref`
- * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点。
+ * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点；6 引入受控 loop 节点；
+ * 7 引入每张图唯一且强制显式连接的 end 节点。
  * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 6 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 7 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
   | "start"
+  | "end"
   | "agent"
   | "plan"
   | "plan-loop"
@@ -50,6 +52,8 @@ export const FLOW_NODE_OUTPUTS: Readonly<
 > = {
   // start 的 text 就是用户本轮消息正文；它取代了原先的 `$input.text`
   start: { text: "string" },
+  // end 只记录流程明确收口的事实，不产生任何可引用输出
+  end: {},
   // 刻意不含 toolCalls：唯一的运行时来源是流事件，而 tool.call.start 的工具名可能缺失
   // （首个 chunk 尚未带名称），据此建数组会漏报已调用的工具——引用它的 notContains 会直接
   // 撒谎。需要这个输出时得先让底层流为每次调用给出稳定名称。
@@ -238,19 +242,6 @@ export interface FlowNodeBase {
   readonly name?: string;
 }
 
-/**
- * 所有节点共有的字段
- * @description `id` 与 `name` 职责分开：`id` 是机器标识，被 edges 的 from/to、`$ref` 的第一个
- * 元素和 layout 的键引用，改它等于改引用；`name` 只影响画布与列表的显示，随便改都不会断链，
- * 也可以用中文。缺省时界面回退显示 `id`。
- * `name` 参与 digest——顶层 layout 被排除是因为坐标是拖动的副产物，而改名是刻意的编辑动作，
- * 工件确实变了。
- */
-export interface FlowNodeBase {
-  readonly id: string;
-  readonly name?: string;
-}
-
 /** Agent 节点。 */
 export interface FlowAgentNode extends FlowNodeBase {
   readonly type: "agent";
@@ -339,6 +330,12 @@ export interface FlowStartNode extends FlowNodeBase {
   readonly config: Record<string, never>;
 }
 
+/** 结束节点；每张图有且仅有一个，无配置、无输出、无出边。 */
+export interface FlowEndNode extends FlowNodeBase {
+  readonly type: "end";
+  readonly config: Record<string, never>;
+}
+
 /** 条件分支节点。 */
 export interface FlowConditionNode extends FlowNodeBase {
   readonly type: "condition";
@@ -348,6 +345,7 @@ export interface FlowConditionNode extends FlowNodeBase {
 /** Flow 节点判别联合。 */
 export type FlowNode =
   | FlowStartNode
+  | FlowEndNode
   | FlowAgentNode
   | FlowPlanNode
   | FlowPlanLoopNode
@@ -383,6 +381,9 @@ export const FLOW_LOOP_DONE_BRANCH = "done" as const;
  * @description validator、运行时快照与管理端画布共用这一份事实，避免三处各写一份分支规则后漂移。
  */
 export function flowNodeBranchKeys(node: FlowNode): readonly string[] {
+  if (node.type === "end") {
+    return [];
+  }
   if (node.type === "condition") {
     return [
       ...node.config.cases.map((item) => item.key),
@@ -406,6 +407,127 @@ export interface FlowEdge {
   readonly from: string;
   readonly to: string;
   readonly when?: FlowEdgeWhen;
+}
+
+/** 一个 loop 节点在图上的循环区域分析结果。 */
+export interface FlowLoopRegion {
+  readonly loopId: string;
+  /** again 分支直接指向的节点；合法图恰好一个 */
+  readonly againTargets: ReadonlySet<string>;
+  /** 从 again 可达且仍能回到 loop 的体内节点，不含 loop 自身 */
+  readonly body: ReadonlySet<string>;
+  /** 从 again 可达、但不穿过 loop 继续向 done 侧扩散的全部节点 */
+  readonly reachableFromAgain: ReadonlySet<string>;
+  /** 从循环体返回该 loop 的候选回边 */
+  readonly backEdges: readonly FlowEdge[];
+}
+
+/**
+ * 计算 loop 边界每轮都可以安全读取的体内来源
+ * @param region 待分析 loop 的循环区域
+ * @param mustComplete 单轮展开图中每个节点的必完成集合
+ * @returns 返回在唯一回边源节点执行前必定完成的循环体节点标识
+ * @description loop 的 continueWhen 在回边之后执行，不能直接套用“支配 loop”判据；loop
+ * 本轮先于循环体执行。正确判据是来源必须在唯一回边源执行前必定完成。非法图没有唯一回边时
+ * 返回空集合，避免编辑器向用户提供后端注定拒绝的变量。
+ */
+export function flowLoopBoundarySources(
+  region: FlowLoopRegion,
+  mustComplete: ReadonlyMap<string, ReadonlySet<string>>,
+): ReadonlySet<string> {
+  if (region.backEdges.length !== 1) {
+    return new Set();
+  }
+  const guaranteed = mustComplete.get(region.backEdges[0].from);
+  return new Set(
+    [...region.body].filter((nodeId) => guaranteed?.has(nodeId) ?? false),
+  );
+}
+
+/**
+ * 分析图中每个 loop 节点的循环区域
+ * @param nodes 图中全部节点；只读取 id 与 type
+ * @param edges 图中全部有向边与分支键
+ * @returns 返回 loop 标识到循环体、again 入口和候选回边的映射
+ * @description 循环体定义为「从 loop.again 可达」与「仍能回到该 loop」的交集。
+ * 正向遍历到 loop 即停止，避免沿 done 分支把体外节点误算进来。函数只做图分析、不判合法性；
+ * validator 负责拒绝多回边、嵌套、旁路入口与体内提前退出等第一版不支持的形态。
+ */
+export function flowLoopRegions(
+  nodes: ReadonlyArray<{ readonly id: string; readonly type: string }>,
+  edges: readonly FlowEdge[],
+): Map<string, FlowLoopRegion> {
+  const successors = new Map<string, string[]>();
+  const predecessors = new Map<string, string[]>();
+  for (const edge of edges) {
+    successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+    predecessors.set(edge.to, [
+      ...(predecessors.get(edge.to) ?? []),
+      edge.from,
+    ]);
+  }
+
+  const regions = new Map<string, FlowLoopRegion>();
+  for (const loop of nodes.filter((node) => node.type === "loop")) {
+    const againTargets = new Set(
+      edges
+        .filter(
+          (edge) =>
+            edge.from === loop.id && edge.when === FLOW_LOOP_AGAIN_BRANCH,
+        )
+        .map((edge) => edge.to),
+    );
+    const reachableFromAgain = walkFlowGraph(
+      [...againTargets],
+      successors,
+      loop.id,
+    );
+    const canReachLoop = walkFlowGraph([loop.id], predecessors);
+    const body = new Set(
+      [...reachableFromAgain].filter(
+        (nodeId) => nodeId !== loop.id && canReachLoop.has(nodeId),
+      ),
+    );
+    const backEdges = edges.filter(
+      (edge) => edge.to === loop.id && body.has(edge.from),
+    );
+    regions.set(loop.id, {
+      loopId: loop.id,
+      againTargets,
+      body,
+      reachableFromAgain,
+      backEdges,
+    });
+  }
+  return regions;
+}
+
+/**
+ * 遍历一张由字符串标识组成的有向图
+ * @param starts 起始节点集合
+ * @param adjacency 正向或反向邻接表
+ * @param stopAt 可选的边界节点；记录它但不再扩展其后继
+ * @returns 返回所有可达节点
+ * @description 循环区域的正向与反向搜索共用这一实现；显式 seen 让输入含环时仍能收敛。
+ */
+function walkFlowGraph(
+  starts: readonly string[],
+  adjacency: ReadonlyMap<string, readonly string[]>,
+  stopAt?: string,
+): Set<string> {
+  const seen = new Set<string>();
+  const pending = [...starts];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+    if (current !== stopAt) {
+      pending.push(...(adjacency.get(current) ?? []));
+    }
+  }
+  return seen;
 }
 
 /** 画布节点的位置，仅供编辑器展示，不参与运行或 digest。 */
@@ -433,11 +555,7 @@ export interface FlowDefinition {
 
 /** 内置 Flow 预设名称。 */
 export type FlowDefinitionPreset =
-  | "blank"
-  | "direct"
-  | "react"
-  | "plan_execute"
-  | "hybrid";
+  "blank" | "direct" | "react" | "plan_execute" | "hybrid";
 
 /**
  * 计算每个节点执行前「必定已完成」的节点集合
@@ -467,7 +585,18 @@ export function flowMustCompleteBefore(
   }>,
   edges: ReadonlyArray<{ readonly from: string; readonly to: string }>,
 ): Map<string, ReadonlySet<string>> {
-  const incoming = new Set(edges.map((edge) => edge.to));
+  const loopRegions = flowLoopRegions(nodes, edges);
+  const backEdgeKeys = new Set(
+    [...loopRegions.values()].flatMap((region) =>
+      region.backEdges.map((edge) => flowEdgeIdentity(edge)),
+    ),
+  );
+  // 回边表示下一轮开始，不是本轮的并发前驱。必完成分析只看「单轮展开」后的 DAG；
+  // validator 会另行保证被移除的确实是合法 loop 回边。
+  const forwardEdges = edges.filter(
+    (edge) => !backEdgeKeys.has(flowEdgeIdentity(edge)),
+  );
+  const incoming = new Set(forwardEdges.map((edge) => edge.to));
   const entries = nodes.filter((node) => !incoming.has(node.id));
   if (entries.length !== 1) {
     return new Map();
@@ -477,8 +606,11 @@ export function flowMustCompleteBefore(
 
   const predecessors = new Map<string, string[]>();
   const successors = new Map<string, string[]>();
-  for (const edge of edges) {
-    predecessors.set(edge.to, [...(predecessors.get(edge.to) ?? []), edge.from]);
+  for (const edge of forwardEdges) {
+    predecessors.set(edge.to, [
+      ...(predecessors.get(edge.to) ?? []),
+      edge.from,
+    ]);
     successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
   }
 
@@ -564,6 +696,20 @@ export function flowMustCompleteBefore(
     }
   }
   return new Map(result);
+}
+
+/**
+ * 创建一条 Flow 边的稳定图分析标识
+ * @param edge 待标识的边
+ * @returns 返回包含端点与分支键的无歧义字符串
+ * @description 同一对端点可能属于不同具名分支，不能只用 from/to 判重。
+ */
+function flowEdgeIdentity(edge: {
+  readonly from: string;
+  readonly to: string;
+  readonly when?: string;
+}): string {
+  return `${edge.from}\u0000${edge.to}\u0000${edge.when ?? FLOW_DEFAULT_BRANCH}`;
 }
 
 /**

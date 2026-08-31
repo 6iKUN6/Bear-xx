@@ -384,11 +384,120 @@ describe('agentFlowWorkflow', () => {
 
     try {
       await running.handle.result();
-      // 轮次段存在（当前恒为 0，递增属于第 4 步）
+      // 非循环节点固定属于第 0 轮
       expect(seen[0]).toMatch(/#0$/);
       // 整个节点生命周期共用同一个键
       expect(new Set(seen).size).toBe(1);
       expect(seen).toHaveLength(3);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
+  it('loop 会执行第 2 轮，且同一轮 Activity 重试保持完全相同的幂等身份', async () => {
+    const seen: Array<{
+      nodeKey: string;
+      iteration: number;
+      nodeExecutionId: string;
+    }> = [];
+    let firstBodyAttempts = 0;
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: loopParallelSnapshot(),
+        executeNode: (input) => {
+          seen.push({
+            nodeKey: input.nodeKey,
+            iteration: input.iteration,
+            nodeExecutionId: input.nodeExecutionId,
+          });
+          if (input.nodeKey === 'lp') {
+            return Promise.resolve({
+              kind: 'completed' as const,
+              outcome: input.iteration < 2 ? 'again' : 'done',
+            });
+          }
+          if (input.nodeKey === 'body_entry' && input.iteration === 1) {
+            firstBodyAttempts += 1;
+            if (firstBodyAttempts === 1) {
+              return Promise.reject(
+                ApplicationFailure.retryable('临时失败', 'TEST_RETRYABLE'),
+              );
+            }
+          }
+          return Promise.resolve({ kind: 'completed', outcome: 'default' });
+        },
+        finalizeRun: () => Promise.resolve(),
+      }),
+    );
+
+    try {
+      await expect(running.handle.result()).resolves.toMatchObject({
+        status: 'completed',
+        lastNodeKey: 'tail',
+      });
+      const bodyEntries = seen.filter((item) => item.nodeKey === 'body_entry');
+      expect(bodyEntries.map((item) => item.iteration)).toEqual([1, 1, 2]);
+      expect(bodyEntries.map((item) => item.nodeExecutionId)).toEqual([
+        expect.stringMatching(/:body_entry#1$/),
+        expect.stringMatching(/:body_entry#1$/),
+        expect.stringMatching(/:body_entry#2$/),
+      ]);
+      expect(
+        seen
+          .filter((item) => item.nodeKey === 'lp')
+          .map((item) => item.iteration),
+      ).toEqual([0, 1, 2]);
+      for (const member of ['branch_a', 'branch_b', 'merge']) {
+        expect(
+          seen
+            .filter((item) => item.nodeKey === member)
+            .map((item) => item.iteration),
+        ).toEqual([1, 2]);
+      }
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
+  it('不收敛的 loop 在体内节点撞到预算后停止扩展下一轮', async () => {
+    const seen: string[] = [];
+    const finalized: Array<{ status: string; errorCategory?: string }> = [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: loopParallelSnapshot(),
+        executeNode: ({ nodeKey, iteration }) => {
+          seen.push(`${nodeKey}#${iteration}`);
+          if (nodeKey === 'lp') {
+            return Promise.resolve({
+              kind: 'completed' as const,
+              outcome: 'again',
+            });
+          }
+          if (nodeKey === 'body_entry' && iteration === 2) {
+            return Promise.resolve({
+              kind: 'stopped' as const,
+              status: 'error' as const,
+              errorCategory: 'budget_exceeded' as const,
+            });
+          }
+          return Promise.resolve({ kind: 'completed', outcome: 'default' });
+        },
+        finalizeRun: ({ status, errorCategory }) => {
+          finalized.push({ status, errorCategory });
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    try {
+      await expect(running.handle.result()).resolves.toMatchObject({
+        status: 'error',
+      });
+      expect(finalized).toEqual([
+        { status: 'error', errorCategory: 'budget_exceeded' },
+      ]);
+      expect(seen).toContain('body_entry#2');
+      expect(seen.some((item) => item.endsWith('#3'))).toBe(false);
     } finally {
       await stopWorkflow(running);
     }
@@ -605,6 +714,43 @@ describe('agentFlowWorkflow', () => {
           type: 'join',
           next: { default: ['tail'] },
           join: { waitFor: ['branch_a', 'branch_b'], policy },
+        },
+        { key: 'tail', type: 'synthesize', next: {} },
+      ],
+    };
+  }
+
+  /**
+   * 构造含并行循环体与 join(all) 的运行快照
+   * @returns 返回可验证多轮重入、轮次身份与 join 重置的脱敏快照
+   * @description body_entry 每轮扇出两条分支，merge 必须等齐后才能通过唯一回边回到 lp。
+   */
+  function loopParallelSnapshot(): AgentFlowRunSnapshot {
+    return {
+      entryNodeKey: 'start',
+      maxDurationSeconds: 600,
+      nodes: [
+        { key: 'start', type: 'start', next: { default: ['lp'] } },
+        {
+          key: 'lp',
+          type: 'loop',
+          next: { again: ['body_entry'], done: ['tail'] },
+          loop: {
+            body: ['body_entry', 'branch_a', 'branch_b', 'merge'],
+          },
+        },
+        {
+          key: 'body_entry',
+          type: 'agent',
+          next: { default: ['branch_a', 'branch_b'] },
+        },
+        { key: 'branch_a', type: 'agent', next: { default: ['merge'] } },
+        { key: 'branch_b', type: 'agent', next: { default: ['merge'] } },
+        {
+          key: 'merge',
+          type: 'join',
+          next: { default: ['lp'] },
+          join: { waitFor: ['branch_a', 'branch_b'], policy: 'all' },
         },
         { key: 'tail', type: 'synthesize', next: {} },
       ],
