@@ -5,8 +5,11 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { AgentResponseDtoAccessReason } from './agentResponseDtoAccessReason';
 import type { AgentResponseDtoDefaultFlowVersionId } from './agentResponseDtoDefaultFlowVersionId';
+import type { AgentResponseDtoMinimumMembershipTier } from './agentResponseDtoMinimumMembershipTier';
 import type { AgentResponseDtoModelPreset } from './agentResponseDtoModelPreset';
+import type { AgentResponseDtoRequiredTier } from './agentResponseDtoRequiredTier';
 import type { AgentResponseDtoSystemPrompt } from './agentResponseDtoSystemPrompt';
 
 export interface AgentResponseDto {
@@ -33,6 +36,18 @@ export interface AgentResponseDto {
   /** 该智能体可用的工具组，仅供列表展示。当前仍读 Agent 上的历史字段，待改为从绑定的 Flow 节点推导 */
   toolGroups: string[];
   enabled: boolean;
+  /** 是否进入终端发现列表 */
+  visible: boolean;
+  minimumMembershipTier: AgentResponseDtoMinimumMembershipTier;
+  /** 当前用户是否可以使用 */
+  canUse: boolean;
+  /**
+     * 不可用时的结构化原因；可用时为 null
+     * @nullable
+     */
+  accessReason: AgentResponseDtoAccessReason;
+  /** @nullable */
+  requiredTier: AgentResponseDtoRequiredTier;
   isDefault: boolean;
   createdAt: number;
   updatedAt: number;

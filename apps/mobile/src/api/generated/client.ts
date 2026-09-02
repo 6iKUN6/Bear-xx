@@ -8,11 +8,18 @@
 import type {
   AccountLoginDto,
   AddConversationAgentDto,
+  AdminAuthUserDto,
   AdminControllerAgentsParams,
   AdminControllerErrorsParams,
   AdminControllerOverviewParams,
   AdminControllerTasksParams,
   AdminControllerToolsParams,
+  AdminLoginDto,
+  AdminLoginResultDto,
+  AdminUserControllerListAuditLogsParams,
+  AdminUserControllerListParams,
+  AdminUserPageDto,
+  AdminUserResponseDto,
   AgentCapabilitiesDto,
   AgentFlowDetailResponseDto,
   AgentFlowResponseDto,
@@ -43,6 +50,7 @@ import type {
   ImageGenerationResultDto,
   ImportAgentFlowDto,
   LoginResultDto,
+  ManagementAuditPageDto,
   McDonaldsCredentialResponseDto,
   McDonaldsOrderControllerListParams,
   McDonaldsOrderPageDto,
@@ -69,10 +77,13 @@ import type {
   TestSessionDetailDto,
   TestSessionDto,
   ToolUsageDto,
+  UpdateAdminRoleDto,
   UpdateAgentDto,
+  UpdateAgentFlowDto,
   UpdateAgentFlowVersionDto,
   UpdateAssetStatusDto,
   UpdateConversationDto,
+  UpdateMembershipDto,
   UpdateModelPresetDto,
   UpdateProfileDto,
   UserProfileDto,
@@ -331,30 +342,6 @@ export const agentControllerList = async ( options?: RequestInit): Promise<Agent
 
 
 
-export const getAgentControllerCreateUrl = () => {
-
-
-
-
-  return `/api/agents`
-}
-
-/**
- * @summary 创建智能体（管理员）
- */
-export const agentControllerCreate = async (createAgentDto: CreateAgentDto, options?: RequestInit): Promise<AgentResponseDto> => {
-
-  return taroRequest<AgentResponseDto>(getAgentControllerCreateUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(createAgentDto)
-  }
-);}
-
-
-
 export const getAgentControllerGetUrl = (id: string,) => {
 
 
@@ -379,21 +366,253 @@ export const agentControllerGet = async (id: string, options?: RequestInit): Pro
 
 
 
-export const getAgentControllerUpdateUrl = (id: string,) => {
+export const getAdminAuthControllerLoginUrl = () => {
 
 
 
 
-  return `/api/agents/${id}`
+  return `/api/admin/auth/login`
 }
 
 /**
- * @summary 更新智能体（管理员）
+ * @summary 管理员账号密码登录
  */
-export const agentControllerUpdate = async (id: string,
+export const adminAuthControllerLogin = async (adminLoginDto: AdminLoginDto, options?: RequestInit): Promise<AdminLoginResultDto> => {
+
+  return taroRequest<AdminLoginResultDto>(getAdminAuthControllerLoginUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminLoginDto)
+  }
+);}
+
+
+
+export const getAdminAuthControllerSessionUrl = () => {
+
+
+
+
+  return `/api/admin/auth/session`
+}
+
+/**
+ * @summary 获取当前后台登录身份
+ */
+export const adminAuthControllerSession = async ( options?: RequestInit): Promise<AdminAuthUserDto> => {
+
+  return taroRequest<AdminAuthUserDto>(getAdminAuthControllerSessionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserControllerListUrl = (params?: AdminUserControllerListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/users?${stringifiedParams}` : `/api/admin/users`
+}
+
+/**
+ * @summary 分页查询用户与权限
+ */
+export const adminUserControllerList = async (params?: AdminUserControllerListParams, options?: RequestInit): Promise<AdminUserPageDto> => {
+
+  return taroRequest<AdminUserPageDto>(getAdminUserControllerListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminUserControllerUpdateMembershipUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/users/${id}/membership`
+}
+
+/**
+ * @summary 修改用户会员等级与到期时间
+ */
+export const adminUserControllerUpdateMembership = async (id: string,
+    updateMembershipDto: UpdateMembershipDto, options?: RequestInit): Promise<AdminUserResponseDto> => {
+
+  return taroRequest<AdminUserResponseDto>(getAdminUserControllerUpdateMembershipUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateMembershipDto)
+  }
+);}
+
+
+
+export const getAdminUserControllerUpdateAdminRoleUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/users/${id}/admin-role`
+}
+
+/**
+ * @summary 授予、调整或撤销管理员角色
+ */
+export const adminUserControllerUpdateAdminRole = async (id: string,
+    updateAdminRoleDto: UpdateAdminRoleDto, options?: RequestInit): Promise<AdminUserResponseDto> => {
+
+  return taroRequest<AdminUserResponseDto>(getAdminUserControllerUpdateAdminRoleUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAdminRoleDto)
+  }
+);}
+
+
+
+export const getAdminUserControllerListAuditLogsUrl = (params?: AdminUserControllerListAuditLogsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/audit-logs?${stringifiedParams}` : `/api/admin/audit-logs`
+}
+
+/**
+ * @summary 分页查询管理审计记录
+ */
+export const adminUserControllerListAuditLogs = async (params?: AdminUserControllerListAuditLogsParams, options?: RequestInit): Promise<ManagementAuditPageDto> => {
+
+  return taroRequest<ManagementAuditPageDto>(getAdminUserControllerListAuditLogsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAgentControllerListUrl = () => {
+
+
+
+
+  return `/api/admin/agents`
+}
+
+/**
+ * @summary 智能体管理列表
+ */
+export const adminAgentControllerList = async ( options?: RequestInit): Promise<AgentResponseDto[]> => {
+
+  return taroRequest<AgentResponseDto[]>(getAdminAgentControllerListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAgentControllerCreateUrl = () => {
+
+
+
+
+  return `/api/admin/agents`
+}
+
+/**
+ * @summary 创建智能体
+ */
+export const adminAgentControllerCreate = async (createAgentDto: CreateAgentDto, options?: RequestInit): Promise<AgentResponseDto> => {
+
+  return taroRequest<AgentResponseDto>(getAdminAgentControllerCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createAgentDto)
+  }
+);}
+
+
+
+export const getAdminAgentControllerGetUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/agents/${id}`
+}
+
+/**
+ * @summary 智能体管理详情
+ */
+export const adminAgentControllerGet = async (id: string, options?: RequestInit): Promise<AgentResponseDto> => {
+
+  return taroRequest<AgentResponseDto>(getAdminAgentControllerGetUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAgentControllerUpdateUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/agents/${id}`
+}
+
+/**
+ * @summary 更新智能体
+ */
+export const adminAgentControllerUpdate = async (id: string,
     updateAgentDto: UpdateAgentDto, options?: RequestInit): Promise<AgentResponseDto> => {
 
-  return taroRequest<AgentResponseDto>(getAgentControllerUpdateUrl(id),
+  return taroRequest<AgentResponseDto>(getAdminAgentControllerUpdateUrl(id),
   {
     ...options,
     method: 'PATCH',
@@ -404,20 +623,20 @@ export const agentControllerUpdate = async (id: string,
 
 
 
-export const getAgentControllerRemoveUrl = (id: string,) => {
+export const getAdminAgentControllerRemoveUrl = (id: string,) => {
 
 
 
 
-  return `/api/agents/${id}`
+  return `/api/admin/agents/${id}`
 }
 
 /**
- * @summary 删除智能体（管理员）
+ * @summary 删除智能体
  */
-export const agentControllerRemove = async (id: string, options?: RequestInit): Promise<EmptyResultDto> => {
+export const adminAgentControllerRemove = async (id: string, options?: RequestInit): Promise<EmptyResultDto> => {
 
-  return taroRequest<EmptyResultDto>(getAgentControllerRemoveUrl(id),
+  return taroRequest<EmptyResultDto>(getAdminAgentControllerRemoveUrl(id),
   {
     ...options,
     method: 'DELETE'
@@ -428,20 +647,20 @@ export const agentControllerRemove = async (id: string, options?: RequestInit): 
 
 
 
-export const getAgentControllerSetDefaultUrl = (id: string,) => {
+export const getAdminAgentControllerSetDefaultUrl = (id: string,) => {
 
 
 
 
-  return `/api/agents/${id}/default`
+  return `/api/admin/agents/${id}/default`
 }
 
 /**
- * @summary 设置全局默认智能体（管理员）
+ * @summary 设置默认智能体
  */
-export const agentControllerSetDefault = async (id: string, options?: RequestInit): Promise<AgentResponseDto> => {
+export const adminAgentControllerSetDefault = async (id: string, options?: RequestInit): Promise<AgentResponseDto> => {
 
-  return taroRequest<AgentResponseDto>(getAgentControllerSetDefaultUrl(id),
+  return taroRequest<AgentResponseDto>(getAdminAgentControllerSetDefaultUrl(id),
   {
     ...options,
     method: 'PATCH'
@@ -1528,6 +1747,31 @@ export const agentFlowControllerGet = async (flowId: string, options?: RequestIn
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAgentFlowControllerUpdateMetadataUrl = (flowId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flows/${flowId}`
+}
+
+/**
+ * @summary 更新 Flow 名称与描述（管理员）
+ */
+export const agentFlowControllerUpdateMetadata = async (flowId: string,
+    updateAgentFlowDto: UpdateAgentFlowDto, options?: RequestInit): Promise<AgentFlowResponseDto> => {
+
+  return taroRequest<AgentFlowResponseDto>(getAgentFlowControllerUpdateMetadataUrl(flowId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateAgentFlowDto)
   }
 );}
 

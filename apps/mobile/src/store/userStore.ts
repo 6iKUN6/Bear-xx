@@ -2,6 +2,8 @@ import Taro from "@tarojs/taro";
 import * as storage from "../utils/storage";
 import { STORAGE_KEYS } from "../utils/constants";
 import { createBoundStore } from "./createBoundStore";
+import { getUserProfile } from "../api/user";
+import { ApiRequestError } from "../api/request";
 
 interface UserState {
   token: string | null;
@@ -10,9 +12,10 @@ interface UserState {
   hydrate: () => void;
   login: (result: LoginResult) => void;
   logout: () => void;
+  refreshProfile: () => Promise<void>;
 }
 
-export const useUserStore = createBoundStore<UserState>((set) => ({
+export const useUserStore = createBoundStore<UserState>((set, get) => ({
   token: null,
   userInfo: null,
   isLoggedIn: false,
@@ -59,5 +62,20 @@ export const useUserStore = createBoundStore<UserState>((set) => ({
       isLoggedIn: false,
     });
     Taro.redirectTo({ url: "/pages/login/index" });
+  },
+
+  async refreshProfile() {
+    if (!get().isLoggedIn) return;
+    try {
+      const userInfo = await getUserProfile();
+      storage.set(STORAGE_KEYS.USER_INFO, userInfo);
+      set({ userInfo });
+    } catch (error) {
+      console.error("Refresh user profile failed:", error);
+      // HTTP 业务错误已由请求层展示；网络类错误在这里补充可见反馈。
+      if (!(error instanceof ApiRequestError)) {
+        void Taro.showToast({ title: "会员状态刷新失败", icon: "none" });
+      }
+    }
   },
 }));

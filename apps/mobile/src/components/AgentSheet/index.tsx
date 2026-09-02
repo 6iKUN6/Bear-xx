@@ -45,6 +45,7 @@ export default function AgentSheet({
 
         <View className='flex flex-col gap-[0.5rem]'>
           {agents.map((agent) => {
+            const selectable = agent.canUse;
             const selected =
               showSelected &&
               (agent.isDefault
@@ -53,12 +54,12 @@ export default function AgentSheet({
             return (
               <View
                 key={agent.id}
-                className={`${appGlassCardClass} box-border flex items-center gap-[0.75rem] px-[1rem] py-[0.875rem] transition-colors active:scale-[0.99] ${
+                className={`${appGlassCardClass} box-border flex items-center gap-[0.75rem] px-[1rem] py-[0.875rem] transition-colors ${selectable ? "active:scale-[0.99]" : "opacity-55"} ${
                   selected
                     ? "border-[var(--lb-accent)] bg-[var(--lb-accent-soft)]"
                     : ""
                 }`}
-                onClick={() => onSelect(agent)}
+                onClick={() => selectable && onSelect(agent)}
               >
                 <AgentAvatar
                   className='h-[2.25rem] w-[2.25rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
@@ -73,6 +74,11 @@ export default function AgentSheet({
                   {agent.description ? (
                     <Text className='mt-[0.25rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] leading-[1.4] text-[var(--lb-text-secondary)]'>
                       {agent.description}
+                    </Text>
+                  ) : null}
+                  {!selectable ? (
+                    <Text className='mt-[0.125rem] block text-[0.6875rem] leading-[1.4] text-[var(--lb-warning)]'>
+                      {agent.accessReason === "DISABLED" ? "暂不可用" : `需要 ${agent.requiredTier} 会员`}
                     </Text>
                   ) : null}
                 </View>

@@ -58,16 +58,15 @@ export const useAgentStore = createBoundStore<AgentState>((set, get) => ({
         if (!Array.isArray(agents)) {
           return;
         }
-        const enabled = agents.filter((agent) => agent.enabled);
-        set({ agents: enabled, loaded: true });
-        storage.set(STORAGE_KEYS.AGENTS, enabled);
+        set({ agents, loaded: true });
+        storage.set(STORAGE_KEYS.AGENTS, agents);
 
         // 粘性选择是持久化的，但选中的 agent 可能已被删除或禁用。不校验的话：
         // 界面上 findAgent 取不到、回落显示成默认助手的名字（看着像合法选择），
         // 发送时却仍带着这个死 id，后端照单全收把新会话永久绑上去，
         // 执行期查不到再静默回落——全链路零报错。
         const { selectedAgentId } = get();
-        if (selectedAgentId && !enabled.some((a) => a.id === selectedAgentId)) {
+        if (selectedAgentId && !agents.some((a) => a.id === selectedAgentId && a.canUse)) {
           get().setSelectedAgent(null);
         }
       } catch {

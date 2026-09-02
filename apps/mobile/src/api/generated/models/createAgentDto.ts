@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0
  */
 import type { CreateAgentDtoDefaultFlowVersionId } from './createAgentDtoDefaultFlowVersionId';
+import type { CreateAgentDtoMinimumMembershipTier } from './createAgentDtoMinimumMembershipTier';
 
 export interface CreateAgentDto {
   /** 智能体名称 */
@@ -28,4 +29,8 @@ export interface CreateAgentDto {
   defaultFlowVersionId?: CreateAgentDtoDefaultFlowVersionId;
   /** 是否启用 */
   enabled?: boolean;
+  /** 是否展示在终端发现列表 */
+  visible?: boolean;
+  /** 终端使用所需最低会员等级 */
+  minimumMembershipTier?: CreateAgentDtoMinimumMembershipTier;
 }

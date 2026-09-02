@@ -10,6 +10,10 @@ function buildMockLoginResult(): LoginResult {
       id: "user_001",
       nickname: "小熊用户",
       avatarUrl: "https://img.yzcdn.cn/vant/cat.jpeg",
+      membershipTier: "FREE",
+      effectiveMembershipTier: "FREE",
+      membershipExpiresAt: null,
+      membershipExpired: false,
     },
   };
 }
@@ -47,6 +51,10 @@ export async function getUserProfile(): Promise<User> {
       id: "user_001",
       nickname: "小熊用户",
       avatarUrl: "https://img.yzcdn.cn/vant/cat.jpeg",
+      membershipTier: "FREE",
+      effectiveMembershipTier: "FREE",
+      membershipExpiresAt: null,
+      membershipExpired: false,
     };
   }
 

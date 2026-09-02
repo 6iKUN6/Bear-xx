@@ -7,6 +7,7 @@ import PageShell from "../../components/PageShell";
 import { useAgentStore } from "../../store/agentStore";
 import { useChatStore } from "../../store/chatStore";
 import { createConversation } from "../../api/chat";
+import { ApiRequestError } from "../../api/request";
 import { toolGroupLabel } from "../../utils/agent";
 import { appGlassCardClass } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
@@ -30,6 +31,16 @@ export default function AgentsPage() {
 
   const handleSingleChat = async (agent: AgentSummary) => {
     if (creating) return;
+    if (!agent.canUse) {
+      const message =
+        agent.accessReason === "DISABLED"
+          ? "该智能体暂不可用"
+          : agent.accessReason === "MEMBERSHIP_EXPIRED"
+            ? `会员已到期，需要 ${agent.requiredTier} 会员`
+            : `需要 ${agent.requiredTier} 会员，暂不支持自助升级`;
+      void Taro.showToast({ title: message, icon: "none" });
+      return;
+    }
     setCreating(agent.id);
     try {
       // 后端幂等：同绑定的既有单聊直接复用
@@ -41,7 +52,11 @@ export default function AgentsPage() {
       await Taro.redirectTo({ url: "/pages/index/index" });
     } catch (error) {
       console.error("Create single chat failed:", error);
-      void Taro.showToast({ title: "发起单聊失败", icon: "none" });
+      void loadAgents();
+      // API 层已经展示服务端的明确拒绝原因，避免再用通用提示覆盖一次。
+      if (!(error instanceof ApiRequestError)) {
+        void Taro.showToast({ title: "发起单聊失败", icon: "none" });
+      }
     } finally {
       setCreating(null);
     }
@@ -81,11 +96,17 @@ export default function AgentsPage() {
                 ))}
               </View>
               <View
-                className="mt-[0.625rem] w-full rounded-[0.5625rem] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] py-[0.375rem] text-center active:bg-[var(--lb-surface-hover)]"
+                className={`mt-[0.625rem] w-full rounded-[0.5625rem] border border-[var(--lb-line-soft)] py-[0.375rem] text-center ${agent.canUse ? "bg-[var(--lb-surface)] active:bg-[var(--lb-surface-hover)]" : "bg-[var(--lb-surface-muted)] opacity-70"}`}
                 onClick={() => void handleSingleChat(agent)}
               >
                 <Text className="text-[0.75rem] font-medium leading-[1.3] text-[var(--lb-text-primary)]">
-                  {creating === agent.id ? "进入中…" : "单聊"}
+                  {creating === agent.id
+                    ? "进入中…"
+                    : agent.canUse
+                      ? "单聊"
+                      : agent.accessReason === "DISABLED"
+                        ? "暂不可用"
+                        : `需要 ${agent.requiredTier}`}
                 </Text>
               </View>
             </View>

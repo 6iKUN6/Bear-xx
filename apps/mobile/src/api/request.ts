@@ -13,6 +13,7 @@ export interface ApiResponseEnvelope<T> {
   code: number;
   data: T;
   message: string;
+  errorCode?: string;
 }
 
 /**
@@ -24,6 +25,7 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly errorCode?: string,
   ) {
     super(message);
     this.name = "ApiRequestError";
@@ -124,7 +126,11 @@ export class BaseApiClient {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         const message = response.data?.message || "请求失败";
         Taro.showToast({ title: message, icon: "none" });
-        throw new ApiRequestError(message, response.statusCode);
+        throw new ApiRequestError(
+          message,
+          response.statusCode,
+          response.data?.errorCode,
+        );
       }
 
       const envelope = await this.applyResponseInterceptor(response.data);
