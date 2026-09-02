@@ -14,6 +14,9 @@ import type {
   AgentFlowTemplate,
   AgentFlowValidation,
   AgentFlowVersion,
+  AdminUser,
+  AdminUserPage,
+  ManagementAuditPage,
   ModelPreset,
   ModelPresetInput,
   ModelPresetProbeInput,
@@ -28,11 +31,14 @@ import type {
 
 // ---- 鉴权 ----
 export const login = (username: string, password: string) =>
-  request<AuthResponse>("/auth/account/login", {
+  request<AuthResponse>("/admin/auth/login", {
     method: "POST",
     body: { username, password },
     skipAuth: true,
   });
+
+export const getAdminSession = () =>
+  request<AuthResponse["user"]>("/admin/auth/session");
 
 // ---- 观测 ----
 export const getOverview = (days?: number) =>
@@ -55,8 +61,7 @@ export const getRecentTasks = (params: {
   days?: number;
   limit?: number;
   cursor?: string;
-}) =>
-  request<RecentTasks>("/admin/observability/tasks", { query: params });
+}) => request<RecentTasks>("/admin/observability/tasks", { query: params });
 
 export const getTaskDetail = (id: string) =>
   request<TaskDetail>(`/admin/observability/tasks/${id}`);
@@ -82,22 +87,54 @@ export const listAssets = (query: { usage?: string; limit?: number }) =>
   request<StorageAsset[]>("/storage/assets", { query });
 
 // ---- Agent CRUD ----
-export const listAgents = () => request<Agent[]>("/agents");
+export const listAgents = () => request<Agent[]>("/admin/agents");
 
 export const getAgentCapabilities = () =>
   request<AgentCapabilities>("/admin/capabilities");
 
 export const createAgent = (body: AgentInput) =>
-  request<Agent>("/agents", { method: "POST", body });
+  request<Agent>("/admin/agents", { method: "POST", body });
 
 export const updateAgent = (id: string, body: AgentInput) =>
-  request<Agent>(`/agents/${id}`, { method: "PATCH", body });
+  request<Agent>(`/admin/agents/${id}`, { method: "PATCH", body });
 
 export const setDefaultAgent = (id: string) =>
-  request<Agent>(`/agents/${id}/default`, { method: "PATCH" });
+  request<Agent>(`/admin/agents/${id}/default`, { method: "PATCH" });
 
 export const deleteAgent = (id: string) =>
-  request<{ success: boolean }>(`/agents/${id}`, { method: "DELETE" });
+  request<{ success: boolean }>(`/admin/agents/${id}`, { method: "DELETE" });
+
+export const listAdminUsers = (query?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}) => request<AdminUserPage>("/admin/users", { query });
+
+export const updateUserMembership = (
+  id: string,
+  body: {
+    membershipTier: "FREE" | "PLUS" | "PRO";
+    membershipExpiresAt: string | null;
+  },
+) =>
+  request<AdminUser>(`/admin/users/${id}/membership`, {
+    method: "PATCH",
+    body,
+  });
+
+export const updateUserAdminRole = (
+  id: string,
+  role: "USER" | "ADMIN" | "SUPER_ADMIN",
+) =>
+  request<AdminUser>(`/admin/users/${id}/admin-role`, {
+    method: "PATCH",
+    body: { role },
+  });
+
+export const listManagementAuditLogs = (query?: {
+  page?: number;
+  pageSize?: number;
+}) => request<ManagementAuditPage>("/admin/audit-logs", { query });
 
 // ---- Admin 测试会话 ----
 export const listTestSessions = () =>
@@ -183,10 +220,9 @@ export const validateFlowVersion = (versionId: string) =>
   );
 
 export const publishFlowVersion = (versionId: string) =>
-  request<AgentFlowVersion>(
-    `/admin/agent-flow-versions/${versionId}/publish`,
-    { method: "POST" },
-  );
+  request<AgentFlowVersion>(`/admin/agent-flow-versions/${versionId}/publish`, {
+    method: "POST",
+  });
 
 export const exportFlowVersion = (versionId: string) =>
   request<object>(`/admin/agent-flow-versions/${versionId}/export`);

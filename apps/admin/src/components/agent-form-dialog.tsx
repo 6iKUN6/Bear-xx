@@ -67,9 +67,16 @@ export function AgentFormDialog({
         modelPreset: agent.modelPreset ?? "",
         defaultFlowVersionId: agent.defaultFlowVersionId,
         enabled: agent.enabled,
+        visible: agent.visible,
+        minimumMembershipTier: agent.minimumMembershipTier,
       });
     } else {
-      setForm({ name: "", enabled: true });
+      setForm({
+        name: "",
+        enabled: true,
+        visible: true,
+        minimumMembershipTier: "FREE",
+      });
     }
   }, [agent, open]);
 
@@ -280,12 +287,56 @@ export function AgentFormDialog({
                   type="checkbox"
                   className="size-4 accent-primary"
                   checked={form.enabled ?? true}
+                  disabled={submitting || agent?.isDefault}
                   onChange={(e) =>
                     setForm({ ...form, enabled: e.target.checked })
                   }
                 />
                 启用
               </label>
+
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={form.visible ?? true}
+                  disabled={submitting || agent?.isDefault}
+                  onChange={(e) =>
+                    setForm({ ...form, visible: e.target.checked })
+                  }
+                />
+                客户端展示
+              </label>
+
+              <Field
+                label="最低会员等级"
+                hint={
+                  agent?.isDefault
+                    ? "默认智能体固定为 FREE 且始终展示"
+                    : "会员不足的智能体仍会展示，但聊天入口会锁定"
+                }
+              >
+                <Select
+                  value={form.minimumMembershipTier ?? "FREE"}
+                  onValueChange={(value) =>
+                    setForm({
+                      ...form,
+                      minimumMembershipTier:
+                        value as AgentInput["minimumMembershipTier"],
+                    })
+                  }
+                  disabled={submitting || agent?.isDefault}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FREE">FREE · 所有人</SelectItem>
+                    <SelectItem value="PLUS">PLUS · Plus 会员</SelectItem>
+                    <SelectItem value="PRO">PRO · Pro 会员</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
             </Section>
           </div>
 

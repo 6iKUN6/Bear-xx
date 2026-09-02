@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   nickname: string;
   avatarUrl: string;
+  adminRole: "ADMIN" | "SUPER_ADMIN";
 }
 
 export interface AuthResponse {
@@ -176,11 +177,7 @@ export interface AgentCapabilities {
  * @deprecated Agent 上已不再有策略字段；保留供历史 trace 的 STRATEGY_DECISION 展示。
  */
 export type AgentStrategy =
-  | "AUTO"
-  | "DIRECT"
-  | "REACT"
-  | "PLAN_EXECUTE"
-  | "HYBRID";
+  "AUTO" | "DIRECT" | "REACT" | "PLAN_EXECUTE" | "HYBRID";
 
 export interface Agent {
   id: string;
@@ -194,6 +191,12 @@ export interface Agent {
   /** 可用工具组，仅供展示；执行用的工具由 Flow 节点声明 */
   toolGroups: string[];
   enabled: boolean;
+  visible: boolean;
+  minimumMembershipTier: "FREE" | "PLUS" | "PRO";
+  canUse: boolean;
+  accessReason:
+    "DISABLED" | "MEMBERSHIP_EXPIRED" | "MEMBERSHIP_REQUIRED" | null;
+  requiredTier: "PLUS" | "PRO" | null;
   isDefault: boolean;
   createdAt: number;
   updatedAt: number;
@@ -201,16 +204,11 @@ export interface Agent {
 
 /** 上游 wire 格式闭集；决定服务端用哪个 SDK，provider 由它推导 */
 export type UpstreamFormat =
-  | "openai_chat_completions"
-  | "openai_responses"
-  | "anthropic_messages";
+  "openai_chat_completions" | "openai_responses" | "anthropic_messages";
 
 /** 服务端探针实测出的能力档位；带工具的节点在发布校验时要求 tools */
 export type ModelPresetCapability =
-  | "unverified"
-  | "unreachable"
-  | "basic"
-  | "tools";
+  "unverified" | "unreachable" | "basic" | "tools";
 
 export interface ModelPreset {
   id: string;
@@ -351,4 +349,51 @@ export interface AgentInput {
   modelPreset?: string | null;
   defaultFlowVersionId?: string | null;
   enabled?: boolean;
+  visible?: boolean;
+  minimumMembershipTier?: "FREE" | "PLUS" | "PRO";
+}
+
+export interface AdminUser {
+  id: string;
+  nickname: string;
+  avatarUrl: string;
+  username: string | null;
+  phone: string | null;
+  role: "USER" | "ADMIN" | "SUPER_ADMIN";
+  hasPasswordAccount: boolean;
+  membershipTier: "FREE" | "PLUS" | "PRO";
+  effectiveMembershipTier: "FREE" | "PLUS" | "PRO";
+  membershipExpiresAt: string | null;
+  membershipExpired: boolean;
+  createdAt: string;
+}
+
+export interface AdminUserPage {
+  items: AdminUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ManagementAuditLog {
+  id: string;
+  actorId: string | null;
+  targetType: "USER" | "AGENT";
+  targetId: string;
+  action:
+    | "ADMIN_ROLE_UPDATED"
+    | "MEMBERSHIP_UPDATED"
+    | "AGENT_ACCESS_UPDATED"
+    | "SUPER_ADMIN_BOOTSTRAPPED";
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; nickname: string; username: string | null } | null;
+}
+
+export interface ManagementAuditPage {
+  items: ManagementAuditLog[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
