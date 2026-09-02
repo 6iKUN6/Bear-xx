@@ -37,6 +37,7 @@ import { ImportAgentFlowDto } from './dto/import-agent-flow.dto';
 import { RollbackAgentFlowDto } from './dto/rollback-agent-flow.dto';
 import { UpdateAgentFlowVersionDto } from './dto/update-agent-flow-version.dto';
 import { UpdateAgentFlowDto } from './dto/update-agent-flow.dto';
+import { UserRole } from '@prisma/client';
 
 /**
  * AgentFlow 管理端控制器
@@ -46,7 +47,7 @@ import { UpdateAgentFlowDto } from './dto/update-agent-flow.dto';
 @ApiBearerAuth()
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 export class AgentFlowController {
   constructor(
     private readonly flowService: AgentFlowService,

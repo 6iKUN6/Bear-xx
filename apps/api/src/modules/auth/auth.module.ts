@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UserModule } from '../user/user.module';
 import { SmsModule } from '../sms/sms.module';
+import { AgentAccessModule } from '../agent-access/agent-access.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { SmsModule } from '../sms/sms.module';
     JwtModule.register({}),
     UserModule,
     SmsModule,
+    AgentAccessModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

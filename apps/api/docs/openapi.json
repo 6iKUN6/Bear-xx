@@ -324,41 +324,6 @@
         "tags": [
           "智能体"
         ]
-      },
-      "post": {
-        "operationId": "AgentController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateAgentDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponseDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "创建智能体（管理员）",
-        "tags": [
-          "智能体"
-        ]
       }
     },
     "/api/agents/{id}": {
@@ -395,9 +360,368 @@
         "tags": [
           "智能体"
         ]
+      }
+    },
+    "/api/admin/auth/login": {
+      "post": {
+        "operationId": "AdminAuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminLoginResultDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "管理员账号密码登录",
+        "tags": [
+          "管理-认证"
+        ]
+      }
+    },
+    "/api/admin/auth/session": {
+      "get": {
+        "operationId": "AdminAuthController_session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "当前管理员身份",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAuthUserDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取当前后台登录身份",
+        "tags": [
+          "管理-认证"
+        ]
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "operationId": "AdminUserController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "搜索用户ID、昵称、账号或手机号",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "用户分页结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页查询用户与权限",
+        "tags": [
+          "管理-用户与权限"
+        ]
+      }
+    },
+    "/api/admin/users/{id}/membership": {
+      "patch": {
+        "operationId": "AdminUserController_updateMembership",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMembershipDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的用户权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "修改用户会员等级与到期时间",
+        "tags": [
+          "管理-用户与权限"
+        ]
+      }
+    },
+    "/api/admin/users/{id}/admin-role": {
+      "patch": {
+        "operationId": "AdminUserController_updateAdminRole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdminRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的用户权限",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "授予、调整或撤销管理员角色",
+        "tags": [
+          "管理-用户与权限"
+        ]
+      }
+    },
+    "/api/admin/audit-logs": {
+      "get": {
+        "operationId": "AdminUserController_listAuditLogs",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "审计分页结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementAuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页查询管理审计记录",
+        "tags": [
+          "管理-用户与权限"
+        ]
+      }
+    },
+    "/api/admin/agents": {
+      "get": {
+        "operationId": "AdminAgentController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "智能体管理列表",
+        "tags": [
+          "管理-智能体"
+        ]
+      },
+      "post": {
+        "operationId": "AdminAgentController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "创建智能体",
+        "tags": [
+          "管理-智能体"
+        ]
+      }
+    },
+    "/api/admin/agents/{id}": {
+      "get": {
+        "operationId": "AdminAgentController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "智能体管理详情",
+        "tags": [
+          "管理-智能体"
+        ]
       },
       "patch": {
-        "operationId": "AgentController_update",
+        "operationId": "AdminAgentController_update",
         "parameters": [
           {
             "name": "id",
@@ -435,13 +759,13 @@
             "bearer": []
           }
         ],
-        "summary": "更新智能体（管理员）",
+        "summary": "更新智能体",
         "tags": [
-          "智能体"
+          "管理-智能体"
         ]
       },
       "delete": {
-        "operationId": "AgentController_remove",
+        "operationId": "AdminAgentController_remove",
         "parameters": [
           {
             "name": "id",
@@ -469,15 +793,15 @@
             "bearer": []
           }
         ],
-        "summary": "删除智能体（管理员）",
+        "summary": "删除智能体",
         "tags": [
-          "智能体"
+          "管理-智能体"
         ]
       }
     },
-    "/api/agents/{id}/default": {
+    "/api/admin/agents/{id}/default": {
       "patch": {
-        "operationId": "AgentController_setDefault",
+        "operationId": "AdminAgentController_setDefault",
         "parameters": [
           {
             "name": "id",
@@ -505,9 +829,9 @@
             "bearer": []
           }
         ],
-        "summary": "设置全局默认智能体（管理员）",
+        "summary": "设置默认智能体",
         "tags": [
-          "智能体"
+          "管理-智能体"
         ]
       }
     },
@@ -2132,6 +2456,50 @@
           "管理-AgentFlow"
         ]
       },
+      "patch": {
+        "operationId": "AgentFlowController_updateMetadata",
+        "parameters": [
+          {
+            "name": "flowId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAgentFlowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新 Flow 名称与描述（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      },
       "delete": {
         "operationId": "AgentFlowController_remove",
         "parameters": [
@@ -2977,12 +3345,40 @@
             "type": "string",
             "description": "用户头像地址",
             "example": ""
+          },
+          "membershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "effectiveMembershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "membershipExpiresAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "membershipExpired": {
+            "type": "boolean",
+            "description": "会员配置是否已到期"
           }
         },
         "required": [
           "id",
           "nickname",
-          "avatarUrl"
+          "avatarUrl",
+          "membershipTier",
+          "effectiveMembershipTier",
+          "membershipExpiresAt",
+          "membershipExpired"
         ]
       },
       "LoginResultDto": {
@@ -3125,12 +3521,39 @@
             "type": "string",
             "description": "用户头像地址",
             "example": ""
+          },
+          "membershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "effectiveMembershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "membershipExpiresAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "membershipExpired": {
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "nickname",
-          "avatarUrl"
+          "avatarUrl",
+          "membershipTier",
+          "effectiveMembershipTier",
+          "membershipExpiresAt",
+          "membershipExpired"
         ]
       },
       "UpdateProfileDto": {
@@ -3197,6 +3620,44 @@
             "type": "boolean",
             "example": true
           },
+          "visible": {
+            "type": "boolean",
+            "example": true,
+            "description": "是否进入终端发现列表"
+          },
+          "minimumMembershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ],
+            "example": "FREE"
+          },
+          "canUse": {
+            "type": "boolean",
+            "example": true,
+            "description": "当前用户是否可以使用"
+          },
+          "accessReason": {
+            "type": "string",
+            "enum": [
+              "DISABLED",
+              "MEMBERSHIP_EXPIRED",
+              "MEMBERSHIP_REQUIRED"
+            ],
+            "nullable": true,
+            "description": "不可用时的结构化原因；可用时为 null"
+          },
+          "requiredTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ],
+            "nullable": true
+          },
           "isDefault": {
             "type": "boolean",
             "example": false
@@ -3220,9 +3681,340 @@
           "defaultFlowVersionId",
           "toolGroups",
           "enabled",
+          "visible",
+          "minimumMembershipTier",
+          "canUse",
+          "accessReason",
+          "requiredTier",
           "isDefault",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "AdminLoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "既有管理员账号名",
+            "example": "admin"
+          },
+          "password": {
+            "type": "string",
+            "description": "管理员登录密码",
+            "example": "12345678"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "AdminAuthUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "管理员用户 ID",
+            "example": "cmf_admin_123"
+          },
+          "nickname": {
+            "type": "string",
+            "description": "管理员昵称",
+            "example": "管理员"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "description": "管理员头像地址",
+            "example": ""
+          },
+          "adminRole": {
+            "type": "string",
+            "description": "当前后台角色",
+            "enum": [
+              "ADMIN",
+              "SUPER_ADMIN"
+            ],
+            "example": "SUPER_ADMIN"
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "avatarUrl",
+          "adminRole"
+        ]
+      },
+      "AdminLoginResultDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "访问令牌",
+            "example": "eyJhbGciOiJIUzI1NiIs..."
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "刷新令牌",
+            "example": "eyJhbGciOiJIUzI1NiIs..."
+          },
+          "user": {
+            "description": "管理员信息",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AdminAuthUserDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "token",
+          "refreshToken",
+          "user"
+        ]
+      },
+      "AdminUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "avatarUrl": {
+            "type": "string"
+          },
+          "username": {
+            "type": "object",
+            "nullable": true
+          },
+          "phone": {
+            "type": "object",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ADMIN",
+              "SUPER_ADMIN"
+            ]
+          },
+          "hasPasswordAccount": {
+            "type": "boolean"
+          },
+          "membershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "effectiveMembershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "membershipExpiresAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "membershipExpired": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "avatarUrl",
+          "username",
+          "phone",
+          "role",
+          "hasPasswordAccount",
+          "membershipTier",
+          "effectiveMembershipTier",
+          "membershipExpiresAt",
+          "membershipExpired",
+          "createdAt"
+        ]
+      },
+      "AdminUserPageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminUserResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
+        ]
+      },
+      "UpdateMembershipDto": {
+        "type": "object",
+        "properties": {
+          "membershipTier": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ]
+          },
+          "membershipExpiresAt": {
+            "type": "object",
+            "description": "ISO 8601 到期时间；null 表示永久",
+            "nullable": true
+          }
+        },
+        "required": [
+          "membershipTier"
+        ]
+      },
+      "UpdateAdminRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ADMIN",
+              "SUPER_ADMIN"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "ManagementAuditActorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "username": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "username"
+        ]
+      },
+      "ManagementAuditLogDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "actorId": {
+            "type": "object",
+            "nullable": true
+          },
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "AGENT"
+            ]
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "ADMIN_ROLE_UPDATED",
+              "MEMBERSHIP_UPDATED",
+              "AGENT_ACCESS_UPDATED",
+              "SUPER_ADMIN_BOOTSTRAPPED"
+            ]
+          },
+          "before": {
+            "type": "object",
+            "nullable": true
+          },
+          "after": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "actor": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ManagementAuditActorDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "actorId",
+          "targetType",
+          "targetId",
+          "action",
+          "before",
+          "after",
+          "createdAt",
+          "actor"
+        ]
+      },
+      "ManagementAuditPageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagementAuditLogDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
         ]
       },
       "CreateAgentDto": {
@@ -3262,6 +4054,21 @@
             "type": "boolean",
             "description": "是否启用",
             "default": true
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "是否展示在终端发现列表",
+            "default": true
+          },
+          "minimumMembershipTier": {
+            "type": "string",
+            "description": "终端使用所需最低会员等级",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ],
+            "default": "FREE"
           }
         },
         "required": [
@@ -3305,6 +4112,21 @@
             "type": "boolean",
             "description": "是否启用",
             "default": true
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "是否展示在终端发现列表",
+            "default": true
+          },
+          "minimumMembershipTier": {
+            "type": "string",
+            "description": "终端使用所需最低会员等级",
+            "enum": [
+              "FREE",
+              "PLUS",
+              "PRO"
+            ],
+            "default": "FREE"
           }
         }
       },
@@ -5330,6 +6152,27 @@
           "createdAt",
           "updatedAt",
           "versions"
+        ]
+      },
+      "UpdateAgentFlowDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Flow 名称，去除首尾空白后长度为 1–100 个字符",
+            "example": "退款审批流程",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "description": "Flow 描述；缺省或空字符串表示无描述",
+            "example": "处理退款条件判断、人工确认与通知",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "name"
         ]
       },
       "UpdateAgentFlowVersionDto": {

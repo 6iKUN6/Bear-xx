@@ -32,6 +32,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let errors: unknown;
+    let errorCode: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -41,6 +42,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? res
           : (res as Record<string, unknown>).message?.toString() ||
             exception.message;
+      const responseCode = (res as Record<string, unknown>).code;
+      if (typeof responseCode === 'string') {
+        errorCode = responseCode;
+      }
       errors = typeof res === 'string' ? undefined : readErrors(res);
     } else if (exception instanceof Error) {
       message = exception.message;
@@ -73,6 +78,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       code: status,
       data: null,
       message,
+      ...(errorCode ? { errorCode } : {}),
       ...(errors ? { errors } : {}),
     });
   }

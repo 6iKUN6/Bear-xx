@@ -19,6 +19,12 @@ describe('ConversationService（单聊/群聊）', () => {
         delete: jest.fn(),
       },
       agent: { findMany: jest.fn() },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          membershipTier: 'FREE',
+          membershipExpiresAt: null,
+        }),
+      },
       mcDonaldsOrder: { findMany: jest.fn() },
     };
     return {
@@ -34,6 +40,12 @@ describe('ConversationService（单聊/群聊）', () => {
             lastRefreshedAt: order.lastRefreshedAt?.toISOString() ?? null,
             createdAt: order.createdAt.toISOString(),
           })),
+        } as never,
+        {
+          evaluate: jest.fn().mockReturnValue({
+            canUse: true,
+            effectiveTier: 'FREE',
+          }),
         } as never,
       ),
       prisma,

@@ -1,5 +1,12 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { MembershipTier } from '@prisma/client';
 
 export class CreateAgentDto {
   @ApiProperty({ description: '智能体名称', example: '通用助手' })
@@ -52,4 +59,18 @@ export class CreateAgentDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  @ApiPropertyOptional({ description: '是否展示在终端发现列表', default: true })
+  @IsOptional()
+  @IsBoolean()
+  visible?: boolean;
+
+  @ApiPropertyOptional({
+    description: '终端使用所需最低会员等级',
+    enum: MembershipTier,
+    default: MembershipTier.FREE,
+  })
+  @IsOptional()
+  @IsEnum(MembershipTier)
+  minimumMembershipTier?: MembershipTier;
 }

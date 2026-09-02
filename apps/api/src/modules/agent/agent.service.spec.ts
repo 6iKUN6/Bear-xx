@@ -1,12 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { Agent, Prisma } from '@prisma/client';
+import { Agent, MembershipTier, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDefinitionService } from './agent-definition.service';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
 import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import { AgentService } from './agent.service';
 import { UpdateAgentDto } from './dto/update-agent.dto';
+import { AgentAccessService } from '../agent-access/agent-access.service';
 
 type UpdateManyArgs = {
   where: { isDefault: boolean; id: { not: string } };
@@ -52,6 +53,8 @@ function buildAgent(overrides: Partial<Agent> = {}): Agent {
     systemPrompt: null,
     modelPreset: null,
     enabled: true,
+    visible: true,
+    minimumMembershipTier: MembershipTier.FREE,
     isDefault: false,
     defaultFlowVersionId: null,
     createdById: null,
@@ -109,6 +112,7 @@ describe('AgentService', () => {
           provide: AgentDefinitionService,
           useValue: { invalidate },
         },
+        AgentAccessService,
       ],
     }).compile();
 
@@ -224,6 +228,27 @@ describe('AgentService', () => {
     expect(update).not.toHaveBeenCalled();
     expect(invalidate).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [{ visible: false }, '隐藏的智能体不可设为默认'],
+    [
+      { minimumMembershipTier: MembershipTier.PLUS },
+      '默认智能体最低会员等级必须为 FREE',
+    ],
+  ] satisfies Array<[Partial<Agent>, string]>)(
+    '拒绝不满足默认开放约束的智能体：%s',
+    async (overrides, message) => {
+      findUnique.mockResolvedValue(buildAgent(overrides));
+
+      await expect(service.setDefault('agent-id')).rejects.toThrow(
+        new BadRequestException(message),
+      );
+
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(invalidate).not.toHaveBeenCalled();
+    },
+  );
 
   it('拒绝停用当前默认智能体且不更新数据', async () => {
     findUnique.mockResolvedValue(buildAgent({ isDefault: true }));

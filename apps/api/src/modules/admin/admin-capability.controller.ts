@@ -10,6 +10,7 @@ import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 import { AgentCapabilitiesDto } from './dto/capability-response.dto';
 
 /**
@@ -21,7 +22,7 @@ import { AgentCapabilitiesDto } from './dto/capability-response.dto';
 @ApiBearerAuth()
 @Controller('admin/capabilities')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 export class AdminCapabilityController {
   constructor(
     private readonly capabilityRegistry: CapabilityRegistry,

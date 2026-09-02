@@ -31,6 +31,7 @@ import { EmptyResultDto } from '../../common/dto/empty-result.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Sse, SseInterceptor, type SseRequest } from '../../common/sse';
 import type { LlmTextRequest } from '../llm/llm.types';
@@ -44,7 +45,7 @@ import type { LlmTextRequest } from '../llm/llm.types';
 @ApiBearerAuth()
 @Controller('admin/agent-tests')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 export class AdminAgentTestController {
   constructor(
     private readonly streamTaskService: StreamTaskService,

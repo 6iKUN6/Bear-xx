@@ -10,10 +10,27 @@ import { AdminObservabilityService } from './admin-observability.service';
 import { AgentTestSessionService } from './agent-test-session.service';
 import { ModelPresetService } from './model-preset.service';
 import { ModelPresetProbeService } from './model-preset-probe.service';
+import { AuthModule } from '../auth/auth.module';
+import { AdminAuthController } from './admin-auth.controller';
+import { AdminUserController } from './admin-user.controller';
+import { AdminUserService } from './admin-user.service';
+import { AgentAccessModule } from '../agent-access/agent-access.module';
+import { AgentModule } from '../agent/agent.module';
+import { AdminAgentController } from './admin-agent.controller';
 
 @Module({
-  imports: [StreamTaskModule, LlmModule, AiModule],
+  imports: [
+    StreamTaskModule,
+    LlmModule,
+    AiModule,
+    AuthModule,
+    AgentAccessModule,
+    AgentModule,
+  ],
   controllers: [
+    AdminAuthController,
+    AdminUserController,
+    AdminAgentController,
     AdminController,
     AdminCapabilityController,
     AdminAgentTestController,
@@ -24,6 +41,7 @@ import { ModelPresetProbeService } from './model-preset-probe.service';
     AgentTestSessionService,
     ModelPresetService,
     ModelPresetProbeService,
+    AdminUserService,
   ],
 })
 export class AdminModule {}

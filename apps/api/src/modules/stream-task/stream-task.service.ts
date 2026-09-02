@@ -83,6 +83,10 @@ import { StreamTaskSnapshotService } from './stream-task-snapshot.service';
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 import { AgentFlowApprovalService } from '../agent-flow/agent-flow-approval.service';
 import { AgentFlowSignalOutboxService } from '../agent-flow/temporal/agent-flow-signal-outbox.service';
+import {
+  AgentAccessDenialReason,
+  AgentAccessService,
+} from '../agent-access/agent-access.service';
 
 interface ChatTaskPayload {
   content: string;
@@ -161,6 +165,7 @@ export class StreamTaskService {
     private readonly flowTaskDispatcher: FlowTaskDispatcherService,
     private readonly agentFlowApprovalService: AgentFlowApprovalService,
     private readonly agentFlowSignalOutboxService: AgentFlowSignalOutboxService,
+    private readonly agentAccessService: AgentAccessService,
   ) {
     this.bufferTtl =
       this.configService.get<number>('STREAM_TASK_BUFFER_TTL') ??
@@ -534,6 +539,8 @@ export class StreamTaskService {
         agentId,
       );
 
+      await this.enforceAgentAccess(tx, userId, agentId, isTest);
+
       //消息入库
       await tx.message.create({
         data: {
@@ -644,6 +651,79 @@ export class StreamTaskService {
       conversationId: result.conversationId,
       status: result.task.status.toLowerCase(),
     } satisfies CreatedTaskResult;
+  }
+
+  /**
+   * 在任务事务内强制校验智能体资格
+   * @param tx 当前 StreamTask 创建事务客户端
+   * @param userId 当前用户ID
+   * @param agentId 显式回答智能体ID；为空时检查全局默认智能体
+   * @param isTest 是否为 Admin 调试任务
+   * @returns 无返回值
+   * @description 任务写入前重新读取用户和智能体事实；Admin 调试仅绕过会员等级，停用智能体仍然拒绝。
+   */
+  private async enforceAgentAccess(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    agentId: string | undefined,
+    isTest: boolean,
+  ): Promise<void> {
+    const agent = agentId
+      ? await tx.agent.findUnique({
+          where: { id: agentId },
+          select: {
+            id: true,
+            enabled: true,
+            minimumMembershipTier: true,
+          },
+        })
+      : await tx.agent.findFirst({
+          where: { isDefault: true },
+          select: {
+            id: true,
+            enabled: true,
+            minimumMembershipTier: true,
+          },
+        });
+    if (!agent) {
+      throw new BadRequestException(
+        agentId ? '指定的智能体不存在或已停用' : '系统未配置默认智能体',
+      );
+    }
+    if (isTest) {
+      if (!agent.enabled) {
+        throw new BadRequestException('停用的智能体不可调试');
+      }
+      return;
+    }
+
+    const subject = await tx.user.findUnique({
+      where: { id: userId },
+      select: { membershipTier: true, membershipExpiresAt: true },
+    });
+    if (!subject) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const decision = this.agentAccessService.evaluate(subject, agent);
+    if (decision.canUse) {
+      return;
+    }
+    if (decision.reason === AgentAccessDenialReason.Disabled) {
+      throw new ForbiddenException({
+        code: decision.reason,
+        message: '智能体已停用',
+      });
+    }
+    throw new ForbiddenException({
+      code: decision.reason,
+      requiredTier: decision.requiredTier,
+      effectiveTier: decision.effectiveTier,
+      message:
+        decision.reason === AgentAccessDenialReason.MembershipExpired
+          ? `会员已到期，需要 ${decision.requiredTier} 会员`
+          : `当前会员等级不足，需要 ${decision.requiredTier} 会员`,
+    });
   }
 
   /**
