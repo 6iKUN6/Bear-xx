@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { RequireAdmin } from "@/components/require-admin";
+import { RequireAdmin, RequireSuperAdmin } from "@/components/require-admin";
 import { AppShell } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
 import { DashboardPage } from "@/pages/dashboard";
@@ -13,6 +13,7 @@ import { ModelsPage } from "@/pages/models";
 import { FlowsPage } from "@/pages/flows";
 import { FlowDetailPage } from "@/pages/flow-detail";
 import { FlowEditorPage } from "@/pages/flow-editor";
+import { UsersPage } from "@/pages/users";
 
 export function App() {
   return (
@@ -43,7 +44,15 @@ export function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/errors" element={<ErrorsPage />} />
           <Route path="/debug" element={<AgentTestPage />} />
-          <Route path="/models" element={<ModelsPage />} />
+          <Route
+            path="/models"
+            element={
+              <RequireSuperAdmin>
+                <ModelsPage />
+              </RequireSuperAdmin>
+            }
+          />
+          <Route path="/users" element={<UsersPage />} />
           <Route path="/flows" element={<FlowsPage />} />
           <Route path="/flows/:flowId" element={<FlowDetailPage />} />
         </Route>

@@ -83,6 +83,7 @@ export function AgentManagePage() {
                   <TableHead>编排</TableHead>
                   <TableHead>工具组</TableHead>
                   <TableHead>状态</TableHead>
+                  <TableHead>会员门槛</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -126,8 +127,18 @@ export function AgentManagePage() {
                         : "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={a.enabled ? "success" : "secondary"}>
-                        {a.enabled ? "启用" : "停用"}
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant={a.enabled ? "success" : "secondary"}>
+                          {a.enabled ? "启用" : "停用"}
+                        </Badge>
+                        <Badge variant={a.visible ? "outline" : "secondary"}>
+                          {a.visible ? "展示" : "隐藏"}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={a.minimumMembershipTier === "FREE" ? "outline" : "warning"}>
+                        {a.minimumMembershipTier}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -137,11 +148,20 @@ export function AgentManagePage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleSetDefault(a)}
-                            disabled={!a.enabled || setDefault.isPending}
+                            disabled={
+                              !a.enabled ||
+                              !a.visible ||
+                              a.minimumMembershipTier !== "FREE" ||
+                              setDefault.isPending
+                            }
                             title={
-                              a.enabled
-                                ? "设为默认回复智能体"
-                                : "停用的智能体不可设为默认"
+                              !a.enabled
+                                ? "停用的智能体不可设为默认"
+                                : !a.visible
+                                  ? "隐藏的智能体不可设为默认"
+                                  : a.minimumMembershipTier !== "FREE"
+                                    ? "默认智能体最低会员等级必须为 FREE"
+                                    : "设为默认回复智能体"
                             }
                             aria-label="设为默认回复智能体"
                           >

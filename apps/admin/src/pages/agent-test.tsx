@@ -80,6 +80,10 @@ export function AgentTestPage() {
   const [eventsOpen, setEventsOpen] = useState(true);
   /** 右面板显示历史消息 trace 时的来源消息 id；null = 显示 live 事件 */
   const [traceMessageId, setTraceMessageId] = useState<string | null>(null);
+  const selectedAgentUnavailable = Boolean(
+    agentId &&
+    !(agents ?? []).some((agent) => agent.id === agentId && agent.enabled),
+  );
 
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const seqRef = useRef(0);
@@ -112,7 +116,7 @@ export function AgentTestPage() {
 
   const send = () => {
     const content = input.trim();
-    if (!content || running) return;
+    if (!content || running || selectedAgentUnavailable) return;
     setInput("");
     setRunning(true);
     setTraceMessageId(null);
@@ -294,8 +298,9 @@ export function AgentTestPage() {
               </SelectTrigger>
               <SelectContent>
                 {(agents ?? []).map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
+                  <SelectItem key={a.id} value={a.id} disabled={!a.enabled}>
                     {a.name}
+                    {a.enabled ? "" : "（已停用）"}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -387,7 +392,10 @@ export function AgentTestPage() {
               停止
             </Button>
           ) : (
-            <Button onClick={send} disabled={!input.trim()}>
+            <Button
+              onClick={send}
+              disabled={!input.trim() || selectedAgentUnavailable}
+            >
               <Send className="h-4 w-4" />
               发送
             </Button>

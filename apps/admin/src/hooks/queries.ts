@@ -1,8 +1,4 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createAgent,
   createModelPreset,
@@ -17,6 +13,10 @@ import {
   getTestSession,
   getToolUsage,
   listAgents,
+  listAdminUsers,
+  updateUserMembership,
+  updateUserAdminRole,
+  listManagementAuditLogs,
   getAgentCapabilities,
   listAssets,
   createAgentFlow,
@@ -49,10 +49,16 @@ export const useOverview = (days: number) =>
   useQuery({ queryKey: ["overview", days], queryFn: () => getOverview(days) });
 
 export const useAgentUsage = (days: number) =>
-  useQuery({ queryKey: ["agentUsage", days], queryFn: () => getAgentUsage(days) });
+  useQuery({
+    queryKey: ["agentUsage", days],
+    queryFn: () => getAgentUsage(days),
+  });
 
 export const useToolUsage = (days: number) =>
-  useQuery({ queryKey: ["toolUsage", days], queryFn: () => getToolUsage(days) });
+  useQuery({
+    queryKey: ["toolUsage", days],
+    queryFn: () => getToolUsage(days),
+  });
 
 export const useErrorBreakdown = (days: number) =>
   useQuery({
@@ -75,6 +81,46 @@ export const useTaskDetail = (id: string | null) =>
 
 export const useAgents = () =>
   useQuery({ queryKey: ["agents"], queryFn: listAgents });
+
+export const useAdminUsers = (search: string | undefined, page: number) =>
+  useQuery({
+    queryKey: ["adminUsers", search ?? "", page],
+    queryFn: () => listAdminUsers({ search, page, pageSize: 50 }),
+  });
+
+export const useManagementAuditLogs = () =>
+  useQuery({
+    queryKey: ["managementAuditLogs"],
+    queryFn: () => listManagementAuditLogs({ page: 1, pageSize: 50 }),
+  });
+
+export function useAdminUserMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["adminUsers"] });
+    void qc.invalidateQueries({ queryKey: ["managementAuditLogs"] });
+  };
+  const membership = useMutation({
+    mutationFn: (input: {
+      id: string;
+      membershipTier: "FREE" | "PLUS" | "PRO";
+      membershipExpiresAt: string | null;
+    }) =>
+      updateUserMembership(input.id, {
+        membershipTier: input.membershipTier,
+        membershipExpiresAt: input.membershipExpiresAt,
+      }),
+    onSuccess: invalidate,
+  });
+  const adminRole = useMutation({
+    mutationFn: (input: {
+      id: string;
+      role: "USER" | "ADMIN" | "SUPER_ADMIN";
+    }) => updateUserAdminRole(input.id, input.role),
+    onSuccess: invalidate,
+  });
+  return { membership, adminRole };
+}
 
 /** 头像资产列表（复用选择器打开时才拉取） */
 export const useAvatarAssets = (enabled: boolean) =>

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { authStorage } from "@/api/auth-storage";
-import { login as loginApi } from "@/api/endpoints";
+import { getAdminSession, login as loginApi } from "@/api/endpoints";
 import type { AuthUser } from "@/api/types";
 
 interface AuthState {
@@ -9,6 +9,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   hydrate: () => void;
+  refreshSession: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -31,5 +32,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       user: authStorage.getUser(),
       isAuthenticated: Boolean(authStorage.getToken()),
     });
+  },
+
+  async refreshSession() {
+    const user = await getAdminSession();
+    authStorage.updateUser(user);
+    set({ user, isAuthenticated: true });
   },
 }));

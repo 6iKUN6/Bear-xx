@@ -18,7 +18,8 @@ const NAV = [
   { to: "/", label: "概览", end: true },
   { to: "/agents", label: "智能体" },
   { to: "/agents/manage", label: "智能体管理" },
-  { to: "/models", label: "模型" },
+  { to: "/models", label: "模型", superAdminOnly: true },
+  { to: "/users", label: "用户与权限" },
   { to: "/flows", label: "Flow" },
   { to: "/tools", label: "工具" },
   { to: "/tasks", label: "任务" },
@@ -43,7 +44,9 @@ export function AppShell() {
           </span>
 
           <nav className="ml-4 flex items-center gap-1 overflow-x-auto">
-            {NAV.map((item) => (
+            {NAV.filter(
+              (item) => !item.superAdminOnly || user?.adminRole === "SUPER_ADMIN",
+            ).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

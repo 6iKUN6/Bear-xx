@@ -14,6 +14,7 @@ interface Envelope<T> {
   code: number;
   data: T;
   message: string;
+  errorCode?: string;
 }
 
 /** 服务端给出的单条结构化错误明细。 */
@@ -27,16 +28,23 @@ export interface ApiErrorDetail {
 
 export class ApiError extends Error {
   status: number;
+  errorCode?: string;
   /**
    * 结构化错误明细
    * @description 校验类 400 会带上每条问题的 path / rule。丢掉它就只剩
    * 「FlowDefinition 校验失败」这种无法定位的文案，用户不知道该改哪个节点。
    */
   details: ApiErrorDetail[];
-  constructor(status: number, message: string, details: ApiErrorDetail[] = []) {
+  constructor(
+    status: number,
+    message: string,
+    details: ApiErrorDetail[] = [],
+    errorCode?: string,
+  ) {
     super(message);
     this.status = status;
     this.details = details;
+    this.errorCode = errorCode;
     this.name = "ApiError";
   }
 }
@@ -153,6 +161,7 @@ export async function request<T>(
       response.status,
       payload?.message ?? `请求失败（${response.status}）`,
       readErrorDetails(payload),
+      (payload as { errorCode?: string } | undefined)?.errorCode,
     );
   }
 
