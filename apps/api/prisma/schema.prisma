@@ -12,6 +12,8 @@ model User {
   nickname                  String                      @default("用户")
   avatarUrl                 String                      @default("")
   role                      UserRole                    @default(USER)
+  membershipTier            MembershipTier              @default(FREE) @map("membership_tier")
+  membershipExpiresAt       DateTime?                   @map("membership_expires_at")
   username                  String?                     @unique
   passwordHash              String?                     @map("password_hash")
   passwordUpdatedAt         DateTime?                   @map("password_updated_at")
@@ -34,6 +36,7 @@ model User {
   decidedAgentFlowApprovals AgentFlowApproval[]         @relation("AgentFlowApprovalDecider")
   agentFlowAuditLogs        AgentFlowAuditLog[]         @relation("AgentFlowAuditActor")
   agentFlowSignalOutbox     AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxActor")
+  managementAuditLogs       ManagementAuditLog[]        @relation("ManagementAuditActor")
 
   @@map("users")
 }
@@ -133,6 +136,8 @@ model Agent {
   systemPrompt         String?           @map("system_prompt") @db.Text
   modelPreset          String?           @map("model_preset")
   enabled              Boolean           @default(true)
+  visible              Boolean           @default(true)
+  minimumMembershipTier MembershipTier   @default(FREE) @map("minimum_membership_tier")
   isDefault            Boolean           @default(false) @map("is_default")
   defaultFlowVersionId String?           @map("default_flow_version_id")
   defaultFlowVersion   AgentFlowVersion? @relation("AgentDefaultFlowVersion", fields: [defaultFlowVersionId], references: [id], onDelete: SetNull)
@@ -142,6 +147,8 @@ model Agent {
   updatedAt            DateTime          @updatedAt @map("updated_at")
 
   @@index([enabled])
+  @@index([visible])
+  @@index([minimumMembershipTier])
   @@index([isDefault])
   @@index([defaultFlowVersionId])
   @@map("agents")
@@ -212,6 +219,24 @@ model AgentFlowAuditLog {
   @@index([versionId, createdAt])
   @@index([actorId, createdAt])
   @@map("agent_flow_audit_logs")
+}
+
+/// 管理员对角色、会员和智能体开放策略的安全审计；不保存密码、令牌或第三方密钥。
+model ManagementAuditLog {
+  id         String                      @id @default(cuid())
+  actorId    String?                     @map("actor_id")
+  targetType ManagementAuditTargetType   @map("target_type")
+  targetId   String                      @map("target_id")
+  action     ManagementAuditAction
+  before     Json?
+  after      Json?
+  createdAt  DateTime                    @default(now()) @map("created_at")
+
+  actor User? @relation("ManagementAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@map("management_audit_logs")
 }
 
 /// 数据化的模型预设：后台是唯一配置入口，apiKey 以 AES-256-GCM 密文落库。
@@ -699,6 +724,25 @@ enum MessageStatus {
 enum UserRole {
   USER
   ADMIN
+  SUPER_ADMIN
+}
+
+enum MembershipTier {
+  FREE
+  PLUS
+  PRO
+}
+
+enum ManagementAuditTargetType {
+  USER
+  AGENT
+}
+
+enum ManagementAuditAction {
+  ADMIN_ROLE_UPDATED
+  MEMBERSHIP_UPDATED
+  AGENT_ACCESS_UPDATED
+  SUPER_ADMIN_BOOTSTRAPPED
 }
 
 enum ConversationType {
