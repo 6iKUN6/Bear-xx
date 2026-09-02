@@ -7,6 +7,7 @@ import PageShell from "../../components/PageShell";
 import { useAgentStore } from "../../store/agentStore";
 import { useChatStore } from "../../store/chatStore";
 import { createConversation } from "../../api/chat";
+import { ApiRequestError } from "../../api/request";
 import { safeAreaBottom } from "../../utils/style";
 
 /**
@@ -32,7 +33,11 @@ export default function AgentPickerPage() {
   };
 
   const selectedAgents = agents.filter((a) => selected.includes(a.id));
-  const canSubmit = selected.length >= 1 && !creating;
+  const canSubmit =
+    selected.length >= 1 &&
+    selectedAgents.length === selected.length &&
+    selectedAgents.every((agent) => agent.canUse) &&
+    !creating;
 
   const handleCreate = async () => {
     if (!canSubmit) return;
@@ -47,7 +52,11 @@ export default function AgentPickerPage() {
       await Taro.redirectTo({ url: "/pages/index/index" });
     } catch (error) {
       console.error("Create group chat failed:", error);
-      void Taro.showToast({ title: "创建失败，请重试", icon: "none" });
+      void useAgentStore.getState().loadAgents();
+      // API 层已经展示服务端的明确拒绝原因，避免再追加重复 toast。
+      if (!(error instanceof ApiRequestError)) {
+        void Taro.showToast({ title: "创建失败，请重试", icon: "none" });
+      }
       setCreating(false);
     }
   };
@@ -55,38 +64,46 @@ export default function AgentPickerPage() {
   return (
     <PageShell>
       <NavBar
-        title='选择智能体'
+        title="选择智能体"
         showBack
-        capsule='hidden'
+        capsule="hidden"
         right={
-          <Text className='text-[0.75rem] leading-none text-[var(--lb-text-muted)]'>
+          <Text className="text-[0.75rem] leading-none text-[var(--lb-text-muted)]">
             {selected.length}/{agents.length}
           </Text>
         }
       />
 
-      <View className='min-h-0 flex-1 overflow-y-auto'>
+      <View className="min-h-0 flex-1 overflow-y-auto">
         {agents.map((agent) => {
           const on = selected.includes(agent.id);
+          const selectable = agent.canUse;
           return (
             <View
               key={agent.id}
-              className='flex items-center gap-[0.75rem] px-[1rem] py-[0.625rem] active:bg-[var(--lb-surface-hover)]'
-              onClick={() => toggle(agent.id)}
+              className={`flex items-center gap-[0.75rem] px-[1rem] py-[0.625rem] ${selectable ? "active:bg-[var(--lb-surface-hover)]" : "opacity-55"}`}
+              onClick={() => selectable && toggle(agent.id)}
             >
               <AgentAvatar
-                className='h-[2.625rem] w-[2.625rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]'
+                className="h-[2.625rem] w-[2.625rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]"
                 name={agent.name}
                 avatar={agent.avatar}
-                size='md'
+                size="md"
               />
-              <View className='min-w-0 flex-1'>
-                <Text className='block overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-medium leading-[1.35] text-[var(--lb-text-primary)]'>
+              <View className="min-w-0 flex-1">
+                <Text className="block overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-medium leading-[1.35] text-[var(--lb-text-primary)]">
                   {agent.name}
                 </Text>
                 {agent.description ? (
-                  <Text className='mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]'>
+                  <Text className="mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]">
                     {agent.description}
+                  </Text>
+                ) : null}
+                {!selectable ? (
+                  <Text className="mt-[0.125rem] block text-[0.6875rem] leading-[1.4] text-[var(--lb-warning)]">
+                    {agent.accessReason === "DISABLED"
+                      ? "暂不可用"
+                      : `需要 ${agent.requiredTier} 会员`}
                   </Text>
                 ) : null}
               </View>
@@ -98,7 +115,7 @@ export default function AgentPickerPage() {
                 }`}
               >
                 {on ? (
-                  <Text className='at-icon at-icon-check text-[0.75rem] leading-none text-[var(--lb-on-accent)] [&::before]:block' />
+                  <Text className="at-icon at-icon-check text-[0.75rem] leading-none text-[var(--lb-on-accent)] [&::before]:block" />
                 ) : null}
               </View>
             </View>
@@ -107,10 +124,10 @@ export default function AgentPickerPage() {
       </View>
 
       <View
-        className='flex items-center gap-[0.5rem] border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.875rem] pt-[0.625rem] box-border'
+        className="flex items-center gap-[0.5rem] border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.875rem] pt-[0.625rem] box-border"
         style={{ paddingBottom: safeAreaBottom(12) }}
       >
-        <View className='flex min-w-0 flex-1 items-center'>
+        <View className="flex min-w-0 flex-1 items-center">
           {selectedAgents.slice(0, 6).map((agent, index) => (
             <AgentAvatar
               key={agent.id}
@@ -119,21 +136,27 @@ export default function AgentPickerPage() {
               }`}
               name={agent.name}
               avatar={agent.avatar}
-              size='sm'
+              size="sm"
             />
           ))}
-          <Text className='ml-[0.5rem] shrink-0 text-[0.75rem] leading-[1.3] text-[var(--lb-text-secondary)]'>
+          <Text className="ml-[0.5rem] shrink-0 text-[0.75rem] leading-[1.3] text-[var(--lb-text-secondary)]">
             已选 {selected.length} 个
           </Text>
         </View>
         <View
           className={`rounded-[0.6875rem] px-[1.125rem] py-[0.5625rem] ${
-            canSubmit ? "bg-[var(--lb-accent)] active:scale-95" : "bg-[var(--lb-accent)] opacity-40"
+            canSubmit
+              ? "bg-[var(--lb-accent)] active:scale-95"
+              : "bg-[var(--lb-accent)] opacity-40"
           }`}
           onClick={() => void handleCreate()}
         >
-          <Text className='text-[0.8125rem] font-semibold leading-none text-[var(--lb-on-accent)]'>
-            {creating ? "创建中…" : selected.length === 1 ? "发起单聊" : "建群聊天"}
+          <Text className="text-[0.8125rem] font-semibold leading-none text-[var(--lb-on-accent)]">
+            {creating
+              ? "创建中…"
+              : selected.length === 1
+                ? "发起单聊"
+                : "建群聊天"}
           </Text>
         </View>
       </View>

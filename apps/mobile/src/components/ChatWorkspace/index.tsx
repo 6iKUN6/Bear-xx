@@ -379,6 +379,9 @@ export default function ChatWorkspace({
         if (event) {
           recordStreamEvent(event);
         }
+        // 资格可能在页面停留期间被后台调整。发送入口以后端实时判定为准；
+        // 被拒绝或执行失败后立即刷新列表，让锁定状态与下一次操作同步收敛。
+        void useAgentStore.getState().loadAgents();
         settle("error");
       },
       onCanceled: (event) => {

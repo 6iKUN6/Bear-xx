@@ -5,6 +5,8 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { AuthUserDtoEffectiveMembershipTier } from './authUserDtoEffectiveMembershipTier';
+import type { AuthUserDtoMembershipTier } from './authUserDtoMembershipTier';
 
 export interface AuthUserDto {
   /** 用户 ID */
@@ -13,4 +15,10 @@ export interface AuthUserDto {
   nickname: string;
   /** 用户头像地址 */
   avatarUrl: string;
+  membershipTier: AuthUserDtoMembershipTier;
+  effectiveMembershipTier: AuthUserDtoEffectiveMembershipTier;
+  /** @nullable */
+  membershipExpiresAt: string | null;
+  /** 会员配置是否已到期 */
+  membershipExpired: boolean;
 }

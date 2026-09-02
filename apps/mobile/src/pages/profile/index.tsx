@@ -1,5 +1,5 @@
 import { View, Text, Image } from "@tarojs/components";
-import Taro from "@tarojs/taro";
+import Taro, { useDidShow } from "@tarojs/taro";
 import { themes } from "@litter-bear/theme";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
@@ -25,9 +25,14 @@ const accountCards = [
 
 export default function ProfilePage() {
   const { userInfo, isLoggedIn, logout } = useUserStore();
+  const refreshProfile = useUserStore((state) => state.refreshProfile);
   const themeId = useThemeStore((state) => state.themeId);
   const currentThemeName =
     themes.find((theme) => theme.id === themeId)?.name ?? "默认主题";
+
+  useDidShow(() => {
+    void refreshProfile();
+  });
 
   const handleOpenTheme = () => {
     Taro.navigateTo({ url: "/pages/settings/theme/index" });
@@ -117,7 +122,8 @@ export default function ProfilePage() {
                 {isLoggedIn && (
                   <View className="mt-[0.625rem] inline-flex rounded-[var(--lb-radius-xs)] bg-[var(--lb-accent-soft)] px-[0.75rem] py-[0.375rem]">
                     <Text className="text-[0.75rem] font-semibold leading-none text-[var(--lb-accent-ink)]">
-                      Pro 会员
+                      {userInfo?.effectiveMembershipTier ?? "FREE"} 会员
+                      {userInfo?.membershipExpired ? " · 已到期" : ""}
                     </Text>
                   </View>
                 )}

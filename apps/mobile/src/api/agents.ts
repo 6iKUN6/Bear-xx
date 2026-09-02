@@ -10,6 +10,11 @@ export interface AgentSummary {
   /** 工具组，仅供「智能体」页卡片上的能力标签展示；由后端从绑定 Flow 的图上推导 */
   toolGroups: string[];
   enabled: boolean;
+  visible: boolean;
+  minimumMembershipTier: "FREE" | "PLUS" | "PRO";
+  canUse: boolean;
+  accessReason: "DISABLED" | "MEMBERSHIP_EXPIRED" | "MEMBERSHIP_REQUIRED" | null;
+  requiredTier: "PLUS" | "PRO" | null;
   isDefault: boolean;
 }
 
