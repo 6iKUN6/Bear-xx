@@ -12,7 +12,7 @@ export interface EditImageDto {
   prompt: string;
   /** 图片尺寸 */
   size?: EditImageDtoSize;
-  /** 参考图对象 key（七牛资产）；与 sourceUrls 合计 1-4 张 */
+  /** 参考图对象 key（COS 资产）；与 sourceUrls 合计 1-4 张 */
   sourceKeys?: string[];
   /** 参考图完整 URL；与 sourceKeys 合计 1-4 张 */
   sourceUrls?: string[];

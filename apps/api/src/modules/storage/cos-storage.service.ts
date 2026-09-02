@@ -56,8 +56,8 @@ export interface CosUploadCredential {
 
 /**
  * 腾讯云 COS 对象存储
- * @description 使用官方 SDK 仅签发单对象 HTTPS PUT 预签名 URL；文件本体由小程序直传，
- * 既有七牛上传及 StorageAsset 资产登记链路保持不变。
+ * @description 统一签发单对象 HTTPS PUT 预签名 URL、生成公有读访问 URL，
+ * 并为 AI 生图等服务端自产内容提供二进制上传能力。
  */
 @Injectable()
 export class CosStorageService {
@@ -85,10 +85,53 @@ export class CosStorageService {
     return {
       key,
       uploadUrl,
-      accessUrl: `${config.domain}/${key}`,
+      accessUrl: this.buildAccessUrl(config.domain, key),
       headers,
       expiresAt: Date.now() + UPLOAD_URL_TTL_SECONDS * 1000,
     };
+  }
+
+  /**
+   * 生成公开对象访问 URL
+   * @param key 已登记的 COS 对象 key
+   * @returns 返回由访问域名与安全编码 key 组成的稳定 URL
+   * @description 当前存储桶采用公有读、私有写，读取不签名；仍校验 key，避免路径或协议注入。
+   */
+  resolveAccessUrl(key: string): string {
+    const config = this.requireConfig();
+    return this.buildAccessUrl(config.domain, key);
+  }
+
+  /**
+   * 将服务端生成的二进制上传至 COS
+   * @param input 数据、归属用户、媒体类型与扩展名
+   * @returns 返回上传成功的对象 key
+   * @description 复用单对象预签名 PUT 约束，供 AI 生图等服务端自产内容持久化；失败时不登记资产。
+   */
+  async uploadBuffer(input: {
+    data: Buffer;
+    ownerId: string;
+    type: UploadMediaType;
+    ext: string;
+  }): Promise<string> {
+    const credential = await this.createUploadCredential(
+      input.ownerId,
+      input.type,
+      input.ext,
+    );
+    const response = await fetch(credential.uploadUrl, {
+      method: 'PUT',
+      headers: credential.headers,
+      body: new Blob([new Uint8Array(input.data)]),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(
+        `腾讯云 COS 服务端上传失败(${response.status})：${detail.slice(0, 200)}`,
+      );
+    }
+    return credential.key;
   }
 
   /**
@@ -184,7 +227,7 @@ export class CosStorageService {
   /**
    * 读取并校验 COS 配置
    * @returns 返回签发预签名 URL 所需的 COS 凭据、空间、区域和访问域名
-   * @description 配置校验延迟到实际调用，缺失配置不会影响 API 启动或七牛上传链路。
+   * @description 配置校验延迟到实际调用，缺失配置不会影响 API 启动，但所有对象存储操作都会明确失败。
    */
   private requireConfig(): CosStorageConfig {
     const secretId = this.configService.get<string>('COS_SECRET_ID');
@@ -267,6 +310,35 @@ export class CosStorageService {
       throw new ServiceUnavailableException(
         'COS 对象存储配置无效：COS_BUCKET_DOMAIN 必须是纯 HTTP(S) 域名',
       );
+    }
+  }
+
+  /**
+   * 拼接安全的 COS 公有读地址
+   * @param domain 已规范化的 COS 或 CDN 域名
+   * @param key 对象 key
+   * @returns 返回可直接访问的对象 URL
+   * @description key 逐段保留目录结构并编码特殊字符，禁止相对路径、协议片段和绝对路径。
+   */
+  private buildAccessUrl(domain: string, key: string): string {
+    this.assertSafeKey(key);
+    const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+    return `${domain}/${encodedKey}`;
+  }
+
+  /**
+   * 校验对象 key 不会改变访问域名或逃逸对象目录
+   * @param key 待解析的对象 key
+   * @returns 无返回值；非法 key 抛出请求错误
+   */
+  private assertSafeKey(key: string): void {
+    if (
+      !key ||
+      key.includes('..') ||
+      key.includes('://') ||
+      key.startsWith('/')
+    ) {
+      throw new BadRequestException('非法的对象 key');
     }
   }
 }

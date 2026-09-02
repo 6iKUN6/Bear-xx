@@ -9,7 +9,7 @@ import {
   type StorageAsset,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QiniuStorageService } from './qiniu-storage.service';
+import { CosStorageService } from './cos-storage.service';
 import type {
   ListAssetsQueryDto,
   RegisterAssetDto,
@@ -22,13 +22,13 @@ const MAX_LIST_LIMIT = 200;
 /**
  * 存储资产登记簿
  * @description 直传成功后登记 key，供复用选择器检索与失效治理。
- * key 是唯一事实源；访问 URL 每次读取时由 QiniuStorageService 现拼/现签。
+ * key 是唯一事实源；访问 URL 每次读取时由 CosStorageService 统一拼接。
  */
 @Injectable()
 export class StorageAssetService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly qiniuStorageService: QiniuStorageService,
+    private readonly cosStorageService: CosStorageService,
   ) {}
 
   /**
@@ -105,7 +105,7 @@ export class StorageAssetService {
     return {
       id: asset.id,
       key: asset.key,
-      url: this.qiniuStorageService.resolveAccessUrl(asset.key),
+      url: this.cosStorageService.resolveAccessUrl(asset.key),
       kind: asset.kind,
       usage: asset.usage,
       mimeType: asset.mimeType,

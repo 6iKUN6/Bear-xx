@@ -82,7 +82,7 @@ export class UpdateAssetStatusDto {
 export class StorageAssetDto {
   @ApiProperty() id: string;
   @ApiProperty() key: string;
-  @ApiProperty({ description: '访问 URL（私有空间为临时签名 URL）' })
+  @ApiProperty({ description: 'COS 公有读访问 URL' })
   url: string;
   @ApiProperty({ enum: StorageAssetKind }) kind: StorageAssetKind;
   @ApiProperty() usage: string;

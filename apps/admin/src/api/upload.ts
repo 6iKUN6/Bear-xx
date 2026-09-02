@@ -1,10 +1,10 @@
-import { getUploadCredential, registerAsset } from "./endpoints";
+import { getCosUploadCredential, registerAsset } from "./endpoints";
 
 const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
 
 /**
- * 上传智能体头像：拿直传凭证 → FormData 直传七牛（不经过 api 服务器）→ 登记资产。
- * 前端 2MB/图片类型校验只是即时反馈，服务端 putPolicy 有同等硬限制。
+ * 上传智能体头像：拿预签名地址 → PUT 直传 COS（不经过 api 服务器）→ 登记资产。
+ * 前端校验图片类型与 2MB 大小限制，上传请求只携带服务端签名指定的请求头。
  * @returns 返回可直接落库的访问 URL 与对象 key
  */
 export async function uploadAgentAvatar(
@@ -18,23 +18,18 @@ export async function uploadAgentAvatar(
   }
 
   const ext = resolveExt(file);
-  const credential = await getUploadCredential({
+  const credential = await getCosUploadCredential({
     type: "image",
     ext,
-    usage: "agent-avatar",
   });
 
-  const form = new FormData();
-  form.append("token", credential.token);
-  form.append("key", credential.key);
-  form.append("file", file);
-
-  const res = await fetch(credential.uploadUrl, { method: "POST", body: form });
+  const res = await fetch(credential.uploadUrl, {
+    method: "PUT",
+    headers: credential.headers,
+    body: file,
+  });
   if (!res.ok) {
-    const detail = await res
-      .json()
-      .then((d: { error?: string }) => d.error)
-      .catch(() => undefined);
+    const detail = await res.text().catch(() => "");
     throw new Error(detail ? `上传失败：${detail}` : `上传失败(${res.status})`);
   }
 

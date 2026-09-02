@@ -34,7 +34,7 @@ export interface CosUploadedObject {
  * 通过短期预签名 URL 将小程序本地文件直传到腾讯云 COS。
  * @param input 本地文件路径、媒体类型和扩展名。
  * @returns 返回可使用的对象 key 与访问 URL。
- * @description 先由已鉴权的业务 API 签发单对象 PUT 凭证，再直接向 COS 上传二进制；上传请求只透传服务端签名的请求头，不携带 Bearer Token，也不走七牛资产登记。
+ * @description 先由已鉴权的业务 API 签发单对象 PUT 凭证，再直接向 COS 上传二进制；上传请求只透传服务端签名的请求头，不携带 Bearer Token。
  */
 export async function uploadToCos(
   input: CosUploadInput,

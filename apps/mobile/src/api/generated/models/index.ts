@@ -6,7 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 
-export * from './accessUrlResponseDto';
 export * from './accountLoginDto';
 export * from './addConversationAgentDto';
 export * from './adminControllerAgentsParams';
@@ -133,7 +132,6 @@ export * from './storageAssetDtoStatus';
 export * from './storageControllerListAssetsParams';
 export * from './storageControllerListAssetsStatus';
 export * from './storageControllerListAssetsUsage';
-export * from './storageControllerResolveAccessUrlParams';
 export * from './streamTaskControllerStreamTaskParams';
 export * from './streamTaskEventPayloadDto';
 export * from './streamTaskEventPayloadDtoPayload';
@@ -174,10 +172,6 @@ export * from './updateConversationDto';
 export * from './updateModelPresetDto';
 export * from './updateModelPresetDtoUpstreamFormat';
 export * from './updateProfileDto';
-export * from './uploadCredentialDto';
-export * from './uploadCredentialDtoType';
-export * from './uploadCredentialDtoUsage';
-export * from './uploadCredentialResponseDto';
 export * from './userProfileDto';
 export * from './voiceCompletionsFormDataDto';
 export * from './wechatBindDto';

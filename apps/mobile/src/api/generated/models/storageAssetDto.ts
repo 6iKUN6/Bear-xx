@@ -13,7 +13,7 @@ import type { StorageAssetDtoStatus } from './storageAssetDtoStatus';
 export interface StorageAssetDto {
   id: string;
   key: string;
-  /** 访问 URL（私有空间为临时签名 URL） */
+  /** COS 公有读访问 URL */
   url: string;
   kind: StorageAssetDtoKind;
   usage: string;

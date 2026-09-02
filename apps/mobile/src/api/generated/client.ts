@@ -6,7 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 import type {
-  AccessUrlResponseDto,
   AccountLoginDto,
   AddConversationAgentDto,
   AdminControllerAgentsParams,
@@ -62,7 +61,6 @@ import type {
   SendCodeDto,
   StorageAssetDto,
   StorageControllerListAssetsParams,
-  StorageControllerResolveAccessUrlParams,
   StreamTaskControllerStreamTaskParams,
   StreamTaskStatusDto,
   SubmitApprovalDto,
@@ -77,8 +75,6 @@ import type {
   UpdateConversationDto,
   UpdateModelPresetDto,
   UpdateProfileDto,
-  UploadCredentialDto,
-  UploadCredentialResponseDto,
   UserProfileDto,
   VoiceCompletionsFormDataDto,
   WechatBindDto,
@@ -1094,7 +1090,7 @@ export const getImagesControllerGenerateUrl = () => {
 }
 
 /**
- * 同步生成一张图并转存七牛（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。
+ * 同步生成一张图并转存腾讯云 COS（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。
  * @summary 直调生图
  */
 export const imagesControllerGenerate = async (createImageDto: CreateImageDto, options?: RequestInit): Promise<GeneratedImageDto> => {
@@ -1119,7 +1115,7 @@ export const getImagesControllerEditUrl = () => {
 }
 
 /**
- * 基于 1-4 张参考图（七牛 key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。
+ * 基于 1-4 张参考图（COS key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。
  * @summary 参考图生图（图生图/改图）
  */
 export const imagesControllerEdit = async (editImageDto: EditImageDto, options?: RequestInit): Promise<GeneratedImageDto> => {
@@ -1130,31 +1126,6 @@ export const imagesControllerEdit = async (editImageDto: EditImageDto, options?:
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(editImageDto)
-  }
-);}
-
-
-
-export const getStorageControllerCreateUploadCredentialUrl = () => {
-
-
-
-
-  return `/api/storage/upload-credential`
-}
-
-/**
- * 客户端拿 token/key 直传七牛（表单带 token、key），文件不经过本服务；上传成功后调 POST /storage/assets 登记。
- * @summary 签发直传凭证
- */
-export const storageControllerCreateUploadCredential = async (uploadCredentialDto: UploadCredentialDto, options?: RequestInit): Promise<UploadCredentialResponseDto> => {
-
-  return taroRequest<UploadCredentialResponseDto>(getStorageControllerCreateUploadCredentialUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(uploadCredentialDto)
   }
 );}
 
@@ -1180,38 +1151,6 @@ export const storageControllerCreateCosUploadCredential = async (cosUploadCreden
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(cosUploadCredentialDto)
-  }
-);}
-
-
-
-export const getStorageControllerResolveAccessUrlUrl = (params: StorageControllerResolveAccessUrlParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/storage/access-url?${stringifiedParams}` : `/api/storage/access-url`
-}
-
-/**
- * 私有空间返回带签名的临时 URL；公开空间返回固定 URL。
- * @summary 获取对象访问 URL
- */
-export const storageControllerResolveAccessUrl = async (params: StorageControllerResolveAccessUrlParams, options?: RequestInit): Promise<AccessUrlResponseDto> => {
-
-  return taroRequest<AccessUrlResponseDto>(getStorageControllerResolveAccessUrlUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
   }
 );}
 
