@@ -3,47 +3,61 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { LlmService } from '../llm/llm.service';
-import type { QiniuStorageService } from '../storage/qiniu-storage.service';
+import type {
+  LlmImageEditRequest,
+  LlmImageRequest,
+  LlmImageResult,
+} from '../llm/llm.types';
+import type { CosStorageService } from '../storage/cos-storage.service';
 import type { StorageAssetService } from '../storage/storage-asset.service';
 import { ImageGenerationService } from './image-generation.service';
 
 describe('ImageGenerationService', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   /**
    * 创建生图管道测试实例
    * @returns 返回服务与依赖 mock
    * @description 验证 b64 解码转存、资产登记参数与未配置时的 503 透传。
    */
   const createService = () => {
-    const llmService = { generateImage: jest.fn() };
-    const qiniu = { uploadBuffer: jest.fn() };
+    const llmService = {
+      generateImage:
+        jest.fn<(request: LlmImageRequest) => Promise<LlmImageResult>>(),
+      editImage:
+        jest.fn<(request: LlmImageEditRequest) => Promise<LlmImageResult>>(),
+    };
+    const cos = { uploadBuffer: jest.fn(), resolveAccessUrl: jest.fn() };
     const assets = { register: jest.fn() };
     return {
       service: new ImageGenerationService(
         llmService as unknown as LlmService,
-        qiniu as unknown as QiniuStorageService,
+        cos as unknown as CosStorageService,
         assets as unknown as StorageAssetService,
       ),
       llmService,
-      qiniu,
+      cos,
       assets,
     };
   };
 
-  it('b64 结果解码后转存七牛并按 ai-image 登记资产', async () => {
-    const { service, llmService, qiniu, assets } = createService();
+  it('b64 结果解码后转存 COS 并按 ai-image 登记资产', async () => {
+    const { service, llmService, cos, assets } = createService();
     const imageBytes = Buffer.from('fake-png-data');
     llmService.generateImage.mockResolvedValue({
       b64: imageBytes.toString('base64'),
       revisedPrompt: '一只更好的太空熊',
     });
-    qiniu.uploadBuffer.mockResolvedValue('image/202608/user-1/abc.png');
+    cos.uploadBuffer.mockResolvedValue('image/202608/user-1/abc.png');
     assets.register.mockResolvedValue({
       url: 'http://cdn.example.com/image/202608/user-1/abc.png',
     });
 
     const result = await service.generate('user-1', '一只太空熊', '1024x1024');
 
-    expect(qiniu.uploadBuffer).toHaveBeenCalledWith({
+    expect(cos.uploadBuffer).toHaveBeenCalledWith({
       data: imageBytes,
       ownerId: 'user-1',
       type: 'image',
@@ -63,23 +77,23 @@ describe('ImageGenerationService', () => {
   });
 
   it('参考图生图：下载 key 签名图 → editImage → 转存登记', async () => {
-    const { service, llmService, qiniu, assets } = createService();
+    const { service, llmService, cos, assets } = createService();
     const referenceBytes = Buffer.from('reference-image');
     const outputBytes = Buffer.from('output-image');
-    (qiniu as unknown as { resolveAccessUrl: jest.Mock }).resolveAccessUrl =
-      jest.fn(() => 'http://cdn.example.com/image/202608/user-1/ref.png');
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      headers: new Map([['content-type', 'image/png']]) as unknown as Headers,
-      arrayBuffer: () => Promise.resolve(referenceBytes),
-    });
-    global.fetch = fetchMock;
+    cos.resolveAccessUrl.mockReturnValue(
+      'http://cdn.example.com/image/202608/user-1/ref.png',
+    );
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(referenceBytes, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    );
 
-    llmService.generateImage.mockResolvedValue(undefined);
-    (llmService as unknown as { editImage: jest.Mock }).editImage = jest
-      .fn()
-      .mockResolvedValue({ b64: outputBytes.toString('base64') });
-    qiniu.uploadBuffer.mockResolvedValue('image/202608/user-1/out.png');
+    llmService.editImage.mockResolvedValue({
+      b64: outputBytes.toString('base64'),
+    });
+    cos.uploadBuffer.mockResolvedValue('image/202608/user-1/out.png');
     assets.register.mockResolvedValue({
       url: 'http://cdn.example.com/image/202608/user-1/out.png',
     });
@@ -95,11 +109,11 @@ describe('ImageGenerationService', () => {
       }),
       expect.anything(),
     );
-    const editArgs = (llmService as unknown as { editImage: jest.Mock })
-      .editImage.mock.calls[0][0] as {
-      images: Array<{ data: Buffer }>;
-    };
-    expect(editArgs.images).toHaveLength(1);
+    expect(llmService.editImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        images: [expect.objectContaining({ data: referenceBytes })],
+      }),
+    );
     expect(result.key).toBe('image/202608/user-1/out.png');
   });
 
@@ -126,7 +140,7 @@ describe('ImageGenerationService', () => {
   });
 
   it('生图模型未配置时 503 原样透传，不产生半成品资产', async () => {
-    const { service, llmService, qiniu, assets } = createService();
+    const { service, llmService, cos, assets } = createService();
     llmService.generateImage.mockRejectedValue(
       new ServiceUnavailableException('生图模型未配置'),
     );
@@ -134,7 +148,7 @@ describe('ImageGenerationService', () => {
     await expect(service.generate('user-1', 'prompt')).rejects.toThrow(
       ServiceUnavailableException,
     );
-    expect(qiniu.uploadBuffer).not.toHaveBeenCalled();
+    expect(cos.uploadBuffer).not.toHaveBeenCalled();
     expect(assets.register).not.toHaveBeenCalled();
   });
 });

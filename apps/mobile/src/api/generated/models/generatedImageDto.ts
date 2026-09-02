@@ -9,7 +9,7 @@
 export interface GeneratedImageDto {
   /** 转存后的访问 URL */
   url: string;
-  /** 七牛对象 key（已登记 StorageAsset） */
+  /** COS 对象 key（已登记 StorageAsset） */
   key: string;
   /** 模型润色后的提示词 */
   revisedPrompt?: string;

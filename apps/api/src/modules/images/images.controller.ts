@@ -27,7 +27,7 @@ export class ImagesController {
   @ApiOperation({
     summary: '直调生图',
     description:
-      '同步生成一张图并转存七牛（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。',
+      '同步生成一张图并转存腾讯云 COS（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。',
   })
   @ApiOkResponse({ type: GeneratedImageDto })
   generate(
@@ -41,7 +41,7 @@ export class ImagesController {
   @ApiOperation({
     summary: '参考图生图（图生图/改图）',
     description:
-      '基于 1-4 张参考图（七牛 key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。',
+      '基于 1-4 张参考图（COS key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。',
   })
   @ApiOkResponse({ type: GeneratedImageDto })
   edit(

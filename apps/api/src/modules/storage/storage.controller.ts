@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -20,17 +19,11 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CosStorageService } from './cos-storage.service';
-import { QiniuStorageService } from './qiniu-storage.service';
 import { StorageAssetService } from './storage-asset.service';
 import {
   CosUploadCredentialDto,
   CosUploadCredentialResponseDto,
 } from './dto/cos-upload-credential.dto';
-import {
-  AccessUrlResponseDto,
-  UploadCredentialDto,
-  UploadCredentialResponseDto,
-} from './dto/upload-credential.dto';
 import {
   ListAssetsQueryDto,
   RegisterAssetDto,
@@ -44,29 +37,9 @@ import {
 @UseGuards(JwtAuthGuard)
 export class StorageController {
   constructor(
-    private readonly qiniuStorageService: QiniuStorageService,
     private readonly storageAssetService: StorageAssetService,
     private readonly cosStorageService: CosStorageService,
   ) {}
-
-  @Post('upload-credential')
-  @ApiOperation({
-    summary: '签发直传凭证',
-    description:
-      '客户端拿 token/key 直传七牛（表单带 token、key），文件不经过本服务；上传成功后调 POST /storage/assets 登记。',
-  })
-  @ApiOkResponse({ type: UploadCredentialResponseDto })
-  createUploadCredential(
-    @CurrentUser('id') userId: string,
-    @Body() dto: UploadCredentialDto,
-  ): UploadCredentialResponseDto {
-    return this.qiniuStorageService.createUploadCredential(
-      userId,
-      dto.type,
-      dto.ext,
-      dto.usage,
-    );
-  }
 
   /**
    * 签发腾讯云 COS 单对象直传凭证
@@ -90,19 +63,6 @@ export class StorageController {
       dto.type,
       dto.ext,
     );
-  }
-
-  @Get('access-url')
-  @ApiOperation({
-    summary: '获取对象访问 URL',
-    description: '私有空间返回带签名的临时 URL；公开空间返回固定 URL。',
-  })
-  @ApiOkResponse({ type: AccessUrlResponseDto })
-  resolveAccessUrl(@Query('key') key: string): AccessUrlResponseDto {
-    if (!key?.trim()) {
-      throw new BadRequestException('缺少对象 key');
-    }
-    return { url: this.qiniuStorageService.resolveAccessUrl(key.trim()) };
   }
 
   @Post('assets')

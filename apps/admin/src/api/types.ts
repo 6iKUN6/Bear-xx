@@ -126,11 +126,11 @@ export interface TestSessionDetail {
 
 // ---- 对象存储 ----
 
-export interface UploadCredential {
-  token: string;
+export interface CosUploadCredential {
   key: string;
   uploadUrl: string;
   accessUrl: string;
+  headers: Record<string, string>;
   expiresAt: number;
 }
 

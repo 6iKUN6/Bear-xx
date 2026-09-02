@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
-import { QiniuStorageService } from '../storage/qiniu-storage.service';
+import { CosStorageService } from '../storage/cos-storage.service';
 import { StorageAssetService } from '../storage/storage-asset.service';
 import type { LlmImageResult } from '../llm/llm.types';
 import type { GeneratedImageDto } from './dto/create-image.dto';
@@ -13,7 +13,7 @@ const REFERENCE_DOWNLOAD_TIMEOUT_MS = 30000;
 
 export interface EditImageInput {
   prompt: string;
-  /** 参考图对象 key（七牛资产，服务端签 URL 取回） */
+  /** 参考图对象 key（COS 资产，服务端生成访问 URL 后取回） */
   sourceKeys?: string[];
   /** 参考图完整 URL（对话中出现过的图片地址等） */
   sourceUrls?: string[];
@@ -23,7 +23,7 @@ export interface EditImageInput {
 /**
  * AI 生图管道
  * @description 文生图（generations）与参考图生图（edits）共用一条持久化路径：
- * 模型出图 → 下载/解码 → 服务端转存七牛 → 登记 StorageAsset（usage=ai-image）。
+ * 模型出图 → 下载/解码 → 服务端转存 COS → 登记 StorageAsset（usage=ai-image）。
  * provider 返回的图片 URL 通常是短时效临时链接，必须转存后才能持久引用。
  * 供 /images 直调接口与 generateImage/editImage 工具（生图 agent）共用。
  */
@@ -33,7 +33,7 @@ export class ImageGenerationService {
 
   constructor(
     private readonly llmService: LlmService,
-    private readonly qiniuStorageService: QiniuStorageService,
+    private readonly cosStorageService: CosStorageService,
     private readonly storageAssetService: StorageAssetService,
   ) {}
 
@@ -58,7 +58,7 @@ export class ImageGenerationService {
    * @param userId 归属用户
    * @param input prompt + 参考图（key 或 URL，合计 1-4 张）
    * @returns 返回转存后的 URL、对象 key 与润色 prompt
-   * @description key 走七牛签名 URL 取回；外部 URL 有基础 SSRF 防护
+   * @description key 走 COS 公开 URL 取回；外部 URL 有基础 SSRF 防护
    * （仅 http/https、拒绝内网地址、大小与超时上限）。
    */
   async edit(
@@ -67,7 +67,7 @@ export class ImageGenerationService {
   ): Promise<GeneratedImageDto> {
     const urls = [
       ...(input.sourceKeys ?? []).map((key) =>
-        this.qiniuStorageService.resolveAccessUrl(key),
+        this.cosStorageService.resolveAccessUrl(key),
       ),
       ...(input.sourceUrls ?? []),
     ];
@@ -93,14 +93,14 @@ export class ImageGenerationService {
     return this.persistResult(userId, result);
   }
 
-  /** 出图结果统一持久化：转存七牛 + 登记资产 */
+  /** 出图结果统一持久化：转存 COS + 登记资产 */
   private async persistResult(
     userId: string,
     result: LlmImageResult,
   ): Promise<GeneratedImageDto> {
     const imageData = await this.resolveImageData(result.b64, result.url);
 
-    const key = await this.qiniuStorageService.uploadBuffer({
+    const key = await this.cosStorageService.uploadBuffer({
       data: imageData,
       ownerId: userId,
       type: 'image',

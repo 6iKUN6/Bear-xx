@@ -82,7 +82,7 @@
 
 当前策略：
 - **免审批**（只读、无副作用）：`getWeather`、`webSearch`。
-- **需审批**：`generateImage`（`image-gen` 组）——单次调用产生真实模型费用且耗时，approve 前用户可在卡片里改 `prompt`/`size`，reject 则不产生任何模型调用与七牛资产。
+- **需审批**：`generateImage`（`image-gen` 组）——单次调用产生真实模型费用且耗时，approve 前用户可在卡片里改 `prompt`/`size`，reject 则不产生任何模型调用与 COS 资产。
 - **需审批（用户级 MCP）**：麦当劳 `create-order`。它只在任务锁定了活跃凭据且通过工具审核后动态装配；无论运行时前缀为何，`CapabilityRegistry` 均按原始 MCP 工具名识别并要求审批。
 
 > 早期曾临时给只读的 `getWeather` 开审批用于跑通链路（P5a 演示），已还原——审批语义应落在真正有副作用/有成本的工具上。

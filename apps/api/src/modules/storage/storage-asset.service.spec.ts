@@ -1,14 +1,14 @@
 import { ForbiddenException } from '@nestjs/common';
 import { StorageAssetKind, StorageAssetStatus } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { QiniuStorageService } from './qiniu-storage.service';
+import type { CosStorageService } from './cos-storage.service';
 import { StorageAssetService } from './storage-asset.service';
 
 describe('StorageAssetService', () => {
   /**
    * 创建资产登记服务测试实例
-   * @returns 返回服务与 prisma、七牛服务 mock
-   * @description 验证登记归属校验、kind 推断与列表过滤，URL 拼装交给七牛服务 mock。
+   * @returns 返回服务与 prisma、COS 服务 mock
+   * @description 验证登记归属校验、kind 推断与列表过滤，URL 拼装交给 COS 服务 mock。
    */
   const createService = () => {
     const prisma = {
@@ -19,7 +19,7 @@ describe('StorageAssetService', () => {
         update: jest.fn(),
       },
     };
-    const qiniu = {
+    const cos = {
       resolveAccessUrl: jest.fn(
         (key: string) => `https://cdn.example.com/${key}`,
       ),
@@ -27,10 +27,10 @@ describe('StorageAssetService', () => {
     return {
       service: new StorageAssetService(
         prisma as unknown as PrismaService,
-        qiniu as unknown as QiniuStorageService,
+        cos as unknown as CosStorageService,
       ),
       prisma,
-      qiniu,
+      cos,
     };
   };
 

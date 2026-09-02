@@ -30,7 +30,7 @@ export class GeneratedImageDto {
   @ApiProperty({ description: '转存后的访问 URL' })
   url: string;
 
-  @ApiProperty({ description: '七牛对象 key（已登记 StorageAsset）' })
+  @ApiProperty({ description: 'COS 对象 key（已登记 StorageAsset）' })
   key: string;
 
   @ApiProperty({ description: '模型润色后的提示词', required: false })
@@ -39,7 +39,7 @@ export class GeneratedImageDto {
 
 export class EditImageDto extends CreateImageDto {
   @ApiPropertyOptional({
-    description: '参考图对象 key（七牛资产）；与 sourceUrls 合计 1-4 张',
+    description: '参考图对象 key（COS 资产）；与 sourceUrls 合计 1-4 张',
     example: ['image/202608/user123/9f8b.png'],
   })
   @IsOptional()

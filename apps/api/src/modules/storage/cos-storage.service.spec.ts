@@ -56,6 +56,10 @@ describe('CosStorageService', () => {
     mockGetObjectUrl.mockReset();
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('为图片对象签发固定 key 的 HTTPS PUT URL 与确定的 Content-Type', async () => {
     mockGetObjectUrl.mockImplementation(
       (params: CosGetObjectUrlParams, callback: CosGetObjectUrlCallback) => {
@@ -209,6 +213,77 @@ describe('CosStorageService', () => {
       `https://cdn.example.com/${credential.key}`,
     );
     expect(credential.headers).toEqual({ 'Content-Type': 'audio/mpeg' });
+  });
+
+  it('使用公有读域名生成访问 URL，并对 key 中的特殊字符逐段编码', () => {
+    const service = createService();
+
+    expect(service.resolveAccessUrl('image/202609/user-1/a b#c.png')).toBe(
+      'https://cdn.example.com/image/202609/user-1/a%20b%23c.png',
+    );
+  });
+
+  it.each(['', '../secret.png', '/absolute.png', 'https://evil.example/a.png'])(
+    '对象 key %p 不安全时拒绝生成访问 URL',
+    (key) => {
+      const service = createService();
+
+      expect(() => service.resolveAccessUrl(key)).toThrow(BadRequestException);
+    },
+  );
+
+  it('服务端二进制通过预签名 PUT 上传成功后返回对象 key', async () => {
+    mockGetObjectUrl.mockImplementation(
+      (params: CosGetObjectUrlParams, callback: CosGetObjectUrlCallback) => {
+        callback(null, {
+          Url: `https://upload.example.com/${params.Key}?signature=test`,
+        });
+      },
+    );
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const service = createService();
+    const data = Buffer.from('image-data');
+
+    const key = await service.uploadBuffer({
+      data,
+      ownerId: 'user-1',
+      type: 'image',
+      ext: 'png',
+    });
+
+    expect(key).toMatch(/^image\/\d{6}\/user-1\/[0-9a-f]{32}\.png$/);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`/${key}?signature=test`),
+      expect.objectContaining({
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    );
+  });
+
+  it('服务端二进制上传失败时抛出 COS 响应状态与摘要', async () => {
+    mockGetObjectUrl.mockImplementation(
+      (_params: CosGetObjectUrlParams, callback: CosGetObjectUrlCallback) => {
+        callback(null, {
+          Url: 'https://upload.example.com/object?signature=test',
+        });
+      },
+    );
+    jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response('AccessDenied', { status: 403 }));
+    const service = createService();
+
+    await expect(
+      service.uploadBuffer({
+        data: Buffer.from('image-data'),
+        ownerId: 'user-1',
+        type: 'image',
+        ext: 'png',
+      }),
+    ).rejects.toThrow('腾讯云 COS 服务端上传失败(403)：AccessDenied');
   });
 
   it.each([

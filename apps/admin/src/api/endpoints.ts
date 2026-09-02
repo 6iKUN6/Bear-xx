@@ -3,7 +3,7 @@ import type {
   Agent,
   AgentCapabilities,
   StorageAsset,
-  UploadCredential,
+  CosUploadCredential,
   AgentInput,
   AgentUsage,
   AuthResponse,
@@ -62,11 +62,14 @@ export const getTaskDetail = (id: string) =>
   request<TaskDetail>(`/admin/observability/tasks/${id}`);
 
 // ---- 对象存储 ----
-export const getUploadCredential = (body: {
+export const getCosUploadCredential = (body: {
   type: "image" | "audio";
   ext: string;
-  usage?: string;
-}) => request<UploadCredential>("/storage/upload-credential", { method: "POST", body });
+}) =>
+  request<CosUploadCredential>("/storage/cos/upload-credential", {
+    method: "POST",
+    body,
+  });
 
 export const registerAsset = (body: {
   key: string;

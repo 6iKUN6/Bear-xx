@@ -1456,7 +1456,7 @@
     },
     "/api/images/generations": {
       "post": {
-        "description": "同步生成一张图并转存七牛（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。",
+        "description": "同步生成一张图并转存腾讯云 COS（生图可能耗时数十秒，客户端需放宽超时）。生图模型未配置时返回 503。后续量大可升级为 StreamTask 异步任务。",
         "operationId": "ImagesController_generate",
         "parameters": [],
         "requestBody": {
@@ -1494,7 +1494,7 @@
     },
     "/api/images/edits": {
       "post": {
-        "description": "基于 1-4 张参考图（七牛 key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。",
+        "description": "基于 1-4 张参考图（COS key 或完整 URL）+ prompt 出新图并转存。生图模型未配置时返回 503。",
         "operationId": "ImagesController_edit",
         "parameters": [],
         "requestBody": {
@@ -1527,44 +1527,6 @@
         "summary": "参考图生图（图生图/改图）",
         "tags": [
           "AI 生图"
-        ]
-      }
-    },
-    "/api/storage/upload-credential": {
-      "post": {
-        "description": "客户端拿 token/key 直传七牛（表单带 token、key），文件不经过本服务；上传成功后调 POST /storage/assets 登记。",
-        "operationId": "StorageController_createUploadCredential",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UploadCredentialDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UploadCredentialResponseDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "签发直传凭证",
-        "tags": [
-          "对象存储"
         ]
       }
     },
@@ -1601,43 +1563,6 @@
           }
         ],
         "summary": "签发腾讯云 COS 小程序直传凭证",
-        "tags": [
-          "对象存储"
-        ]
-      }
-    },
-    "/api/storage/access-url": {
-      "get": {
-        "description": "私有空间返回带签名的临时 URL；公开空间返回固定 URL。",
-        "operationId": "StorageController_resolveAccessUrl",
-        "parameters": [
-          {
-            "name": "key",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AccessUrlResponseDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "获取对象访问 URL",
         "tags": [
           "对象存储"
         ]
@@ -4738,7 +4663,7 @@
           },
           "key": {
             "type": "string",
-            "description": "七牛对象 key（已登记 StorageAsset）"
+            "description": "COS 对象 key（已登记 StorageAsset）"
           },
           "revisedPrompt": {
             "type": "string",
@@ -4768,7 +4693,7 @@
             ]
           },
           "sourceKeys": {
-            "description": "参考图对象 key（七牛资产）；与 sourceUrls 合计 1-4 张",
+            "description": "参考图对象 key（COS 资产）；与 sourceUrls 合计 1-4 张",
             "example": [
               "image/202608/user123/9f8b.png"
             ],
@@ -4787,73 +4712,6 @@
         },
         "required": [
           "prompt"
-        ]
-      },
-      "UploadCredentialDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "description": "上传媒体类型（决定存储目录、大小与 MIME 限制）",
-            "enum": [
-              "image",
-              "audio"
-            ],
-            "example": "image"
-          },
-          "ext": {
-            "type": "string",
-            "description": "文件扩展名（不含点），仅字母数字",
-            "example": "png"
-          },
-          "usage": {
-            "type": "string",
-            "description": "业务用途；agent-avatar 会收紧大小限制到 2MB",
-            "enum": [
-              "agent-avatar",
-              "chat-image",
-              "voice-input",
-              "ai-image"
-            ]
-          }
-        },
-        "required": [
-          "type",
-          "ext"
-        ]
-      },
-      "UploadCredentialResponseDto": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string",
-            "description": "七牛直传凭证（uploadFile 表单的 token 字段）"
-          },
-          "key": {
-            "type": "string",
-            "description": "对象 key（uploadFile 表单的 key 字段；业务落库存它）",
-            "example": "image/202608/user123/9f8b7a.png"
-          },
-          "uploadUrl": {
-            "type": "string",
-            "description": "直传入口地址（按存储区域解析）",
-            "example": "https://up-z2.qiniup.com"
-          },
-          "accessUrl": {
-            "type": "string",
-            "description": "上传成功后的访问 URL（私有空间为带签名的临时 URL）"
-          },
-          "expiresAt": {
-            "type": "number",
-            "description": "凭证过期时间戳（毫秒）"
-          }
-        },
-        "required": [
-          "token",
-          "key",
-          "uploadUrl",
-          "accessUrl",
-          "expiresAt"
         ]
       },
       "CosUploadCredentialDto": {
@@ -4922,18 +4780,6 @@
           "expiresAt"
         ]
       },
-      "AccessUrlResponseDto": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "description": "对象访问 URL（私有空间为带签名的临时 URL）"
-          }
-        },
-        "required": [
-          "url"
-        ]
-      },
       "RegisterAssetDto": {
         "type": "object",
         "properties": {
@@ -4978,7 +4824,7 @@
           },
           "url": {
             "type": "string",
-            "description": "访问 URL（私有空间为临时签名 URL）"
+            "description": "COS 公有读访问 URL"
           },
           "kind": {
             "type": "string",
