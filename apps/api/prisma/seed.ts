@@ -1,6 +1,6 @@
 import { randomBytes, scrypt as scryptCallback } from 'crypto';
 import { promisify } from 'util';
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient, UserRole, MembershipTier } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const scrypt = promisify(scryptCallback);
@@ -23,30 +23,32 @@ async function hashPassword(password: string): Promise<string> {
 /**
  * 幂等 seed：管理员用户 + 默认智能体。
  * @description 默认智能体全部字段为"不覆盖"（AUTO/空/null，systemPrompt 留空用内置 .md），复刻当前默认行为。
- * 管理员账号/密码从 ADMIN_USERNAME/ADMIN_PASSWORD 读，带兜底默认值。可重复执行。
+ * 只有同时明确配置 ADMIN_USERNAME 与 ADMIN_PASSWORD 时才创建初始 SUPER_ADMIN；不会覆盖已有用户角色。
  */
 async function main() {
-  const username = process.env.ADMIN_USERNAME?.trim() || 'admin';
-  const password = process.env.ADMIN_PASSWORD?.trim() || 'admin12345';
+  const username = process.env.ADMIN_USERNAME?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD?.trim();
 
-  const existingAdmin = await prisma.user.findUnique({ where: { username } });
-  if (existingAdmin) {
-    await prisma.user.update({
-      where: { username },
-      data: { role: UserRole.ADMIN },
-    });
-    console.log(`[seed] 管理员已存在，确保角色为 ADMIN：${username}`);
+  if (username && password) {
+    const existingAdmin = await prisma.user.findUnique({ where: { username } });
+    if (existingAdmin) {
+      console.log(`[seed] 管理员账号已存在，保留既有角色与密码：${username}`);
+    } else {
+      await prisma.user.create({
+        data: {
+          username,
+          nickname: '管理员',
+          role: UserRole.SUPER_ADMIN,
+          passwordHash: await hashPassword(password),
+          passwordUpdatedAt: new Date(),
+        },
+      });
+      console.log(`[seed] 已创建初始顶级管理员：${username}`);
+    }
   } else {
-    await prisma.user.create({
-      data: {
-        username,
-        nickname: '管理员',
-        role: UserRole.ADMIN,
-        passwordHash: await hashPassword(password),
-        passwordUpdatedAt: new Date(),
-      },
-    });
-    console.log(`[seed] 已创建管理员：${username}（默认密码见 ADMIN_PASSWORD）`);
+    console.log(
+      '[seed] 未同时配置 ADMIN_USERNAME 与 ADMIN_PASSWORD，跳过管理员创建；不会生成默认弱口令账号。',
+    );
   }
 
   const defaultAgent = await prisma.agent.findFirst({
@@ -63,6 +65,8 @@ async function main() {
         // 留空即执行内置的「直接回复」Flow；模型由部署方在后台配置后再填
         modelPreset: null,
         enabled: true,
+        visible: true,
+        minimumMembershipTier: MembershipTier.FREE,
         isDefault: true,
       },
     });

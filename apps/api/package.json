@@ -45,6 +45,7 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:seed": "prisma db seed",
+    "admin:bootstrap-super": "node ./scripts/bootstrap-super-admin.cjs",
     "db:push": "prisma db push"
   },
   "dependencies": {
