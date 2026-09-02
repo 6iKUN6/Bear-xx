@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 
 interface RequestWithUser {
   user?: { id?: string };
@@ -28,7 +29,7 @@ export class RolesGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredRoles = this.reflector.getAllAndOverride<
-      string[] | undefined
+      UserRole[] | undefined
     >(ROLES_KEY, [context.getHandler(), context.getClass()]);
 
     if (!requiredRoles || requiredRoles.length === 0) {

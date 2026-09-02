@@ -21,12 +21,13 @@ import {
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 
 @ApiTags('管理-观测')
 @ApiBearerAuth()
 @Controller('admin/observability')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 export class AdminController {
   constructor(private readonly observability: AdminObservabilityService) {}
 

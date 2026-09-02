@@ -106,6 +106,25 @@ describe('HttpExceptionFilter', () => {
     });
   });
 
+  it('将业务异常的稳定 code 作为 errorCode 下发', () => {
+    const { host, captured } = createHost();
+
+    filter.catch(
+      new BadRequestException({
+        message: '当前会员等级不足，需要 PLUS 会员',
+        code: 'MEMBERSHIP_REQUIRED',
+      }),
+      host,
+    );
+
+    expect(captured.body).toEqual({
+      code: 400,
+      data: null,
+      message: '当前会员等级不足，需要 PLUS 会员',
+      errorCode: 'MEMBERSHIP_REQUIRED',
+    });
+  });
+
   it('未预期异常收敛为 500 且不透出内部信息', () => {
     const { host, captured } = createHost();
 

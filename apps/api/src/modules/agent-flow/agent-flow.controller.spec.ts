@@ -59,6 +59,7 @@ describe('AgentFlowController', () => {
     expect(create).toHaveBeenCalledWith(definition, 'admin-1');
     expect(Reflect.getMetadata(ROLES_KEY, AgentFlowController)).toEqual([
       'ADMIN',
+      'SUPER_ADMIN',
     ]);
     expect(Reflect.getMetadata(GUARDS_METADATA, AgentFlowController)).toEqual([
       JwtAuthGuard,

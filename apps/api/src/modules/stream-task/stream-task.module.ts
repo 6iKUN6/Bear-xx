@@ -12,6 +12,7 @@ import { StreamTaskRegistry } from './stream-task.registry';
 import { StreamTaskSnapshotService } from './stream-task-snapshot.service';
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 import { StreamTaskService } from './stream-task.service';
+import { AgentAccessModule } from '../agent-access/agent-access.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { StreamTaskService } from './stream-task.service';
     MemoryModule,
     McDonaldsOrderModule,
     McDonaldsCredentialModule,
+    AgentAccessModule,
   ],
   controllers: [StreamTaskController],
   providers: [

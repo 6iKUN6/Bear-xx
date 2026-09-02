@@ -1,4 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { MembershipTier } from '@prisma/client';
+import { AgentAccessDenialReason } from '../../agent-access/agent-access.service';
 
 export class AgentResponseDto {
   @ApiProperty({ example: 'cmf_agent_123' })
@@ -39,6 +41,25 @@ export class AgentResponseDto {
 
   @ApiProperty({ example: true })
   enabled: boolean;
+
+  @ApiProperty({ example: true, description: '是否进入终端发现列表' })
+  visible: boolean;
+
+  @ApiProperty({ enum: MembershipTier, example: MembershipTier.FREE })
+  minimumMembershipTier: MembershipTier;
+
+  @ApiProperty({ example: true, description: '当前用户是否可以使用' })
+  canUse: boolean;
+
+  @ApiProperty({
+    enum: AgentAccessDenialReason,
+    nullable: true,
+    description: '不可用时的结构化原因；可用时为 null',
+  })
+  accessReason: AgentAccessDenialReason | null;
+
+  @ApiProperty({ enum: MembershipTier, nullable: true })
+  requiredTier: Extract<MembershipTier, 'PLUS' | 'PRO'> | null;
 
   @ApiProperty({ example: false })
   isDefault: boolean;

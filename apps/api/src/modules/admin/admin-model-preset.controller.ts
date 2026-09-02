@@ -28,12 +28,13 @@ import { EmptyResultDto } from '../../common/dto/empty-result.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 
 @ApiTags('管理-模型预设')
 @ApiBearerAuth()
 @Controller('admin/model-presets')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles(UserRole.SUPER_ADMIN)
 export class AdminModelPresetController {
   constructor(private readonly service: ModelPresetService) {}
 

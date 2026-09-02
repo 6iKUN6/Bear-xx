@@ -1,6 +1,7 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard';
+import { UserRole } from '@prisma/client';
 
 function buildContext(userId?: string) {
   return {
@@ -14,8 +15,8 @@ function buildContext(userId?: string) {
 
 describe('RolesGuard', () => {
   const createGuard = (
-    roles: string[] | undefined,
-    userRole: string | null,
+    roles: UserRole[] | undefined,
+    userRole: UserRole | null,
   ) => {
     const reflector = {
       getAllAndOverride: jest.fn().mockReturnValue(roles),
@@ -36,19 +37,19 @@ describe('RolesGuard', () => {
   });
 
   it('allows a user whose role matches', async () => {
-    const guard = createGuard(['ADMIN'], 'ADMIN');
+    const guard = createGuard([UserRole.ADMIN], UserRole.ADMIN);
     await expect(guard.canActivate(buildContext('u1'))).resolves.toBe(true);
   });
 
   it('rejects a user whose role does not match', async () => {
-    const guard = createGuard(['ADMIN'], 'USER');
+    const guard = createGuard([UserRole.ADMIN], UserRole.USER);
     await expect(guard.canActivate(buildContext('u1'))).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
 
   it('rejects when the user is missing from the request', async () => {
-    const guard = createGuard(['ADMIN'], 'ADMIN');
+    const guard = createGuard([UserRole.ADMIN], UserRole.ADMIN);
     await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(
       UnauthorizedException,
     );

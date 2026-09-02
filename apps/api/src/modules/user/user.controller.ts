@@ -10,13 +10,17 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UserProfileDto } from './dto/user-profile.dto';
+import { AgentAccessService } from '../agent-access/agent-access.service';
 
 @ApiTags('用户')
 @ApiBearerAuth()
 @Controller('user')
 @UseGuards(JwtAuthGuard)
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly agentAccessService: AgentAccessService,
+  ) {}
 
   @Get('profile')
   @ApiOperation({ summary: '获取当前用户信息' })
@@ -31,6 +35,10 @@ export class UserController {
       id: user.id,
       nickname: user.nickname,
       avatarUrl: user.avatarUrl,
+      membershipTier: user.membershipTier,
+      effectiveMembershipTier: this.agentAccessService.effectiveTier(user),
+      membershipExpiresAt: user.membershipExpiresAt,
+      membershipExpired: this.agentAccessService.isExpired(user),
     };
   }
 
@@ -49,6 +57,10 @@ export class UserController {
       id: user.id,
       nickname: user.nickname,
       avatarUrl: user.avatarUrl,
+      membershipTier: user.membershipTier,
+      effectiveMembershipTier: this.agentAccessService.effectiveTier(user),
+      membershipExpiresAt: user.membershipExpiresAt,
+      membershipExpired: this.agentAccessService.isExpired(user),
     };
   }
 }

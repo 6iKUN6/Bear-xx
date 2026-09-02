@@ -3,7 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AgentFlowVersionStatus, type Agent, Prisma } from '@prisma/client';
+import {
+  AgentFlowVersionStatus,
+  ManagementAuditAction,
+  ManagementAuditTargetType,
+  MembershipTier,
+  type Agent,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
@@ -12,6 +19,11 @@ import { AgentDefinitionService } from './agent-definition.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { AgentResponseDto } from './dto/agent-response.dto';
+import {
+  AgentAccessService,
+  type MembershipAccessSubject,
+  type AgentAccessDecision,
+} from '../agent-access/agent-access.service';
 
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
 
@@ -25,17 +37,19 @@ export class AgentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentDefinitionService: AgentDefinitionService,
+    private readonly agentAccessService: AgentAccessService,
   ) {}
 
-  async list(): Promise<AgentResponseDto[]> {
+  async list(userId?: string): Promise<AgentResponseDto[]> {
     const agents = await this.prisma.agent.findMany({
+      where: { visible: true },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
       include: AGENT_FLOW_INCLUDE,
     });
-    return agents.map((agent) => this.toResponse(agent));
+    return this.withAccessProjection(agents, userId);
   }
 
-  async get(id: string): Promise<AgentResponseDto> {
+  async get(id: string, userId?: string): Promise<AgentResponseDto> {
     const agent = await this.prisma.agent.findUnique({
       where: { id },
       include: AGENT_FLOW_INCLUDE,
@@ -43,29 +57,69 @@ export class AgentService {
     if (!agent) {
       throw new NotFoundException('智能体不存在');
     }
-    return this.toResponse(agent);
+    return this.toResponse(agent, await this.loadMembershipSubject(userId));
+  }
+
+  /** 查询后台全部智能体及原始开放配置 */
+  async listForAdmin(): Promise<AgentResponseDto[]> {
+    const agents = await this.prisma.agent.findMany({
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      include: AGENT_FLOW_INCLUDE,
+    });
+    return agents.map((agent) => this.toAdminResponse(agent));
+  }
+
+  /** 查询后台智能体详情，不受 visible 过滤 */
+  async getForAdmin(id: string): Promise<AgentResponseDto> {
+    const agent = await this.prisma.agent.findUnique({
+      where: { id },
+      include: AGENT_FLOW_INCLUDE,
+    });
+    if (!agent) {
+      throw new NotFoundException('智能体不存在');
+    }
+    return this.toAdminResponse(agent);
   }
 
   async create(dto: CreateAgentDto, userId: string): Promise<AgentResponseDto> {
     await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
-    const agent = await this.prisma.agent.create({
-      include: AGENT_FLOW_INCLUDE,
-      data: {
-        name: dto.name,
-        description: dto.description ?? '',
-        avatar: dto.avatar?.trim() || null,
-        systemPrompt: dto.systemPrompt ?? null,
-        modelPreset: dto.modelPreset ?? null,
-        defaultFlowVersionId: dto.defaultFlowVersionId ?? null,
-        enabled: dto.enabled ?? true,
-        createdById: userId,
-      },
+    const agent = await this.runSerializableTransaction(async (tx) => {
+      const created = await tx.agent.create({
+        include: AGENT_FLOW_INCLUDE,
+        data: {
+          name: dto.name,
+          description: dto.description ?? '',
+          avatar: dto.avatar?.trim() || null,
+          systemPrompt: dto.systemPrompt ?? null,
+          modelPreset: dto.modelPreset ?? null,
+          defaultFlowVersionId: dto.defaultFlowVersionId ?? null,
+          enabled: dto.enabled ?? true,
+          visible: dto.visible ?? true,
+          minimumMembershipTier:
+            dto.minimumMembershipTier ?? MembershipTier.FREE,
+          createdById: userId,
+        },
+      });
+      await tx.managementAuditLog.create({
+        data: {
+          actorId: userId,
+          targetType: ManagementAuditTargetType.AGENT,
+          targetId: created.id,
+          action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
+          after: this.accessSnapshot(created),
+        },
+      });
+      return created;
     });
     this.agentDefinitionService.invalidate();
     return this.toResponse(agent);
   }
 
-  async update(id: string, dto: UpdateAgentDto): Promise<AgentResponseDto> {
+  async update(
+    id: string,
+    dto: UpdateAgentDto,
+    actorId?: string,
+  ): Promise<AgentResponseDto> {
     await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
     const data = {
       name: dto.name,
@@ -76,7 +130,43 @@ export class AgentService {
       modelPreset: dto.modelPreset,
       defaultFlowVersionId: dto.defaultFlowVersionId,
       enabled: dto.enabled,
+      visible: dto.visible,
+      minimumMembershipTier: dto.minimumMembershipTier,
     };
+
+    if (actorId) {
+      const agent = await this.runSerializableTransaction(async (tx) => {
+        const currentAgent = await tx.agent.findUnique({ where: { id } });
+        if (!currentAgent) {
+          throw new NotFoundException('智能体不存在');
+        }
+        this.assertDefaultAgentUpdate(currentAgent, data);
+        const updated = await tx.agent.update({
+          where: { id },
+          data,
+          include: AGENT_FLOW_INCLUDE,
+        });
+        if (
+          currentAgent.enabled !== updated.enabled ||
+          currentAgent.visible !== updated.visible ||
+          currentAgent.minimumMembershipTier !== updated.minimumMembershipTier
+        ) {
+          await tx.managementAuditLog.create({
+            data: {
+              actorId,
+              targetType: ManagementAuditTargetType.AGENT,
+              targetId: id,
+              action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
+              before: this.accessSnapshot(currentAgent),
+              after: this.accessSnapshot(updated),
+            },
+          });
+        }
+        return updated;
+      });
+      this.agentDefinitionService.invalidate();
+      return this.toResponse(agent);
+    }
 
     if (dto.enabled === false) {
       const agent = await this.runSerializableTransaction(async (tx) => {
@@ -115,7 +205,7 @@ export class AgentService {
    * @description 先确认目标存在且已启用，再在同一事务内清除其他默认标记并设置目标标记；
    * 事务成功后失效智能体定义缓存，使未指定 agentId 的普通聊天使用新的默认智能体。
    */
-  async setDefault(id: string): Promise<AgentResponseDto> {
+  async setDefault(id: string, actorId?: string): Promise<AgentResponseDto> {
     const agent = await this.runSerializableTransaction(async (tx) => {
       const targetAgent = await tx.agent.findUnique({ where: { id } });
       if (!targetAgent) {
@@ -124,22 +214,69 @@ export class AgentService {
       if (!targetAgent.enabled) {
         throw new BadRequestException('停用的智能体不可设为默认');
       }
+      if (targetAgent.visible === false) {
+        throw new BadRequestException('隐藏的智能体不可设为默认');
+      }
+      if (
+        targetAgent.minimumMembershipTier !== undefined &&
+        targetAgent.minimumMembershipTier !== MembershipTier.FREE
+      ) {
+        throw new BadRequestException('默认智能体最低会员等级必须为 FREE');
+      }
+      const previousDefault = actorId
+        ? await tx.agent.findFirst({
+            where: { isDefault: true, id: { not: id } },
+          })
+        : null;
       await tx.agent.updateMany({
         where: { isDefault: true, id: { not: id } },
         data: { isDefault: false },
       });
-      return tx.agent.update({
+      const updated = await tx.agent.update({
         where: { id },
         data: { isDefault: true },
         include: AGENT_FLOW_INCLUDE,
       });
+      if (actorId) {
+        const auditWrites = [
+          tx.managementAuditLog.create({
+            data: {
+              actorId,
+              targetType: ManagementAuditTargetType.AGENT,
+              targetId: id,
+              action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
+              before: this.accessSnapshot(targetAgent),
+              after: this.accessSnapshot(updated),
+            },
+          }),
+        ];
+        if (previousDefault) {
+          auditWrites.push(
+            tx.managementAuditLog.create({
+              data: {
+                actorId,
+                targetType: ManagementAuditTargetType.AGENT,
+                targetId: previousDefault.id,
+                action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
+                before: this.accessSnapshot(previousDefault),
+                after: this.accessSnapshot({
+                  ...previousDefault,
+                  isDefault: false,
+                }),
+              },
+            }),
+          );
+        }
+        await Promise.all(auditWrites);
+      }
+      return updated;
     });
 
     this.agentDefinitionService.invalidate();
     return this.toResponse(agent);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, actorId?: string): Promise<void> {
     await this.runSerializableTransaction(async (tx) => {
       const agent = await tx.agent.findUnique({ where: { id } });
       if (!agent) {
@@ -147,6 +284,17 @@ export class AgentService {
       }
       if (agent.isDefault) {
         throw new BadRequestException('默认智能体不可删除');
+      }
+      if (actorId) {
+        await tx.managementAuditLog.create({
+          data: {
+            actorId,
+            targetType: ManagementAuditTargetType.AGENT,
+            targetId: id,
+            action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
+            before: this.accessSnapshot(agent),
+          },
+        });
       }
       return tx.agent.delete({ where: { id } });
     });
@@ -215,7 +363,21 @@ export class AgentService {
     }
   }
 
-  private toResponse(agent: AgentWithFlow): AgentResponseDto {
+  private toResponse(
+    agent: AgentWithFlow,
+    subject?: MembershipAccessSubject,
+  ): AgentResponseDto {
+    const access: AgentAccessDecision = this.agentAccessService.evaluate(
+      subject ?? {
+        membershipTier: MembershipTier.FREE,
+        membershipExpiresAt: null,
+      },
+      {
+        enabled: agent.enabled,
+        minimumMembershipTier:
+          agent.minimumMembershipTier ?? MembershipTier.FREE,
+      },
+    );
     return {
       id: agent.id,
       name: agent.name,
@@ -226,9 +388,78 @@ export class AgentService {
       defaultFlowVersionId: agent.defaultFlowVersionId,
       toolGroups: resolveAgentToolGroups(agent.defaultFlowVersion?.definition),
       enabled: agent.enabled,
+      visible: agent.visible ?? true,
+      minimumMembershipTier: agent.minimumMembershipTier ?? MembershipTier.FREE,
+      canUse: access.canUse,
+      accessReason: access.canUse ? null : access.reason,
+      requiredTier:
+        !access.canUse && 'requiredTier' in access ? access.requiredTier : null,
       isDefault: agent.isDefault,
       createdAt: agent.createdAt.getTime(),
       updatedAt: agent.updatedAt.getTime(),
+    };
+  }
+
+  private async loadMembershipSubject(
+    userId?: string,
+  ): Promise<MembershipAccessSubject | undefined> {
+    if (!userId) {
+      return undefined;
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { membershipTier: true, membershipExpiresAt: true },
+    });
+    if (!user) {
+      throw new NotFoundException('用户不存在');
+    }
+    return user;
+  }
+
+  private async withAccessProjection(
+    agents: AgentWithFlow[],
+    userId?: string,
+  ): Promise<AgentResponseDto[]> {
+    const subject = await this.loadMembershipSubject(userId);
+    return agents.map((agent) => this.toResponse(agent, subject));
+  }
+
+  private toAdminResponse(agent: AgentWithFlow): AgentResponseDto {
+    return this.toResponse(agent, {
+      membershipTier: MembershipTier.PRO,
+      membershipExpiresAt: null,
+    });
+  }
+
+  private assertDefaultAgentUpdate(
+    currentAgent: Agent,
+    data: Prisma.AgentUpdateInput,
+  ): void {
+    if (!currentAgent.isDefault) {
+      return;
+    }
+    if (data.enabled === false || data.visible === false) {
+      throw new BadRequestException('默认智能体必须启用且展示');
+    }
+    if (
+      data.minimumMembershipTier !== undefined &&
+      data.minimumMembershipTier !== MembershipTier.FREE
+    ) {
+      throw new BadRequestException('默认智能体最低会员等级必须为 FREE');
+    }
+  }
+
+  private accessSnapshot(
+    agent: Pick<
+      Agent,
+      'enabled' | 'visible' | 'minimumMembershipTier' | 'isDefault'
+    >,
+  ): Prisma.JsonObject {
+    return {
+      enabled: agent.enabled,
+      visible: agent.visible,
+      minimumMembershipTier: agent.minimumMembershipTier,
+      isDefault: agent.isDefault,
     };
   }
 }

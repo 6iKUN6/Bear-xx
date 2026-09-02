@@ -1,8 +1,12 @@
 import { ConfigService } from '@nestjs/config';
-import { StreamTaskStatus } from '@prisma/client';
+import { MembershipTier, StreamTaskStatus } from '@prisma/client';
 import { StreamTaskEventType } from '@litter-bear/types/protocol';
 import { StreamTaskService } from './stream-task.service';
 import { runWithMcDonaldsOrderContext } from '../mcdonalds-order/mcdonalds-order-context';
+import {
+  AgentAccessDenialReason,
+  AgentAccessService,
+} from '../agent-access/agent-access.service';
 
 describe('StreamTaskService', () => {
   function createService() {
@@ -52,6 +56,7 @@ describe('StreamTaskService', () => {
       {} as never,
       flowApprovalService as never,
       flowSignalOutboxService as never,
+      new AgentAccessService(),
     );
 
     return {
@@ -93,6 +98,72 @@ describe('StreamTaskService', () => {
     });
 
     expect(mcdonaldsOrderService.getCardsByIds).not.toHaveBeenCalled();
+  });
+
+  it('普通用户创建任务时拒绝停用和会员等级不足的智能体', async () => {
+    const { service } = createService();
+    const agentFindUnique = jest
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'agent-1',
+        enabled: false,
+        minimumMembershipTier: MembershipTier.FREE,
+      })
+      .mockResolvedValueOnce({
+        id: 'agent-1',
+        enabled: true,
+        minimumMembershipTier: MembershipTier.PRO,
+      });
+    const tx = {
+      agent: { findUnique: agentFindUnique },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          membershipTier: MembershipTier.FREE,
+          membershipExpiresAt: null,
+        }),
+      },
+    };
+
+    await expect(
+      service['enforceAgentAccess'](tx as never, 'user-1', 'agent-1', false),
+    ).rejects.toMatchObject({
+      response: { code: AgentAccessDenialReason.Disabled },
+    });
+    await expect(
+      service['enforceAgentAccess'](tx as never, 'user-1', 'agent-1', false),
+    ).rejects.toMatchObject({
+      response: { code: AgentAccessDenialReason.MembershipRequired },
+    });
+  });
+
+  it('Admin 调试绕过会员门槛，但仍拒绝停用的智能体', async () => {
+    const { service } = createService();
+    const userFindUnique = jest.fn();
+    const tx = {
+      agent: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'agent-1',
+            enabled: true,
+            minimumMembershipTier: MembershipTier.PRO,
+          })
+          .mockResolvedValueOnce({
+            id: 'agent-1',
+            enabled: false,
+            minimumMembershipTier: MembershipTier.FREE,
+          }),
+      },
+      user: { findUnique: userFindUnique },
+    };
+
+    await expect(
+      service['enforceAgentAccess'](tx as never, 'admin-1', 'agent-1', true),
+    ).resolves.toBeUndefined();
+    await expect(
+      service['enforceAgentAccess'](tx as never, 'admin-1', 'agent-1', true),
+    ).rejects.toThrow('停用的智能体不可调试');
+    expect(userFindUnique).not.toHaveBeenCalled();
   });
 
   it('麦当劳下单完成后只发布安全的订单卡片', async () => {

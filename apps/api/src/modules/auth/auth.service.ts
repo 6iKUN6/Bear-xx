@@ -13,12 +13,13 @@ import {
   timingSafeEqual,
 } from 'crypto';
 import type { StringValue } from 'ms';
-import { User } from '@prisma/client';
+import { MembershipTier, User, UserRole } from '@prisma/client';
 import { UserService } from '../user/user.service';
 import { SmsService } from '../sms/sms.service';
 import { RedisService } from '../../redis/redis.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { promisify } from 'util';
+import { AgentAccessService } from '../agent-access/agent-access.service';
 
 interface WechatSessionResponse {
   openid?: string;
@@ -40,7 +41,26 @@ const scrypt = promisify(scryptCallback);
 export interface LoginResult {
   token: string;
   refreshToken: string;
-  user: { id: string; nickname: string; avatarUrl: string };
+  user: {
+    id: string;
+    nickname: string;
+    avatarUrl: string;
+    membershipTier: MembershipTier;
+    effectiveMembershipTier: MembershipTier;
+    membershipExpiresAt: Date | null;
+    membershipExpired: boolean;
+  };
+}
+
+export interface AdminLoginResult {
+  token: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    nickname: string;
+    avatarUrl: string;
+    adminRole: Extract<UserRole, 'ADMIN' | 'SUPER_ADMIN'>;
+  };
 }
 
 @Injectable()
@@ -53,6 +73,7 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly smsService: SmsService,
     private readonly redis: RedisService,
+    private readonly agentAccessService: AgentAccessService,
   ) {}
 
   /**
@@ -208,6 +229,70 @@ export class AuthService {
   }
 
   /**
+   * 使用既有管理员账号登录后台
+   * @param username 管理员账号名
+   * @param password 登录密码
+   * @returns 返回后台登录令牌、管理员基本信息和实时角色
+   * @description 仅允许已存在的 ADMIN 或 SUPER_ADMIN 登录，不自动注册账号；所有失败场景返回统一错误，避免泄露账号状态。
+   */
+  async adminLogin(
+    username: string,
+    password: string,
+  ): Promise<AdminLoginResult> {
+    const normalizedUsername = username.trim().toLowerCase();
+    const user = await this.userService.findByUsername(normalizedUsername);
+
+    if (
+      !user?.passwordHash ||
+      (user.role !== UserRole.ADMIN && user.role !== UserRole.SUPER_ADMIN)
+    ) {
+      throw new UnauthorizedException('后台账号或密码错误');
+    }
+
+    const passwordMatched = await this.verifyPassword(
+      password,
+      user.passwordHash,
+    );
+    if (!passwordMatched) {
+      throw new UnauthorizedException('后台账号或密码错误');
+    }
+
+    const tokens = await this.generateTokens(user.id);
+    return {
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        avatarUrl: user.avatarUrl,
+        adminRole: user.role,
+      },
+    };
+  }
+
+  /**
+   * 获取当前后台账号的实时身份投影
+   * @param userId 当前已认证用户ID
+   * @returns 返回管理员基本信息和数据库中的当前角色
+   * @description 供后台恢复会话时刷新角色；只允许仍为 ADMIN 或 SUPER_ADMIN 的账号，避免长期使用本地缓存角色。
+   */
+  async getAdminAuthUser(userId: string): Promise<AdminLoginResult['user']> {
+    const user = await this.userService.findById(userId);
+    if (
+      !user ||
+      (user.role !== UserRole.ADMIN && user.role !== UserRole.SUPER_ADMIN)
+    ) {
+      throw new UnauthorizedException('后台登录已失效');
+    }
+    return {
+      id: user.id,
+      nickname: user.nickname,
+      avatarUrl: user.avatarUrl,
+      adminRole: user.role,
+    };
+  }
+
+  /**
    * 使用手机号密码登录或自动注册
    * @param phone 手机号
    * @param password 登录密码
@@ -356,6 +441,10 @@ export class AuthService {
         id: user.id,
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
+        membershipTier: user.membershipTier,
+        effectiveMembershipTier: this.agentAccessService.effectiveTier(user),
+        membershipExpiresAt: user.membershipExpiresAt,
+        membershipExpired: this.agentAccessService.isExpired(user),
       },
     };
   }
@@ -399,18 +488,31 @@ export class AuthService {
     password: string,
     storedPasswordHash: string,
   ): Promise<boolean> {
-    const [prefix, salt, hashHex] = storedPasswordHash.split('$');
-    if (!prefix || !salt || !hashHex || prefix !== PASSWORD_HASH_PREFIX) {
+    try {
+      const [prefix, salt, hashHex] = storedPasswordHash.split('$');
+      if (!prefix || !salt || !hashHex || prefix !== PASSWORD_HASH_PREFIX) {
+        return false;
+      }
+
+      const expectedBuffer = Buffer.from(hashHex, 'hex');
+      if (
+        expectedBuffer.length === 0 ||
+        expectedBuffer.length * 2 !== hashHex.length
+      ) {
+        return false;
+      }
+      const actualBuffer = (await scrypt(
+        password,
+        salt,
+        expectedBuffer.length,
+      )) as Buffer;
+
+      return (
+        expectedBuffer.length === actualBuffer.length &&
+        timingSafeEqual(expectedBuffer, actualBuffer)
+      );
+    } catch {
       return false;
     }
-
-    const expectedBuffer = Buffer.from(hashHex, 'hex');
-    const actualBuffer = (await scrypt(
-      password,
-      salt,
-      expectedBuffer.length,
-    )) as Buffer;
-
-    return timingSafeEqual(expectedBuffer, actualBuffer);
   }
 }

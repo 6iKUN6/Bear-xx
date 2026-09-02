@@ -1,17 +1,23 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { ConversationType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { McDonaldsOrderService } from '../mcdonalds-order/mcdonalds-order.service';
+import {
+  AgentAccessDenialReason,
+  AgentAccessService,
+} from '../agent-access/agent-access.service';
 
 @Injectable()
 export class ConversationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mcdonaldsOrderService: McDonaldsOrderService,
+    private readonly agentAccessService: AgentAccessService,
   ) {}
 
   /**
@@ -151,7 +157,7 @@ export class ConversationService {
       throw new BadRequestException('单聊只能绑定 1 个智能体');
     }
     if (agentIds.length > 0) {
-      await this.ensureAgentsUsable(agentIds);
+      await this.ensureAgentsUsable(userId, agentIds);
     }
 
     // 单聊幂等：同绑定（含默认助手单聊）的既有会话直接复用
@@ -240,7 +246,7 @@ export class ConversationService {
     if (conversation.agentIds.includes(agentId)) {
       return this.toBrief(conversation);
     }
-    await this.ensureAgentsUsable([agentId]);
+    await this.ensureAgentsUsable(userId, [agentId]);
 
     const updated = await this.prisma.conversation.update({
       where: { id },
@@ -280,18 +286,46 @@ export class ConversationService {
     return this.toBrief(updated);
   }
 
-  /** 校验智能体存在且启用 */
-  private async ensureAgentsUsable(agentIds: string[]) {
-    const found = await this.prisma.agent.findMany({
-      where: { id: { in: agentIds }, enabled: true },
-      select: { id: true },
-    });
-    if (found.length !== agentIds.length) {
-      const foundIds = new Set(found.map((a) => a.id));
-      const missing = agentIds.filter((id) => !foundIds.has(id));
-      throw new BadRequestException(
-        `智能体不存在或已停用：${missing.join(',')}`,
-      );
+  /** 校验智能体存在、启用且满足当前用户会员资格 */
+  private async ensureAgentsUsable(userId: string, agentIds: string[]) {
+    const [subject, agents] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { membershipTier: true, membershipExpiresAt: true },
+      }),
+      this.prisma.agent.findMany({
+        where: { id: { in: agentIds } },
+        select: { id: true, enabled: true, minimumMembershipTier: true },
+      }),
+    ]);
+    if (!subject) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    for (const agentId of agentIds) {
+      const agent = agentById.get(agentId);
+      if (!agent) {
+        throw new NotFoundException('智能体不存在');
+      }
+      const decision = this.agentAccessService.evaluate(subject, agent);
+      if (!decision.canUse) {
+        if (decision.reason === AgentAccessDenialReason.Disabled) {
+          throw new ForbiddenException({
+            code: decision.reason,
+            message: '智能体已停用',
+          });
+        }
+        throw new ForbiddenException({
+          code: decision.reason,
+          requiredTier: decision.requiredTier,
+          effectiveTier: decision.effectiveTier,
+          message:
+            decision.reason === AgentAccessDenialReason.MembershipExpired
+              ? `会员已到期，需要 ${decision.requiredTier} 会员`
+              : `当前会员等级不足，需要 ${decision.requiredTier} 会员`,
+        });
+      }
     }
   }
 
