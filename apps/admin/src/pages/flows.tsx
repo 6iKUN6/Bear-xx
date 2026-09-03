@@ -2,19 +2,15 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/kpi-card";
+import {
+  EntityCard,
+  EntityCardFooter,
+  EntityCardGrid,
+} from "@/components/entity-card";
 import { FlowCreateDialog } from "@/components/flow-create-dialog";
 import { FlowMetadataSheet } from "@/components/flow-metadata-sheet";
 import {
@@ -24,6 +20,8 @@ import {
 } from "@/hooks/queries";
 import { describeApiError, versionStatusMeta } from "@/lib/flow-meta";
 import { formatTime } from "@/lib/format";
+import { confirm } from "@/components/confirm-dialog";
+import { cn } from "@/lib/utils";
 import type { AgentFlow, AgentFlowTemplate } from "@/api/types";
 
 export function FlowsPage() {
@@ -73,7 +71,13 @@ export function FlowsPage() {
   };
 
   const handleDelete = async (flow: AgentFlow) => {
-    if (!window.confirm(`确定删除「${flow.name}」及其全部版本？`)) return;
+    if (
+      !(await confirm({
+        description: `确定删除「${flow.name}」及其全部版本？`,
+        danger: true,
+      }))
+    )
+      return;
     await withRemoving(flow.id, async () => {
       try {
         await remove.mutateAsync(flow.id);
@@ -96,7 +100,10 @@ export function FlowsPage() {
     const targets = rows.filter((flow) => selected.has(flow.id));
     if (targets.length === 0) return;
     if (
-      !window.confirm(`确定删除选中的 ${targets.length} 个 Flow 及其全部版本？`)
+      !(await confirm({
+        description: `确定删除选中的 ${targets.length} 个 Flow 及其全部版本？`,
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -143,172 +150,159 @@ export function FlowsPage() {
         open={Boolean(editingFlow)}
         onClose={() => setEditingFlow(null)}
       />
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>Flow 编排</CardTitle>
-          <div className="flex items-center gap-2">
-            {selected.size > 0 ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-[var(--lb-danger)]"
-                onClick={handleBatchDelete}
-                disabled={removingIds.size > 0}
-              >
-                {removingIds.size > 0 ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-                删除选中 {selected.size} 个
-              </Button>
-            ) : null}
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              新建
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold text-foreground">Flow 编排</h1>
+          {rows.length > 0 ? (
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                aria-label="全选"
+                className="align-middle"
+                checked={selected.size === rows.length && rows.length > 0}
+                // 部分选中显示为半选，避免看起来像"没选"
+                ref={(element) => {
+                  if (element) {
+                    element.indeterminate =
+                      selected.size > 0 && selected.size < rows.length;
+                  }
+                }}
+                onChange={(event) =>
+                  setSelected(
+                    event.target.checked
+                      ? new Set(rows.map((flow) => flow.id))
+                      : new Set(),
+                  )
+                }
+              />
+              全选
+            </label>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {selected.size > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-[var(--lb-danger)]"
+              onClick={handleBatchDelete}
+              disabled={removingIds.size > 0}
+            >
+              {removingIds.size > 0 ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              删除选中 {selected.size} 个
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : rows.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8">
-                    <input
-                      type="checkbox"
-                      aria-label="全选"
-                      className="align-middle"
-                      checked={selected.size === rows.length && rows.length > 0}
-                      // 部分选中显示为半选，避免看起来像"没选"
-                      ref={(element) => {
-                        if (element) {
-                          element.indeterminate =
-                            selected.size > 0 && selected.size < rows.length;
+          ) : null}
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            新建
+          </Button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-64 w-full" />
+      ) : rows.length > 0 ? (
+        <EntityCardGrid>
+          {rows.map((flow) => {
+            const published = flow.publishedVersion;
+            const status = published ? versionStatusMeta(published.status) : null;
+            const removing = removingIds.has(flow.id);
+            return (
+              <EntityCard
+                key={flow.id}
+                className={cn(selected.has(flow.id) && "border-primary ring-1 ring-primary")}
+              >
+                <div className="flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${flow.name}`}
+                    className="mt-1 shrink-0 align-middle"
+                    checked={selected.has(flow.id)}
+                    onChange={(event) =>
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) {
+                          next.add(flow.id);
+                        } else {
+                          next.delete(flow.id);
                         }
-                      }}
-                      onChange={(event) =>
-                        setSelected(
-                          event.target.checked
-                            ? new Set(rows.map((flow) => flow.id))
-                            : new Set(),
-                        )
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>名称</TableHead>
-                  <TableHead>发布版本</TableHead>
-                  <TableHead>digest</TableHead>
-                  <TableHead>更新时间</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((flow) => {
-                  const published = flow.publishedVersion;
-                  const status = published
-                    ? versionStatusMeta(published.status)
-                    : null;
-                  const removing = removingIds.has(flow.id);
-                  return (
-                    <TableRow key={flow.id}>
-                      <TableCell>
-                        <input
-                          type="checkbox"
-                          aria-label={`选择 ${flow.name}`}
-                          className="align-middle"
-                          checked={selected.has(flow.id)}
-                          onChange={(event) =>
-                            setSelected((current) => {
-                              const next = new Set(current);
-                              if (event.target.checked) {
-                                next.add(flow.id);
-                              } else {
-                                next.delete(flow.id);
-                              }
-                              return next;
-                            })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          to={`/flows/${flow.id}`}
-                          className="font-medium text-foreground hover:underline"
-                        >
-                          {flow.name}
-                        </Link>
-                        {flow.description ? (
-                          <p className="max-w-[320px] truncate text-xs text-muted-foreground">
-                            {flow.description}
-                          </p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>
-                        {published && status ? (
-                          <Badge variant={status.variant} title={status.desc}>
-                            v{published.version} {status.name}
-                          </Badge>
-                        ) : (
-                          // 没有发布版本 = 无法被智能体绑定 = 跑不起来，不能显示成中性状态
-                          <Badge
-                            variant="warning"
-                            title="发布后才能被智能体绑定运行"
-                          >
-                            未发布
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {published?.digest
-                            ? `${published.digest.slice(0, 12)}…`
-                            : "—"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatTime(flow.updatedAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/flows/${flow.id}`}>版本与编辑</Link>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="编辑名称与描述"
-                            onClick={() => setEditingFlow(flow)}
-                            disabled={flow.id === "builtin-direct-flow"}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(flow)}
-                            disabled={removing}
-                          >
-                            {removing ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState text="还没有 Flow，点右上角「新建」选一个起点" />
-          )}
-        </CardContent>
-      </Card>
+                        return next;
+                      })
+                    }
+                  />
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      to={`/flows/${flow.id}`}
+                      className="block truncate font-medium text-foreground hover:underline"
+                    >
+                      {flow.name}
+                    </Link>
+                    {flow.description ? (
+                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                        {flow.description}
+                      </p>
+                    ) : null}
+                  </div>
+                  {published && status ? (
+                    <Badge variant={status.variant} title={status.desc}>
+                      v{published.version} {status.name}
+                    </Badge>
+                  ) : (
+                    // 没有发布版本 = 无法被智能体绑定 = 跑不起来，不能显示成中性状态
+                    <Badge variant="warning" title="发布后才能被智能体绑定运行">
+                      未发布
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="font-mono">
+                    {published?.digest ? `${published.digest.slice(0, 12)}…` : "—"}
+                  </span>
+                  <span className="ml-auto">{formatTime(flow.updatedAt)}</span>
+                </div>
+
+                <EntityCardFooter>
+                  <span />
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link to={`/flows/${flow.id}`}>版本与编辑</Link>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="编辑名称与描述"
+                      onClick={() => setEditingFlow(flow)}
+                      disabled={flow.id === "builtin-direct-flow"}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="删除"
+                      onClick={() => handleDelete(flow)}
+                      disabled={removing}
+                    >
+                      {removing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </EntityCardFooter>
+              </EntityCard>
+            );
+          })}
+        </EntityCardGrid>
+      ) : (
+        <EmptyState text="还没有 Flow，点右上角「新建」选一个起点" />
+      )}
     </>
   );
 }

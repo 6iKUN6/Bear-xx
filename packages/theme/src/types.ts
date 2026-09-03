@@ -47,7 +47,16 @@ export interface ThemeDefinition {
   name: string;
   shortName: string;
   description: string;
+  /**
+   * 默认色彩模式：`tokens` 对应这一模式的色板。
+   * 浅色主题（colorScheme:"light"）的 `tokens` 是浅色板，深色变体放 `dark`；
+   * 深色主题（colorScheme:"dark"）反之，浅色变体放 `light`。
+   */
   colorScheme: ThemeColorScheme;
   tokens: ThemeTokens;
+  /** 深色变体；仅浅色主题提供。缺省时该主题无深色模式。 */
+  dark?: ThemeTokens;
+  /** 浅色变体；仅深色主题提供。缺省时该主题无浅色模式。 */
+  light?: ThemeTokens;
   swatches: readonly [string, string, string];
 }

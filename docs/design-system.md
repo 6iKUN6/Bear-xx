@@ -17,26 +17,32 @@
 
 `@litter-bear/theme` 是跨端主题单一源，为纯 TypeScript ESM 包，不依赖 React、Taro、Tailwind、Zustand 或任何 app。
 
-四套主题为闭集：
+主题为闭集。常规四套（mobile + admin 共享）：
 
-| Theme ID          | 名称             | 色彩模式 |
-| ----------------- | ---------------- | -------- |
-| `warm-workbench`  | A · 暖色工作台   | light    |
-| `mono-tool`       | B · 纯粹黑白工具 | dark     |
-| `soft-companion`  | C · 柔软陪伴助手 | light    |
-| `purple-gradient` | D · 原版紫色渐变 | light    |
+| Theme ID          | 名称             | 默认色彩模式 |
+| ----------------- | ---------------- | ------------ |
+| `warm-workbench`  | A · 暖色工作台   | light        |
+| `mono-tool`       | B · 纯粹黑白工具 | dark         |
+| `soft-companion`  | C · 柔软陪伴助手 | light        |
+| `purple-gradient` | D · 原版紫色渐变 | light        |
+
+像素风四套仅 admin 消费（`pixelThemes`，不进 mobile 选择器）：`pixel-neo`、`pixel-gb`、`pixel-crt`、`pixel-arcade`。
 
 每套主题在 `packages/theme/src/themes/` 下独立实现，通过 `satisfies ThemeDefinition` 校验，由 `themes/index.ts` 显式注册。主题是不可变配置数据，不使用 class。
+
+**深浅双模式**：每个主题都带浅/深两套色板。`colorScheme` 标记默认模式，`tokens` 是该模式的色板；另一模式放可选字段——浅色主题（`colorScheme:"light"`）放 `dark`，深色主题放 `light`。`createThemeCssVariables(theme, mode?)` 按模式取值，缺省 `mode` 时用默认模式（与既有单模式调用等价）。新增/修改主题时两套色板都要给。
 
 公开接口：
 
 ```ts
 import {
   createThemeCssVariables,
+  resolveThemeTokens,
   defaultThemeId,
   getTheme,
   isThemeId,
   themes,
+  type ThemeColorScheme,
   type ThemeDefinition,
   type ThemeId,
   type ThemeTokens,
@@ -47,7 +53,8 @@ import {
 - `defaultThemeId`：默认主题 `warm-workbench`。
 - `getTheme(themeId)`：读取闭集内主题。
 - `isThemeId(value)`：校验持久化或外部输入。
-- `createThemeCssVariables(theme)`：转换为稳定的 `--lb-*` CSS 变量映射。
+- `createThemeCssVariables(theme, mode?)`：按模式（`"light"`/`"dark"`，缺省为 `theme.colorScheme`）转换为稳定的 `--lb-*` CSS 变量映射。
+- `resolveThemeTokens(theme, mode?)`：取指定模式的色板，主题缺该变体时回退默认 `tokens`。
 
 `ThemeTokens` 仅包含跨端语义：页面/表面/文本/边线/强调色/状态色/阴影/圆角。业务布局、组件尺寸和 app 私有视觉不进入主题包。
 
@@ -63,6 +70,12 @@ import {
 - 主题切换不进入业务 store，不触发接口、导航、会话或认证操作。
 
 当前 mobile 样式栈为 TailwindCSS + `weapp-tailwindcss`（rem → rpx）。共享变量通过 `text-[var(--lb-text-primary)]` 等 utility 或 SCSS 中的 `var(--lb-*)` 消费。
+
+## 深浅模式（两端通用）
+
+- 模式是独立于主题的维度：`themeStore`/`theme-store` 各自持久化 `mode`（`litter_bear_theme_mode` / `litter_bear_admin_theme_mode`），切换不触发接口或导航。
+- 应用变量时把 mode 传给 `createThemeCssVariables(theme, mode)`；切换主题时 `mode` 跟随该主题默认 `colorScheme`，用户再用开关覆盖。
+- admin 顶栏有 ☀/🌙 开关（`toggleMode`），并把当前模式写到 `<html data-theme-mode>`；mobile 已接入 store，切换 UI 待补到「我的 → 主题」。
 
 ## 共享 UI 状态
 

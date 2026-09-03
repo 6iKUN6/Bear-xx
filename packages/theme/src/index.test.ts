@@ -5,6 +5,7 @@ import {
   defaultThemeId,
   getTheme,
   isThemeId,
+  resolveThemeTokens,
   themes,
 } from "./index.js";
 
@@ -38,4 +39,41 @@ test("maps the purple gradient theme to stable CSS variables", () => {
     "linear-gradient(135deg, #eef2ff, #f5ecff 52%, #fff0f6)",
   );
   assert.equal(variables["--lb-radius-md"], "1rem");
+});
+
+test("resolves the default tokens when no mode is given", () => {
+  const theme = getTheme("warm-workbench");
+  assert.equal(resolveThemeTokens(theme), theme.tokens);
+  assert.equal(resolveThemeTokens(theme, "light"), theme.tokens);
+});
+
+test("resolves the dark variant for light themes and vice versa", () => {
+  const light = getTheme("warm-workbench");
+  assert.equal(light.colorScheme, "light");
+  assert.equal(resolveThemeTokens(light, "dark"), light.dark);
+
+  const dark = getTheme("mono-tool");
+  assert.equal(dark.colorScheme, "dark");
+  assert.equal(resolveThemeTokens(dark, "light"), dark.light);
+});
+
+test("maps the dark variant to CSS variables when mode is dark", () => {
+  const theme = getTheme("warm-workbench");
+  const darkVars = createThemeCssVariables(theme, "dark");
+  assert.equal(darkVars["--lb-page-background"], "#1c1815");
+  // 默认模式不受影响
+  const lightVars = createThemeCssVariables(theme);
+  assert.equal(lightVars["--lb-page-background"], "#f2f3f5");
+});
+
+test("every theme ships both light and dark palettes", () => {
+  for (const theme of themes) {
+    const variant = theme.colorScheme === "light" ? theme.dark : theme.light;
+    assert.ok(
+      variant,
+      `${theme.id} 缺少 ${theme.colorScheme === "light" ? "dark" : "light"} 变体`,
+    );
+    // 变体应是另一模式的完整色板：页面底色应与默认模式不同
+    assert.notEqual(variant.pageBackground, theme.tokens.pageBackground);
+  }
 });

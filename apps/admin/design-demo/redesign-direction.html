@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>办伴管理后台 · 界面方向预览 v2</title>
+<!--
+  Admin UI 重设计方向预览 v2（静态原型，非实现代码）。
+  相对 v1 的调整（按评审反馈）：
+   - 保留顶部导航栏（去掉左右翻页按钮，改为分组换行）；
+   - 全局 ☀/🌙 深浅模式切换（每主题深浅两式的方向示意；浅色主题的深色配色为演示值，正式调色板在主题双模式阶段单独设计）；
+   - 实体列表改 grid 小卡片（示例：智能体列表）；数据明细仍用表格；
+   - 令牌对齐 --lb-*，8 套主题现场切换；像素主题暂按现状沿用。
+-->
+<style>
+  /* ============ 主题令牌（浅色 = packages/theme 实值；深色 = 方向性示意） ============ */
+  :root{
+    --lb-page-background:#f2f3f5; --lb-surface:#ffffff; --lb-surface-strong:#ffffff;
+    --lb-surface-muted:#f8f6f3; --lb-surface-hover:#f0ece7;
+    --lb-line-soft:#e8e3de; --lb-line-strong:#c7beb5;
+    --lb-text-primary:#29231f; --lb-text-secondary:#6d655e; --lb-text-muted:#918981;
+    --lb-accent:#b65f16; --lb-accent-strong:#93490f; --lb-accent-soft:#f7e5d2; --lb-accent-ink:#71370c;
+    --lb-on-accent:#ffffff;
+    --lb-success:#347747; --lb-success-soft:#e6f3e8; --lb-info:#3f6f9f; --lb-info-soft:#eaf1f8;
+    --lb-warning:#ad7812; --lb-warning-soft:#fbf1d7; --lb-danger:#c23d35; --lb-danger-soft:#fbe9e7;
+    --lb-shadow-card:0 .25rem .875rem rgba(58,45,35,.055);
+    --lb-radius-sm:.375rem; --lb-radius-md:.5rem;
+    color-scheme:light;
+  }
+  [data-theme="warm-workbench"][data-mode="dark"]{ color-scheme:dark;
+    --lb-page-background:#1c1815; --lb-surface:#262019; --lb-surface-strong:#2e2720;
+    --lb-surface-muted:#221c17; --lb-surface-hover:#38302a;
+    --lb-line-soft:#3d332a; --lb-line-strong:#5a4c3e;
+    --lb-text-primary:#f0e9e2; --lb-text-secondary:#b9aca0; --lb-text-muted:#8a7d70;
+    --lb-accent:#e0915a; --lb-accent-strong:#c97a3f; --lb-accent-soft:#3d2c1c; --lb-accent-ink:#f5c99a;
+    --lb-on-accent:#241a10;
+    --lb-success:#6fb483; --lb-success-soft:#223324; --lb-info:#7aa6cf; --lb-info-soft:#22303c;
+    --lb-warning:#d3a54a; --lb-warning-soft:#3a2f16; --lb-danger:#e07b71; --lb-danger-soft:#3d2320;
+    --lb-shadow-card:0 .25rem .875rem rgba(0,0,0,.3);
+  }
+  [data-theme="mono-tool"]{ color-scheme:dark;
+    --lb-page-background:#1a1b1d; --lb-surface:#242527; --lb-surface-strong:#2e3033;
+    --lb-surface-muted:#202123; --lb-surface-hover:#35373a;
+    --lb-line-soft:#3d3f43; --lb-line-strong:#575a60;
+    --lb-text-primary:#e9eaec; --lb-text-secondary:#b0b2b6; --lb-text-muted:#82858b;
+    --lb-accent:#dadddf; --lb-accent-strong:#c3c6c9; --lb-accent-soft:#383a3e; --lb-accent-ink:#f2f3f4;
+    --lb-on-accent:#252629;
+    --lb-success:#78b88c; --lb-success-soft:#233b2b; --lb-info:#75a9d5; --lb-info-soft:#233545;
+    --lb-warning:#d5b660; --lb-warning-soft:#40381f; --lb-danger:#df817b; --lb-danger-soft:#452725;
+    --lb-shadow-card:0 0 0 transparent;
+  }
+  [data-theme="mono-tool"][data-mode="light"]{ color-scheme:light;
+    --lb-page-background:#f5f5f6; --lb-surface:#ffffff; --lb-surface-strong:#ffffff;
+    --lb-surface-muted:#f0f0f1; --lb-surface-hover:#e7e7e9;
+    --lb-line-soft:#e0e0e2; --lb-line-strong:#c4c4c8;
+    --lb-text-primary:#1b1c1e; --lb-text-secondary:#5a5c60; --lb-text-muted:#86888d;
+    --lb-accent:#232425; --lb-accent-strong:#000000; --lb-accent-soft:#e2e2e4; --lb-accent-ink:#1b1c1e;
+    --lb-on-accent:#ffffff;
+    --lb-success:#2f7a4a; --lb-success-soft:#e2f2e7; --lb-info:#2f6fb0; --lb-info-soft:#e3eefb;
+    --lb-warning:#a97a12; --lb-warning-soft:#f8efd4; --lb-danger:#c0432c; --lb-danger-soft:#fbe5e1;
+    --lb-shadow-card:0 .25rem .875rem rgba(0,0,0,.06);
+  }
+  [data-theme="soft-companion"]{ color-scheme:light;
+    --lb-page-background:#f7f7fa; --lb-surface:#ffffff; --lb-surface-strong:#ffffff;
+    --lb-surface-muted:#f6f3f7; --lb-surface-hover:#eee7f0;
+    --lb-line-soft:#e7d7de; --lb-line-strong:#c99cab;
+    --lb-text-primary:#3a2831; --lb-text-secondary:#735f68; --lb-text-muted:#9a808c;
+    --lb-accent:#d84e68; --lb-accent-strong:#b83a54; --lb-accent-soft:#f8dce4; --lb-accent-ink:#8c233d;
+    --lb-on-accent:#ffffff;
+    --lb-success:#3f8c59; --lb-success-soft:#e1f3e6; --lb-info:#4f7fd4; --lb-info-soft:#e7eefb;
+    --lb-warning:#c99622; --lb-warning-soft:#fbf0d3; --lb-danger:#c83f4d; --lb-danger-soft:#fae5e8;
+    --lb-shadow-card:0 .375rem 1rem rgba(91,56,73,.075);
+  }
+  [data-theme="soft-companion"][data-mode="dark"]{ color-scheme:dark;
+    --lb-page-background:#231a20; --lb-surface:#2d2229; --lb-surface-strong:#372932;
+    --lb-surface-muted:#281e24; --lb-surface-hover:#3e2f39;
+    --lb-line-soft:#463540; --lb-line-strong:#6b4a58;
+    --lb-text-primary:#f3e6ec; --lb-text-secondary:#c3aab4; --lb-text-muted:#957e88;
+    --lb-accent:#f07e95; --lb-accent-strong:#d85a74; --lb-accent-soft:#43222c; --lb-accent-ink:#ffc4d0;
+    --lb-on-accent:#33101b;
+    --lb-success:#6fb587; --lb-success-soft:#243528; --lb-info:#86a8e0; --lb-info-soft:#253145;
+    --lb-warning:#d8ab4e; --lb-warning-soft:#3a2f18; --lb-danger:#e87b87; --lb-danger-soft:#402227;
+    --lb-shadow-card:0 .375rem 1rem rgba(0,0,0,.32);
+  }
+  [data-theme="purple-gradient"]{ color-scheme:light;
+    --lb-page-background:#f5ecff; --lb-surface:#ffffff; --lb-surface-strong:#ffffff;
+    --lb-surface-muted:rgba(255,255,255,.62); --lb-surface-hover:rgba(237,233,254,.82);
+    --lb-line-soft:rgba(196,181,253,.3); --lb-line-strong:rgba(124,58,237,.34);
+    --lb-text-primary:#111827; --lb-text-secondary:#6b7280; --lb-text-muted:#9ca3af;
+    --lb-accent:#7c3aed; --lb-accent-strong:#6d28d9; --lb-accent-soft:#f3e8ff; --lb-accent-ink:#6d28d9;
+    --lb-on-accent:#ffffff;
+    --lb-success:#15803d; --lb-success-soft:#dcfce7; --lb-info:#4f46e5; --lb-info-soft:#eef2ff;
+    --lb-warning:#f59e0b; --lb-warning-soft:#fffbeb; --lb-danger:#dc2626; --lb-danger-soft:#fef2f2;
+    --lb-shadow-card:0 .5rem 1.5rem rgba(124,58,237,.1);
+    --lb-radius-sm:.75rem; --lb-radius-md:1rem;
+  }
+  [data-theme="purple-gradient"][data-mode="dark"]{ color-scheme:dark;
+    --lb-page-background:#17111f; --lb-surface:#211a2e; --lb-surface-strong:#2a2138;
+    --lb-surface-muted:#1d1626; --lb-surface-hover:#322847;
+    --lb-line-soft:#3a2d52; --lb-line-strong:#5b4480;
+    --lb-text-primary:#ece6f7; --lb-text-secondary:#b0a3c8; --lb-text-muted:#7e7096;
+    --lb-accent:#a78bfa; --lb-accent-strong:#8b5cf6; --lb-accent-soft:#31204a; --lb-accent-ink:#d6c6ff;
+    --lb-on-accent:#1d1030;
+    --lb-success:#5fb877; --lb-success-soft:#1f3020; --lb-info:#8b8ef0; --lb-info-soft:#252a45;
+    --lb-warning:#e0aa3e; --lb-warning-soft:#35291a; --lb-danger:#ef6a6a; --lb-danger-soft:#3a1f1f;
+    --lb-shadow-card:0 .5rem 1.5rem rgba(0,0,0,.35);
+  }
+  /* 像素主题沿用现状（深色值），light 模式给方向性演示 */
+  [data-theme="pixel-gb"]{ color-scheme:dark;
+    --lb-page-background:#0f380f; --lb-surface:#306230; --lb-surface-strong:#3a7a3a; --lb-surface-muted:#265226; --lb-surface-hover:#3a7a3a;
+    --lb-line-soft:#e0f8d0; --lb-line-strong:#e0f8d0; --lb-text-primary:#9bbc0f; --lb-text-secondary:#8bac0f; --lb-text-muted:#6b8c0a;
+    --lb-accent:#e0f8d0; --lb-accent-strong:#c8e8b0; --lb-accent-soft:#265226; --lb-accent-ink:#0f380f; --lb-on-accent:#0f380f;
+    --lb-success:#9bbc0f; --lb-success-soft:#265226; --lb-info:#8bac0f; --lb-info-soft:#265226; --lb-warning:#e0f8d0; --lb-warning-soft:#265226; --lb-danger:#8bac0f; --lb-danger-soft:#265226;
+    --lb-shadow-card:4px 4px 0 #000; --lb-radius-sm:0; --lb-radius-md:0;
+  }
+  [data-theme="pixel-crt"]{ color-scheme:dark;
+    --lb-page-background:#050a05; --lb-surface:#0a140a; --lb-surface-strong:#0e1c0e; --lb-surface-muted:#081008; --lb-surface-hover:#123012;
+    --lb-line-soft:#1f7a33; --lb-line-strong:#33ff66; --lb-text-primary:#33ff66; --lb-text-secondary:#1f9944; --lb-text-muted:#177a33;
+    --lb-accent:#33ff66; --lb-accent-strong:#2be05a; --lb-accent-soft:#0e2814; --lb-accent-ink:#050a05; --lb-on-accent:#050a05;
+    --lb-success:#33ff66; --lb-success-soft:#0e2814; --lb-info:#33ff66; --lb-info-soft:#0e2814; --lb-warning:#ffb000; --lb-warning-soft:#2a1f00; --lb-danger:#ffb000; --lb-danger-soft:#2a1f00;
+    --lb-shadow-card:0 0 0 transparent; --lb-radius-sm:0; --lb-radius-md:0;
+  }
+  [data-theme="pixel-neo"]{ color-scheme:light;
+    --lb-page-background:#f4f1e8; --lb-surface:#ffffff; --lb-surface-strong:#ffffff; --lb-surface-muted:#efeadd; --lb-surface-hover:#e7e0cf;
+    --lb-line-soft:#1a1a2e; --lb-line-strong:#1a1a2e; --lb-text-primary:#1a1a2e; --lb-text-secondary:#4a4a63; --lb-text-muted:#6b6b7b;
+    --lb-accent:#ff5277; --lb-accent-strong:#e03a5f; --lb-accent-soft:#ffe0e8; --lb-accent-ink:#1a1a2e; --lb-on-accent:#ffffff;
+    --lb-success:#3bb273; --lb-success-soft:#dff5e8; --lb-info:#4d9de0; --lb-info-soft:#e0eefb; --lb-warning:#e1a730; --lb-warning-soft:#fbefd5; --lb-danger:#ff5277; --lb-danger-soft:#ffe0e8;
+    --lb-shadow-card:5px 5px 0 #1a1a2e; --lb-radius-sm:0; --lb-radius-md:0;
+  }
+  [data-theme="pixel-arcade"]{ color-scheme:dark;
+    --lb-page-background:#14122b; --lb-surface:#1e1b3a; --lb-surface-strong:#26224a; --lb-surface-muted:#100e22; --lb-surface-hover:#2a2656;
+    --lb-line-soft:#3a3468; --lb-line-strong:#22d3ee; --lb-text-primary:#f5f3ff; --lb-text-secondary:#b3aee0; --lb-text-muted:#8b86c0;
+    --lb-accent:#ff4fa3; --lb-accent-strong:#e63a8c; --lb-accent-soft:#2a1030; --lb-accent-ink:#f5f3ff; --lb-on-accent:#14122b;
+    --lb-success:#6ee752; --lb-success-soft:#16301a; --lb-info:#22d3ee; --lb-info-soft:#0c2b33; --lb-warning:#ffd23f; --lb-warning-soft:#312a0c; --lb-danger:#ff4fa3; --lb-danger-soft:#2a1030;
+    --lb-shadow-card:5px 5px 0 #000; --lb-radius-sm:0; --lb-radius-md:0;
+  }
+
+  /* ============ 基础 ============ */
+  *{ box-sizing:border-box; margin:0; }
+  html,body{ height:100%; }
+  body{
+    background:var(--lb-page-background); color:var(--lb-text-primary);
+    font-family:"PingFang SC","Hiragino Sans GB","Helvetica Neue",Arial,sans-serif;
+    font-size:13px; line-height:1.5; -webkit-font-smoothing:antialiased;
+    transition:background .25s,color .25s;
+  }
+  :focus-visible{ outline:2px solid var(--lb-accent); outline-offset:2px; }
+  button{ font:inherit; color:inherit; cursor:pointer; background:none; border:0; }
+
+  /* 定制滚动条 */
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:var(--lb-line-strong); border-radius:6px; border:2px solid var(--lb-page-background); }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--lb-text-muted); }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  *{ scrollbar-width:thin; scrollbar-color:var(--lb-line-strong) transparent; }
+
+  .num{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum"; }
+
+  /* ============ 顶部导航（保留，去掉翻页，分组换行） ============ */
+  .topbar{
+    position:sticky; top:0; z-index:20;
+    background:var(--lb-surface); border-bottom:1px solid var(--lb-line-soft);
+  }
+  .topbar-row{ display:flex; align-items:center; gap:16px; padding:0 20px; height:52px; }
+  .brand{ display:flex; align-items:center; gap:9px; flex-shrink:0; }
+  .brand .logo{ width:26px; height:26px; border-radius:var(--lb-radius-sm); background:var(--lb-accent); color:var(--lb-on-accent); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; }
+  .brand .name{ font-weight:600; font-size:14px; white-space:nowrap; }
+  .mainnav{ display:flex; align-items:center; gap:2px; flex-wrap:wrap; flex:1; min-width:0; }
+  .nav-item{ display:flex; align-items:center; gap:6px; padding:5px 10px; border-radius:var(--lb-radius-sm); font-size:13px; color:var(--lb-text-secondary); white-space:nowrap; transition:background .15s,color .15s; }
+  .nav-item:hover{ background:var(--lb-surface-hover); color:var(--lb-text-primary); }
+  .nav-item.active{ background:var(--lb-accent-soft); color:var(--lb-accent-ink); font-weight:600; }
+  .nav-item .ico{ width:15px; height:15px; opacity:.85; }
+  .nav-sep{ width:1px; height:18px; background:var(--lb-line-soft); margin:0 6px; flex-shrink:0; }
+  .topbar-right{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+
+  .icon-btn{ width:32px; height:32px; border-radius:var(--lb-radius-sm); display:flex; align-items:center; justify-content:center; color:var(--lb-text-secondary); border:1px solid var(--lb-line-soft); transition:background .15s,color .15s; }
+  .icon-btn:hover{ background:var(--lb-surface-hover); color:var(--lb-text-primary); }
+  .icon-btn .ico{ width:16px; height:16px; }
+
+  .select{ appearance:none; border:1px solid var(--lb-line-soft); background:var(--lb-surface); color:var(--lb-text-primary); border-radius:var(--lb-radius-sm); padding:5px 24px 5px 9px; font-size:12px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 7px center; }
+
+  .content{ padding:20px; max-width:1280px; margin:0 auto; width:100%; }
+  .page-head{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .page-head h1{ font-size:17px; font-weight:600; }
+  .page-head .spacer{ flex:1; }
+
+  /* ============ 实体列表 → grid 小卡片（示例：智能体） ============ */
+  .card-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px; }
+  .entity-card{
+    background:var(--lb-surface); border:1px solid var(--lb-line-soft); border-radius:var(--lb-radius-md);
+    box-shadow:var(--lb-shadow-card); padding:14px; transition:transform .15s,border-color .15s;
+  }
+  .entity-card:hover{ border-color:var(--lb-line-strong); transform:translateY(-1px); }
+  .entity-top{ display:flex; align-items:center; gap:10px; }
+  .avatar{ width:36px; height:36px; border-radius:var(--lb-radius-sm); display:flex; align-items:center; justify-content:center; font-weight:600; font-size:15px; color:var(--lb-on-accent); flex-shrink:0; }
+  .entity-name{ font-weight:600; font-size:13px; }
+  .entity-id{ font-size:11px; color:var(--lb-text-muted); font-family:ui-monospace,monospace; }
+  .entity-desc{ font-size:12px; color:var(--lb-text-secondary); margin:10px 0; min-height:32px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .entity-meta{ display:flex; align-items:center; justify-content:space-between; }
+  .entity-stats{ font-size:11px; color:var(--lb-text-muted); }
+
+  .badge{ display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:99px; font-size:11px; font-weight:600; }
+  .badge::before{ content:""; width:5px; height:5px; border-radius:99px; background:currentColor; }
+  .b-success{ background:var(--lb-success-soft); color:var(--lb-success); }
+  .b-danger{ background:var(--lb-danger-soft); color:var(--lb-danger); }
+  .b-warn{ background:var(--lb-warning-soft); color:var(--lb-warning); }
+  .b-info{ background:var(--lb-info-soft); color:var(--lb-info); }
+  .b-muted{ background:var(--lb-surface-muted); color:var(--lb-text-secondary); }
+
+  .btn{ border:1px solid var(--lb-line-soft); background:var(--lb-surface); border-radius:var(--lb-radius-sm); padding:6px 12px; font-size:12px; transition:background .15s; }
+  .btn:hover{ background:var(--lb-surface-hover); }
+  .btn-primary{ background:var(--lb-accent); border-color:var(--lb-accent); color:var(--lb-on-accent); }
+  .btn-primary:hover{ background:var(--lb-accent-strong); }
+  .btn-danger{ background:var(--lb-danger); border-color:var(--lb-danger); color:var(--lb-on-accent); }
+
+  /* 确认弹窗 */
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.42); z-index:50; display:none; align-items:center; justify-content:center; padding:20px; }
+  .overlay.open{ display:flex; }
+  .dialog{ background:var(--lb-surface); border:1px solid var(--lb-line-soft); border-radius:var(--lb-radius-md); box-shadow:var(--lb-shadow-card); width:400px; max-width:100%; padding:20px; }
+  .dialog h3{ font-size:14px; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .dialog .desc{ font-size:13px; color:var(--lb-text-secondary); margin:10px 0 18px; line-height:1.6; }
+  .dialog .actions{ display:flex; justify-content:flex-end; gap:8px; }
+  .warn-ico{ color:var(--lb-danger); flex-shrink:0; width:18px; height:18px; }
+
+  .note{ margin-top:18px; padding:10px 14px; font-size:12px; color:var(--lb-text-secondary); background:var(--lb-info-soft); border:1px solid var(--lb-line-soft); border-radius:var(--lb-radius-sm); }
+  .note code{ background:var(--lb-surface-muted); padding:0 4px; border-radius:3px; }
+
+  /* 像素主题强化 */
+  [data-theme^="pixel"] .entity-card, [data-theme^="pixel"] .dialog, [data-theme^="pixel"] .btn,
+  [data-theme^="pixel"] .select, [data-theme^="pixel"] .icon-btn, [data-theme^="pixel"] .avatar{
+    border:2px solid var(--lb-line-strong) !important; box-shadow:var(--lb-shadow-card);
+  }
+  @media (max-width:760px){ .brand .name{display:none} .card-grid{grid-template-columns:1fr 1fr} }
+</style>
+</head>
+<body data-theme="warm-workbench" data-mode="light">
+
+<!-- 顶部导航：保留，去掉翻页按钮，分组 + 换行 -->
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="brand"><div class="logo">办</div><div class="name">办伴管理后台</div></div>
+    <nav class="mainnav" aria-label="主导航">
+      <button class="nav-item active"><span class="ico" data-ico="dash"></span>概览</button>
+      <button class="nav-item"><span class="ico" data-ico="task"></span>任务</button>
+      <button class="nav-item"><span class="ico" data-ico="err"></span>错误</button>
+      <span class="nav-sep"></span>
+      <button class="nav-item"><span class="ico" data-ico="agent"></span>智能体</button>
+      <button class="nav-item"><span class="ico" data-ico="flow"></span>Flow</button>
+      <button class="nav-item"><span class="ico" data-ico="tool"></span>工具</button>
+      <span class="nav-sep"></span>
+      <button class="nav-item"><span class="ico" data-ico="model"></span>模型</button>
+      <button class="nav-item"><span class="ico" data-ico="user"></span>用户</button>
+      <button class="nav-item"><span class="ico" data-ico="res"></span>资源</button>
+      <button class="nav-item"><span class="ico" data-ico="debug"></span>调试</button>
+    </nav>
+    <div class="topbar-right">
+      <select class="select"><option>近 7 天</option><option>近 30 天</option></select>
+      <select class="select" id="themeSel">
+        <optgroup label="常规">
+          <option value="warm-workbench">A · 暖色</option>
+          <option value="mono-tool">B · 黑白</option>
+          <option value="soft-companion">C · 柔粉</option>
+          <option value="purple-gradient">D · 紫渐变</option>
+        </optgroup>
+        <optgroup label="像素">
+          <option value="pixel-gb">掌机绿</option>
+          <option value="pixel-crt">终端绿</option>
+          <option value="pixel-neo">新拟态</option>
+          <option value="pixel-arcade">街机霓虹</option>
+        </optgroup>
+      </select>
+      <!-- 全局深浅模式开关（每主题深浅两式） -->
+      <button class="icon-btn" id="modeBtn" title="切换深色/浅色" aria-label="切换深色或浅色模式"><span class="ico" data-ico="moon"></span></button>
+      <button class="icon-btn" title="退出登录" aria-label="退出登录"><span class="ico" data-ico="out"></span></button>
+    </div>
+  </div>
+</header>
+
+<main class="content">
+  <div class="page-head">
+    <h1>智能体</h1>
+    <span class="badge b-muted num">共 6 个</span>
+    <div class="spacer"></div>
+    <button class="btn" onclick="document.getElementById('ov').classList.add('open')">演示确认弹窗</button>
+    <button class="btn btn-primary">新建智能体</button>
+  </div>
+
+  <!-- 实体列表：grid 小卡片 -->
+  <div class="card-grid">
+    <div class="entity-card">
+      <div class="entity-top">
+        <div class="avatar" style="background:var(--lb-accent)">通</div>
+        <div><div class="entity-name">通用助手</div><div class="entity-id">general</div></div>
+      </div>
+      <p class="entity-desc">默认回复智能体，处理未匹配到专属智能体的对话与通用任务。</p>
+      <div class="entity-meta"><span class="badge b-success">默认</span><span class="entity-stats num">512 任务 · 96%</span></div>
+    </div>
+    <div class="entity-card">
+      <div class="entity-top">
+        <div class="avatar" style="background:var(--lb-info)">绘</div>
+        <div><div class="entity-name">绘图专员</div><div class="entity-id">artist</div></div>
+      </div>
+      <p class="entity-desc">负责图片生成与风格化处理，绑定 image_generate 工具集。</p>
+      <div class="entity-meta"><span class="badge b-info">已发布</span><span class="entity-stats num">318 任务 · 91%</span></div>
+    </div>
+    <div class="entity-card">
+      <div class="entity-top">
+        <div class="avatar" style="background:var(--lb-warning)">运</div>
+        <div><div class="entity-name">运营助手</div><div class="entity-id">ops</div></div>
+      </div>
+      <p class="entity-desc">批量操作与外部写入类任务，全部走审批门禁。</p>
+      <div class="entity-meta"><span class="badge b-warn">待确认 3</span><span class="entity-stats num">96 任务 · 88%</span></div>
+    </div>
+    <div class="entity-card">
+      <div class="entity-top">
+        <div class="avatar" style="background:var(--lb-success)">检</div>
+        <div><div class="entity-name">巡检助手</div><div class="entity-id">inspector</div></div>
+      </div>
+      <p class="entity-desc">定时拉取日志与指标，产出健康度报告。</p>
+      <div class="entity-meta"><span class="badge b-info">已发布</span><span class="entity-stats num">204 任务 · 98%</span></div>
+    </div>
+    <div class="entity-card">
+      <div class="entity-top">
+        <div class="avatar" style="background:var(--lb-danger)">客</div>
+        <div><div class="entity-name">客服接待</div><div class="entity-id">support</div></div>
+      </div>
+      <p class="entity-desc">草稿中，尚未绑定 Flow 版本，暂不可用于会话。</p>
+      <div class="entity-meta"><span class="badge b-danger">未发布</span><span class="entity-stats num">0 任务</span></div>
+    </div>
+    <div class="entity-card">
+      <div class="entity-top">
+        <div class="avatar" style="background:var(--lb-text-muted)">研</div>
+        <div><div class="entity-name">研究助理</div><div class="entity-id">researcher</div></div>
+      </div>
+      <p class="entity-desc">检索与综述，擅长多来源资料整理。</p>
+      <div class="entity-meta"><span class="badge b-info">已发布</span><span class="entity-stats num">154 任务 · 93%</span></div>
+    </div>
+  </div>
+
+  <div class="note">
+    v2 调整：① 顶部导航保留，去掉左右翻页，改分组换行；② 顶栏右侧加 ☀/🌙 全局深浅模式开关，每主题深浅两式（浅色主题的深色配色为<strong>方向示意</strong>，正式调色板在主题双模式阶段单独设计）；③ 实体列表改 grid 小卡片（错误/日志等明细仍用表格）；④ 确认弹窗替代 <code>window.confirm</code>。试着切主题 + 切深浅，看组合效果。
+  </div>
+</main>
+
+<div class="overlay" id="ov" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dialog">
+    <h3><span class="warn-ico" data-ico="warn"></span><span id="dlgTitle">删除「客服接待」？</span></h3>
+    <p class="desc">该智能体为草稿，删除后不可恢复。已发布的任务历史保留。</p>
+    <div class="actions">
+      <button class="btn" onclick="document.getElementById('ov').classList.remove('open')">取消</button>
+      <button class="btn btn-danger" onclick="document.getElementById('ov').classList.remove('open')">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ICONS = {
+    dash:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    task:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+    err:'<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+    agent:'<circle cx="12" cy="8" r="4"/><path d="M6 21v-1a6 6 0 0 1 12 0v1"/>',
+    flow:'<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a3 3 0 0 0 3 3h6"/>',
+    tool:'<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.1-2.1z"/>',
+    model:'<path d="M12 2 2 7l10 5 10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+    user:'<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/>',
+    res:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+    debug:'<path d="M12 20c-3.3 0-6-2.7-6-6v-3a6 6 0 0 1 12 0v3c0 3.3-2.7 6-6 6z"/>',
+    out:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    warn:'<path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/>',
+    moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+    sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+  };
+  function paintIcons(){
+    document.querySelectorAll('[data-ico]').forEach(el=>{
+      const n=el.getAttribute('data-ico');
+      el.innerHTML=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:100%;height:100%">${ICONS[n]||''}</svg>`;
+    });
+  }
+  paintIcons();
+
+  // 主题切换
+  document.getElementById('themeSel').addEventListener('change',e=>{
+    document.body.dataset.theme=e.target.value;
+  });
+
+  // 深浅模式切换（每主题深浅两式）
+  const modeBtn=document.getElementById('modeBtn');
+  modeBtn.addEventListener('click',()=>{
+    const b=document.body;
+    b.dataset.mode = b.dataset.mode==='dark' ? 'light' : 'dark';
+    modeBtn.querySelector('.ico').setAttribute('data-ico', b.dataset.mode==='dark' ? 'sun' : 'moon');
+    paintIcons();
+  });
+
+  // 导航激活态（纯预览）
+  document.querySelectorAll('.mainnav .nav-item').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.mainnav .nav-item').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+  }));
+
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') document.getElementById('ov').classList.remove('open'); });
+  document.getElementById('ov').addEventListener('click',e=>{ if(e.target.id==='ov') e.target.classList.remove('open'); });
+</script>
+</body>
+</html>

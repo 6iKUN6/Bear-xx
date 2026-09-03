@@ -46,6 +46,7 @@ import {
   storageUsageName,
 } from "@/lib/storage-meta";
 import { cn } from "@/lib/utils";
+import { confirm } from "@/components/confirm-dialog";
 
 const PAGE_SIZE = 24;
 
@@ -96,7 +97,10 @@ export function ResourcesPage() {
   ) => {
     if (
       nextStatus === "DELETED" &&
-      !window.confirm(`确定将「${storageAssetDisplayName(asset)}」移入已删除？`)
+      !(await confirm({
+        description: `确定将「${storageAssetDisplayName(asset)}」移入已删除？`,
+        danger: true,
+      }))
     ) {
       return;
     }

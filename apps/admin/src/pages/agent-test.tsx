@@ -9,6 +9,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { confirm } from "@/components/confirm-dialog";
 import {
   StreamTaskEventType,
   getStreamTaskEventLabel,
@@ -108,7 +109,7 @@ export function AgentTestPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm("确定删除该测试会话？")) return;
+    if (!(await confirm({ description: "确定删除该测试会话？", danger: true }))) return;
     await deleteSession.mutateAsync(id);
     if (activeId === id) selectSession(null);
     toast.success("已删除");

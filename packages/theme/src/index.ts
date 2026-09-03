@@ -1,5 +1,6 @@
 export {
   createThemeCssVariables,
+  resolveThemeTokens,
   type ThemeCssVariableName,
   type ThemeCssVariables,
 } from "./css-variables.js";
