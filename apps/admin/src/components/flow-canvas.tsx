@@ -16,6 +16,14 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { AlertTriangle, Trash2 } from "lucide-react";
+import { AnimateIcon } from "@/components/animate-ui/icons/icon";
+import { Play } from "@/components/animate-ui/icons/play";
+import { Bot } from "@/components/animate-ui/icons/bot";
+import { ClipboardList } from "@/components/animate-ui/icons/clipboard-list";
+import { User } from "@/components/animate-ui/icons/user";
+import { RefreshCw } from "@/components/animate-ui/icons/refresh-cw";
+import { RotateCw } from "@/components/animate-ui/icons/rotate-cw";
+import { CircleCheck } from "@/components/animate-ui/icons/circle-check";
 import type { FlowNodeType } from "@litter-bear/types/agent-flow";
 import { cn } from "@/lib/utils";
 import {
@@ -43,14 +51,30 @@ interface FlowNodeData extends Record<string, unknown> {
  * @description 颜色只用语义 token，不写具体色值。分支节点用左右把手，与普通节点一致：
  * 分支由边上的标签表达，不靠多个把手——把手数量会随 case 增删变化，位置也会跳。
  */
+/** 有 animate-ui 动态图标版本的节点类型；其余类型回退到 NODE_TYPE_ICONS 的静态 lucide 图标。 */
+const NODE_TYPE_ANIMATED_ICONS: Partial<
+  Record<FlowNodeType, React.ComponentType<{ size?: number; className?: string }>>
+> = {
+  start: Play,
+  end: CircleCheck,
+  agent: Bot,
+  plan: ClipboardList,
+  approval: User,
+  loop: RefreshCw,
+  "plan-loop": RotateCw,
+};
+
 function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
   const meta = nodeTypeMeta(data.nodeType);
   const Icon = NODE_TYPE_ICONS[data.nodeType];
+  const AnimatedIcon = NODE_TYPE_ANIMATED_ICONS[data.nodeType];
   return (
     <div
       className={cn(
-        "relative min-w-[168px] rounded-md border bg-background px-3 py-2 shadow-sm transition-colors",
-        data.selected ? "border-primary ring-1 ring-primary" : "border-border",
+        "relative min-w-[168px] rounded-md border bg-background px-3 py-2 transition-all duration-200",
+        data.selected
+          ? "border-primary shadow-[0_0_0_3px_var(--lb-accent-soft),0_0_16px_var(--lb-accent-soft)]"
+          : "border-border shadow-sm",
       )}
       title={meta.desc}
     >
@@ -68,10 +92,31 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
           </span>
         </>
       ) : (
-        <Handle type="target" position={Position.Left} />
+        <Handle
+          type="target"
+          position={Position.Left}
+          className={cn(data.selected && "!bg-primary")}
+        />
       )}
       <div className="flex items-center gap-1.5">
-        {Icon ? <Icon className="h-3.5 w-3.5 text-muted-foreground" /> : null}
+        {AnimatedIcon ? (
+          <AnimateIcon animate={data.selected ? "path-loop" : false} loop>
+            <AnimatedIcon
+              size={14}
+              className={cn(
+                "transition-colors",
+                data.selected ? "text-primary" : "text-muted-foreground",
+              )}
+            />
+          </AnimateIcon>
+        ) : Icon ? (
+          <Icon
+            className={cn(
+              "h-3.5 w-3.5 transition-colors",
+              data.selected ? "text-primary" : "text-muted-foreground",
+            )}
+          />
+        ) : null}
         <span className="text-sm font-medium text-foreground">
           {data.nodeName || data.nodeId}
         </span>
@@ -109,7 +154,12 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
           </span>
         </>
       ) : (
-        <Handle id="default" type="source" position={Position.Right} />
+        <Handle
+          id="default"
+          type="source"
+          position={Position.Right}
+          className={cn(data.selected && "!bg-primary")}
+        />
       )}
     </div>
   );
@@ -238,20 +288,31 @@ function FlowCanvasInner({
     void fitView({ padding: 0.18, duration: 180 });
   }, [fitView, fitViewKey, graph, nodesInitialized]);
 
+  // 与选中节点相连的输入/输出边：整条流动（animated 的流动点）+ 主题色描边高光。
+  // 选中态在渲染期贴上，不进状态，理由同节点 selected。
   const edges = useMemo<Edge[]>(
     () =>
-      (graph?.edges ?? []).map((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        sourceHandle: edge.sourceHandle,
-        targetHandle: edge.targetHandle,
-        label: edge.label || undefined,
-        type: edge.targetHandle === "loop-return" ? "smoothstep" : undefined,
-        animated: edge.targetHandle === "loop-return",
-        deletable: editable,
-      })),
-    [graph, editable],
+      (graph?.edges ?? []).map((edge) => {
+        const connectedToSelection =
+          !!selectedNodeId &&
+          (edge.source === selectedNodeId || edge.target === selectedNodeId);
+        const isLoopReturn = edge.targetHandle === "loop-return";
+        return {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle,
+          targetHandle: edge.targetHandle,
+          label: edge.label || undefined,
+          type: isLoopReturn ? "smoothstep" : undefined,
+          animated: isLoopReturn || connectedToSelection,
+          deletable: editable,
+          style: connectedToSelection
+            ? { stroke: "var(--lb-accent)", strokeWidth: 2 }
+            : undefined,
+        };
+      }),
+    [graph, editable, selectedNodeId],
   );
 
   if (!parsed.ok) {
