@@ -1,4 +1,8 @@
-import type { ThemeDefinition } from "./types.js";
+import type {
+  ThemeColorScheme,
+  ThemeDefinition,
+  ThemeTokens,
+} from "./types.js";
 
 const themeCssVariableNames = {
   pageBackground: "--lb-page-background",
@@ -38,10 +42,30 @@ export type ThemeCssVariableName =
 
 export type ThemeCssVariables = Readonly<Record<ThemeCssVariableName, string>>;
 
+/**
+ * 取指定模式下的色板。
+ * @param theme 主题定义
+ * @param mode 目标模式；缺省用主题的默认 `colorScheme`
+ * @returns 该模式的 token；主题未提供对应变体时回退到默认 `tokens`
+ * @description 浅色主题把深色板放 `dark`，深色主题把浅色板放 `light`；
+ * 取默认模式时直接返回 `tokens`，保持既有调用语义不变。
+ */
+export function resolveThemeTokens(
+  theme: ThemeDefinition,
+  mode?: ThemeColorScheme,
+): ThemeTokens {
+  const target = mode ?? theme.colorScheme;
+  if (target === theme.colorScheme) {
+    return theme.tokens;
+  }
+  return (target === "dark" ? theme.dark : theme.light) ?? theme.tokens;
+}
+
 export function createThemeCssVariables(
   theme: ThemeDefinition,
+  mode?: ThemeColorScheme,
 ): ThemeCssVariables {
-  const { tokens } = theme;
+  const tokens = resolveThemeTokens(theme, mode);
 
   return {
     "--lb-page-background": tokens.pageBackground,
