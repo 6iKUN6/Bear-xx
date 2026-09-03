@@ -3,6 +3,7 @@ export const STORAGE_KEYS = {
   USER_INFO: "litter_bear_user_info",
   CONVERSATIONS: "litter_bear_conversations",
   THEME: "litter_bear_theme",
+  THEME_MODE: "litter_bear_theme_mode",
   SELECTED_AGENT_ID: "litter_bear_selected_agent_id",
   AGENTS: "litter_bear_agents",
   PENDING_STREAM_TASKS: "litter_bear_pending_stream_tasks",

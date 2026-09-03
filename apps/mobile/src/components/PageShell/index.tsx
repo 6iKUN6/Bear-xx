@@ -13,7 +13,8 @@ export default function PageShell({
   className = "",
 }: PageShellProps) {
   const themeId = useThemeStore((state) => state.themeId);
-  const variables = createThemeCssVariables(getTheme(themeId));
+  const mode = useThemeStore((state) => state.mode);
+  const variables = createThemeCssVariables(getTheme(themeId), mode);
   const themeStyle = Object.entries(variables)
     .map(([name, value]) => `${name}:${value}`)
     .join(";");
