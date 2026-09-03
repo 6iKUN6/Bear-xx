@@ -835,6 +835,209 @@
         ]
       }
     },
+    "/api/admin/storage/upload-credential": {
+      "post": {
+        "operationId": "AdminStorageController_createUploadCredential",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminImageUploadCredentialDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminImageUploadCredentialResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "签发后台图片直传凭证",
+        "tags": [
+          "管理-图片资源"
+        ]
+      }
+    },
+    "/api/admin/storage/assets": {
+      "post": {
+        "operationId": "AdminStorageController_registerAsset",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRegisterImageAssetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStorageAssetDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "登记后台上传图片",
+        "tags": [
+          "管理-图片资源"
+        ]
+      },
+      "get": {
+        "operationId": "AdminStorageController_listAssets",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 24,
+              "type": "number"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "匹配原文件名或对象 key",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "usage",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "shared-image",
+                "agent-avatar",
+                "chat-image",
+                "ai-image"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "BROKEN",
+                "DELETED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStorageAssetPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页查询图片资源库",
+        "tags": [
+          "管理-图片资源"
+        ]
+      }
+    },
+    "/api/admin/storage/assets/{id}/status": {
+      "patch": {
+        "operationId": "AdminStorageController_updateAssetStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUpdateStorageAssetStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStorageAssetDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "软删除或恢复图片资源",
+        "tags": [
+          "管理-图片资源"
+        ]
+      }
+    },
     "/api/admin/observability/overview": {
       "get": {
         "operationId": "AdminController_overview",
@@ -1925,122 +2128,6 @@
           }
         ],
         "summary": "登记直传成功的资产",
-        "tags": [
-          "对象存储"
-        ]
-      },
-      "get": {
-        "description": "复用选择器数据源；默认只列 ACTIVE，按创建时间倒序。",
-        "operationId": "StorageController_listAssets",
-        "parameters": [
-          {
-            "name": "usage",
-            "required": false,
-            "in": "query",
-            "description": "按业务用途过滤",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "agent-avatar",
-                "chat-image",
-                "voice-input",
-                "ai-image"
-              ]
-            }
-          },
-          {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "description": "资产状态；默认只列可用",
-            "schema": {
-              "default": "ACTIVE",
-              "type": "string",
-              "enum": [
-                "ACTIVE",
-                "BROKEN",
-                "DELETED"
-              ]
-            }
-          },
-          {
-            "name": "limit",
-            "required": false,
-            "in": "query",
-            "description": "返回条数上限",
-            "schema": {
-              "default": 50,
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StorageAssetDto"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "资产列表（管理员）",
-        "tags": [
-          "对象存储"
-        ]
-      }
-    },
-    "/api/storage/assets/{id}/status": {
-      "patch": {
-        "operationId": "StorageController_updateAssetStatus",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateAssetStatusDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StorageAssetDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "标记资产状态（管理员）：BROKEN/DELETED/ACTIVE",
         "tags": [
           "对象存储"
         ]
@@ -4130,6 +4217,224 @@
           }
         }
       },
+      "AdminImageUploadCredentialDto": {
+        "type": "object",
+        "properties": {
+          "ext": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "gif"
+            ]
+          },
+          "usage": {
+            "type": "string",
+            "enum": [
+              "shared-image",
+              "agent-avatar"
+            ]
+          },
+          "size": {
+            "type": "number",
+            "description": "浏览器声明的文件字节数",
+            "maximum": 10485760
+          }
+        },
+        "required": [
+          "ext",
+          "usage",
+          "size"
+        ]
+      },
+      "AdminImageUploadCredentialResponseDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "对象 key（仅本次预签名 PUT URL 可写入该对象）",
+            "example": "image/202608/user123/9f8b7a.png"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "description": "短期有效的 COS HTTPS PUT 直传地址",
+            "example": "https://example.cos.ap-guangzhou.myqcloud.com/object"
+          },
+          "accessUrl": {
+            "type": "string",
+            "description": "上传成功后的 COS 或 CDN 访问地址"
+          },
+          "headers": {
+            "type": "object",
+            "description": "PUT 直传时必须原样携带的请求头",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "Content-Type": "image/png"
+            }
+          },
+          "expiresAt": {
+            "type": "number",
+            "description": "凭证过期时间戳（毫秒）"
+          }
+        },
+        "required": [
+          "key",
+          "uploadUrl",
+          "accessUrl",
+          "headers",
+          "expiresAt"
+        ]
+      },
+      "AdminRegisterImageAssetDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "上传凭证返回的图片对象 key"
+          },
+          "usage": {
+            "type": "string",
+            "enum": [
+              "shared-image",
+              "agent-avatar"
+            ]
+          },
+          "size": {
+            "type": "number",
+            "description": "文件字节数",
+            "maximum": 10485760
+          },
+          "mimeType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "image/gif"
+            ]
+          },
+          "originalName": {
+            "type": "string",
+            "description": "原文件名，仅用于展示、搜索和下载命名"
+          }
+        },
+        "required": [
+          "key",
+          "usage",
+          "size",
+          "mimeType",
+          "originalName"
+        ]
+      },
+      "AdminStorageAssetDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "AUDIO"
+            ]
+          },
+          "usage": {
+            "type": "string"
+          },
+          "originalName": {
+            "type": "object",
+            "nullable": true
+          },
+          "mimeType": {
+            "type": "object",
+            "nullable": true
+          },
+          "size": {
+            "type": "object",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "BROKEN",
+              "DELETED"
+            ]
+          },
+          "createdAt": {
+            "type": "number",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "url",
+          "kind",
+          "usage",
+          "originalName",
+          "mimeType",
+          "size",
+          "status",
+          "createdAt"
+        ]
+      },
+      "AdminStorageAssetPageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminStorageAssetDto"
+            }
+          },
+          "page": {
+            "type": "number"
+          },
+          "pageSize": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "total",
+          "totalPages"
+        ]
+      },
+      "AdminUpdateStorageAssetStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "DELETED"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
       "StatusCountDto": {
         "type": "object",
         "properties": {
@@ -5614,6 +5919,7 @@
             "type": "string",
             "description": "业务用途",
             "enum": [
+              "shared-image",
               "agent-avatar",
               "chat-image",
               "voice-input",
@@ -5689,23 +5995,6 @@
           "size",
           "status",
           "createdAt"
-        ]
-      },
-      "UpdateAssetStatusDto": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "description": "目标状态：BROKEN=远端失效；DELETED=逻辑删除",
-            "enum": [
-              "BROKEN",
-              "DELETED",
-              "ACTIVE"
-            ]
-          }
-        },
-        "required": [
-          "status"
         ]
       },
       "McDonaldsCredentialResponseDto": {

@@ -17,6 +17,8 @@ import { AdminUserService } from './admin-user.service';
 import { AgentAccessModule } from '../agent-access/agent-access.module';
 import { AgentModule } from '../agent/agent.module';
 import { AdminAgentController } from './admin-agent.controller';
+import { StorageModule } from '../storage/storage.module';
+import { AdminStorageController } from './admin-storage.controller';
 
 @Module({
   imports: [
@@ -26,11 +28,13 @@ import { AdminAgentController } from './admin-agent.controller';
     AuthModule,
     AgentAccessModule,
     AgentModule,
+    StorageModule,
   ],
   controllers: [
     AdminAuthController,
     AdminUserController,
     AdminAgentController,
+    AdminStorageController,
     AdminController,
     AdminCapabilityController,
     AdminAgentTestController,

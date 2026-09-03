@@ -3,6 +3,7 @@ export type UploadMediaType = (typeof UPLOAD_MEDIA_TYPES)[number];
 
 /** 业务用途闭集：决定上传约束（如头像 2MB）与复用选择器的过滤维度 */
 export const STORAGE_USAGES = [
+  'shared-image',
   'agent-avatar',
   'chat-image',
   'voice-input',

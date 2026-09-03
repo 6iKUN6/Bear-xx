@@ -43,29 +43,6 @@ export class RegisterAssetDto {
   mimeType?: string;
 }
 
-export class ListAssetsQueryDto {
-  @ApiPropertyOptional({ description: '按业务用途过滤', enum: STORAGE_USAGES })
-  @IsOptional()
-  @IsIn(STORAGE_USAGES)
-  usage?: StorageUsage;
-
-  @ApiPropertyOptional({
-    description: '资产状态；默认只列可用',
-    enum: StorageAssetStatus,
-    default: StorageAssetStatus.ACTIVE,
-  })
-  @IsOptional()
-  @IsIn(Object.values(StorageAssetStatus))
-  status?: StorageAssetStatus;
-
-  @ApiPropertyOptional({ description: '返回条数上限', default: 50 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  limit?: number;
-}
-
 export class UpdateAssetStatusDto {
   @ApiProperty({
     description: '目标状态：BROKEN=远端失效；DELETED=逻辑删除',
