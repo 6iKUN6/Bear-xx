@@ -73,3 +73,24 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* 主题化滚动条：变细、贴 token，替代原生灰条（米色/深底上原生滚动条很突兀） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--lb-line-strong);
+  border-radius: 6px;
+  border: 2px solid var(--lb-page-background);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--lb-text-muted);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lb-line-strong) transparent;
+}

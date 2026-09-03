@@ -1,23 +1,20 @@
 import { useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/kpi-card";
+import {
+  EntityCard,
+  EntityCardFooter,
+  EntityCardGrid,
+} from "@/components/entity-card";
 import { ModelPresetFormSheet } from "@/components/model-preset-form-sheet";
 import { useModelPresets, useModelPresetMutations } from "@/hooks/queries";
 import { capabilityMeta, upstreamFormatName } from "@/lib/model-preset-meta";
 import { formatTime } from "@/lib/format";
+import { confirm } from "@/components/confirm-dialog";
 import { ApiError } from "@/api/client";
 import type { ModelPreset } from "@/api/types";
 
@@ -46,7 +43,7 @@ export function ModelsPage() {
       toast.error("默认预设不可删除");
       return;
     }
-    if (!window.confirm(`确定删除「${p.name}」？`)) return;
+    if (!(await confirm({ description: `确定删除「${p.name}」？`, danger: true }))) return;
     try {
       await remove.mutateAsync(p.id);
       toast.success("已删除");
@@ -85,130 +82,129 @@ export function ModelsPage() {
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle>模型预设</CardTitle>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            新建
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : rows.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>名称 / presetId</TableHead>
-                  <TableHead>上游格式 / platform</TableHead>
-                  <TableHead>模型</TableHead>
-                  <TableHead>密钥</TableHead>
-                  <TableHead>能力档位</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((p) => {
-                  const cap = capabilityMeta(p.capability);
-                  const probing = probingIds.has(p.id);
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2 font-medium">
-                          {p.name}
-                          {p.isDefault ? (
-                            <Badge variant="secondary">默认</Badge>
-                          ) : null}
-                          {p.enabled ? null : (
-                            <Badge variant="secondary">停用</Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {p.presetId}
-                        </p>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {upstreamFormatName(p.upstreamFormat)}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {p.platform}
-                        </p>
-                      </TableCell>
-                      <TableCell>{p.model}</TableCell>
-                      <TableCell>
-                        {p.apiKeyConfigured ? (
-                          <span className="text-xs text-muted-foreground">
-                            {p.apiKeyHint ?? "已配置"}
-                          </span>
-                        ) : (
-                          <Badge variant="destructive">未配置</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={cap.variant} title={cap.desc}>
-                          {cap.name}
-                        </Badge>
-                        {p.lastCheckError ? (
-                          <p
-                            className="max-w-[220px] truncate text-xs text-[var(--lb-danger)]"
-                            title={p.lastCheckError}
-                          >
-                            {p.lastCheckError}
-                          </p>
-                        ) : p.lastCheckedAt ? (
-                          <p className="text-xs text-muted-foreground">
-                            {formatTime(p.lastCheckedAt)}
-                          </p>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={
-                              p.apiKeyConfigured
-                                ? "测试连接（使用已存密钥）"
-                                : "未配置 apiKey，无法测试"
-                            }
-                            onClick={() => handleProbe(p)}
-                            disabled={!p.apiKeyConfigured || probing}
-                          >
-                            {probing ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Zap className="h-4 w-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEdit(p)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(p)}
-                            disabled={p.isDefault}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState text="还没有模型预设，点击右上角新建" />
-          )}
-        </CardContent>
-      </Card>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-foreground">模型预设</h1>
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="h-4 w-4" />
+          新建
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-64 w-full" />
+      ) : rows.length > 0 ? (
+        <EntityCardGrid>
+          {rows.map((p) => {
+            const cap = capabilityMeta(p.capability);
+            const probing = probingIds.has(p.id);
+            return (
+              <EntityCard key={p.id}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 font-medium">
+                      <span className="truncate">{p.name}</span>
+                      {p.isDefault ? (
+                        <Badge variant="secondary">默认</Badge>
+                      ) : null}
+                      {p.enabled ? null : (
+                        <Badge variant="secondary">停用</Badge>
+                      )}
+                    </div>
+                    <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                      {p.presetId}
+                    </p>
+                  </div>
+                  <Badge variant={cap.variant} title={cap.desc}>
+                    {cap.name}
+                  </Badge>
+                </div>
+
+                <dl className="mt-3 space-y-1.5 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">上游 / 平台</dt>
+                    <dd className="text-right text-foreground">
+                      {upstreamFormatName(p.upstreamFormat)} · {p.platform}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">模型</dt>
+                    <dd className="truncate text-right font-mono text-foreground">
+                      {p.model}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">密钥</dt>
+                    <dd className="text-right">
+                      {p.apiKeyConfigured ? (
+                        <span className="text-muted-foreground">
+                          {p.apiKeyHint ?? "已配置"}
+                        </span>
+                      ) : (
+                        <Badge variant="destructive">未配置</Badge>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+
+                {p.lastCheckError ? (
+                  <p
+                    className="mt-2 truncate text-xs text-[var(--lb-danger)]"
+                    title={p.lastCheckError}
+                  >
+                    {p.lastCheckError}
+                  </p>
+                ) : p.lastCheckedAt ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    最近校验 {formatTime(p.lastCheckedAt)}
+                  </p>
+                ) : null}
+
+                <EntityCardFooter>
+                  <span />
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title={
+                        p.apiKeyConfigured
+                          ? "测试连接（使用已存密钥）"
+                          : "未配置 apiKey，无法测试"
+                      }
+                      onClick={() => handleProbe(p)}
+                      disabled={!p.apiKeyConfigured || probing}
+                    >
+                      {probing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Zap className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="编辑"
+                      onClick={() => openEdit(p)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="删除"
+                      onClick={() => handleDelete(p)}
+                      disabled={p.isDefault}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </EntityCardFooter>
+              </EntityCard>
+            );
+          })}
+        </EntityCardGrid>
+      ) : (
+        <EmptyState text="还没有模型预设，点击右上角新建" />
+      )}
 
       <ModelPresetFormSheet
         preset={editing}

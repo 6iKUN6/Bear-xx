@@ -43,6 +43,7 @@ import {
 } from "@/lib/flow-meta";
 import { formatTime } from "@/lib/format";
 import { exportFlowVersion } from "@/api/endpoints";
+import { confirm } from "@/components/confirm-dialog";
 import type { AgentFlowValidation, AgentFlowVersion } from "@/api/types";
 
 export function FlowDetailPage() {
@@ -125,7 +126,13 @@ export function FlowDetailPage() {
 
   const handlePublish = async () => {
     if (!selected) return;
-    if (!window.confirm(`发布 v${selected.version}？当前发布版本会被归档。`))
+    if (
+      !(await confirm({
+        title: "发布版本",
+        description: `发布 v${selected.version}？当前发布版本会被归档。`,
+        confirmText: "发布",
+      }))
+    )
       return;
     try {
       await publish.mutateAsync(selected.id);
@@ -138,7 +145,15 @@ export function FlowDetailPage() {
 
   const handleRollback = async (version: AgentFlowVersion) => {
     if (!flowId) return;
-    if (!window.confirm(`回滚到 v${version.version}？`)) return;
+    if (
+      !(await confirm({
+        title: "回滚版本",
+        description: `回滚到 v${version.version}？当前发布版本会被归档。`,
+        confirmText: "回滚",
+        danger: true,
+      }))
+    )
+      return;
     try {
       await rollback.mutateAsync({ flowId, versionId: version.id });
       setSelectedId(null);

@@ -44,6 +44,7 @@ import {
   type EditableDefinition,
 } from "@/lib/flow-edit";
 import type { AgentFlowValidation } from "@/api/types";
+import { confirm } from "@/components/confirm-dialog";
 
 /**
  * 左栏可添加的节点类型
@@ -196,14 +197,20 @@ export function FlowEditorPage() {
    * 端点不存在的悬空边），这是用户最容易没预期到的后果，比「确定删除吗」有信息量。
    * 编辑器没有撤销栈，删错只能刷新页面放弃全部改动，所以这一步必须拦。
    */
-  const handleDeleteNode = (nodeId: string) => {
+  const handleDeleteNode = async (nodeId: string) => {
     if (!draft) return;
     const affectedEdges = draft.edges.filter(
       (edge) => edge.from === nodeId || edge.to === nodeId,
     ).length;
     const suffix =
       affectedEdges > 0 ? `，并一并删除与它相连的 ${affectedEdges} 条连线` : "";
-    if (!window.confirm(`删除节点「${nodeId}」${suffix}？此操作无法撤销。`)) {
+    if (
+      !(await confirm({
+        title: "删除节点",
+        description: `删除节点「${nodeId}」${suffix}？此操作无法撤销。`,
+        danger: true,
+      }))
+    ) {
       return;
     }
     applyEdit(removeNode(draft, nodeId));
