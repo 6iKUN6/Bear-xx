@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -15,9 +6,6 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CosStorageService } from './cos-storage.service';
 import { StorageAssetService } from './storage-asset.service';
@@ -25,12 +13,7 @@ import {
   CosUploadCredentialDto,
   CosUploadCredentialResponseDto,
 } from './dto/cos-upload-credential.dto';
-import {
-  ListAssetsQueryDto,
-  RegisterAssetDto,
-  StorageAssetDto,
-  UpdateAssetStatusDto,
-} from './dto/storage-asset.dto';
+import { RegisterAssetDto, StorageAssetDto } from './dto/storage-asset.dto';
 
 @ApiTags('对象存储')
 @ApiBearerAuth()
@@ -77,29 +60,5 @@ export class StorageController {
     @Body() dto: RegisterAssetDto,
   ): Promise<StorageAssetDto> {
     return this.storageAssetService.register(userId, dto);
-  }
-
-  @Get('assets')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({
-    summary: '资产列表（管理员）',
-    description: '复用选择器数据源；默认只列 ACTIVE，按创建时间倒序。',
-  })
-  @ApiOkResponse({ type: StorageAssetDto, isArray: true })
-  listAssets(@Query() query: ListAssetsQueryDto): Promise<StorageAssetDto[]> {
-    return this.storageAssetService.list(query);
-  }
-
-  @Patch('assets/:id/status')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: '标记资产状态（管理员）：BROKEN/DELETED/ACTIVE' })
-  @ApiOkResponse({ type: StorageAssetDto })
-  updateAssetStatus(
-    @Param('id') id: string,
-    @Body() dto: UpdateAssetStatusDto,
-  ): Promise<StorageAssetDto> {
-    return this.storageAssetService.updateStatus(id, dto.status);
   }
 }

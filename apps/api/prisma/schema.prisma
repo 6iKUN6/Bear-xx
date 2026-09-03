@@ -95,6 +95,7 @@ model StorageAsset {
   kind         StorageAssetKind
   /// 业务用途标签：agent-avatar / chat-image / voice-input ...
   usage        String             @default("")
+  originalName String?            @map("original_name")
   mimeType     String?            @map("mime_type")
   /// 字节数（客户端上报，用于展示与统计）
   size         Int?
