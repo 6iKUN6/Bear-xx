@@ -127,7 +127,10 @@ export interface TestSessionDetail {
 
 // ---- 对象存储 ----
 
-export interface CosUploadCredential {
+export type AdminImageUploadUsage = "shared-image" | "agent-avatar";
+export type StorageAssetStatus = "ACTIVE" | "BROKEN" | "DELETED";
+
+export interface AdminImageUploadCredential {
   key: string;
   uploadUrl: string;
   accessUrl: string;
@@ -141,10 +144,27 @@ export interface StorageAsset {
   url: string;
   kind: "IMAGE" | "AUDIO";
   usage: string;
+  originalName: string | null;
   mimeType: string | null;
   size: number | null;
-  status: "ACTIVE" | "BROKEN" | "DELETED";
+  status: StorageAssetStatus;
   createdAt: number;
+}
+
+export interface StorageAssetPage {
+  items: StorageAsset[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface StorageAssetQuery {
+  page: number;
+  pageSize: number;
+  search?: string;
+  usage?: string;
+  status?: StorageAssetStatus;
 }
 
 // ---- Agent CRUD ----
