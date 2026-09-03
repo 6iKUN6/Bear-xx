@@ -14,8 +14,15 @@ import type {
   AdminControllerOverviewParams,
   AdminControllerTasksParams,
   AdminControllerToolsParams,
+  AdminImageUploadCredentialDto,
+  AdminImageUploadCredentialResponseDto,
   AdminLoginDto,
   AdminLoginResultDto,
+  AdminRegisterImageAssetDto,
+  AdminStorageAssetDto,
+  AdminStorageAssetPageDto,
+  AdminStorageControllerListAssetsParams,
+  AdminUpdateStorageAssetStatusDto,
   AdminUserControllerListAuditLogsParams,
   AdminUserControllerListParams,
   AdminUserPageDto,
@@ -68,7 +75,6 @@ import type {
   RollbackAgentFlowDto,
   SendCodeDto,
   StorageAssetDto,
-  StorageControllerListAssetsParams,
   StreamTaskControllerStreamTaskParams,
   StreamTaskStatusDto,
   SubmitApprovalDto,
@@ -81,7 +87,6 @@ import type {
   UpdateAgentDto,
   UpdateAgentFlowDto,
   UpdateAgentFlowVersionDto,
-  UpdateAssetStatusDto,
   UpdateConversationDto,
   UpdateMembershipDto,
   UpdateModelPresetDto,
@@ -666,6 +671,110 @@ export const adminAgentControllerSetDefault = async (id: string, options?: Reque
     method: 'PATCH'
 
 
+  }
+);}
+
+
+
+export const getAdminStorageControllerCreateUploadCredentialUrl = () => {
+
+
+
+
+  return `/api/admin/storage/upload-credential`
+}
+
+/**
+ * @summary 签发后台图片直传凭证
+ */
+export const adminStorageControllerCreateUploadCredential = async (adminImageUploadCredentialDto: AdminImageUploadCredentialDto, options?: RequestInit): Promise<AdminImageUploadCredentialResponseDto> => {
+
+  return taroRequest<AdminImageUploadCredentialResponseDto>(getAdminStorageControllerCreateUploadCredentialUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminImageUploadCredentialDto)
+  }
+);}
+
+
+
+export const getAdminStorageControllerRegisterAssetUrl = () => {
+
+
+
+
+  return `/api/admin/storage/assets`
+}
+
+/**
+ * @summary 登记后台上传图片
+ */
+export const adminStorageControllerRegisterAsset = async (adminRegisterImageAssetDto: AdminRegisterImageAssetDto, options?: RequestInit): Promise<AdminStorageAssetDto> => {
+
+  return taroRequest<AdminStorageAssetDto>(getAdminStorageControllerRegisterAssetUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminRegisterImageAssetDto)
+  }
+);}
+
+
+
+export const getAdminStorageControllerListAssetsUrl = (params?: AdminStorageControllerListAssetsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/storage/assets?${stringifiedParams}` : `/api/admin/storage/assets`
+}
+
+/**
+ * @summary 分页查询图片资源库
+ */
+export const adminStorageControllerListAssets = async (params?: AdminStorageControllerListAssetsParams, options?: RequestInit): Promise<AdminStorageAssetPageDto> => {
+
+  return taroRequest<AdminStorageAssetPageDto>(getAdminStorageControllerListAssetsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminStorageControllerUpdateAssetStatusUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/storage/assets/${id}/status`
+}
+
+/**
+ * @summary 软删除或恢复图片资源
+ */
+export const adminStorageControllerUpdateAssetStatus = async (id: string,
+    adminUpdateStorageAssetStatusDto: AdminUpdateStorageAssetStatusDto, options?: RequestInit): Promise<AdminStorageAssetDto> => {
+
+  return taroRequest<AdminStorageAssetDto>(getAdminStorageControllerUpdateAssetStatusUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminUpdateStorageAssetStatusDto)
   }
 );}
 
@@ -1395,63 +1504,6 @@ export const storageControllerRegisterAsset = async (registerAssetDto: RegisterA
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(registerAssetDto)
-  }
-);}
-
-
-
-export const getStorageControllerListAssetsUrl = (params?: StorageControllerListAssetsParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/storage/assets?${stringifiedParams}` : `/api/storage/assets`
-}
-
-/**
- * 复用选择器数据源；默认只列 ACTIVE，按创建时间倒序。
- * @summary 资产列表（管理员）
- */
-export const storageControllerListAssets = async (params?: StorageControllerListAssetsParams, options?: RequestInit): Promise<StorageAssetDto[]> => {
-
-  return taroRequest<StorageAssetDto[]>(getStorageControllerListAssetsUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export const getStorageControllerUpdateAssetStatusUrl = (id: string,) => {
-
-
-
-
-  return `/api/storage/assets/${id}/status`
-}
-
-/**
- * @summary 标记资产状态（管理员）：BROKEN/DELETED/ACTIVE
- */
-export const storageControllerUpdateAssetStatus = async (id: string,
-    updateAssetStatusDto: UpdateAssetStatusDto, options?: RequestInit): Promise<StorageAssetDto> => {
-
-  return taroRequest<StorageAssetDto>(getStorageControllerUpdateAssetStatusUrl(id),
-  {
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(updateAssetStatusDto)
   }
 );}
 

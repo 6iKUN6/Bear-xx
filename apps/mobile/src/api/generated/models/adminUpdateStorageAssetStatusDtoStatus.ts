@@ -6,11 +6,10 @@
  * OpenAPI spec version: 1.0
  */
 
-export type StorageControllerListAssetsStatus = typeof StorageControllerListAssetsStatus[keyof typeof StorageControllerListAssetsStatus];
+export type AdminUpdateStorageAssetStatusDtoStatus = typeof AdminUpdateStorageAssetStatusDtoStatus[keyof typeof AdminUpdateStorageAssetStatusDtoStatus];
 
 
-export const StorageControllerListAssetsStatus = {
+export const AdminUpdateStorageAssetStatusDtoStatus = {
   ACTIVE: 'ACTIVE',
-  BROKEN: 'BROKEN',
   DELETED: 'DELETED',
 } as const;

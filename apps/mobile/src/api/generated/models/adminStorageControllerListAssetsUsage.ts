@@ -6,12 +6,12 @@
  * OpenAPI spec version: 1.0
  */
 
-export type StorageControllerListAssetsUsage = typeof StorageControllerListAssetsUsage[keyof typeof StorageControllerListAssetsUsage];
+export type AdminStorageControllerListAssetsUsage = typeof AdminStorageControllerListAssetsUsage[keyof typeof AdminStorageControllerListAssetsUsage];
 
 
-export const StorageControllerListAssetsUsage = {
+export const AdminStorageControllerListAssetsUsage = {
+  'shared-image': 'shared-image',
   'agent-avatar': 'agent-avatar',
   'chat-image': 'chat-image',
-  'voice-input': 'voice-input',
   'ai-image': 'ai-image',
 } as const;
