@@ -13,6 +13,7 @@ export type RegisterAssetDtoUsage = typeof RegisterAssetDtoUsage[keyof typeof Re
 
 
 export const RegisterAssetDtoUsage = {
+  'shared-image': 'shared-image',
   'agent-avatar': 'agent-avatar',
   'chat-image': 'chat-image',
   'voice-input': 'voice-input',
