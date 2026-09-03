@@ -14,6 +14,7 @@ import { FlowsPage } from "@/pages/flows";
 import { FlowDetailPage } from "@/pages/flow-detail";
 import { FlowEditorPage } from "@/pages/flow-editor";
 import { UsersPage } from "@/pages/users";
+import { ResourcesPage } from "@/pages/resources";
 
 export function App() {
   return (
@@ -53,6 +54,7 @@ export function App() {
             }
           />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/flows" element={<FlowsPage />} />
           <Route path="/flows/:flowId" element={<FlowDetailPage />} />
         </Route>

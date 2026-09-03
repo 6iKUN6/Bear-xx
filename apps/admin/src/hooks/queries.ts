@@ -18,7 +18,8 @@ import {
   updateUserAdminRole,
   listManagementAuditLogs,
   getAgentCapabilities,
-  listAssets,
+  listAdminImageAssets,
+  updateAdminImageAssetStatus,
   createAgentFlow,
   deleteAgentFlow,
   getAgentFlow,
@@ -43,6 +44,7 @@ import type {
   AgentInput,
   ModelPresetInput,
   ModelPresetProbeInput,
+  StorageAssetQuery,
 } from "@/api/types";
 
 export const useOverview = (days: number) =>
@@ -126,9 +128,51 @@ export function useAdminUserMutations() {
 export const useAvatarAssets = (enabled: boolean) =>
   useQuery({
     queryKey: ["storageAssets", "agent-avatar"],
-    queryFn: () => listAssets({ usage: "agent-avatar" }),
+    queryFn: () =>
+      listAdminImageAssets({
+        page: 1,
+        pageSize: 100,
+        usage: "agent-avatar",
+        status: "ACTIVE",
+      }),
+    select: (page) => page.items,
     enabled,
   });
+
+/**
+ * 查询图片资源分页
+ * @param query 页码、搜索、用途与状态过滤
+ * @returns 返回由完整查询条件隔离缓存的 TanStack Query 结果
+ * @description 页面切换分页或筛选时保留上一页数据，避免网格在请求期间整体跳空。
+ */
+export const useStorageAssets = (query: StorageAssetQuery) =>
+  useQuery({
+    queryKey: [
+      "storageAssets",
+      query.page,
+      query.pageSize,
+      query.search ?? "",
+      query.usage ?? "",
+      query.status ?? "",
+    ],
+    queryFn: () => listAdminImageAssets(query),
+    placeholderData: (previous) => previous,
+  });
+
+/** 图片资源软删除与恢复；成功后失效资源库和头像选择器的全部缓存。 */
+export function useStorageAssetMutations() {
+  const qc = useQueryClient();
+  const status = useMutation({
+    mutationFn: (input: {
+      id: string;
+      status: "ACTIVE" | "DELETED";
+    }) => updateAdminImageAssetStatus(input.id, input.status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["storageAssets"] });
+    },
+  });
+  return { status };
+}
 
 /** 能力闭集（工具组/工具）；注册表是静态闭集，长缓存 */
 export const useAgentCapabilities = () =>

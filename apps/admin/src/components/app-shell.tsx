@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { themes, pixelThemes, type AnyThemeId } from "@litter-bear/theme";
 import {
   Select,
@@ -20,6 +21,7 @@ const NAV = [
   { to: "/agents/manage", label: "智能体管理" },
   { to: "/models", label: "模型", superAdminOnly: true },
   { to: "/users", label: "用户与权限" },
+  { to: "/resources", label: "图片资源" },
   { to: "/flows", label: "Flow" },
   { to: "/tools", label: "工具" },
   { to: "/tasks", label: "任务" },
@@ -28,6 +30,9 @@ const NAV = [
 ];
 
 export function AppShell() {
+  const navRef = useRef<HTMLElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const themeId = useThemeStore((s) => s.themeId);
   const setTheme = useThemeStore((s) => s.setTheme);
   const rangeDays = useUiStore((s) => s.rangeDays);
@@ -35,15 +40,61 @@ export function AppShell() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
+  const updateNavigationScrollState = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const maxScrollLeft = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    setCanScrollLeft(nav.scrollLeft > 1);
+    setCanScrollRight(nav.scrollLeft < maxScrollLeft - 1);
+  }, []);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    updateNavigationScrollState();
+    const observer = new ResizeObserver(updateNavigationScrollState);
+    observer.observe(nav);
+    nav.addEventListener("scroll", updateNavigationScrollState, {
+      passive: true,
+    });
+    return () => {
+      observer.disconnect();
+      nav.removeEventListener("scroll", updateNavigationScrollState);
+    };
+  }, [updateNavigationScrollState, user?.adminRole]);
+
+  const scrollNavigation = (direction: -1 | 1) => {
+    const nav = navRef.current;
+    if (!nav) return;
+    nav.scrollBy({
+      left: direction * Math.min(240, nav.clientWidth * 0.75),
+      behavior: "smooth",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[80rem] items-center gap-4 px-6">
-          <span className="text-base font-semibold text-foreground">
+          <span className="shrink-0 text-base font-semibold text-foreground">
             办伴 Banban 管理后台
           </span>
 
-          <nav className="ml-4 flex items-center gap-1 overflow-x-auto">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-2 shrink-0"
+            title="向左滚动导航"
+            aria-label="向左滚动导航"
+            onClick={() => scrollNavigation(-1)}
+            disabled={!canScrollLeft}
+          >
+            <ChevronLeft />
+          </Button>
+          <nav
+            ref={navRef}
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          >
             {NAV.filter(
               (item) => !item.superAdminOnly || user?.adminRole === "SUPER_ADMIN",
             ).map((item) => (
@@ -64,8 +115,19 @@ export function AppShell() {
               </NavLink>
             ))}
           </nav>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            title="向右滚动导航"
+            aria-label="向右滚动导航"
+            onClick={() => scrollNavigation(1)}
+            disabled={!canScrollRight}
+          >
+            <ChevronRight />
+          </Button>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Select
               value={String(rangeDays)}
               onValueChange={(v) => setRangeDays(Number(v))}

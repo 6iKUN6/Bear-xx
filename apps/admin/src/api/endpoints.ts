@@ -3,7 +3,11 @@ import type {
   Agent,
   AgentCapabilities,
   StorageAsset,
-  CosUploadCredential,
+  AdminImageUploadCredential,
+  AdminImageUploadUsage,
+  StorageAssetPage,
+  StorageAssetQuery,
+  StorageAssetStatus,
   AgentInput,
   AgentUsage,
   AuthResponse,
@@ -67,24 +71,44 @@ export const getTaskDetail = (id: string) =>
   request<TaskDetail>(`/admin/observability/tasks/${id}`);
 
 // ---- 对象存储 ----
-export const getCosUploadCredential = (body: {
-  type: "image" | "audio";
+export const getAdminImageUploadCredential = (body: {
   ext: string;
+  usage: AdminImageUploadUsage;
+  size: number;
 }) =>
-  request<CosUploadCredential>("/storage/cos/upload-credential", {
+  request<AdminImageUploadCredential>("/admin/storage/upload-credential", {
     method: "POST",
     body,
   });
 
-export const registerAsset = (body: {
+export const registerAdminImageAsset = (body: {
   key: string;
-  usage?: string;
-  size?: number;
-  mimeType?: string;
-}) => request<StorageAsset>("/storage/assets", { method: "POST", body });
+  usage: AdminImageUploadUsage;
+  size: number;
+  mimeType: string;
+  originalName: string;
+}) =>
+  request<StorageAsset>("/admin/storage/assets", { method: "POST", body });
 
-export const listAssets = (query: { usage?: string; limit?: number }) =>
-  request<StorageAsset[]>("/storage/assets", { query });
+export const listAdminImageAssets = (query: StorageAssetQuery) =>
+  request<StorageAssetPage>("/admin/storage/assets", {
+    query: {
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+      usage: query.usage,
+      status: query.status,
+    },
+  });
+
+export const updateAdminImageAssetStatus = (
+  id: string,
+  status: Extract<StorageAssetStatus, "ACTIVE" | "DELETED">,
+) =>
+  request<StorageAsset>(`/admin/storage/assets/${id}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
 
 // ---- Agent CRUD ----
 export const listAgents = () => request<Agent[]>("/admin/agents");
