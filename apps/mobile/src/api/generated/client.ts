@@ -411,7 +411,7 @@ export const getAdminAuthControllerLoginUrl = () => {
 }
 
 /**
- * @summary 管理员账号密码登录
+ * @summary 管理员用户名或手机号密码登录
  */
 export const adminAuthControllerLogin = async (adminLoginDto: AdminLoginDto, options?: RequestInit): Promise<AdminLoginResultDto> => {
 

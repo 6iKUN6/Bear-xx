@@ -7,7 +7,7 @@
  */
 
 export interface AdminLoginDto {
-  /** 既有管理员账号名 */
+  /** 既有管理员用户名或手机号 */
   username: string;
   /** 管理员登录密码 */
   password: string;
