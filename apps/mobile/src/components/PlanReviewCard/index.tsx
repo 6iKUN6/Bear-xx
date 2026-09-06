@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { Text, Textarea, View } from "@tarojs/components";
+import AppIcon from "../AppIcon";
 import type {
   PlanReviewDecision,
   PlanReviewRequiredPayload,
@@ -80,7 +81,7 @@ function PlanReviewCard({
   return (
     <View className='plan-review-card'>
       <View className='plan-review-card-head'>
-        <Text className='at-icon at-icon-list plan-review-card-icon' />
+        <AppIcon name='list' className='plan-review-card-icon h-[0.9375rem] w-[0.9375rem]' />
         <Text className='plan-review-card-title'>
           {resolved ? "已处理的计划确认" : "待确认执行计划"}
         </Text>

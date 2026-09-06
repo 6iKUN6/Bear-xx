@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import AgentAvatar from "../../components/AgentAvatar";
+import AppIcon from "../../components/AppIcon";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
 import { useAgentStore } from "../../store/agentStore";
@@ -115,7 +116,7 @@ export default function AgentPickerPage() {
                 }`}
               >
                 {on ? (
-                  <Text className="at-icon at-icon-check text-[0.75rem] leading-none text-[var(--lb-on-accent)] [&::before]:block" />
+                  <AppIcon name="check" className="h-[0.75rem] w-[0.75rem] text-[var(--lb-on-accent)]" />
                 ) : null}
               </View>
             </View>

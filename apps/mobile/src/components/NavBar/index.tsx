@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
+import AppIcon from "../AppIcon";
 import { useNavBarMetrics } from "../../hooks/useNavBarMetrics";
 import { appSolidNavClass } from "../../utils/style";
 
@@ -86,10 +87,10 @@ export default function NavBar({
       left
     ) : showBack ? (
       <View
-        className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[1.125rem] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
+        className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
         onClick={handleBack}
       >
-        <Text className="at-icon at-icon-chevron-left leading-none [&::before]:block" />
+        <AppIcon name="back" className="h-[1.125rem] w-[1.125rem]" />
       </View>
     ) : null;
 

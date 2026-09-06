@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { View, Text, Textarea } from "@tarojs/components";
 import AgentAvatar from "../AgentAvatar";
+import AppIcon from "../AppIcon";
+import type { AppIconName } from "../AppIcon";
 import IconButton from "../IconButton";
 import VoiceButton from "../VoiceButton";
 import AgentSheet from "../AgentSheet";
@@ -13,7 +15,7 @@ import {
   resolveOutgoingAgentId,
   type ChatAgentSelectionMode,
 } from "../../utils/agent";
-import { appSoftInputClass, safeAreaBottom } from "../../utils/style";
+import { safeAreaBottom } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
 import {
   isReasoningConfigurable,
@@ -70,8 +72,6 @@ interface MentionTarget {
   name: string;
 }
 
-const iconClassName =
-  "inline-flex items-center justify-center text-[1.25rem] leading-none [&::before]:block";
 
 export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   {
@@ -128,9 +128,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     lastModelSelectionFingerprint !== currentModelFingerprint,
   );
 
-  const renderIcon = (name: string, extraClassName = "") => (
-    <Text
-      className={`at-icon at-icon-${name} ${iconClassName} ${extraClassName}`.trim()}
+  const renderIcon = (name: AppIconName, extraClassName = "") => (
+    <AppIcon
+      name={name}
+      className={`h-[1.25rem] w-[1.25rem] ${extraClassName}`.trim()}
     />
   );
 
@@ -232,9 +233,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
           <IconButton
             icon={renderIcon("edit")}
             variant="ghost"
+            shape="round"
             onClick={toggleMode}
           />
-          <IconButton icon={renderIcon("add")} variant="ghost" />
+          <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
         </>
       );
     }
@@ -242,10 +244,11 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     if (isStreaming) {
       return (
         <>
-          <IconButton icon={renderIcon("add")} variant="ghost" />
+          <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
           <IconButton
             icon={renderIcon("stop", "text-[var(--lb-on-accent)]")}
             variant="primary"
+            shape="round"
             onClick={handleStop}
           />
         </>
@@ -255,10 +258,11 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     if (hasContent) {
       return (
         <>
-          <IconButton icon={renderIcon("add")} variant="ghost" />
+          <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
           <IconButton
-            icon={renderIcon("arrow-up", "text-[var(--lb-on-accent)]")}
+            icon={renderIcon("send", "text-[var(--lb-on-accent)]")}
             variant="primary"
+            shape="round"
             onClick={handleSend}
           />
         </>
@@ -268,19 +272,20 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     return (
       <>
         <IconButton
-          icon={renderIcon("sound")}
+          icon={renderIcon("mic")}
           variant="ghost"
+          shape="round"
           onClick={toggleMode}
         />
-        <IconButton icon={renderIcon("add")} variant="ghost" />
+        <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
       </>
     );
   };
 
   return (
     <View
-      className="border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] pt-[0.5rem] box-border"
-      style={{ paddingBottom: reserveSafeArea ? safeAreaBottom(16) : 12 }}
+      className="px-[0.75rem] pt-[0.625rem] box-border"
+      style={{ paddingBottom: reserveSafeArea ? safeAreaBottom(12) : 12 }}
     >
       {modelSelection.error && effectiveModelAgentId ? (
         <Text className="mb-[0.375rem] block text-[0.6875rem] text-[var(--lb-danger)]">
@@ -299,7 +304,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
         <View className="mb-[0.5rem] flex min-w-0 items-center gap-[0.5rem]">
           {mode === "flex" ? (
             <View
-              className="flex min-w-0 max-w-[60%] items-center gap-[0.375rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-page-background)] py-[0.25rem] pl-[0.25rem] pr-[0.625rem] box-border"
+              className="flex min-w-0 max-w-[60%] items-center gap-[0.375rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] py-[0.25rem] pl-[0.25rem] pr-[0.625rem] box-border"
               onClick={() => canOpenSwitch && setSheetMode("switch")}
             >
               <AgentAvatar
@@ -312,7 +317,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
                 {currentName}
               </Text>
               {canOpenSwitch ? (
-                <Text className="at-icon at-icon-chevron-down shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
+                <AppIcon name="chevronDown" className="h-[0.75rem] w-[0.75rem] shrink-0 text-[var(--lb-text-muted)]" />
               ) : null}
             </View>
           ) : null}
@@ -325,29 +330,29 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
               <Text className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium leading-[1.3] text-[var(--lb-accent-ink)]">
                 本条 @{mention.name}
               </Text>
-              <Text className="at-icon at-icon-close shrink-0 text-[0.625rem] leading-none text-[var(--lb-accent-ink)] [&::before]:block" />
+              <AppIcon name="close" className="h-[0.625rem] w-[0.625rem] shrink-0 text-[var(--lb-accent-ink)]" />
             </View>
           ) : null}
 
           {showModelSettings && modelSelection.selectedModel ? (
             <View
-              className="flex min-w-0 items-center gap-[0.25rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.625rem] py-[0.3125rem]"
+              className="flex min-w-0 items-center gap-[0.25rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] px-[0.625rem] py-[0.3125rem]"
               onClick={() => setModelSheetOpen(true)}
             >
               <Text className="block max-w-[9rem] overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium text-[var(--lb-text-secondary)]">
                 {modelSelection.selectedModel.name}
               </Text>
-              <Text className="at-icon at-icon-chevron-down shrink-0 text-[0.625rem] text-[var(--lb-text-muted)]" />
+              <AppIcon name="chevronDown" className="h-[0.625rem] w-[0.625rem] shrink-0 text-[var(--lb-text-muted)]" />
             </View>
           ) : null}
         </View>
       ) : null}
 
-      <View className="flex items-end gap-[0.75rem]">
+      <View className="flex items-end gap-[0.375rem] rounded-[calc(var(--lb-radius-md)_+_0.75rem)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-strong)] py-[0.3125rem] pl-[0.875rem] pr-[0.3125rem] shadow-[var(--lb-shadow-glow)] box-border">
         <View className="flex-1 min-w-0">
           {inputMode === "text" ? (
             <Textarea
-              className={`${appSoftInputClass} w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[var(--lb-radius-md)] px-[0.875rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]`}
+              className="w-full min-h-[2.25rem] max-h-[7.5rem] bg-transparent px-[0.125rem] py-[0.375rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]"
               value={value}
               onInput={(e) => handleInput(e.detail.value)}
               placeholder={
@@ -375,7 +380,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
           )}
         </View>
 
-        <View className="flex items-center gap-[0.5rem]">
+        <View className="flex items-center gap-[0.375rem]">
           {renderRightButtons()}
         </View>
       </View>

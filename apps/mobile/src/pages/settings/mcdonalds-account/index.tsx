@@ -9,6 +9,7 @@ import {
 } from "../../../api/mcdonaldsCredential";
 import NavBar from "../../../components/NavBar";
 import PageShell from "../../../components/PageShell";
+import AppIcon from "../../../components/AppIcon";
 import {
   appGlassCardClass,
   appGlassCardStrongClass,
@@ -131,7 +132,7 @@ export default function McdonaldsAccountSettingsPage() {
               ) : isBound ? (
                 <View className="flex items-center gap-[0.75rem]">
                   <View className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-sm)] bg-[var(--lb-success-soft)] text-[var(--lb-success)]">
-                    <Text className="at-icon at-icon-check-circle text-[1.25rem] leading-none [&::before]:block" />
+                    <AppIcon name="checkCircle" className="h-[1.25rem] w-[1.25rem]" />
                   </View>
                   <View className="min-w-0 flex-1">
                     <Text className="block text-[0.9375rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]">
@@ -150,7 +151,7 @@ export default function McdonaldsAccountSettingsPage() {
               ) : (
                 <View className="flex items-center gap-[0.75rem]">
                   <View className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-sm)] bg-[var(--lb-warning-soft)] text-[var(--lb-warning)]">
-                    <Text className="at-icon at-icon-alert-circle text-[1.25rem] leading-none [&::before]:block" />
+                    <AppIcon name="alertCircle" className="h-[1.25rem] w-[1.25rem]" />
                   </View>
                   <View className="min-w-0 flex-1">
                     <Text className="block text-[0.9375rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]">

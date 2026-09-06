@@ -16,6 +16,8 @@ interface MessageStreamEventFeedback {
   toolName?: string;
   /** 工具完成后由服务端提供的安全摘要，不包含工具入参。 */
   toolSummary?: string;
+  /** 该步耗时（毫秒）；flow 节点完成 / 历史 trace 时下发 */
+  durationMs?: number | null;
   inputSummary?: Record<string, unknown> | null;
   outputSummary?: Record<string, unknown> | null;
   updatedAt: number;
@@ -92,6 +94,11 @@ interface Message {
   currentStreamEvent?: MessageStreamEventFeedback;
   /** HITL：待人工审批的工具调用（approval.required 载荷）；处理后清空 */
   pendingApproval?: import("@litter-bear/types/protocol").ApprovalRequiredPayload;
+  /** HITL：已处理的工具审批结论（决定 + 原载荷）；用于收敛为一行展示 */
+  resolvedApproval?: {
+    decision: import("@litter-bear/types/protocol").ApprovalDecisionType;
+    payload: import("@litter-bear/types/protocol").ApprovalRequiredPayload;
+  };
   /** HITL：待人工确认的执行计划（plan.review.required 载荷）；处理后清空 */
   pendingPlanReview?: import("@litter-bear/types/protocol").PlanReviewRequiredPayload;
   /** 由 order.created 实时下发或会话历史回填的安全订单卡片。 */

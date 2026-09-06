@@ -4,6 +4,7 @@ import Taro from "@tarojs/taro";
 import { bindWechat, loginByPhone, loginByWechat } from "../../api/user";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
+import AppIcon from "../../components/AppIcon";
 import { useUserStore } from "../../store/userStore";
 import {
   appGlassCardStrongClass,
@@ -164,9 +165,9 @@ export default function LoginPage() {
                 <Text className="leading-none">办</Text>
               </View>
               <View
-                className={`${appGradientSurfaceWarmClass} absolute -right-[0.25rem] -top-[0.25rem] flex h-[1.75rem] w-[1.75rem] items-center justify-center rounded-[var(--lb-radius-sm)] text-[0.75rem]`}
+                className={`${appGradientSurfaceWarmClass} absolute -right-[0.25rem] -top-[0.25rem] flex h-[1.75rem] w-[1.75rem] items-center justify-center rounded-[var(--lb-radius-sm)]`}
               >
-                <Text className="leading-none">✦</Text>
+                <AppIcon name="sparkles" className="h-[0.75rem] w-[0.75rem]" />
               </View>
             </View>
           </View>

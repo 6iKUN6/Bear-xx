@@ -1,8 +1,11 @@
 import { memo, useState } from "react";
 import { Text, Textarea, View } from "@tarojs/components";
-import type {
-  ApprovalDecision,
-  ApprovalRequiredPayload,
+import AppIcon from "../AppIcon";
+import {
+  APPROVAL_DECISION_LABELS,
+  type ApprovalDecision,
+  type ApprovalDecisionType,
+  type ApprovalRequiredPayload,
 } from "@litter-bear/types/protocol";
 import "./index.scss";
 
@@ -13,19 +16,29 @@ interface ApprovalCardProps {
   submitting?: boolean;
   /** 已决策（历史卡片，只读展示） */
   resolved?: boolean;
+  /** 已做出的决定（resolved 时用于单行结论文案与成败色） */
+  resolvedDecision?: ApprovalDecisionType;
   /** 提交人工决定 */
   onDecision?: (decision: ApprovalDecision) => void;
 }
 
+/** args 顶层标量事实行（一眼可读的键值对） */
+interface FactRow {
+  key: string;
+  value: string;
+}
+
 /**
  * 工具级人工审批卡片（HITL）
- * @description 展示待审批的工具调用（名称/参数/说明），提供 通过 / 修改 / 拒绝 三态操作。
+ * @description 待审批时展示工具名/说明/参数事实行，提供 通过 / 修改 / 拒绝 三态；
+ * 嵌套与长文本参数收进「查看调用参数」折叠区，已处理的历史卡收敛为一行结论。
  * 纯展示组件：决定通过 onDecision 上抛，由上层调用 /approval 端点恢复续跑。
  */
 function ApprovalCard({
   payload,
   submitting = false,
   resolved = false,
+  resolvedDecision,
   onDecision,
 }: ApprovalCardProps) {
   const allowed = payload.allowedDecisions ?? ["approve", "reject"];
@@ -34,10 +47,23 @@ function ApprovalCard({
   const canEdit = allowed.includes("edit");
 
   const [editing, setEditing] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
   const [editText, setEditText] = useState(() => formatArgs(payload.args));
   const [parseError, setParseError] = useState<string | null>(null);
 
   const disabled = submitting || resolved;
+
+  // 已处理：整张卡收敛为一行结论
+  if (resolved) {
+    return (
+      <ResolvedLine
+        toolName={payload.toolName}
+        decision={resolvedDecision}
+      />
+    );
+  }
+
+  const { facts, rawText } = splitArgs(payload.args);
 
   const emit = (decision: ApprovalDecision) => {
     if (disabled) {
@@ -64,10 +90,8 @@ function ApprovalCard({
   return (
     <View className='approval-card'>
       <View className='approval-card-head'>
-        <Text className='at-icon at-icon-alert-circle approval-card-icon' />
-        <Text className='approval-card-title'>
-          {resolved ? "已处理的人工审批" : "待人工确认"}
-        </Text>
+        <Text className='approval-card-badge'>!</Text>
+        <Text className='approval-card-title'>待人工确认</Text>
         {payload.toolName && (
           <Text className='approval-card-tool'>{payload.toolName}</Text>
         )}
@@ -92,67 +116,171 @@ function ApprovalCard({
           )}
         </View>
       ) : (
-        <View className='approval-card-args'>
-          <Text className='approval-card-args-label'>调用参数</Text>
-          <Text className='approval-card-args-code'>
-            {formatArgs(payload.args) || "（无参数）"}
-          </Text>
-        </View>
+        <>
+          {facts.length > 0 && (
+            <View className='approval-card-facts'>
+              {facts.map((fact) => (
+                <View key={fact.key} className='approval-fact'>
+                  <Text className='approval-fact-key'>{fact.key}</Text>
+                  <Text className='approval-fact-value'>{fact.value}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {rawText && (
+            <View>
+              <View
+                className='approval-raw-toggle'
+                onClick={() => setShowRaw((v) => !v)}
+              >
+                <Text
+                  className={`approval-raw-caret ${showRaw ? "approval-raw-caret-open" : ""}`}
+                >
+                  ▸
+                </Text>
+                <Text>{showRaw ? "收起调用参数" : "查看调用参数"}</Text>
+              </View>
+              {showRaw && (
+                <Text className='approval-raw-code'>{rawText}</Text>
+              )}
+            </View>
+          )}
+        </>
       )}
 
-      {!resolved && (
-        <View className='approval-card-actions'>
-          {editing ? (
-            <>
+      <View className='approval-card-actions'>
+        {editing ? (
+          <>
+            <View
+              className={`approval-btn approval-btn-primary ${disabled ? "approval-btn-disabled" : ""}`}
+              onClick={handleConfirmEdit}
+            >
+              <Text>确认修改并执行</Text>
+            </View>
+            <View
+              className='approval-btn approval-btn-ghost'
+              onClick={() => {
+                setEditing(false);
+                setParseError(null);
+                setEditText(formatArgs(payload.args));
+              }}
+            >
+              <Text>取消</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            {canApprove && (
               <View
                 className={`approval-btn approval-btn-primary ${disabled ? "approval-btn-disabled" : ""}`}
-                onClick={handleConfirmEdit}
+                onClick={() => emit({ decision: "approve" })}
               >
-                <Text>确认修改并执行</Text>
+                <Text>{submitting ? "处理中…" : "通过"}</Text>
               </View>
+            )}
+            {canEdit && (
               <View
-                className='approval-btn approval-btn-ghost'
-                onClick={() => {
-                  setEditing(false);
-                  setParseError(null);
-                  setEditText(formatArgs(payload.args));
-                }}
+                className={`approval-btn approval-btn-ghost ${disabled ? "approval-btn-disabled" : ""}`}
+                onClick={() => !disabled && setEditing(true)}
               >
-                <Text>取消</Text>
+                <Text>修改参数</Text>
               </View>
-            </>
-          ) : (
-            <>
-              {canApprove && (
-                <View
-                  className={`approval-btn approval-btn-primary ${disabled ? "approval-btn-disabled" : ""}`}
-                  onClick={() => emit({ decision: "approve" })}
-                >
-                  <Text>{submitting ? "处理中…" : "通过"}</Text>
-                </View>
-              )}
-              {canEdit && (
-                <View
-                  className={`approval-btn approval-btn-ghost ${disabled ? "approval-btn-disabled" : ""}`}
-                  onClick={() => !disabled && setEditing(true)}
-                >
-                  <Text>修改参数</Text>
-                </View>
-              )}
-              {canReject && (
-                <View
-                  className={`approval-btn approval-btn-danger ${disabled ? "approval-btn-disabled" : ""}`}
-                  onClick={() => emit({ decision: "reject" })}
-                >
-                  <Text>拒绝</Text>
-                </View>
-              )}
-            </>
-          )}
-        </View>
-      )}
+            )}
+            {canReject && (
+              <View
+                className={`approval-btn approval-btn-danger ${disabled ? "approval-btn-disabled" : ""}`}
+                onClick={() => emit({ decision: "reject" })}
+              >
+                <Text>拒绝</Text>
+              </View>
+            )}
+          </>
+        )}
+      </View>
     </View>
   );
+}
+
+/**
+ * 已处理审批的一行结论
+ * @param toolName 工具名
+ * @param decision 已做出的决定；缺省按 approve 处理
+ */
+function ResolvedLine({
+  toolName,
+  decision = "approve",
+}: {
+  toolName?: string;
+  decision?: ApprovalDecisionType;
+}) {
+  const rejected = decision === "reject";
+  return (
+    <View
+      className={`approval-resolved ${rejected ? "approval-resolved-no" : "approval-resolved-ok"}`}
+    >
+      <AppIcon
+        name={rejected ? "close" : "check"}
+        className='approval-resolved-ico h-[0.875rem] w-[0.875rem]'
+      />
+      <Text>
+        {APPROVAL_DECISION_LABELS[decision]}
+        {toolName ? ` · ${toolName}` : ""}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * 把 args 拆成事实行与原始文本
+ * @param args 序列化后的参数字符串
+ * @returns facts：顶层标量键值对；rawText：完整 JSON（供折叠区展开）
+ * @description 只把「一眼能读」的标量提成事实行；嵌套对象/数组不逐行展开，
+ * 仍留在折叠的原始 JSON 里，避免把冗长结构摊到卡片上。
+ */
+function splitArgs(args?: string): { facts: FactRow[]; rawText: string } {
+  const rawText = formatArgs(args);
+  if (!args) {
+    return { facts: [], rawText: "" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(args);
+  } catch {
+    return { facts: [], rawText };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { facts: [], rawText };
+  }
+
+  const facts: FactRow[] = [];
+  for (const [key, value] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    const scalar = toScalarText(value);
+    if (scalar !== undefined) {
+      facts.push({ key, value: scalar });
+    }
+  }
+  return { facts, rawText };
+}
+
+/**
+ * 标量转展示文本；嵌套结构/空值返回 undefined（不进事实行）
+ */
+function toScalarText(value: unknown): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value.trim() ? value : undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return undefined;
 }
 
 /**

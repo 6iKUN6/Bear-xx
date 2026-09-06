@@ -93,6 +93,7 @@ export default function ChatWorkspace({
     updateMessageStreamEvent,
     toggleMessageStreamFeedback,
     setMessageApproval,
+    resolveMessageApproval,
     setMessagePlanReview,
     upsertMessageOrder,
     persistConversations,
@@ -543,7 +544,7 @@ export default function ChatWorkspace({
   };
 
   const handleApproval = (msgId: string, decision: ApprovalDecision) => {
-    setMessageApproval(msgId, null);
+    resolveMessageApproval(msgId, decision.decision);
     updateMessageStatus(msgId, "streaming");
     activeAssistantMessageIdRef.current = msgId;
     submitApproval(decision);

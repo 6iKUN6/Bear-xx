@@ -1,4 +1,5 @@
 import type {
+  ApprovalDecisionType,
   ApprovalRequiredPayload,
   PlanReviewRequiredPayload,
 } from "@litter-bear/types/protocol";
@@ -7,7 +8,10 @@ import { STORAGE_KEYS } from "../utils/constants";
 import * as chatApi from "../api/chat";
 import type { McDonaldsOrder } from "../api/mcdonaldsOrder";
 import { createBoundStore } from "./createBoundStore";
-import { buildStreamFeedbackFromTrace } from "../utils/streamFeedback";
+import {
+  buildStreamFeedbackFromTrace,
+  mergeStreamFeedbackEvent,
+} from "../utils/streamFeedback";
 
 /** 本地草稿会话 id 前缀（服务端不存在此记录） */
 const DRAFT_CONVERSATION_PREFIX = "draft_";
@@ -55,6 +59,11 @@ interface ChatState {
   setMessageApproval: (
     msgId: string,
     payload: ApprovalRequiredPayload | null,
+  ) => void;
+  /** 工具审批已决定：清空待审批卡，记录决定与原载荷用于单行结论展示 */
+  resolveMessageApproval: (
+    msgId: string,
+    decision: ApprovalDecisionType,
   ) => void;
   setMessagePlanReview: (
     msgId: string,
@@ -463,11 +472,37 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
     });
   },
 
+  resolveMessageApproval(msgId: string, decision: ApprovalDecisionType) {
+    set((state) => {
+      if (!state.currentConversation) return state;
+
+      const messages = state.currentConversation.messages.map((m) => {
+        if (m.id !== msgId || !m.pendingApproval) return m;
+        return {
+          ...m,
+          pendingApproval: undefined,
+          resolvedApproval: { decision, payload: m.pendingApproval },
+        };
+      });
+
+      const updatedConv: Conversation = {
+        ...state.currentConversation,
+        messages,
+        updatedAt: Date.now(),
+      };
+
+      const conversations = state.conversations.map((c) =>
+        c.id === updatedConv.id ? updatedConv : c,
+      );
+
+      return { currentConversation: updatedConv, conversations };
+    });
+  },
+
   setMessagePlanReview(
     msgId: string,
     payload: PlanReviewRequiredPayload | null,
-  ) {
-    set((state) => {
+  ) {    set((state) => {
       if (!state.currentConversation) return state;
 
       const messages = state.currentConversation.messages.map((m) =>
@@ -622,7 +657,7 @@ function upsertStreamFeedbackEvent(
   }
 
   return events.map((event, index) =>
-    index === matchedIndex ? { ...event, ...nextEvent } : event,
+    index === matchedIndex ? mergeStreamFeedbackEvent(event, nextEvent) : event,
   );
 }
 
