@@ -81,6 +81,9 @@ export async function getMcDonaldsPaymentQr(id: string): Promise<ArrayBuffer> {
   if (response.statusCode === 401) {
     storage.remove(STORAGE_KEYS.TOKEN);
     storage.remove(STORAGE_KEYS.USER_INFO);
+    storage.remove(STORAGE_KEYS.AGENTS);
+    storage.remove(STORAGE_KEYS.SELECTED_AGENT_ID);
+    storage.remove(STORAGE_KEYS.AGENT_MODEL_SELECTIONS);
     Taro.redirectTo({ url: "/pages/login/index" });
     throw new ApiRequestError("未授权，请重新登录", 401);
   }

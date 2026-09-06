@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from "../utils/constants";
 import { createBoundStore } from "./createBoundStore";
 import { getUserProfile } from "../api/user";
 import { ApiRequestError } from "../api/request";
+import { useAgentStore } from "./agentStore";
 
 interface UserState {
   token: string | null;
@@ -47,6 +48,8 @@ export const useUserStore = createBoundStore<UserState>((set, get) => ({
       userInfo: result.user,
       isLoggedIn: true,
     });
+    useAgentStore.getState().resetForUser(result.user.id);
+    void useAgentStore.getState().loadAgents();
   },
 
   /**
@@ -61,6 +64,7 @@ export const useUserStore = createBoundStore<UserState>((set, get) => ({
       userInfo: null,
       isLoggedIn: false,
     });
+    useAgentStore.getState().resetForUser(null);
     Taro.redirectTo({ url: "/pages/login/index" });
   },
 

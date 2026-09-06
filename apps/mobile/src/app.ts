@@ -50,10 +50,14 @@ function App({ children }: PropsWithChildren<any>) {
     // 恢复界面主题
     useThemeStore.getState().hydrate();
     // 恢复选中的智能体与智能体列表缓存
-    useAgentStore.getState().hydrate();
+    useAgentStore
+      .getState()
+      .hydrate(useUserStore.getState().userInfo?.id ?? null);
     // 智能体列表是头像与 @ 候选的唯一来源，且非会话页也可能首屏直达群聊，
     // 故启动即拉一次（失败不影响主流程，各页面挂载时还会 ensure 重试）。
-    void useAgentStore.getState().loadAgents();
+    if (useUserStore.getState().isLoggedIn) {
+      void useAgentStore.getState().loadAgents();
+    }
   });
 
   return children;
