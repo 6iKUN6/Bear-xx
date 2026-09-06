@@ -169,9 +169,11 @@ export class AdminUserService {
         }
         if (
           role !== UserRole.USER &&
-          (!target.username || !target.passwordHash)
+          (!target.passwordHash || (!target.username && !target.phone))
         ) {
-          throw new BadRequestException('只有已登记账号密码的用户可成为管理员');
+          throw new BadRequestException(
+            '只有已设置用户名或手机号密码的用户可成为管理员',
+          );
         }
         if (
           target.role === UserRole.SUPER_ADMIN &&
@@ -264,7 +266,9 @@ export class AdminUserService {
       username: user.username,
       phone: user.phone,
       role: user.role,
-      hasPasswordAccount: Boolean(user.username && user.passwordHash),
+      hasPasswordAccount: Boolean(
+        user.passwordHash && (user.username || user.phone),
+      ),
       membershipTier: user.membershipTier,
       effectiveMembershipTier: this.agentAccess.effectiveTier(user, now),
       membershipExpiresAt: user.membershipExpiresAt,

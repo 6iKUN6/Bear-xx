@@ -230,17 +230,19 @@ export class AuthService {
 
   /**
    * 使用既有管理员账号登录后台
-   * @param username 管理员账号名
+   * @param loginId 管理员用户名或手机号
    * @param password 登录密码
    * @returns 返回后台登录令牌、管理员基本信息和实时角色
-   * @description 仅允许已存在的 ADMIN 或 SUPER_ADMIN 登录，不自动注册账号；所有失败场景返回统一错误，避免泄露账号状态。
+   * @description 仅允许已存在的 ADMIN 或 SUPER_ADMIN 通过用户名或手机号登录，不自动注册账号；所有失败场景返回统一错误，避免泄露账号状态。
    */
   async adminLogin(
-    username: string,
+    loginId: string,
     password: string,
   ): Promise<AdminLoginResult> {
-    const normalizedUsername = username.trim().toLowerCase();
-    const user = await this.userService.findByUsername(normalizedUsername);
+    const normalizedLoginId = loginId.trim().toLowerCase();
+    const user = /^1[3-9]\d{9}$/.test(normalizedLoginId)
+      ? await this.userService.findByPhone(normalizedLoginId)
+      : await this.userService.findByUsername(normalizedLoginId);
 
     if (
       !user?.passwordHash ||
