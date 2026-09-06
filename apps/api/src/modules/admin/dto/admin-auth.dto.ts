@@ -4,14 +4,14 @@ import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class AdminLoginDto {
   @ApiProperty({
-    description: '既有管理员账号名',
+    description: '既有管理员用户名或手机号',
     example: 'admin',
   })
   @IsString()
   @MinLength(4, { message: '账号长度至少为4位' })
   @MaxLength(20, { message: '账号长度不能超过20位' })
   @Matches(/^[a-zA-Z0-9_]+$/, {
-    message: '账号仅支持字母、数字和下划线',
+    message: '账号仅支持用户名或手机号',
   })
   username: string;
 

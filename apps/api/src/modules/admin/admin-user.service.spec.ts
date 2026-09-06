@@ -114,13 +114,45 @@ describe('AdminUserService', () => {
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
-  it('rejects promoting a user without both username and password hash', async () => {
+  it('allows promoting a phone-password user without a username', async () => {
     tx.user.findUnique
       .mockResolvedValueOnce({ id: 'actor-1', role: UserRole.SUPER_ADMIN })
       .mockResolvedValueOnce({
         id: 'user-1',
         role: UserRole.USER,
         username: null,
+        phone: '13800000000',
+        passwordHash: 'hash',
+      });
+    tx.user.update.mockResolvedValue({
+      id: 'user-1',
+      nickname: '手机用户',
+      avatarUrl: '',
+      username: null,
+      phone: '13800000000',
+      role: UserRole.ADMIN,
+      membershipTier: MembershipTier.FREE,
+      membershipExpiresAt: null,
+      passwordHash: 'hash',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    await expect(
+      createService().updateAdminRole('actor-1', 'user-1', UserRole.ADMIN),
+    ).resolves.toMatchObject({ role: UserRole.ADMIN });
+    expect(tx.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { role: UserRole.ADMIN } }),
+    );
+  });
+
+  it('rejects promoting a user without any password login identifier', async () => {
+    tx.user.findUnique
+      .mockResolvedValueOnce({ id: 'actor-1', role: UserRole.SUPER_ADMIN })
+      .mockResolvedValueOnce({
+        id: 'user-1',
+        role: UserRole.USER,
+        username: null,
+        phone: null,
         passwordHash: 'hash',
       });
 

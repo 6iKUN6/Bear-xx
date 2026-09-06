@@ -31,6 +31,7 @@ describe('AuthService.adminLogin', () => {
   };
   const userService = {
     findByUsername: jest.fn(),
+    findByPhone: jest.fn(),
     findById: jest.fn(),
     createWithPassword: jest.fn(),
   };
@@ -82,6 +83,29 @@ describe('AuthService.adminLogin', () => {
       expect(userService.createWithPassword).not.toHaveBeenCalled();
     },
   );
+
+  it('allows an existing phone-password admin to log in with their phone', async () => {
+    userService.findByPhone.mockResolvedValue({
+      id: 'admin-phone-1',
+      username: null,
+      phone: '13800000000',
+      passwordHash: await createPasswordHash('correct-password'),
+      nickname: '手机管理员',
+      avatarUrl: '',
+      role: UserRole.ADMIN,
+    });
+
+    await expect(
+      createService().adminLogin(' 13800000000 ', 'correct-password'),
+    ).resolves.toMatchObject({
+      user: {
+        id: 'admin-phone-1',
+        adminRole: UserRole.ADMIN,
+      },
+    });
+    expect(userService.findByPhone).toHaveBeenCalledWith('13800000000');
+    expect(userService.findByUsername).not.toHaveBeenCalled();
+  });
 
   it('returns the current database role for an authenticated admin session', async () => {
     userService.findById.mockResolvedValue({

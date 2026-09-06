@@ -424,7 +424,7 @@
             }
           }
         },
-        "summary": "管理员账号密码登录",
+        "summary": "管理员用户名或手机号密码登录",
         "tags": [
           "管理-认证"
         ]
@@ -4359,7 +4359,7 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "既有管理员账号名",
+            "description": "既有管理员用户名或手机号",
             "example": "admin"
           },
           "password": {
