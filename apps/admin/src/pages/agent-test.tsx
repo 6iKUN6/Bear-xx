@@ -30,7 +30,6 @@ import {
 import {
   useAgents,
   useDeleteTestSession,
-  useModelPresets,
   useTestSession,
   useTestSessions,
 } from "@/hooks/queries";
@@ -38,7 +37,6 @@ import { streamAgentTest } from "@/api/stream";
 import type { TestSessionMessage } from "@/api/types";
 import { cn } from "@/lib/utils";
 import { formatTime, statusBadgeVariant } from "@/lib/format";
-import { capabilityMeta } from "@/lib/model-preset-meta";
 
 interface TimelineItem {
   key: string;
@@ -61,7 +59,6 @@ const NON_TIMELINE = new Set<string>([
 export function AgentTestPage() {
   const queryClient = useQueryClient();
   const { data: agents } = useAgents();
-  const { data: models } = useModelPresets();
   const { data: sessions, isLoading: sessionsLoading } = useTestSessions();
   const deleteSession = useDeleteTestSession();
 
@@ -73,7 +70,6 @@ export function AgentTestPage() {
   } = useTestSession(activeId);
 
   const [agentId, setAgentId] = useState("");
-  const [modelPreset, setModelPreset] = useState("");
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [pending, setPending] = useState<PendingMessage[]>([]);
@@ -109,7 +105,8 @@ export function AgentTestPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!(await confirm({ description: "确定删除该测试会话？", danger: true }))) return;
+    if (!(await confirm({ description: "确定删除该测试会话？", danger: true })))
+      return;
     await deleteSession.mutateAsync(id);
     if (activeId === id) selectSession(null);
     toast.success("已删除");
@@ -133,7 +130,6 @@ export function AgentTestPage() {
         content,
         conversationId: activeId ?? undefined,
         agentId: agentId || undefined,
-        modelPreset: modelPreset || undefined,
       },
       {
         onEvent: (eventName, data) => handleEvent(eventName, data),
@@ -302,20 +298,6 @@ export function AgentTestPage() {
                   <SelectItem key={a.id} value={a.id} disabled={!a.enabled}>
                     {a.name}
                     {a.enabled ? "" : "（已停用）"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="w-52">
-            <Select value={modelPreset} onValueChange={setModelPreset}>
-              <SelectTrigger className="h-8">
-                <SelectValue placeholder="用 agent 配置的模型" />
-              </SelectTrigger>
-              <SelectContent>
-                {(models ?? []).map((m) => (
-                  <SelectItem key={m.id} value={m.presetId}>
-                    {m.name} · {capabilityMeta(m.capability).name}
                   </SelectItem>
                 ))}
               </SelectContent>

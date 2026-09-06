@@ -21,10 +21,16 @@ import type {
   AdminUser,
   AdminUserPage,
   ManagementAuditPage,
+  CreateModelPresetInput,
+  CreateModelProviderConnectionInput,
   ModelPreset,
-  ModelPresetInput,
-  ModelPresetProbeInput,
   ModelPresetProbeResult,
+  ModelPresetReferences,
+  ModelProviderConnection,
+  ModelProviderConnectionProbeResult,
+  ModelProviderTemplate,
+  UpdateModelPresetInput,
+  UpdateModelProviderConnectionInput,
   ObservabilityOverview,
   RecentTasks,
   TaskDetail,
@@ -172,14 +178,57 @@ export const deleteTestSession = (id: string) =>
     method: "DELETE",
   });
 
-// ---- ModelPreset CRUD ----
+// ---- 模型供应商连接与预设 ----
+export const listModelProviderTemplates = () =>
+  request<ModelProviderTemplate[]>("/admin/model-provider-templates");
+
+export const listModelProviderConnections = () =>
+  request<ModelProviderConnection[]>("/admin/model-provider-connections");
+
+export const createModelProviderConnection = (
+  body: CreateModelProviderConnectionInput,
+) =>
+  request<ModelProviderConnection>("/admin/model-provider-connections", {
+    method: "POST",
+    body,
+  });
+
+export const updateModelProviderConnection = (
+  id: string,
+  body: UpdateModelProviderConnectionInput,
+) =>
+  request<ModelProviderConnection>(`/admin/model-provider-connections/${id}`, {
+    method: "PATCH",
+    body,
+  });
+
+export const deleteModelProviderConnection = (id: string) =>
+  request<{ success: boolean }>(`/admin/model-provider-connections/${id}`, {
+    method: "DELETE",
+  });
+
+export const probeModelProviderConnection = (
+  id: string,
+  modelPresetId: string,
+) =>
+  request<ModelProviderConnectionProbeResult>(
+    `/admin/model-provider-connections/${id}/probe`,
+    { method: "POST", body: { modelPresetId } },
+  );
+
 export const listModelPresets = () =>
   request<ModelPreset[]>("/admin/model-presets");
 
-export const createModelPreset = (body: ModelPresetInput) =>
-  request<ModelPreset>("/admin/model-presets", { method: "POST", body });
+export const createModelPreset = (
+  connectionId: string,
+  body: CreateModelPresetInput,
+) =>
+  request<ModelPreset>(
+    `/admin/model-provider-connections/${connectionId}/models`,
+    { method: "POST", body },
+  );
 
-export const updateModelPreset = (id: string, body: ModelPresetInput) =>
+export const updateModelPreset = (id: string, body: UpdateModelPresetInput) =>
   request<ModelPreset>(`/admin/model-presets/${id}`, { method: "PATCH", body });
 
 export const deleteModelPreset = (id: string) =>
@@ -187,18 +236,14 @@ export const deleteModelPreset = (id: string) =>
     method: "DELETE",
   });
 
-/** 用表单里的连接参数试探；不落库，也不改动任何预设的 capability */
-export const probeModelPresetDraft = (body: ModelPresetProbeInput) =>
-  request<ModelPresetProbeResult>("/admin/model-presets/probe", {
-    method: "POST",
-    body,
-  });
-
 /** 用已落库的密文密钥探测，结论写回该预设的 capability 与 lastCheck* */
 export const probeModelPreset = (id: string) =>
   request<ModelPresetProbeResult>(`/admin/model-presets/${id}/probe`, {
     method: "POST",
   });
+
+export const getModelPresetReferences = (id: string) =>
+  request<ModelPresetReferences>(`/admin/model-presets/${id}/references`);
 
 // ---- AgentFlow 控制面 ----
 export const listAgentFlows = () => request<AgentFlow[]>("/admin/agent-flows");

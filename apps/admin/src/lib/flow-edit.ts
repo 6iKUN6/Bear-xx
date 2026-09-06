@@ -95,7 +95,6 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
   start: () => ({}),
   end: () => ({}),
   agent: () => ({
-    modelPreset: "agent-default",
     toolGroups: [],
     skills: [],
     maxToolIterations: 4,
@@ -106,7 +105,6 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
   "plan-loop": () => ({
     executor: {
       type: "agent",
-      modelPreset: "agent-default",
       toolGroups: [],
       skills: [],
       maxToolIterations: 4,

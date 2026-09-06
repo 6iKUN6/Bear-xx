@@ -12,7 +12,7 @@ import {
 } from "@/components/entity-card";
 import { AgentFormDialog } from "@/components/agent-form-dialog";
 import { AgentAvatar } from "@/components/agent-identity";
-import { useAgents, useAgentMutations } from "@/hooks/queries";
+import { useAgents, useAgentMutations, useModelPresets } from "@/hooks/queries";
 import { ApiError } from "@/api/client";
 import type { Agent } from "@/api/types";
 import { toolGroupName } from "@/lib/agent-meta";
@@ -20,11 +20,15 @@ import { confirm } from "@/components/confirm-dialog";
 
 export function AgentManagePage() {
   const { data, isLoading } = useAgents();
+  const { data: modelPresets } = useModelPresets();
   const { remove, setDefault } = useAgentMutations();
   const [editing, setEditing] = useState<Agent | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const rows = data ?? [];
+  const modelNames = new Map(
+    (modelPresets ?? []).map((model) => [model.presetId, model.name]),
+  );
 
   const openCreate = () => {
     setEditing(null);
@@ -40,7 +44,13 @@ export function AgentManagePage() {
       toast.error("默认智能体不可删除");
       return;
     }
-    if (!(await confirm({ description: `确定删除「${agent.name}」？`, danger: true }))) return;
+    if (
+      !(await confirm({
+        description: `确定删除「${agent.name}」？`,
+        danger: true,
+      }))
+    )
+      return;
     try {
       await remove.mutateAsync(agent.id);
       toast.success("已删除");
@@ -83,7 +93,11 @@ export function AgentManagePage() {
           {rows.map((a) => (
             <EntityCard key={a.id}>
               <div className="flex items-start gap-3">
-                <AgentAvatar name={a.name} avatar={a.avatar} className="h-10 w-10" />
+                <AgentAvatar
+                  name={a.name}
+                  avatar={a.avatar}
+                  className="h-10 w-10"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5 font-medium">
                     <span className="truncate">{a.name}</span>
@@ -103,8 +117,18 @@ export function AgentManagePage() {
                 {/* 绑定的 Flow 才是决定行为的东西；不展开图名是为了不给列表页
                     多加一次 Flow 列表请求，详情在编辑抽屉里 */}
                 <Badge variant={a.defaultFlowVersionId ? "default" : "outline"}>
-                  {a.defaultFlowVersionId ? "已绑定 Flow" : "内置直接回复"}
+                  {a.defaultFlowVersionId ? "自定义 Flow" : "直接回复"}
                 </Badge>
+                <Badge variant="outline">
+                  {a.defaultModelPresetId
+                    ? `默认：${modelNames.get(a.defaultModelPresetId) ?? a.defaultModelPresetId}`
+                    : "Flow 显式模型"}
+                </Badge>
+                {a.allowedModelPresetIds.length > 0 ? (
+                  <Badge variant="secondary">
+                    {a.allowedModelPresetIds.length} 个允许模型
+                  </Badge>
+                ) : null}
                 <Badge variant={a.enabled ? "success" : "secondary"}>
                   {a.enabled ? "启用" : "停用"}
                 </Badge>
@@ -112,7 +136,9 @@ export function AgentManagePage() {
                   {a.visible ? "展示" : "隐藏"}
                 </Badge>
                 <Badge
-                  variant={a.minimumMembershipTier === "FREE" ? "outline" : "warning"}
+                  variant={
+                    a.minimumMembershipTier === "FREE" ? "outline" : "warning"
+                  }
                 >
                   {a.minimumMembershipTier}
                 </Badge>

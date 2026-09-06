@@ -8,6 +8,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { ModelProviderLogo } from "@/components/model-provider-logo";
 import {
   Select,
   SelectContent,
@@ -16,6 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import type { ModelPresetOption, ReasoningSelection } from "@/api/types";
+import {
+  defaultReasoningSelection,
+  ReasoningControls,
+} from "@/components/reasoning-controls";
 import { branchKeysOf, type EditableNode } from "@/lib/flow-edit";
 import {
   branchLabel,
@@ -35,7 +41,7 @@ export interface InspectorEditing {
   capabilities: {
     toolGroups: string[];
     /** 模型预设闭集；与后端同一判据，因此不含发布期会被拒的选项 */
-    modelPresets: Array<{ id: string; model: string }>;
+    modelPresets: ModelPresetOption[];
   };
   /** 提交整份新 config */
   onChangeConfig: (config: Record<string, unknown>) => void;
@@ -290,11 +296,9 @@ function NodeConfig({
       <InspectorSection title="配置">
         <div className="space-y-2">
           <ModelPresetField
-            value={node.config.modelPreset}
+            config={node.config}
             editing={editing}
-            onChange={(modelPreset) =>
-              editing?.onChangeConfig({ ...node.config, modelPreset })
-            }
+            onChange={(config) => editing?.onChangeConfig(config)}
           />
           <RefField
             label="汇总谁的步骤观察"
@@ -336,9 +340,21 @@ function NodeConfig({
                   : "always"
               }
               disabled={!editing}
-              onValueChange={(value) =>
-                editing?.onChangeConfig({ ...node.config, policy: value })
-              }
+              onValueChange={(value) => {
+                const next: Record<string, unknown> = {
+                  ...node.config,
+                  policy: value,
+                };
+                if (value === "model") {
+                  if (typeof node.config.modelPreset !== "string") {
+                    delete next.modelPreset;
+                  }
+                } else {
+                  delete next.modelPreset;
+                  delete next.reasoning;
+                }
+                editing?.onChangeConfig(next);
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -351,9 +367,16 @@ function NodeConfig({
             </Select>
           </Field>
           {node.config.policy === "model" ? (
-            <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-              模型不可用、输出非法或额度耗尽时一律转人工确认（失败闭合）。
-            </p>
+            <div className="space-y-2">
+              <ModelPresetField
+                config={node.config}
+                editing={editing}
+                onChange={(config) => editing?.onChangeConfig(config)}
+              />
+              <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+                模型不可用、输出非法或额度耗尽时一律转人工确认（失败闭合）。
+              </p>
+            </div>
           ) : null}
           <RefField
             label="审哪份计划"
@@ -375,20 +398,27 @@ function NodeConfig({
   if (node.type === "plan") {
     return (
       <InspectorSection title="配置">
-        <Field label="计划步数上限">
-          <Input
-            type="number"
-            min={1}
-            value={String(node.config.maxSteps ?? "")}
-            disabled={!editing}
-            onChange={(event) =>
-              editing?.onChangeConfig({
-                ...node.config,
-                maxSteps: Number(event.target.value),
-              })
-            }
+        <div className="space-y-2">
+          <ModelPresetField
+            config={node.config}
+            editing={editing}
+            onChange={(config) => editing?.onChangeConfig(config)}
           />
-        </Field>
+          <Field label="计划步数上限">
+            <Input
+              type="number"
+              min={1}
+              value={String(node.config.maxSteps ?? "")}
+              disabled={!editing}
+              onChange={(event) =>
+                editing?.onChangeConfig({
+                  ...node.config,
+                  maxSteps: Number(event.target.value),
+                })
+              }
+            />
+          </Field>
+        </div>
       </InspectorSection>
     );
   }
@@ -514,73 +544,103 @@ function JoinConfig({
   );
 }
 
-/** 运行时解析为「任务锁定的智能体默认模型」的哨兵值，不是一个真实预设。 */
-const AGENT_DEFAULT_PRESET = "agent-default";
-
 /**
  * 模型预设选择器
  * @param props 当前值、编辑能力与提交回调
  * @returns 返回闭集下拉，或只读态的文字
- * @description agent 节点、plan-loop 内部 executor 与 synthesize 共用：三者在契约里都是
- * 同义的可选 modelPreset，各写一份必然漂移。
+ * @description agent、plan、plan-loop executor、model approval 与 synthesize 共用：
+ * 它们在契约里都是同义的可选 modelPreset，各写一份必然漂移。
  *
  * 闭集来自后端 listAvailableModels，与 FlowRuntimeValidator 同一判据，因此不会列出
  * 发布期会被拒的选项。
  */
 function ModelPresetField({
-  value,
+  config,
   editing,
   onChange,
 }: {
-  value: unknown;
+  config: Record<string, unknown>;
   editing?: InspectorEditing;
-  onChange: (modelPreset: string) => void;
+  onChange: (config: Record<string, unknown>) => void;
 }) {
   const presets = editing?.capabilities.modelPresets ?? [];
   const current =
-    typeof value === "string" && value ? value : AGENT_DEFAULT_PRESET;
-  const stale =
-    current !== AGENT_DEFAULT_PRESET &&
-    !presets.some((preset) => preset.id === current);
+    typeof config.modelPreset === "string" && config.modelPreset
+      ? config.modelPreset
+      : undefined;
+  const selected = presets.find((preset) => preset.id === current);
+  const stale = Boolean(current && !selected);
 
   return (
-    <Field
-      label="模型预设"
-      hint="选「跟随智能体默认」时，运行时用该智能体自己的模型预设——智能体没配就会在任务创建时被拒"
-    >
-      {editing ? (
-        <Select value={current} onValueChange={onChange}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {/* 哨兵值放第一项：它原本是个「你得先知道」的魔法字符串 */}
-            <SelectItem value={AGENT_DEFAULT_PRESET}>
-              跟随智能体默认（agent-default）
-            </SelectItem>
-            {presets.map((preset) => (
-              <SelectItem key={preset.id} value={preset.id}>
-                {preset.id}
-                {preset.model && preset.model !== preset.id ? (
-                  <span className="ml-2 opacity-60">{preset.model}</span>
-                ) : null}
-              </SelectItem>
-            ))}
-            {/* 草稿里存着闭集外的预设时仍要能显示，否则 Select 显示成空、看起来像
-                「没配」，而实际存着一个保存会被拒的值 */}
-            {stale ? (
-              <SelectItem value={current}>{current}（不可用）</SelectItem>
-            ) : null}
-          </SelectContent>
-        </Select>
-      ) : (
-        <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-          {current === AGENT_DEFAULT_PRESET
-            ? "跟随智能体默认（agent-default）"
-            : current}
-        </p>
-      )}
-    </Field>
+    <div className="space-y-2">
+      <Field label="模型预设" hint="自定义 Flow 的每个模型节点必须选择具体预设">
+        {editing ? (
+          <Select
+            value={current}
+            onValueChange={(modelPreset) => {
+              const preset = presets.find((item) => item.id === modelPreset);
+              onChange(
+                withModelSelection(
+                  config,
+                  modelPreset,
+                  defaultReasoningSelection(preset?.reasoningCapability),
+                ),
+              );
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="选择具体模型" />
+            </SelectTrigger>
+            <SelectContent>
+              {presets.map((preset) => (
+                <SelectItem
+                  key={preset.id}
+                  value={preset.id}
+                  textValue={`${preset.name} · ${preset.connectionName}`}
+                  className="py-2"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <ModelProviderLogo
+                      providerKey={preset.providerKey}
+                      name={preset.connectionName}
+                      className="h-7 w-7"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {preset.name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {preset.connectionName} · {preset.model}
+                      </span>
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+              {stale && current ? (
+                <SelectItem value={current}>{current}（不可用）</SelectItem>
+              ) : null}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+            {current ?? "未选择"}
+          </p>
+        )}
+        {!current ? (
+          <p className="text-xs text-[var(--lb-warning)]">
+            必填：选择具体模型后才能保存并发布。
+          </p>
+        ) : null}
+      </Field>
+      <ReasoningControls
+        capability={selected?.reasoningCapability}
+        value={readReasoningSelection(config.reasoning)}
+        disabled={!editing}
+        onChange={(reasoning) =>
+          current && onChange(withModelSelection(config, current, reasoning))
+        }
+      />
+    </div>
   );
 }
 
@@ -605,9 +665,9 @@ function ExecutorFields({
   return (
     <div className="space-y-2">
       <ModelPresetField
-        value={executor.modelPreset}
+        config={executor}
         editing={editing}
-        onChange={(modelPreset) => onChange({ ...executor, modelPreset })}
+        onChange={onChange}
       />
       <Field label="工具组">
         {editing ? (
@@ -1449,6 +1509,64 @@ function readConditionCaseArray(value: unknown): ConditionCase[] {
     });
   }
   return result;
+}
+
+/**
+ * 将模型与思考选择写回节点配置
+ * @param config 当前节点或执行器配置
+ * @param modelPreset 具体模型预设 ID
+ * @param reasoning 与该模型能力匹配的思考选择
+ * @returns 返回已清除旧模型思考残留的新配置
+ * @description 更换模型时必须由调用方传入新模型的目录默认选择；普通或固定思考模型会删除
+ * reasoning 字段，避免旧模型配置污染新模型。
+ */
+function withModelSelection(
+  config: Record<string, unknown>,
+  modelPreset: string,
+  reasoning: ReasoningSelection | undefined,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...config, modelPreset };
+  if (reasoning) {
+    next.reasoning = reasoning;
+  } else {
+    delete next.reasoning;
+  }
+  return next;
+}
+
+/** 从未校验的草稿配置中读取可供控件展示的思考选择。 */
+function readReasoningSelection(
+  value: unknown,
+): ReasoningSelection | undefined {
+  const source = asRecord(value);
+  if (!source) return undefined;
+  const activation =
+    source.activation === "enabled" ||
+    source.activation === "disabled" ||
+    source.activation === "auto"
+      ? source.activation
+      : undefined;
+  const effort =
+    source.effort === "minimal" ||
+    source.effort === "low" ||
+    source.effort === "medium" ||
+    source.effort === "high" ||
+    source.effort === "xhigh" ||
+    source.effort === "max"
+      ? source.effort
+      : undefined;
+  const budgetTokens =
+    source.budgetTokens === "auto" ||
+    (typeof source.budgetTokens === "number" &&
+      Number.isInteger(source.budgetTokens) &&
+      source.budgetTokens > 0)
+      ? source.budgetTokens
+      : undefined;
+  return activation !== undefined ||
+    effort !== undefined ||
+    budgetTokens !== undefined
+    ? { activation, effort, budgetTokens }
+    : undefined;
 }
 
 /** 把未知值收敛成普通对象。 */

@@ -2,13 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createAgent,
   createModelPreset,
+  createModelProviderConnection,
   deleteAgent,
   deleteModelPreset,
+  deleteModelProviderConnection,
   deleteTestSession,
   getAgentUsage,
   getErrorBreakdown,
   getOverview,
   getRecentTasks,
+  getModelPresetReferences,
   getTaskDetail,
   getTestSession,
   getToolUsage,
@@ -27,24 +30,29 @@ import {
   listAgentFlowTemplates,
   listAgentFlows,
   listModelPresets,
+  listModelProviderConnections,
+  listModelProviderTemplates,
   publishFlowVersion,
   rollbackAgentFlow,
   updateFlowDraft,
   validateFlowVersion,
   probeModelPreset,
-  probeModelPresetDraft,
+  probeModelProviderConnection,
   listTestSessions,
   setDefaultAgent,
   updateAgent,
   updateAgentFlowMetadata,
   updateModelPreset,
+  updateModelProviderConnection,
 } from "@/api/endpoints";
 import type {
   AgentFlowMetadataInput,
   AgentInput,
-  ModelPresetInput,
-  ModelPresetProbeInput,
+  CreateModelPresetInput,
+  CreateModelProviderConnectionInput,
   StorageAssetQuery,
+  UpdateModelPresetInput,
+  UpdateModelProviderConnectionInput,
 } from "@/api/types";
 
 export const useOverview = (days: number) =>
@@ -163,10 +171,8 @@ export const useStorageAssets = (query: StorageAssetQuery) =>
 export function useStorageAssetMutations() {
   const qc = useQueryClient();
   const status = useMutation({
-    mutationFn: (input: {
-      id: string;
-      status: "ACTIVE" | "DELETED";
-    }) => updateAdminImageAssetStatus(input.id, input.status),
+    mutationFn: (input: { id: string; status: "ACTIVE" | "DELETED" }) =>
+      updateAdminImageAssetStatus(input.id, input.status),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["storageAssets"] });
     },
@@ -234,17 +240,91 @@ export function useDeleteTestSession() {
 export const useModelPresets = () =>
   useQuery({ queryKey: ["modelPresets"], queryFn: listModelPresets });
 
-export function useModelPresetMutations() {
-  const qc = useQueryClient();
-  const invalidate = () =>
-    void qc.invalidateQueries({ queryKey: ["modelPresets"] });
+/**
+ * 查询单个模型预设的 Agent 与 Flow 引用
+ * @param id 模型预设数据库 ID；null 表示当前没有编辑目标
+ * @returns 返回引用汇总查询，停用确认前可 refetch 获取最新影响范围
+ * @description 引用会随 Agent 和 Flow 配置变化，危险操作前由调用方主动刷新，不使用旧缓存做决定。
+ */
+export const useModelPresetReferences = (id: string | null) =>
+  useQuery({
+    queryKey: ["modelPresetReferences", id],
+    queryFn: () => getModelPresetReferences(id as string),
+    enabled: Boolean(id),
+  });
 
+export const useModelProviderTemplates = () =>
+  useQuery({
+    queryKey: ["modelProviderTemplates"],
+    queryFn: listModelProviderTemplates,
+    staleTime: Infinity,
+  });
+
+export const useModelProviderConnections = () =>
+  useQuery({
+    queryKey: ["modelProviderConnections"],
+    queryFn: listModelProviderConnections,
+  });
+
+export function useModelProviderConnectionMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["modelProviderConnections"] });
+    void qc.invalidateQueries({ queryKey: ["modelPresets"] });
+    void qc.invalidateQueries({ queryKey: ["agentCapabilities"] });
+  };
   const create = useMutation({
-    mutationFn: (body: ModelPresetInput) => createModelPreset(body),
+    mutationFn: (body: CreateModelProviderConnectionInput) =>
+      createModelProviderConnection(body),
     onSuccess: invalidate,
   });
   const update = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: ModelPresetInput }) =>
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: UpdateModelProviderConnectionInput;
+    }) => updateModelProviderConnection(id, body),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteModelProviderConnection(id),
+    onSuccess: invalidate,
+  });
+  const probe = useMutation({
+    mutationFn: ({
+      id,
+      modelPresetId,
+    }: {
+      id: string;
+      modelPresetId: string;
+    }) => probeModelProviderConnection(id, modelPresetId),
+    onSuccess: invalidate,
+  });
+  return { create, update, remove, probe };
+}
+
+export function useModelPresetMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["modelPresets"] });
+    void qc.invalidateQueries({ queryKey: ["modelProviderConnections"] });
+    void qc.invalidateQueries({ queryKey: ["agentCapabilities"] });
+  };
+
+  const create = useMutation({
+    mutationFn: ({
+      connectionId,
+      body,
+    }: {
+      connectionId: string;
+      body: CreateModelPresetInput;
+    }) => createModelPreset(connectionId, body),
+    onSuccess: invalidate,
+  });
+  const update = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateModelPresetInput }) =>
       updateModelPreset(id, body),
     onSuccess: invalidate,
   });
@@ -252,17 +332,13 @@ export function useModelPresetMutations() {
     mutationFn: (id: string) => deleteModelPreset(id),
     onSuccess: invalidate,
   });
-  // 保存前试探：不落库，因此也不需要失效列表
-  const probeDraft = useMutation({
-    mutationFn: (body: ModelPresetProbeInput) => probeModelPresetDraft(body),
-  });
   // 已保存预设的探测会写回 capability，列表必须重取，否则徽章停在旧档位
   const probe = useMutation({
     mutationFn: (id: string) => probeModelPreset(id),
     onSuccess: invalidate,
   });
 
-  return { create, update, remove, probe, probeDraft };
+  return { create, update, remove, probe };
 }
 
 /* ── AgentFlow ─────────────────────────────────────────────── */
