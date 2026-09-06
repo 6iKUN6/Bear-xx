@@ -155,14 +155,22 @@ function ChatBubble({
         {!isUser && <View className='mt-[0.5rem] min-w-0'>{extra}</View>}
 
         <View className={bubbleBodyClass(isUser)}>
-          <StreamingMarkdownContent
-            content={message.content}
-            emptyText={
-              message.status === "streaming" ? "正在组织回复..." : undefined
-            }
-            className={isUser ? "text-[var(--lb-on-accent)]" : "text-[var(--lb-text-primary)]"}
-            streaming={!isUser && isStreaming}
-          />
+          {isUser ? (
+            // 用户输入是纯文本：不走 markdown（rich-text 的 <p> 自带 margin-bottom:8px，
+            // 会把单行文字顶上去、底部空一截）。pre-wrap 保留换行，单行即垂直居中。
+            <Text className='block whitespace-pre-wrap break-words text-[0.875rem] leading-[1.6]'>
+              {message.content}
+            </Text>
+          ) : (
+            <StreamingMarkdownContent
+              content={message.content}
+              emptyText={
+                message.status === "streaming" ? "正在组织回复..." : undefined
+              }
+              className='text-[var(--lb-text-primary)]'
+              streaming={isStreaming}
+            />
+          )}
         </View>
 
         {!isUser && message.orders?.length ? (
