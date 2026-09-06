@@ -11,18 +11,10 @@ export interface VoiceCompletionsFormDataDto {
   audio: Blob;
   /** 会话 ID；首轮语音消息可不传，后端会自动创建新会话 */
   conversationId?: string;
-  /** 模型预设 ID，优先级最高，例如 openai:gpt-4o-mini */
-  modelId?: string;
-  /** LLM Provider 名称 */
-  provider?: string;
-  /** 模型平台或商家名称 */
-  platform?: string;
-  /** 模型名称 */
-  model?: string;
-  /** 采样温度 */
-  temperature?: number;
-  /** 最大输出 Token 数 */
-  maxOutputTokens?: number;
-  /** Top P 采样参数 */
-  topP?: number;
+  /** 本条消息选择的模型预设业务 ID；必须属于回答智能体允许集合，仅替换 Flow 中的 agent-default */
+  selectedModelPresetId?: string;
+  /** 指定使用的智能体 id；不传则使用会话或系统默认智能体 */
+  agentId?: string;
+  /** JSON 字符串形式的本轮思考设置，仅 direct Agent 可用 */
+  reasoning?: string;
 }

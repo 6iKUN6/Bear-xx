@@ -7,7 +7,6 @@
  */
 
 /**
- * apiKey 脱敏标识（取自不可逆指纹尾部）
  * @nullable
  */
 export type ModelPresetResponseDtoApiKeyHint = { [key: string]: unknown } | null;

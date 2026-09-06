@@ -33,6 +33,7 @@ import type {
   AgentFlowTemplateResponseDto,
   AgentFlowValidationResponseDto,
   AgentFlowVersionResponseDto,
+  AgentModelOptionsDto,
   AgentResponseDto,
   AgentTestDto,
   AgentUsageDto,
@@ -48,6 +49,7 @@ import type {
   CreateConversationDto,
   CreateImageDto,
   CreateModelPresetDto,
+  CreateModelProviderConnectionDto,
   EditImageDto,
   EmptyResultDto,
   ErrorCategoryCountDto,
@@ -64,10 +66,14 @@ import type {
   McDonaldsOrderResponseDto,
   McDonaldsPaymentLinkDto,
   ModelPresetProbeResultDto,
+  ModelPresetReferencesResponseDto,
   ModelPresetResponseDto,
+  ModelProviderConnectionProbeResultDto,
+  ModelProviderConnectionResponseDto,
+  ModelProviderTemplateResponseDto,
   ObservabilityOverviewDto,
   PhoneLoginDto,
-  ProbeModelPresetDto,
+  ProbeModelProviderConnectionDto,
   RecentTasksDto,
   RefreshTokenDto,
   RegisterAssetDto,
@@ -90,6 +96,7 @@ import type {
   UpdateConversationDto,
   UpdateMembershipDto,
   UpdateModelPresetDto,
+  UpdateModelProviderConnectionDto,
   UpdateProfileDto,
   UserProfileDto,
   VoiceCompletionsFormDataDto,
@@ -337,6 +344,30 @@ export const getAgentControllerListUrl = () => {
 export const agentControllerList = async ( options?: RequestInit): Promise<AgentResponseDto[]> => {
 
   return taroRequest<AgentResponseDto[]>(getAgentControllerListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAgentControllerModelsUrl = (id: string,) => {
+
+
+
+
+  return `/api/agents/${id}/models`
+}
+
+/**
+ * @summary 获取智能体可选模型
+ */
+export const agentControllerModels = async (id: string, options?: RequestInit): Promise<AgentModelOptionsDto> => {
+
+  return taroRequest<AgentModelOptionsDto>(getAgentControllerModelsUrl(id),
   {
     ...options,
     method: 'GET'
@@ -1080,6 +1111,201 @@ export const runAgentTest = async (agentTestDto: AgentTestDto, options?: Request
 
 
 
+export const getAdminModelProviderTemplateControllerListUrl = () => {
+
+
+
+
+  return `/api/admin/model-provider-templates`
+}
+
+/**
+ * @summary 内置模型供应商模板（管理员）
+ */
+export const adminModelProviderTemplateControllerList = async ( options?: RequestInit): Promise<ModelProviderTemplateResponseDto[]> => {
+
+  return taroRequest<ModelProviderTemplateResponseDto[]>(getAdminModelProviderTemplateControllerListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerListUrl = () => {
+
+
+
+
+  return `/api/admin/model-provider-connections`
+}
+
+/**
+ * @summary 供应商连接列表（管理员）
+ */
+export const adminModelProviderConnectionControllerList = async ( options?: RequestInit): Promise<ModelProviderConnectionResponseDto[]> => {
+
+  return taroRequest<ModelProviderConnectionResponseDto[]>(getAdminModelProviderConnectionControllerListUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerCreateUrl = () => {
+
+
+
+
+  return `/api/admin/model-provider-connections`
+}
+
+/**
+ * @summary 新建供应商连接及模型（管理员）
+ */
+export const adminModelProviderConnectionControllerCreate = async (createModelProviderConnectionDto: CreateModelProviderConnectionDto, options?: RequestInit): Promise<ModelProviderConnectionResponseDto> => {
+
+  return taroRequest<ModelProviderConnectionResponseDto>(getAdminModelProviderConnectionControllerCreateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createModelProviderConnectionDto)
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerGetUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/model-provider-connections/${id}`
+}
+
+/**
+ * @summary 供应商连接详情（管理员）
+ */
+export const adminModelProviderConnectionControllerGet = async (id: string, options?: RequestInit): Promise<ModelProviderConnectionResponseDto> => {
+
+  return taroRequest<ModelProviderConnectionResponseDto>(getAdminModelProviderConnectionControllerGetUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerUpdateUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/model-provider-connections/${id}`
+}
+
+/**
+ * @summary 更新供应商连接（管理员）
+ */
+export const adminModelProviderConnectionControllerUpdate = async (id: string,
+    updateModelProviderConnectionDto: UpdateModelProviderConnectionDto, options?: RequestInit): Promise<ModelProviderConnectionResponseDto> => {
+
+  return taroRequest<ModelProviderConnectionResponseDto>(getAdminModelProviderConnectionControllerUpdateUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateModelProviderConnectionDto)
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerRemoveUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/model-provider-connections/${id}`
+}
+
+/**
+ * @summary 删除空供应商连接（管理员）
+ */
+export const adminModelProviderConnectionControllerRemove = async (id: string, options?: RequestInit): Promise<EmptyResultDto> => {
+
+  return taroRequest<EmptyResultDto>(getAdminModelProviderConnectionControllerRemoveUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerCreateModelUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/model-provider-connections/${id}/models`
+}
+
+/**
+ * @summary 在供应商连接下新增模型（管理员）
+ */
+export const adminModelProviderConnectionControllerCreateModel = async (id: string,
+    createModelPresetDto: CreateModelPresetDto, options?: RequestInit): Promise<ModelPresetResponseDto> => {
+
+  return taroRequest<ModelPresetResponseDto>(getAdminModelProviderConnectionControllerCreateModelUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createModelPresetDto)
+  }
+);}
+
+
+
+export const getAdminModelProviderConnectionControllerProbeUrl = (id: string,) => {
+
+
+
+
+  return `/api/admin/model-provider-connections/${id}/probe`
+}
+
+/**
+ * @summary 执行供应商连接最小探测（管理员）
+ */
+export const adminModelProviderConnectionControllerProbe = async (id: string,
+    probeModelProviderConnectionDto: ProbeModelProviderConnectionDto, options?: RequestInit): Promise<ModelProviderConnectionProbeResultDto> => {
+
+  return taroRequest<ModelProviderConnectionProbeResultDto>(getAdminModelProviderConnectionControllerProbeUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(probeModelProviderConnectionDto)
+  }
+);}
+
+
+
 export const getAdminModelPresetControllerListUrl = () => {
 
 
@@ -1104,25 +1330,25 @@ export const adminModelPresetControllerList = async ( options?: RequestInit): Pr
 
 
 
-export const getAdminModelPresetControllerCreateUrl = () => {
+export const getAdminModelPresetControllerReferencesUrl = (id: string,) => {
 
 
 
 
-  return `/api/admin/model-presets`
+  return `/api/admin/model-presets/${id}/references`
 }
 
 /**
- * @summary 新建模型预设（管理员）
+ * @summary 查询模型预设引用（管理员）
  */
-export const adminModelPresetControllerCreate = async (createModelPresetDto: CreateModelPresetDto, options?: RequestInit): Promise<ModelPresetResponseDto> => {
+export const adminModelPresetControllerReferences = async (id: string, options?: RequestInit): Promise<ModelPresetReferencesResponseDto> => {
 
-  return taroRequest<ModelPresetResponseDto>(getAdminModelPresetControllerCreateUrl(),
+  return taroRequest<ModelPresetReferencesResponseDto>(getAdminModelPresetControllerReferencesUrl(id),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(createModelPresetDto)
+    method: 'GET'
+
+
   }
 );}
 
@@ -1201,32 +1427,7 @@ export const adminModelPresetControllerRemove = async (id: string, options?: Req
 
 
 
-export const getAdminModelPresetControllerProbeDraftUrl = () => {
-
-
-
-
-  return `/api/admin/model-presets/probe`
-}
-
-/**
- * 两级探测：L1 验证连通性，L2 验证工具往返闭环。不落库、不改动任何预设。
- * @summary 探测尚未保存的模型连接（管理员）
- */
-export const adminModelPresetControllerProbeDraft = async (probeModelPresetDto: ProbeModelPresetDto, options?: RequestInit): Promise<ModelPresetProbeResultDto> => {
-
-  return taroRequest<ModelPresetProbeResultDto>(getAdminModelPresetControllerProbeDraftUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(probeModelPresetDto)
-  }
-);}
-
-
-
-export const getAdminModelPresetControllerProbeExistingUrl = (id: string,) => {
+export const getAdminModelPresetControllerProbeUrl = (id: string,) => {
 
 
 
@@ -1235,12 +1436,11 @@ export const getAdminModelPresetControllerProbeExistingUrl = (id: string,) => {
 }
 
 /**
- * 使用已落库的密文密钥；结论写入 capability 与 lastCheck* 字段。
- * @summary 探测已保存的模型预设并写回能力档位（管理员）
+ * @summary 探测模型完整能力并写回档位（管理员）
  */
-export const adminModelPresetControllerProbeExisting = async (id: string, options?: RequestInit): Promise<ModelPresetProbeResultDto> => {
+export const adminModelPresetControllerProbe = async (id: string, options?: RequestInit): Promise<ModelPresetProbeResultDto> => {
 
-  return taroRequest<ModelPresetProbeResultDto>(getAdminModelPresetControllerProbeExistingUrl(id),
+  return taroRequest<ModelPresetProbeResultDto>(getAdminModelPresetControllerProbeUrl(id),
   {
     ...options,
     method: 'POST'
@@ -2195,26 +2395,14 @@ formData.append(`audio`, voiceCompletionsFormDataDto.audio);
 if(voiceCompletionsFormDataDto.conversationId !== undefined) {
  formData.append(`conversationId`, voiceCompletionsFormDataDto.conversationId);
  }
-if(voiceCompletionsFormDataDto.modelId !== undefined) {
- formData.append(`modelId`, voiceCompletionsFormDataDto.modelId);
+if(voiceCompletionsFormDataDto.selectedModelPresetId !== undefined) {
+ formData.append(`selectedModelPresetId`, voiceCompletionsFormDataDto.selectedModelPresetId);
  }
-if(voiceCompletionsFormDataDto.provider !== undefined) {
- formData.append(`provider`, voiceCompletionsFormDataDto.provider);
+if(voiceCompletionsFormDataDto.agentId !== undefined) {
+ formData.append(`agentId`, voiceCompletionsFormDataDto.agentId);
  }
-if(voiceCompletionsFormDataDto.platform !== undefined) {
- formData.append(`platform`, voiceCompletionsFormDataDto.platform);
- }
-if(voiceCompletionsFormDataDto.model !== undefined) {
- formData.append(`model`, voiceCompletionsFormDataDto.model);
- }
-if(voiceCompletionsFormDataDto.temperature !== undefined) {
- formData.append(`temperature`, voiceCompletionsFormDataDto.temperature.toString())
- }
-if(voiceCompletionsFormDataDto.maxOutputTokens !== undefined) {
- formData.append(`maxOutputTokens`, voiceCompletionsFormDataDto.maxOutputTokens.toString())
- }
-if(voiceCompletionsFormDataDto.topP !== undefined) {
- formData.append(`topP`, voiceCompletionsFormDataDto.topP.toString())
+if(voiceCompletionsFormDataDto.reasoning !== undefined) {
+ formData.append(`reasoning`, voiceCompletionsFormDataDto.reasoning);
  }
 
   return taroRequest<ChatTaskResultDto>(getVoiceCompletionsUrl(),

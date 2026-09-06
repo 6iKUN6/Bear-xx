@@ -7,6 +7,7 @@
  */
 import type { CreateAgentDtoDefaultFlowVersionId } from './createAgentDtoDefaultFlowVersionId';
 import type { CreateAgentDtoMinimumMembershipTier } from './createAgentDtoMinimumMembershipTier';
+import type { ReasoningSelectionDto } from './reasoningSelectionDto';
 
 export interface CreateAgentDto {
   /** 智能体名称 */
@@ -20,10 +21,20 @@ export interface CreateAgentDto {
   avatar?: string | null;
   /** 系统提示词；留空则回退到内置默认提示词 */
   systemPrompt?: string;
-  /** 模型预设 id；留空则用请求指定或全局默认模型 */
-  modelPreset?: string;
+  /** 允许终端为 agent-default 选择的模型预设业务 ID；有效 Flow 不使用 agent-default 时必须为空 */
+  allowedModelPresetIds?: string[];
   /**
-     * 默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置
+     * Agent 默认模型预设业务 ID；必须属于 allowedModelPresetIds，终端未选择时用于解析 agent-default
+     * @nullable
+     */
+  defaultModelPresetId?: string | null;
+  /**
+     * direct Agent 默认模型的思考设置
+     * @nullable
+     */
+  defaultReasoning?: ReasoningSelectionDto | null;
+  /**
+     * 默认执行的已发布 FlowVersion ID；null 表示执行系统内置的直接回复 Flow
      * @nullable
      */
   defaultFlowVersionId?: CreateAgentDtoDefaultFlowVersionId;

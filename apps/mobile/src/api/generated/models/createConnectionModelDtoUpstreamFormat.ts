@@ -9,11 +9,12 @@
 /**
  * 上游 wire 格式
  */
-export type ProbeModelPresetDtoUpstreamFormat = typeof ProbeModelPresetDtoUpstreamFormat[keyof typeof ProbeModelPresetDtoUpstreamFormat];
+export type CreateConnectionModelDtoUpstreamFormat = typeof CreateConnectionModelDtoUpstreamFormat[keyof typeof CreateConnectionModelDtoUpstreamFormat];
 
 
-export const ProbeModelPresetDtoUpstreamFormat = {
+export const CreateConnectionModelDtoUpstreamFormat = {
   openai_chat_completions: 'openai_chat_completions',
   openai_responses: 'openai_responses',
   anthropic_messages: 'anthropic_messages',
+  gemini_generate_content: 'gemini_generate_content',
 } as const;

@@ -5,26 +5,17 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { ReasoningSelectionDto } from './reasoningSelectionDto';
 
 export interface ChatCompletionsDto {
-  /** 模型预设 ID，优先级最高，例如 openai:gpt-4o-mini */
-  modelId?: string;
-  /** LLM Provider 名称，例如 openai */
-  provider?: string;
-  /** 模型平台或商家名称，例如 openai、deepseek */
-  platform?: string;
-  /** 模型名称，例如 gpt-4o-mini */
-  model?: string;
-  /** 采样温度，建议范围 0 到 2 */
-  temperature?: number;
-  /** 最大输出 Token 数 */
-  maxOutputTokens?: number;
-  /** Top P 采样参数，范围 0 到 1 */
-  topP?: number;
   /** 会话 ID；首轮消息可不传，后端会自动创建新会话 */
   conversationId?: string;
   /** 用户消息内容 */
   content: string;
   /** 指定使用的智能体 id；不传则用默认智能体 */
   agentId?: string;
+  /** 本条消息选择的模型预设业务 ID；必须属于回答智能体允许集合，仅替换 Flow 中的 agent-default */
+  selectedModelPresetId?: string;
+  /** 仅 direct Agent 可用的本轮思考设置 */
+  reasoning?: ReasoningSelectionDto;
 }

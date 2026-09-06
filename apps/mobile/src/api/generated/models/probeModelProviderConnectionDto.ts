@@ -6,7 +6,7 @@
  * OpenAPI spec version: 1.0
  */
 
-/**
- * @nullable
- */
-export type AgentResponseDtoModelPreset = { [key: string]: unknown } | null;
+export interface ProbeModelProviderConnectionDto {
+  /** 属于当前连接的模型预设数据库 ID */
+  modelPresetId: string;
+}

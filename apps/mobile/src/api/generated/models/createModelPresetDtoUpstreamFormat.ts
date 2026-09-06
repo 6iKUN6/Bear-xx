@@ -7,7 +7,7 @@
  */
 
 /**
- * 上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置
+ * 上游 wire 格式
  */
 export type CreateModelPresetDtoUpstreamFormat = typeof CreateModelPresetDtoUpstreamFormat[keyof typeof CreateModelPresetDtoUpstreamFormat];
 
@@ -16,4 +16,5 @@ export const CreateModelPresetDtoUpstreamFormat = {
   openai_chat_completions: 'openai_chat_completions',
   openai_responses: 'openai_responses',
   anthropic_messages: 'anthropic_messages',
+  gemini_generate_content: 'gemini_generate_content',
 } as const;

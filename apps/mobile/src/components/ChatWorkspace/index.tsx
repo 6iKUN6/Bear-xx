@@ -21,6 +21,10 @@ import { useChatStream } from "../../hooks/useChatStream";
 import { toMessageStreamFeedback } from "../../utils/streamFeedback";
 import { streamTaskService } from "../../services/stream";
 import { ApiRequestError } from "../../api/request";
+import {
+  modelSelectionFingerprint,
+  type AgentModelSelection,
+} from "../../services/agent-model-selection";
 import type {
   StreamTaskEvent,
   StreamTaskLifecycle,
@@ -79,6 +83,7 @@ export default function ChatWorkspace({
     ensureDraftConversation,
     replaceConversationId,
     updateConversationTitle,
+    updateConversationModelSelection,
     addMessage,
     updateMessageContent,
     setMessageContent,
@@ -393,7 +398,11 @@ export default function ChatWorkspace({
     };
   };
 
-  const handleSend = (content: string, agentId?: string) => {
+  const handleSend = (
+    content: string,
+    agentId?: string,
+    modelSelection?: AgentModelSelection,
+  ) => {
     const localConversationId =
       currentConversation?.id || ensureDraftConversation();
     const requestConversationId = localConversationId.startsWith("draft_")
@@ -429,15 +438,108 @@ export default function ChatWorkspace({
     };
     addMessage(aiMsg);
     activeAssistantMessageIdRef.current = aiMsgId;
+    const selectionFingerprint = modelSelectionFingerprint(modelSelection);
+    if (selectionFingerprint) {
+      updateConversationModelSelection(
+        localConversationId,
+        selectionFingerprint,
+      );
+    }
 
     sendMessage(
       {
         conversationId: requestConversationId,
         content,
         agentId,
+        selectedModelPresetId: modelSelection?.modelPresetId,
+        reasoning: modelSelection?.reasoning,
       },
       buildStreamLifecycle(aiMsgId, localConversationId),
     );
+  };
+
+  /**
+   * 上传语音并接回现有任务流
+   * @param filePath 录音产生的临时文件路径
+   * @param agentId 本条语音明确选择的回答智能体；群聊自动路由时为空
+   * @param modelSelection 当前 Agent 对应的本轮模型与思考选择
+   * @returns 无返回值
+   * @description 先插入本地占位消息，再创建语音任务；拿到 taskId 后立即保存续接指针并
+   * 从 0 游标恢复 SSE。上传失败只收敛当前占位，不会重新创建任务。
+   */
+  const handleVoiceRecordComplete = (
+    filePath: string,
+    agentId?: string,
+    modelSelection?: AgentModelSelection,
+  ) => {
+    const localConversationId =
+      currentConversation?.id || ensureDraftConversation();
+    const requestConversationId = localConversationId.startsWith("draft_")
+      ? undefined
+      : localConversationId;
+    const userMsgId = genMsgId();
+    addMessage({
+      id: userMsgId,
+      role: "user",
+      content: "[语音消息]",
+      status: "sending",
+      createdAt: Date.now(),
+    });
+
+    const aiMsgId = genMsgId();
+    addMessage({
+      id: aiMsgId,
+      role: "assistant",
+      content: "",
+      status: "streaming",
+      createdAt: Date.now(),
+      agentId: agentId ?? null,
+      agentName:
+        agentId || conversationMode !== "group"
+          ? resolveAgentName(useAgentStore.getState().agents, agentId)
+          : undefined,
+      routing: !agentId && conversationMode === "group",
+    });
+    activeAssistantMessageIdRef.current = aiMsgId;
+
+    const selectionFingerprint = modelSelectionFingerprint(modelSelection);
+    if (selectionFingerprint) {
+      updateConversationModelSelection(
+        localConversationId,
+        selectionFingerprint,
+      );
+    }
+    persistConversations();
+
+    void streamTaskService
+      .createVoiceTask({
+        filePath,
+        conversationId: requestConversationId,
+        agentId,
+        selectedModelPresetId: modelSelection?.modelPresetId,
+        reasoning: modelSelection?.reasoning,
+      })
+      .then((task) => {
+        updateMessageStatus(userMsgId, "done");
+        if (localConversationId.startsWith("draft_")) {
+          replaceConversationId(localConversationId, task.conversationId);
+        }
+        savePendingTask(task.conversationId, task.taskId);
+        persistConversations();
+        resume(
+          task.taskId,
+          "0",
+          buildStreamLifecycle(aiMsgId, localConversationId),
+          "streaming",
+        );
+      })
+      .catch((error: unknown) => {
+        console.error("Voice message upload failed:", error);
+        updateMessageStatus(userMsgId, "error");
+        updateMessageStatus(aiMsgId, "error");
+        activeAssistantMessageIdRef.current = null;
+        persistConversations();
+      });
   };
 
   const handleApproval = (msgId: string, decision: ApprovalDecision) => {
@@ -500,6 +602,7 @@ export default function ChatWorkspace({
         <ChatInput
           ref={chatInputRef}
           onSend={handleSend}
+          onRecordComplete={handleVoiceRecordComplete}
           reserveSafeArea
           mode={conversationMode}
           // 新对话页期间关掉 @：面板刚选了 A，再 @B 发送会把新会话绑给 B，
@@ -510,6 +613,16 @@ export default function ChatWorkspace({
               : conversationMode === "group"
                 ? memberAgents
                 : undefined
+          }
+          modelAgentId={
+            conversationMode === "single"
+              ? boundAgent?.id
+              : conversationMode === "flex"
+                ? newChatAgent?.id
+                : undefined
+          }
+          lastModelSelectionFingerprint={
+            currentConversation?.lastModelSelectionFingerprint
           }
           placeholder={
             conversationMode === "single" && boundAgent

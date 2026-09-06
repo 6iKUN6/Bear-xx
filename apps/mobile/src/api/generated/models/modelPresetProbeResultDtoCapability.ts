@@ -6,9 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 
-/**
- * 探测出的能力档位
- */
 export type ModelPresetProbeResultDtoCapability = typeof ModelPresetProbeResultDtoCapability[keyof typeof ModelPresetProbeResultDtoCapability];
 
 

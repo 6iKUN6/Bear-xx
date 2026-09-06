@@ -9,4 +9,4 @@
 /**
  * @nullable
  */
-export type ModelPresetResponseDtoBaseURL = { [key: string]: unknown } | null;
+export type ModelProviderConnectionProbeResultDtoError = { [key: string]: unknown } | null;

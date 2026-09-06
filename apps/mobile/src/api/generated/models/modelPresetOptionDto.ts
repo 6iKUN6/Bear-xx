@@ -5,10 +5,19 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { ModelReasoningCapabilityDto } from './modelReasoningCapabilityDto';
 
 export interface ModelPresetOptionDto {
   /** 预设标识，写进节点 modelPreset */
   id: string;
+  /** 模型预设显示名称 */
+  name: string;
+  /** 所属供应商连接显示名称 */
+  connectionName: string;
+  /** 供应商模板标识，用于显示固定 Logo */
+  providerKey: string;
   /** 底层模型名，仅用于界面区分同名预设 */
   model: string;
+  /** @nullable */
+  reasoningCapability: ModelReasoningCapabilityDto | null;
 }
