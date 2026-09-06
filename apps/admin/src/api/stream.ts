@@ -1,18 +1,19 @@
 import { authStorage } from "./auth-storage";
 import type { StreamTaskEventEnvelope } from "@litter-bear/types/protocol";
 
-const API_BASE_URL = (
+const API_BASE_URL =
   // 默认走 IPv4：macOS 上 localhost 优先解析 ::1，若有其它进程绑在
   // [::1]:3000（如别的项目的 dev server）请求会被劫持并表现为 CORS 报错
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000"
-).replace(/\/+$/, "");
+  (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000").replace(
+    /\/+$/,
+    "",
+  );
 
 export interface AgentTestBody {
   content: string;
   /** 传入则续接该测试会话（多轮记忆）；不传新建 */
   conversationId?: string;
   agentId?: string;
-  modelPreset?: string;
 }
 
 export interface AgentTestHandlers {
@@ -63,7 +64,9 @@ export function streamAgentTest(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        buffer += decoder
+          .decode(value, { stream: true })
+          .replace(/\r\n/g, "\n");
         buffer = consumeFrames(buffer, handlers);
       }
       handlers.onDone();

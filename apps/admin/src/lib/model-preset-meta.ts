@@ -4,7 +4,7 @@ import type { ModelPresetCapability, UpstreamFormat } from "@/api/types";
 export interface UpstreamFormatMeta {
   value: UpstreamFormat;
   /** 由格式单向推导；后端不接受单独配 provider，前端也不提供该输入 */
-  provider: "openai" | "anthropic";
+  provider: "openai" | "anthropic" | "google";
   name: string;
   desc: string;
 }
@@ -31,6 +31,12 @@ export const UPSTREAM_FORMAT_OPTIONS: UpstreamFormatMeta[] = [
     provider: "anthropic",
     name: "Anthropic Messages",
     desc: "Claude 原生形态，走 Anthropic SDK",
+  },
+  {
+    value: "gemini_generate_content",
+    provider: "google",
+    name: "Gemini GenerateContent（原生）",
+    desc: "Gemini 原生形态，支持 thinkingConfig 与 thoughtSignature 往返",
   },
 ];
 

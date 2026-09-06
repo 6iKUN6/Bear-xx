@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ImageIcon, Upload } from "lucide-react";
+import { ImageIcon, MessageCircle, Upload, Workflow } from "lucide-react";
 import { AgentAvatar } from "@/components/agent-identity";
 import { AvatarPickerDialog } from "@/components/avatar-picker-dialog";
+import {
+  defaultReasoningSelection,
+  ReasoningControls,
+} from "@/components/reasoning-controls";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   Select,
   SelectContent,
@@ -51,6 +56,9 @@ export function AgentFormDialog({
   const { data: modelPresets } = useModelPresets();
   const { data: agentFlows } = useAgentFlows();
   const [form, setForm] = useState<AgentInput>({ name: "" });
+  const [executionMode, setExecutionMode] = useState<"direct" | "custom">(
+    "direct",
+  );
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -64,26 +72,34 @@ export function AgentFormDialog({
         description: agent.description,
         avatar: agent.avatar ?? "",
         systemPrompt: agent.systemPrompt ?? "",
-        modelPreset: agent.modelPreset ?? "",
+        defaultModelPresetId: agent.defaultModelPresetId,
+        defaultReasoning: agent.defaultReasoning,
+        allowedModelPresetIds: agent.allowedModelPresetIds,
         defaultFlowVersionId: agent.defaultFlowVersionId,
         enabled: agent.enabled,
         visible: agent.visible,
         minimumMembershipTier: agent.minimumMembershipTier,
       });
+      setExecutionMode(agent.defaultFlowVersionId ? "custom" : "direct");
     } else {
       setForm({
         name: "",
         enabled: true,
         visible: true,
         minimumMembershipTier: "FREE",
+        defaultFlowVersionId: null,
+        defaultModelPresetId: null,
+        defaultReasoning: null,
+        allowedModelPresetIds: [],
       });
+      setExecutionMode("direct");
     }
   }, [agent, open]);
 
   const submitting = create.isPending || update.isPending;
   // 后端 ensurePublishedFlowVersion 只接受 PUBLISHED；列出草稿只会换来一个 400
   const publishedFlowVersions = (agentFlows ?? []).flatMap((flow) =>
-    flow.publishedVersion
+    flow.publishedVersion?.schemaCompatible
       ? [
           {
             versionId: flow.publishedVersion.id,
@@ -91,6 +107,13 @@ export function AgentFormDialog({
           },
         ]
       : [],
+  );
+  const usesAgentDefault = executionMode === "direct";
+  const availableModels = (modelPresets ?? []).filter(
+    (model) => model.enabled && model.connection.enabled,
+  );
+  const defaultModel = availableModels.find(
+    (model) => model.presetId === form.defaultModelPresetId,
   );
 
   const handleAvatarFile = async (file: File | undefined) => {
@@ -115,11 +138,34 @@ export function AgentFormDialog({
       toast.error("请填写名称");
       return;
     }
+    if (executionMode === "custom" && !form.defaultFlowVersionId) {
+      toast.error("请选择一个已发布的自定义 Flow");
+      return;
+    }
+    if (usesAgentDefault) {
+      if (!form.allowedModelPresetIds?.length) {
+        toast.error("请至少选择一个允许模型");
+        return;
+      }
+      if (
+        !form.defaultModelPresetId ||
+        !form.allowedModelPresetIds.includes(form.defaultModelPresetId)
+      ) {
+        toast.error("请选择允许集合内的 Agent 默认模型");
+        return;
+      }
+    }
     const payload: AgentInput = {
       ...form,
       avatar: form.avatar?.trim() || null,
       systemPrompt: form.systemPrompt?.trim() || null,
-      modelPreset: form.modelPreset?.trim() || null,
+      defaultFlowVersionId:
+        executionMode === "custom" ? form.defaultFlowVersionId : null,
+      defaultModelPresetId: usesAgentDefault ? form.defaultModelPresetId : null,
+      defaultReasoning: usesAgentDefault
+        ? (form.defaultReasoning ?? null)
+        : null,
+      allowedModelPresetIds: usesAgentDefault ? form.allowedModelPresetIds : [],
     };
     try {
       if (agent) {
@@ -227,60 +273,171 @@ export function AgentFormDialog({
             </Section>
 
             <Section title="执行">
-              <Field
-                label="默认模型"
-                hint="供 Flow 节点选「跟随智能体默认」时解析；节点也可各自指定"
-              >
-                <Select
-                  value={form.modelPreset ?? ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, modelPreset: v || null })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="用全局默认模型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(modelPresets ?? []).map((m) => (
-                      <SelectItem key={m.id} value={m.presetId}>
-                        {m.name}（{m.presetId}）·{" "}
-                        {capabilityMeta(m.capability).name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Field label="执行方式">
+                <div className="grid grid-cols-2 rounded-md border border-border bg-muted p-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={executionMode === "direct" ? "default" : "ghost"}
+                    onClick={() => {
+                      setExecutionMode("direct");
+                      setForm((current) => ({
+                        ...current,
+                        defaultFlowVersionId: null,
+                      }));
+                    }}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    直接回复
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={executionMode === "custom" ? "default" : "ghost"}
+                    onClick={() => {
+                      setExecutionMode("custom");
+                      setForm((current) => ({
+                        ...current,
+                        defaultModelPresetId: null,
+                        defaultReasoning: null,
+                        allowedModelPresetIds: [],
+                      }));
+                    }}
+                  >
+                    <Workflow className="h-4 w-4" />
+                    自定义 Flow
+                  </Button>
+                </div>
               </Field>
 
-              <Field
-                label="绑定 Flow 版本"
-                hint="只能绑已发布版本。所有聊天都按 Flow 执行——绑定后走这张图，留空则走内置的「直接回复」Flow"
-              >
-                <Select
-                  value={form.defaultFlowVersionId ?? ""}
-                  onValueChange={(v) =>
-                    setForm({ ...form, defaultFlowVersionId: v || null })
-                  }
+              {executionMode === "custom" ? (
+                <Field
+                  label="Flow 版本"
+                  hint="只能选择符合当前契约的已发布版本"
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="不绑定，执行内置的直接回复 Flow" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {publishedFlowVersions.map((option) => (
-                      <SelectItem
-                        key={option.versionId}
-                        value={option.versionId}
-                      >
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {publishedFlowVersions.length === 0 ? (
-                  <p className="text-xs text-[var(--lb-warning)]">
-                    当前没有已发布的 Flow 版本，请先在 Flow 页发布一个。
-                  </p>
-                ) : null}
-              </Field>
+                  <Select
+                    value={form.defaultFlowVersionId ?? ""}
+                    onValueChange={(versionId) => {
+                      setForm((current) => ({
+                        ...current,
+                        defaultFlowVersionId: versionId,
+                        defaultModelPresetId: null,
+                        defaultReasoning: null,
+                        allowedModelPresetIds: [],
+                      }));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择已发布 Flow" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {publishedFlowVersions.map((option) => (
+                        <SelectItem
+                          key={option.versionId}
+                          value={option.versionId}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {publishedFlowVersions.length === 0 ? (
+                    <p className="text-xs text-[var(--lb-warning)]">
+                      当前没有已发布的 Flow 版本，请先在 Flow 页发布一个。
+                    </p>
+                  ) : null}
+                </Field>
+              ) : (
+                <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  使用系统内置 direct Flow，由 Agent 默认模型直接生成回复。
+                </p>
+              )}
+
+              {usesAgentDefault ? (
+                <div className="space-y-3">
+                  <Field
+                    label="允许模型"
+                    hint="终端只能在这里选择；一个模型时固定使用，两个及以上时可切换"
+                  >
+                    <MultiSelect
+                      options={availableModels.map((model) => ({
+                        value: model.presetId,
+                        label: model.name,
+                        description: `${model.connection.name} · ${model.model} · ${capabilityMeta(model.capability).name}`,
+                      }))}
+                      value={form.allowedModelPresetIds ?? []}
+                      onChange={(allowedModelPresetIds) =>
+                        setForm((current) => ({
+                          ...current,
+                          allowedModelPresetIds,
+                          defaultModelPresetId: allowedModelPresetIds.includes(
+                            current.defaultModelPresetId ?? "",
+                          )
+                            ? current.defaultModelPresetId
+                            : null,
+                          defaultReasoning: allowedModelPresetIds.includes(
+                            current.defaultModelPresetId ?? "",
+                          )
+                            ? current.defaultReasoning
+                            : null,
+                        }))
+                      }
+                      placeholder="选择允许终端使用的模型"
+                    />
+                  </Field>
+
+                  <Field
+                    label="Agent 默认模型"
+                    hint="终端未为本条消息选择模型时使用"
+                  >
+                    <Select
+                      value={form.defaultModelPresetId ?? ""}
+                      onValueChange={(defaultModelPresetId) => {
+                        const model = availableModels.find(
+                          (item) => item.presetId === defaultModelPresetId,
+                        );
+                        setForm((current) => ({
+                          ...current,
+                          defaultModelPresetId,
+                          defaultReasoning:
+                            defaultReasoningSelection(
+                              model?.reasoningCapability,
+                            ) ?? null,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="从允许集合中选择" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableModels
+                          .filter((model) =>
+                            form.allowedModelPresetIds?.includes(
+                              model.presetId,
+                            ),
+                          )
+                          .map((model) => (
+                            <SelectItem key={model.id} value={model.presetId}>
+                              {model.name} · {model.connection.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  <ReasoningControls
+                    capability={defaultModel?.reasoningCapability}
+                    value={form.defaultReasoning ?? undefined}
+                    disabled={submitting}
+                    onChange={(defaultReasoning) =>
+                      setForm((current) => ({
+                        ...current,
+                        defaultReasoning: defaultReasoning ?? null,
+                      }))
+                    }
+                  />
+                </div>
+              ) : null}
 
               <label className="flex items-center gap-2 text-sm text-foreground">
                 <input

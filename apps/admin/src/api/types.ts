@@ -1,4 +1,32 @@
 // 手写对齐后端 DTO 的响应类型（admin 只消费十几个端点，手写比 orval 更轻）。
+import type { FlowDefinition } from "@litter-bear/types/agent-flow";
+import type { ReasoningSelection as SharedReasoningSelection } from "@litter-bear/types";
+
+export type ReasoningSelection = SharedReasoningSelection;
+
+export interface ModelReasoningCapability {
+  activation?: {
+    values: Array<"enabled" | "disabled" | "auto">;
+    defaultValue: "enabled" | "disabled" | "auto";
+    configurable: boolean;
+  };
+  effort?: {
+    values: Array<"minimal" | "low" | "medium" | "high" | "xhigh" | "max">;
+    defaultValue: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+    configurable: boolean;
+  };
+  budget?: {
+    supportsAuto: boolean;
+    minimum?: number;
+    maximum?: number;
+    lessThanMaxOutputTokens?: boolean;
+    defaultValue: number | "auto";
+    configurable: boolean;
+  };
+  defaultSelection?: ReasoningSelection;
+  temperaturePolicy: "allowed" | "forbidden" | "forbidden_when_enabled";
+  topPPolicy: "allowed" | "forbidden" | "forbidden_when_enabled";
+}
 
 export interface AuthUser {
   id: string;
@@ -184,8 +212,12 @@ export interface ToolGroup {
 /** 可写进节点 modelPreset 的预设选项；与后端 listAvailableModels 同一闭集。 */
 export interface ModelPresetOption {
   id: string;
+  name: string;
+  connectionName: string;
+  providerKey: ModelProviderKey;
   /** 底层模型名，仅用于界面区分同名预设 */
   model: string;
+  reasoningCapability: ModelReasoningCapability | null;
 }
 
 export interface AgentCapabilities {
@@ -205,7 +237,9 @@ export interface Agent {
   description: string;
   avatar: string | null;
   systemPrompt: string | null;
-  modelPreset: string | null;
+  defaultModelPresetId: string | null;
+  defaultReasoning: ReasoningSelection | null;
+  allowedModelPresetIds: string[];
   /** 绑定的已发布 FlowVersion；null = 执行内置的直接回复 Flow */
   defaultFlowVersionId: string | null;
   /** 可用工具组，仅供展示；执行用的工具由 Flow 节点声明 */
@@ -224,11 +258,57 @@ export interface Agent {
 
 /** 上游 wire 格式闭集；决定服务端用哪个 SDK，provider 由它推导 */
 export type UpstreamFormat =
-  "openai_chat_completions" | "openai_responses" | "anthropic_messages";
+  | "openai_chat_completions"
+  | "openai_responses"
+  | "anthropic_messages"
+  | "gemini_generate_content";
 
 /** 服务端探针实测出的能力档位；带工具的节点在发布校验时要求 tools */
 export type ModelPresetCapability =
   "unverified" | "unreachable" | "basic" | "tools";
+
+export type ModelProviderConnectionStatus =
+  "unverified" | "reachable" | "unreachable";
+
+export type ModelProviderKey =
+  | "openai"
+  | "anthropic"
+  | "deepseek"
+  | "kimi"
+  | "kimi-coding"
+  | "doubao"
+  | "google"
+  | "qwen"
+  | "zhipu"
+  | "minimax"
+  | "openrouter"
+  | "custom-openai";
+
+export interface ModelProviderRecommendedModel {
+  model: string;
+  name: string;
+  upstreamFormat: UpstreamFormat;
+  reasoningCapability: ModelReasoningCapability | null;
+}
+
+export interface ModelProviderTemplate {
+  providerKey: ModelProviderKey;
+  name: string;
+  defaultBaseURL: string | null;
+  defaultUpstreamFormat: UpstreamFormat;
+  allowedUpstreamFormats: UpstreamFormat[];
+  recommendedModels: ModelProviderRecommendedModel[];
+}
+
+export interface ModelPresetConnectionSummary {
+  id: string;
+  connectionKey: string;
+  providerKey: ModelProviderKey;
+  name: string;
+  baseURL: string;
+  enabled: boolean;
+  status: ModelProviderConnectionStatus;
+}
 
 export interface ModelPreset {
   id: string;
@@ -238,12 +318,11 @@ export interface ModelPreset {
   upstreamFormat: UpstreamFormat;
   /** 由 upstreamFormat 推导，只读展示，不可单独设置 */
   provider: string;
-  platform: string;
   model: string;
-  baseURL: string | null;
   temperature: number | null;
   maxOutputTokens: number | null;
   topP: number | null;
+  reasoningCapability: ModelReasoningCapability | null;
   enabled: boolean;
   isDefault: boolean;
   apiKeyConfigured: boolean;
@@ -254,18 +333,14 @@ export interface ModelPreset {
   lastCheckError: string | null;
   createdAt: number;
   updatedAt: number;
+  connection: ModelPresetConnectionSummary;
 }
 
-export interface ModelPresetInput {
-  presetId: string;
+export interface CreateModelPresetInput {
   name: string;
   description?: string;
   upstreamFormat: UpstreamFormat;
-  platform: string;
   model: string;
-  baseURL?: string | null;
-  /** 明文，仅写入方向提交；留空表示保持已存密钥不变 */
-  apiKey?: string;
   temperature?: number | null;
   maxOutputTokens?: number | null;
   topP?: number | null;
@@ -273,13 +348,65 @@ export interface ModelPresetInput {
   isDefault?: boolean;
 }
 
-/** 保存前试探连接的入参；不落库、不改任何预设的能力档位 */
-export interface ModelPresetProbeInput {
-  upstreamFormat: UpstreamFormat;
-  platform: string;
-  model: string;
+export type UpdateModelPresetInput = Partial<CreateModelPresetInput>;
+
+export interface CreateModelProviderConnectionInput {
+  providerKey: ModelProviderKey;
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  enabled?: boolean;
+  models: CreateModelPresetInput[];
+}
+
+export interface UpdateModelProviderConnectionInput {
+  name?: string;
   baseURL?: string;
+  /** 明文，仅写入方向提交；留空表示保持已存密钥不变 */
   apiKey?: string;
+  enabled?: boolean;
+}
+
+export interface ModelProviderConnection {
+  id: string;
+  connectionKey: string;
+  providerKey: ModelProviderKey;
+  name: string;
+  baseURL: string;
+  enabled: boolean;
+  apiKeyConfigured: boolean;
+  apiKeyHint: string | null;
+  status: ModelProviderConnectionStatus;
+  lastCheckedAt: number | null;
+  lastCheckError: string | null;
+  createdAt: number;
+  updatedAt: number;
+  models: ModelPreset[];
+  agentReferenceCount: number;
+  flowReferenceCount: number;
+  taskReferenceCount: number;
+}
+
+export interface ModelProviderConnectionProbeResult {
+  status: "reachable" | "unreachable";
+  reachable: boolean;
+  error: string | null;
+}
+
+export interface ModelPresetReference {
+  type: "agent" | "flow" | "task";
+  id: string;
+  name: string;
+  versionId: string | null;
+  version: number | null;
+  status: string | null;
+}
+
+export interface ModelPresetReferences {
+  agentCount: number;
+  flowCount: number;
+  taskCount: number;
+  items: ModelPresetReference[];
 }
 
 export interface ModelPresetProbeResult {
@@ -308,7 +435,7 @@ export interface AgentFlowVersion {
   version: number;
   status: AgentFlowVersionStatus;
   /** FlowDefinition JSON 工件；前端不解析其结构合法性，原样编辑与回传 */
-  definition: object;
+  definition: FlowDefinition;
   /**
    * 该工件是否仍符合当前后端 Definition 契约
    * @description 契约升版后的存量工件会是 false。此时**不能**保存、校验或发布——服务端一定拒绝，
@@ -366,7 +493,9 @@ export interface AgentInput {
   description?: string;
   avatar?: string | null;
   systemPrompt?: string | null;
-  modelPreset?: string | null;
+  defaultModelPresetId?: string | null;
+  defaultReasoning?: ReasoningSelection | null;
+  allowedModelPresetIds?: string[];
   defaultFlowVersionId?: string | null;
   enabled?: boolean;
   visible?: boolean;
