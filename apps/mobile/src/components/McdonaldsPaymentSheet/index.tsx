@@ -5,6 +5,7 @@ import {
   getMcDonaldsPaymentLink,
   getMcDonaldsPaymentQr,
 } from "../../api/mcdonaldsOrder";
+import AppIcon from "../AppIcon";
 import "./index.scss";
 
 interface McdonaldsPaymentSheetProps {
@@ -168,7 +169,7 @@ export default function McdonaldsPaymentSheet({
             </Text>
           </View>
           <View className='mcd-payment-close' onClick={onClose}>
-            <Text className='at-icon at-icon-close text-[0.9375rem] leading-none [&::before]:block' />
+            <AppIcon name='close' className='h-[0.9375rem] w-[0.9375rem]' />
           </View>
         </View>
 
@@ -186,7 +187,7 @@ export default function McdonaldsPaymentSheet({
             />
           ) : (
             <View className='mcd-payment-placeholder'>
-              <Text className='at-icon at-icon-alert-circle text-[1.25rem] leading-none text-[var(--lb-warning)] [&::before]:block' />
+              <AppIcon name='alertCircle' className='h-[1.25rem] w-[1.25rem] text-[var(--lb-warning)]' />
               <Text>{error || "暂时无法获取支付二维码"}</Text>
             </View>
           )}
@@ -197,14 +198,14 @@ export default function McdonaldsPaymentSheet({
             className='mcd-payment-secondary-action'
             onClick={() => void handleCopyPaymentLink()}
           >
-            <Text className='at-icon at-icon-copy text-[0.875rem] leading-none [&::before]:block' />
+            <AppIcon name='copy' className='h-[0.875rem] w-[0.875rem]' />
             <Text>复制链接</Text>
           </View>
           <View
             className={`mcd-payment-primary-action ${qrPath ? "" : "mcd-payment-action-disabled"}`}
             onClick={() => void handleSaveQr()}
           >
-            <Text className='at-icon at-icon-download text-[0.875rem] leading-none [&::before]:block' />
+            <AppIcon name='download' className='h-[0.875rem] w-[0.875rem]' />
             <Text>保存二维码</Text>
           </View>
         </View>

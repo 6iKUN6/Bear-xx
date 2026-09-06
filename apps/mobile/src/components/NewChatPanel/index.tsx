@@ -1,16 +1,11 @@
 import { useEffect, useState } from "react";
 import { View, Text } from "@tarojs/components";
 import AgentAvatar from "../AgentAvatar";
+import AppIcon from "../AppIcon";
 import AgentSheet from "../AgentSheet";
 import { useAgentStore } from "../../store/agentStore";
 import { useUserStore } from "../../store/userStore";
 import { findAgent } from "../../utils/agent";
-import {
-  appGlassCardStrongClass,
-  appHeroClass,
-  appHeroSubtitleClass,
-  appHeroTitleClass,
-} from "../../utils/style";
 
 interface NewChatPanelProps {
   /** 选中引导条时把文案填进输入框（不直接发送） */
@@ -18,11 +13,25 @@ interface NewChatPanelProps {
 }
 
 const starterPrompts = [
-  { icon: "✎", title: "写一段文案" },
-  { icon: "⌁", title: "总结长文本" },
-  { icon: "◷", title: "规划今天" },
-  { icon: "?", title: "随便聊聊" },
-];
+  { icon: "edit", title: "写一段文案" },
+  { icon: "doc", title: "总结长文本" },
+  { icon: "clock", title: "规划今天" },
+  { icon: "chat", title: "随便聊聊" },
+] as const;
+
+/** 按小时给的问候语，空状态的称呼跟随一天的时间变化 */
+function greetingByHour(hour: number): string {
+  if (hour < 6) {
+    return "夜深了";
+  }
+  if (hour < 12) {
+    return "早上好";
+  }
+  if (hour < 18) {
+    return "下午好";
+  }
+  return "晚上好";
+}
 
 /**
  * 新对话页
@@ -46,76 +55,78 @@ export default function NewChatPanel({ onPickPrompt }: NewChatPanelProps) {
 
   const currentAgent = findAgent(agents, selectedAgentId);
   const canPick = agents.length > 0;
+  const greeting = greetingByHour(new Date().getHours());
 
   return (
     <View className='pb-[1.5rem]'>
-      <View className={appHeroClass}>
-        <Text className={appHeroTitleClass}>
-          {userInfo?.nickname ? `${userInfo.nickname}，我们开始吧` : "我们开始吧"}
+      {/* 问候区：名字用强调色，跟随一天的时间 */}
+      <View className='px-[1.25rem] pt-[3.5rem]'>
+        <Text className='block text-[1.5rem] font-semibold leading-[1.3] tracking-[0.01em] text-[var(--lb-text-primary)]'>
+          {greeting}
+          {userInfo?.nickname ? (
+            <Text className='text-[var(--lb-accent)]'>，{userInfo.nickname}</Text>
+          ) : null}
         </Text>
-        <Text className={appHeroSubtitleClass}>
-          先挑一个智能体，或者直接说你想做什么。
+        <Text className='mt-[0.5rem] block text-[0.8125rem] leading-[1.5] text-[var(--lb-text-secondary)]'>
+          今天想聊点什么？选一个开场，或直接输入。
         </Text>
       </View>
 
-      <View className='px-[1rem]'>
-        <Text className='mb-[0.5rem] block text-[0.6875rem] leading-none text-[var(--lb-text-muted)]'>
-          当前智能体
-        </Text>
-        <View
-          className={`${appGlassCardStrongClass} box-border flex items-center gap-[0.75rem] px-[1rem] py-[0.875rem] ${
-            canPick ? "active:bg-[var(--lb-surface-hover)]" : ""
-          }`}
-          onClick={() => canPick && setSheetOpen(true)}
-        >
-          {canPick ? (
-            <>
-              <AgentAvatar
-                className='h-[3rem] w-[3rem] shrink-0 rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
-                name={currentAgent?.name}
-                avatar={currentAgent?.avatar}
-                size='md'
-              />
-              <View className='min-w-0 flex-1'>
-                <Text className='block overflow-hidden text-ellipsis whitespace-nowrap text-[0.9375rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
-                  {currentAgent?.name}
-                </Text>
-                <Text className='mt-[0.1875rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.45] text-[var(--lb-text-secondary)]'>
-                  {currentAgent?.description || "点击切换其他智能体"}
-                </Text>
-              </View>
-              <Text className='at-icon at-icon-chevron-down shrink-0 text-[0.875rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
-            </>
-          ) : (
-            // 拿不到列表时不回落显示默认助手名：那看起来像一个可用选择，实际不是
-            <Text className='block text-[0.875rem] leading-[1.45] text-[var(--lb-text-muted)]'>
-              {loaded ? "暂无可用智能体" : "正在载入智能体…"}
-            </Text>
-          )}
-        </View>
-      </View>
-
-      <View className='mt-[1.25rem] px-[1rem]'>
-        <Text className='mb-[0.625rem] block text-[0.8125rem] font-semibold leading-none text-[var(--lb-text-muted)]'>
-          可以这样开始
-        </Text>
-        <View className='flex flex-col gap-[0.5rem]'>
-          {starterPrompts.map((item) => (
-            <View
-              key={item.title}
-              className='box-border flex items-center gap-[0.75rem] rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] px-[0.875rem] py-[0.75rem] active:bg-[var(--lb-surface-hover)]'
-              onClick={() => onPickPrompt(`${item.title}：`)}
-            >
-              <Text className='block w-[1.25rem] shrink-0 text-[1rem] leading-none text-[var(--lb-accent-ink)]'>
-                {item.icon}
+      {/* 当前智能体 */}
+      <View
+        className={`mx-[1.25rem] mt-[1.5rem] box-border flex items-center gap-[0.75rem] rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.875rem] py-[0.75rem] shadow-[var(--lb-shadow-card)] ${
+          canPick ? "active:bg-[var(--lb-surface-hover)]" : ""
+        }`}
+        onClick={() => canPick && setSheetOpen(true)}
+      >
+        {canPick ? (
+          <>
+            <AgentAvatar
+              className='h-[2.5rem] w-[2.5rem] shrink-0 rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
+              name={currentAgent?.name}
+              avatar={currentAgent?.avatar}
+              size='md'
+            />
+            <View className='min-w-0 flex-1'>
+              <Text className='block overflow-hidden text-ellipsis whitespace-nowrap text-[0.875rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
+                {currentAgent?.name}
               </Text>
-              <Text className='block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.875rem] leading-[1.35] text-[var(--lb-text-primary)]'>
-                {item.title}
+              <Text className='mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] leading-[1.45] text-[var(--lb-text-muted)]'>
+                {currentAgent?.description || "点击切换其他智能体"}
               </Text>
-              <Text className='at-icon at-icon-chevron-right shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
             </View>
-          ))}
-        </View>
+            <View className='flex min-h-[2.75rem] shrink-0 items-center gap-[0.125rem] px-[0.25rem]'>
+              <Text className='text-[0.75rem] leading-none text-[var(--lb-accent)]'>
+                切换
+              </Text>
+              <AppIcon name='chevronRight' className='h-[0.75rem] w-[0.75rem] text-[var(--lb-accent)]' />
+            </View>
+          </>
+        ) : (
+          // 拿不到列表时不回落显示默认助手名：那看起来像一个可用选择，实际不是
+          <Text className='block text-[0.875rem] leading-[1.45] text-[var(--lb-text-muted)]'>
+            {loaded ? "暂无可用智能体" : "正在载入智能体…"}
+          </Text>
+        )}
+      </View>
+
+      {/* 开场提示：双列卡片 */}
+      <View className='grid grid-cols-2 gap-[0.625rem] p-[1.25rem]'>
+        {starterPrompts.map((item) => (
+          <View
+            key={item.title}
+            className='box-border flex min-h-[4.5rem] flex-col gap-[0.375rem] rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.8125rem] py-[0.75rem] text-left active:border-[var(--lb-line-strong)]'
+            onClick={() => onPickPrompt(`${item.title}：`)}
+          >
+            <AppIcon
+              name={item.icon}
+              className='h-[1rem] w-[1rem] text-[var(--lb-accent)]'
+            />
+            <Text className='block text-[0.8125rem] leading-[1.55] text-[var(--lb-text-primary)]'>
+              {item.title}
+            </Text>
+          </View>
+        ))}
       </View>
 
       {sheetOpen ? (

@@ -1,6 +1,5 @@
 import { View, Text } from "@tarojs/components";
 import useRecord, { RecordStatus } from "../../hooks/useRecord";
-import { appSoftInputClass } from "../../utils/style";
 
 interface VoiceButtonProps {
   onRecordComplete: (tempFilePath: string) => void;
@@ -29,9 +28,11 @@ export default function VoiceButton({
     stop();
   };
 
+  // 住在悬浮胶囊输入条里：容器由外层提供，此处透明；
+  // 录音中用 danger-soft 圆角块给出明确的按压反馈。
   return (
     <View
-      className={`${appSoftInputClass} flex min-h-[2.625rem] flex-1 items-center justify-center rounded-[var(--lb-radius-md)] box-border ${isRecording ? "border-[var(--lb-danger)] bg-[var(--lb-danger-soft)]" : ""}`}
+      className={`flex min-h-[2.25rem] flex-1 items-center justify-center rounded-[var(--lb-radius-md)] box-border ${isRecording ? "bg-[var(--lb-danger-soft)]" : ""}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >

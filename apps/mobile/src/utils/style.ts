@@ -46,9 +46,6 @@ export const appIconTileClass = `${appGradientSurfaceClass} flex items-center ju
 
 export const appHairlineClass = "h-[0.0625rem] bg-[var(--lb-line-soft)]";
 
-export const appSoftInputClass =
-  "border border-[var(--lb-line-strong)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-card)]";
-
 // 导航栏与页面背景同源，避免头部白条与周围页面色差。
 // 用 .app-solid-nav（background 简写引用 --lb-page-background）而非 bg-[var()]，
 // 因为 purple 主题的 page 背景是渐变值，Tailwind 的 bg-[var()] 会编译成 background-color 使渐变失效。

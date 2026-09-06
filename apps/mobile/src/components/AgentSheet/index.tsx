@@ -1,5 +1,6 @@
 import { View, Text } from "@tarojs/components";
 import AgentAvatar from "../AgentAvatar";
+import AppIcon from "../AppIcon";
 import { appGlassCardClass } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
 
@@ -37,10 +38,12 @@ export default function AgentSheet({
           <Text className='block text-[1.0625rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]'>
             {title}
           </Text>
-          <Text
-            className='at-icon at-icon-close text-[1rem] leading-none text-[var(--lb-text-muted)] [&::before]:block'
+          <View
+            className='flex h-[2rem] w-[2rem] items-center justify-center text-[var(--lb-text-muted)]'
             onClick={onClose}
-          />
+          >
+            <AppIcon name='close' className='h-[1rem] w-[1rem]' />
+          </View>
         </View>
 
         <View className='flex flex-col gap-[0.5rem]'>
@@ -83,7 +86,7 @@ export default function AgentSheet({
                   ) : null}
                 </View>
                 {selected ? (
-                  <Text className='at-icon at-icon-check shrink-0 text-[1rem] leading-none text-[var(--lb-accent-ink)] [&::before]:block' />
+                  <AppIcon name='check' className='h-[1rem] w-[1rem] shrink-0 text-[var(--lb-accent-ink)]' />
                 ) : null}
               </View>
             );

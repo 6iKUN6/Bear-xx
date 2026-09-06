@@ -4,6 +4,7 @@ import { useDidShow } from "@tarojs/taro";
 import type { McDonaldsOrder } from "../../api/mcdonaldsOrder";
 import { getMcDonaldsOrders } from "../../api/mcdonaldsOrder";
 import McdonaldsOrderCard from "../../components/McdonaldsOrderCard";
+import AppIcon from "../../components/AppIcon";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
 import { appScreenClass } from "../../utils/style";
@@ -147,8 +148,8 @@ function OrderEmpty({
 }) {
   return (
     <View className='mt-[1rem] flex min-h-[16rem] flex-col items-center justify-center px-[1.5rem] text-center'>
-      <View className='flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-[var(--lb-radius-md)] bg-[var(--lb-accent-soft)] text-[1.5rem] text-[var(--lb-accent-ink)]'>
-        <Text className='at-icon at-icon-shopping-bag leading-none [&::before]:block' />
+      <View className='flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-[var(--lb-radius-md)] bg-[var(--lb-accent-soft)] text-[var(--lb-accent-ink)]'>
+        <AppIcon name='shoppingBag' className='h-[1.5rem] w-[1.5rem]' />
       </View>
       <Text className='mt-[0.875rem] block text-[1rem] font-semibold leading-[1.35] text-[var(--lb-text-primary)]'>
         {error ? "订单暂时无法加载" : "还没有订单"}

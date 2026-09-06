@@ -1,4 +1,5 @@
 import { Input, Text, View } from "@tarojs/components";
+import AppIcon from "../AppIcon";
 import type {
   AgentModelOptionDto,
   ModelReasoningCapabilityDto,
@@ -55,10 +56,12 @@ export default function ModelSelectionSheet({
           <Text className="text-[1.0625rem] font-semibold text-[var(--lb-text-primary)]">
             模型与思考
           </Text>
-          <Text
-            className="at-icon at-icon-close text-[1rem] text-[var(--lb-text-muted)]"
+          <View
+            className="flex h-[2rem] w-[2rem] items-center justify-center text-[var(--lb-text-muted)]"
             onClick={onClose}
-          />
+          >
+            <AppIcon name="close" className="h-[1rem] w-[1rem]" />
+          </View>
         </View>
 
         {models.length > 1 ? (
@@ -80,7 +83,7 @@ export default function ModelSelectionSheet({
                     </Text>
                   </View>
                   {active ? (
-                    <Text className="at-icon at-icon-check text-[1rem] text-[var(--lb-accent-ink)]" />
+                    <AppIcon name="check" className="h-[1rem] w-[1rem] shrink-0 text-[var(--lb-accent-ink)]" />
                   ) : null}
                 </View>
               );

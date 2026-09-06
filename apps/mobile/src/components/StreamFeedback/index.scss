@@ -1,9 +1,52 @@
-.stream-feedback-trigger {
-  display: block;
+/* ── 收起态：单行状态 / 结论 ─────────────────────────────── */
+
+.trace-head {
+  display: flex;
   min-width: 0;
-  overflow: hidden;
+  align-items: center;
+  gap: 0.375rem;
 }
 
+.trace-head-caret {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--lb-text-muted);
+  transition: transform 0.15s;
+}
+
+.trace-head-caret-open {
+  transform: rotate(90deg);
+}
+
+/* 直答 / 收起摘要一行：状态点 + 文字 */
+.trace-direct {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.trace-direct-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--lb-success);
+}
+
+.trace-direct-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--lb-text-muted);
+}
+
+/* 流式进行中的单行状态（沿用 shimmer） */
 .stream-feedback-current-text {
   display: block;
   min-width: 0;
@@ -33,55 +76,121 @@
   animation: stream-feedback-text-shimmer 1.8s ease-in-out infinite;
 }
 
-.stream-feedback-history-list {
-  position: relative;
+/* ── 展开态：Codex 扁平行列表 ───────────────────────────── */
+
+.trace-codex {
+  margin-top: 0.375rem;
+  border-top: 1px solid var(--lb-line-soft);
+  padding-top: 0.375rem;
 }
 
-.stream-feedback-history-list::before {
-  position: absolute;
-  top: 0.625rem;
-  bottom: 0.625rem;
-  left: 0.375rem;
-  width: 1px;
-  background: var(--lb-line-soft);
-  content: "";
+.trace-codex-foot {
+  display: block;
+  padding: 0.375rem 0.125rem 0.125rem;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--lb-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.stream-feedback-history-item {
-  position: relative;
-  box-sizing: border-box;
+.cx-row {
   display: flex;
   min-width: 0;
-  border-radius: var(--lb-radius-md);
-  padding: 0.375rem 0.375rem 0.375rem 1rem;
-  color: var(--lb-text-secondary);
+  align-items: baseline;
+  gap: 0.5rem;
+  border-radius: var(--lb-radius-xs);
+  padding: 0.3125rem 0.125rem;
 }
 
-.stream-feedback-stage {
-  display: block;
+.cx-glyph {
+  width: 0.875rem;
   flex-shrink: 0;
-  border-radius: 0.1875rem;
-  background: var(--lb-surface-muted);
-  padding: 0.125rem 0.25rem;
-  font-size: 0.5625rem;
+  text-align: center;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.2;
 }
 
-.stream-feedback-tone-info {
-  color: var(--lb-info);
-}
-
-.stream-feedback-tone-success {
+.cx-glyph-done {
   color: var(--lb-success);
 }
 
-.stream-feedback-tone-warning {
-  color: var(--lb-warning);
+.cx-glyph-run {
+  color: var(--lb-accent);
+  animation: cx-blink 1s ease-in-out infinite;
 }
 
-.stream-feedback-tone-error {
+.cx-glyph-fail {
   color: var(--lb-danger);
+}
+
+.cx-name {
+  flex-shrink: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--lb-text-primary);
+}
+
+.cx-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--lb-text-muted);
+}
+
+.cx-ms {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  color: var(--lb-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cx-caret {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  line-height: 1.3;
+  color: var(--lb-text-muted);
+  transition: transform 0.15s;
+}
+
+.cx-row-open .cx-caret {
+  transform: rotate(90deg);
+}
+
+/* 展开的细节块：缩进 + 左侧竖线，等宽字体 */
+.cx-detail {
+  display: block;
+  margin: 0 0.125rem 0.375rem 1.5rem;
+  border-left: 1px solid var(--lb-line-strong);
+  border-radius: 0 var(--lb-radius-xs) var(--lb-radius-xs) 0;
+  background: var(--lb-surface-muted);
+  padding: 0.5rem 0.625rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.65;
+  color: var(--lb-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── 动效 ──────────────────────────────────────────────── */
+
+@keyframes cx-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
 }
 
 @keyframes stream-feedback-text-shimmer {
@@ -99,5 +208,9 @@
   .stream-feedback-current-text-live {
     animation: none;
     background-position: 50% center;
+  }
+
+  .cx-glyph-run {
+    animation: none;
   }
 }

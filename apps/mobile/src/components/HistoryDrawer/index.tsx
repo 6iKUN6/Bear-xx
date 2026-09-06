@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "@tarojs/components";
 import Taro from "@tarojs/taro";
-import AgentAvatar from "../AgentAvatar";
+import AppIcon from "../AppIcon";
 import { useNavBarMetrics } from "../../hooks/useNavBarMetrics";
-import { useAgentStore } from "../../store/agentStore";
 import { useUserStore } from "../../store/userStore";
 import { groupConversationsByTime } from "../../utils/conversation";
-import { findAgent } from "../../utils/agent";
 import { appTextTruncateClass } from "../../utils/style";
-import type { AgentSummary } from "../../api/agents";
 
 const DRAWER_TRANSITION_MS = 220;
 
@@ -41,7 +38,6 @@ export default function HistoryDrawer({
   onClose,
 }: HistoryDrawerProps) {
   const metrics = useNavBarMetrics();
-  const agents = useAgentStore((state) => state.agents);
   const { isLoggedIn, userInfo } = useUserStore();
   const [mounted, setMounted] = useState(false);
   const [active, setActive] = useState(false);
@@ -108,141 +104,120 @@ export default function HistoryDrawer({
         }}
         onClick={(event) => event.stopPropagation()}
       >
-        <View
-          className="flex items-center justify-between border-b border-[var(--lb-line-soft)] px-[0.875rem]"
-          style={{ minHeight: metrics.contentHeight }}
-        >
-          <View className="flex min-w-0 items-center gap-[0.5rem]">
-            <View className="flex h-[1.5rem] w-[1.5rem] shrink-0 items-center justify-center rounded-[0.375rem] bg-[var(--lb-accent)]">
-              <Text className="text-[0.75rem] font-bold leading-none text-[var(--lb-on-accent)]">
-                办
-              </Text>
-            </View>
-            <Text className="block overflow-hidden text-ellipsis whitespace-nowrap text-[1rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
+        {/* 头部：品牌块 + 名称 */}
+        <View className="flex items-center gap-[0.625rem] px-[1rem] pb-[0.875rem] pt-[1.125rem]">
+          <View className="flex h-[2rem] w-[2rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-sm)] bg-[var(--lb-accent-surface)]">
+            <Text className="text-[0.9375rem] font-bold leading-none text-[var(--lb-on-accent)]">
+              办
+            </Text>
+          </View>
+          <View className="min-w-0 flex-1">
+            <Text className="block text-[0.9375rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
               办伴
+            </Text>
+            <Text className="mt-[0.125rem] block text-[0.6875rem] leading-none text-[var(--lb-text-muted)]">
+              Banban · AI 工作台
             </Text>
           </View>
           <View
-            className="flex h-[2.25rem] w-[2.25rem] items-center justify-center rounded-[var(--lb-radius-sm)] text-[var(--lb-text-secondary)] active:bg-[var(--lb-surface-hover)]"
+            className="flex h-[2.25rem] w-[2.25rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-sm)] text-[var(--lb-text-secondary)] active:bg-[var(--lb-surface-hover)]"
             onClick={closeDrawer}
           >
-            <Text className="at-icon at-icon-close text-[1rem] leading-none [&::before]:block" />
+            <AppIcon name="close" className="h-[1rem] w-[1rem]" />
           </View>
         </View>
 
-        <View className="min-h-0 flex-1 overflow-y-auto px-[0.75rem] py-[0.75rem]">
-          <View className="grid gap-[0.5rem]">
-            <View
-              className="flex min-h-[2.75rem] items-center gap-[0.625rem] rounded-[var(--lb-radius-sm)] bg-[var(--lb-accent)] px-[0.75rem] active:opacity-90"
-              onClick={() => {
-                onCreate();
-                closeDrawer();
-              }}
-            >
-              <Text className="at-icon at-icon-add text-[0.875rem] leading-none text-[var(--lb-on-accent)] [&::before]:block" />
-              <Text className="text-[0.875rem] font-semibold leading-none text-[var(--lb-on-accent)]">
-                发起新对话
-              </Text>
-            </View>
-            <View
-              className="flex min-h-[2.75rem] items-center justify-between rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] active:bg-[var(--lb-surface-hover)]"
-              onClick={() => {
-                onOpenAgents();
-                closeDrawer();
-              }}
-            >
-              <View className="flex items-center gap-[0.625rem]">
-                <Text className="at-icon at-icon-lightning-bolt text-[0.875rem] leading-none text-[var(--lb-text-secondary)] [&::before]:block" />
-                <Text className="text-[0.875rem] font-medium leading-none text-[var(--lb-text-primary)]">
-                  查看智能体
-                </Text>
-              </View>
-              <Text className="at-icon at-icon-chevron-right text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
-            </View>
+        {/* 操作行：新对话 + 智能体入口 */}
+        <View className="flex gap-[0.5rem] px-[1rem] pb-[0.75rem]">
+          <View
+            className="flex h-[2.5rem] min-w-0 flex-1 items-center justify-center gap-[0.375rem] rounded-[var(--lb-radius-sm)] bg-[var(--lb-accent-surface)] active:opacity-90"
+            onClick={() => {
+              onCreate();
+              closeDrawer();
+            }}
+          >
+            <AppIcon name="plus" className="h-[0.875rem] w-[0.875rem] text-[var(--lb-on-accent)]" />
+            <Text className="text-[0.8125rem] font-semibold leading-none text-[var(--lb-on-accent)]">
+              发起新对话
+            </Text>
           </View>
+          <View
+            className="flex h-[2.5rem] shrink-0 items-center justify-center gap-[0.375rem] rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-strong)] px-[0.875rem] active:bg-[var(--lb-surface-hover)]"
+            onClick={() => {
+              onOpenAgents();
+              closeDrawer();
+            }}
+          >
+            <AppIcon name="zap" className="h-[0.875rem] w-[0.875rem] text-[var(--lb-text-secondary)]" />
+            <Text className="text-[0.8125rem] font-medium leading-none text-[var(--lb-text-primary)]">
+              智能体
+            </Text>
+          </View>
+        </View>
 
-          <View className="mt-[1.25rem]">
-            <View className="mb-[0.25rem] flex items-center justify-between px-[0.375rem]">
-              <Text className="text-[0.8125rem] font-semibold leading-none text-[var(--lb-text-primary)]">
-                历史对话
-              </Text>
-              <Text className="text-[0.6875rem] leading-none text-[var(--lb-text-muted)]">
-                {conversations.length} 个会话
-              </Text>
-            </View>
+        {/* 会话列表：按时间分组，当前会话高亮 */}
+        <View className="min-h-0 flex-1 overflow-y-auto px-[0.625rem] pb-[0.75rem]">
+          {groups.length === 0 ? (
+            <Text className="block px-[0.375rem] pt-[1rem] text-[0.8125rem] leading-[1.5] text-[var(--lb-text-muted)]">
+              还没有历史会话，发起一段新对话开始吧。
+            </Text>
+          ) : (
+            groups.map((group) => (
+              <View key={group.label}>
+                <Text className="block px-[0.375rem] pb-[0.375rem] pt-[0.75rem] text-[0.6875rem] leading-none text-[var(--lb-text-muted)]">
+                  {group.label}
+                </Text>
+                {group.items.map((conversation) => {
+                  const activeConversation = conversation.id === currentId;
 
-            {groups.length === 0 ? (
-              <Text className="block px-[0.375rem] pt-[1rem] text-[0.8125rem] leading-[1.5] text-[var(--lb-text-muted)]">
-                还没有历史会话，发起一段新对话开始吧。
-              </Text>
-            ) : (
-              groups.map((group) => (
-                <View key={group.label} className="mt-[0.625rem]">
-                  <Text className="block px-[0.375rem] py-[0.375rem] text-[0.6875rem] font-medium leading-none text-[var(--lb-text-muted)]">
-                    {group.label}
-                  </Text>
-                  {group.items.map((conversation) => {
-                    const activeConversation = conversation.id === currentId;
-                    const lastMessage =
-                      conversation.messages[conversation.messages.length - 1];
-                    const preview = lastMessage
-                      ? lastMessage.content.replace(/\s+/g, " ").slice(0, 30)
-                      : "";
-
-                    return (
-                      <View
-                        key={conversation.id}
-                        className={`mb-[0.125rem] flex min-h-[3.25rem] items-center gap-[0.5rem] rounded-[var(--lb-radius-sm)] px-[0.5rem] py-[0.375rem] ${
+                  return (
+                    <View
+                      key={conversation.id}
+                      className={`box-border flex min-h-[2.75rem] w-full items-center gap-[0.5rem] rounded-[var(--lb-radius-sm)] px-[0.625rem] py-[0.625rem] ${
+                        activeConversation
+                          ? "bg-[var(--lb-accent-soft)]"
+                          : "active:bg-[var(--lb-surface-hover)]"
+                      }`}
+                      onClick={() => {
+                        onSelect(conversation.id);
+                        closeDrawer();
+                      }}
+                    >
+                      <Text
+                        className={`${appTextTruncateClass} min-w-0 flex-1 text-[0.8125rem] leading-[1.35] ${
                           activeConversation
-                            ? "bg-[var(--lb-accent-soft)]"
-                            : "active:bg-[var(--lb-surface-hover)]"
+                            ? "font-semibold text-[var(--lb-accent-ink)]"
+                            : "text-[var(--lb-text-primary)]"
                         }`}
-                        onClick={() => {
-                          onSelect(conversation.id);
-                          closeDrawer();
+                      >
+                        {conversation.title || "新对话"}
+                      </Text>
+                      <View
+                        className="flex h-[1.75rem] w-[1.75rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-xs)] text-[var(--lb-text-muted)] active:bg-[var(--lb-danger-soft)] active:text-[var(--lb-danger)]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDelete(conversation);
                         }}
                       >
-                        <ConversationAvatar
-                          conversation={conversation}
-                          agents={agents}
-                        />
-                        <View className="min-w-0 flex-1">
-                          <Text
-                            className={`${appTextTruncateClass} block text-[0.8125rem] leading-[1.35] ${
-                              activeConversation
-                                ? "font-semibold text-[var(--lb-accent-ink)]"
-                                : "text-[var(--lb-text-primary)]"
-                            }`}
-                          >
-                            {conversation.title || "新对话"}
-                          </Text>
-                          {preview ? (
-                            <Text
-                              className={`${appTextTruncateClass} mt-[0.125rem] block text-[0.625rem] leading-[1.35] text-[var(--lb-text-muted)]`}
-                            >
-                              {preview}
-                            </Text>
-                          ) : null}
-                        </View>
-                        <Text
-                          className="at-icon at-icon-trash shrink-0 p-[0.25rem] text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleDelete(conversation);
-                          }}
-                        />
+                        <AppIcon name="trash" className="h-[0.75rem] w-[0.75rem]" />
                       </View>
-                    );
-                  })}
-                </View>
-              ))
-            )}
-          </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ))
+          )}
         </View>
 
-        <View className="border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] px-[0.875rem] pt-[0.5rem] box-border">
+        {/* 底部账户区 */}
+        <View
+          className="flex items-center gap-[0.625rem] border-t border-[var(--lb-line-soft)] px-[1rem] pt-[0.625rem] box-border"
+          style={{
+            paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))",
+          }}
+        >
           <View
-            className="flex min-h-[2.75rem] items-center gap-[0.625rem] active:opacity-70"
+            className="flex min-w-0 flex-1 items-center gap-[0.625rem] active:opacity-70"
             onClick={() => {
               onOpenSettings();
               closeDrawer();
@@ -254,75 +229,25 @@ export default function HistoryDrawer({
               </Text>
             </View>
             <View className="min-w-0 flex-1">
-              <Text className="block overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
+              <Text className="block overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
                 {accountName}
               </Text>
-              <Text className="mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.625rem] leading-[1.3] text-[var(--lb-text-secondary)]">
+              <Text className="mt-[0.125rem] block overflow-hidden text-ellipsis whitespace-nowrap text-[0.6875rem] leading-[1.3] text-[var(--lb-text-muted)]">
                 {accountHint}
               </Text>
             </View>
-            <Text className="at-icon at-icon-chevron-right text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
           </View>
           <View
-            className="flex min-h-[2rem] items-center justify-between border-t border-[var(--lb-line-soft)] active:opacity-70"
+            className="flex h-[2.25rem] w-[2.25rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-sm)] text-[var(--lb-text-secondary)] active:bg-[var(--lb-surface-hover)]"
             onClick={() => {
               onOpenSettings();
               closeDrawer();
             }}
           >
-            <Text className="text-[0.6875rem] leading-none text-[var(--lb-text-secondary)]">
-              设置
-            </Text>
-            <Text className="text-[0.625rem] leading-none text-[var(--lb-text-muted)]">
-              主题 · 账号与安全 ›
-            </Text>
+            <AppIcon name="settings" className="h-[1.125rem] w-[1.125rem]" />
           </View>
         </View>
       </View>
     </View>
-  );
-}
-
-function ConversationAvatar({
-  conversation,
-  agents,
-}: {
-  conversation: Conversation;
-  agents: AgentSummary[];
-}) {
-  const memberIds = conversation.agentIds ?? [];
-  const findMember = (id: string) =>
-    agents.find((agent) => agent.id === id);
-
-  if (conversation.type === "GROUP" && memberIds.length > 1) {
-    return (
-      <View className="grid h-[2rem] w-[2rem] shrink-0 grid-cols-2 gap-[0.0625rem] overflow-hidden rounded-[0.5rem] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)] p-[0.125rem] box-border">
-        {memberIds.slice(0, 4).map((id) => {
-          const member = findMember(id);
-          return (
-            <AgentAvatar
-              key={id}
-              className="h-full w-full rounded-[0.1875rem] bg-[var(--lb-surface)]"
-              name={member?.name}
-              avatar={member?.avatar}
-              size="sm"
-            />
-          );
-        })}
-      </View>
-    );
-  }
-
-  const member = memberIds[0]
-    ? findMember(memberIds[0])
-    : findAgent(agents, null);
-
-  return (
-    <AgentAvatar
-      className="h-[2rem] w-[2rem] shrink-0 rounded-[0.5rem] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]"
-      name={member?.name}
-      avatar={member?.avatar}
-      size="sm"
-    />
   );
 }

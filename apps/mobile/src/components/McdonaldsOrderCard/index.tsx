@@ -10,6 +10,7 @@ import {
   isMcDonaldsOrderAwaitingPayment,
 } from "../../utils/mcdonaldsOrder";
 import McdonaldsPaymentSheet from "../McdonaldsPaymentSheet";
+import AppIcon from "../AppIcon";
 import "./index.scss";
 
 interface McdonaldsOrderCardProps {
@@ -95,7 +96,7 @@ export default function McdonaldsOrderCard({
 
         {expectedTime ? (
           <View className='mcd-order-time-line'>
-            <Text className='at-icon at-icon-clock text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
+            <AppIcon name='clock' className='h-[0.75rem] w-[0.75rem] text-[var(--lb-text-muted)]' />
             <Text>预计 {expectedTime} {order.fulfillmentType || "可取餐"}</Text>
           </View>
         ) : null}
@@ -112,7 +113,7 @@ export default function McdonaldsOrderCard({
                   />
                 ) : (
                   <View className='mcd-order-item-placeholder'>
-                    <Text className='at-icon at-icon-shopping-bag text-[0.875rem] leading-none [&::before]:block' />
+                    <AppIcon name='shoppingBag' className='h-[0.875rem] w-[0.875rem]' />
                   </View>
                 )}
                 <View className='min-w-0 flex-1'>
@@ -173,7 +174,7 @@ export default function McdonaldsOrderCard({
           {!detailMode ? (
             <View className='mcd-order-secondary-action' onClick={handleOpenDetail}>
               <Text>订单详情</Text>
-              <Text className='at-icon at-icon-chevron-right text-[0.75rem] leading-none [&::before]:block' />
+              <AppIcon name='chevronRight' className='h-[0.75rem] w-[0.75rem]' />
             </View>
           ) : null}
           {externalActionsAvailable && awaitingPayment ? (
@@ -181,7 +182,7 @@ export default function McdonaldsOrderCard({
               className='mcd-order-primary-action'
               onClick={() => setPaymentVisible(true)}
             >
-              <Text className='at-icon at-icon-link text-[0.8125rem] leading-none [&::before]:block' />
+              <AppIcon name='link' className='h-[0.8125rem] w-[0.8125rem]' />
               <Text>去官方支付</Text>
             </View>
           ) : externalActionsAvailable ? (
@@ -189,12 +190,12 @@ export default function McdonaldsOrderCard({
               className={`mcd-order-primary-action ${refreshing ? "mcd-order-action-disabled" : ""}`}
               onClick={() => void handleRefresh()}
             >
-              <Text className='at-icon at-icon-reload text-[0.8125rem] leading-none [&::before]:block' />
+              <AppIcon name='reload' className='h-[0.8125rem] w-[0.8125rem]' />
               <Text>{refreshing ? "刷新中" : "刷新订单状态"}</Text>
             </View>
           ) : (
             <View className='mcd-order-readonly-status'>
-              <Text className='at-icon at-icon-lock text-[0.75rem] leading-none [&::before]:block' />
+              <AppIcon name='lock' className='h-[0.75rem] w-[0.75rem]' />
               <Text>账号已解绑，订单仅可查看</Text>
             </View>
           )}

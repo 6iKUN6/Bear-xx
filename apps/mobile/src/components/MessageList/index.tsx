@@ -5,8 +5,8 @@ import type {
   PlanReviewDecision,
 } from "@litter-bear/types/protocol";
 import ChatBubble from "../ChatBubble";
+import AppIcon from "../AppIcon";
 import { useAutoScrollToBottom } from "../../hooks/useAutoScrollToBottom";
-import { appIconTileClass } from "../../utils/style";
 
 interface MessageListProps {
   messages: Message[];
@@ -17,13 +17,6 @@ interface MessageListProps {
   onApproval?: (messageId: string, decision: ApprovalDecision) => void;
   onPlanReview?: (messageId: string, decision: PlanReviewDecision) => void;
 }
-
-const sampleQuestions = [
-  "帮我把今天的待办排个优先级",
-  "把这段话改得更自然一点",
-  "给我 5 个晚餐灵感",
-  "解释一个我不懂的概念",
-];
 
 export default function MessageList({
   messages,
@@ -61,7 +54,7 @@ export default function MessageList({
     <View className="relative min-h-0 flex-1">
       <ScrollView
         id={containerId}
-        className="box-border h-full overflow-hidden px-[0rem] pb-[1.25rem] pt-[1.125rem]"
+        className="box-border h-full overflow-hidden px-[0.875rem] pb-[1.25rem] pt-[1rem]"
         lowerThreshold={96}
         scrollIntoView={scrollIntoView}
         scrollY
@@ -76,45 +69,18 @@ export default function MessageList({
         onDragEnd={handleUserScrollEnd}
       >
         {messages.length === 0 ? (
-          <View className="box-border flex min-h-full flex-col px-[1rem] pb-[2rem] pt-[2rem]">
-            <View className="mb-[1.25rem] flex items-center gap-[0.75rem]">
-              <View
-                className={`${appIconTileClass} h-[2.75rem] w-[2.75rem] shrink-0 text-[1.375rem]`}
-              >
-                <Text className="leading-none">办</Text>
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="block text-[1.25rem] font-bold leading-[1.25] text-[var(--lb-text-primary)]">
-                  新对话
-                </Text>
-                <Text className="mt-[0.25rem] block text-[0.8125rem] leading-[1.4] text-[var(--lb-text-muted)]">
-                  办伴已准备好
-                </Text>
-              </View>
-            </View>
-            <Text className="block max-w-[19rem] text-[1.125rem] leading-[1.65] text-[var(--lb-text-secondary)]">
-              告诉我你正在处理什么，我会帮你梳理问题并推进下一步。
+          // 独立 chat 页（深链进空会话）的兜底空态：新对话页的完整空态由
+          // NewChatPanel 承载，这里只留一句指引，不放假入口。
+          <View className="box-border flex min-h-full flex-col pb-[2rem] pt-[2.5rem]">
+            <Text className="block text-[1.25rem] font-semibold leading-[1.3] text-[var(--lb-text-primary)]">
+              新对话
             </Text>
-            <View className="mt-[1.75rem] w-full">
-              <Text className="mb-[0.625rem] block text-left text-[0.8125rem] font-semibold leading-none text-[var(--lb-text-muted)]">
-                可以这样开始
-              </Text>
-              <View className="flex flex-col gap-[0.5rem]">
-                {sampleQuestions.map((question) => (
-                  <View
-                    key={question}
-                    className="rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.875rem] py-[0.75rem] text-left active:bg-[var(--lb-surface-hover)]"
-                  >
-                    <Text className="block text-[0.875rem] leading-[1.45] text-[var(--lb-text-primary)]">
-                      {question}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+            <Text className="mt-[0.5rem] block max-w-[19rem] text-[0.9375rem] leading-[1.6] text-[var(--lb-text-secondary)]">
+              直接输入你的问题或想法，开始这段对话。
+            </Text>
           </View>
         ) : (
-          <>
+          <View className="flex flex-col gap-[1.125rem]">
             {messages.map((msg) => (
               <ChatBubble
                 key={msg.id}
@@ -124,7 +90,7 @@ export default function MessageList({
                 onPlanReview={onPlanReview}
               />
             ))}
-          </>
+          </View>
         )}
         <View className="h-[0.625rem]" />
         <View id={bottomAnchorAId} className="h-0 w-full" />
@@ -144,7 +110,7 @@ export default function MessageList({
             showScrollToBottom && restoreAutoScroll();
           }}
         >
-          <Text className="at-icon at-icon-chevron-down text-[0.9375rem] leading-none" />
+          <AppIcon name="chevronDown" className="h-[0.9375rem] w-[0.9375rem]" />
           <Text className="leading-none">回到底部</Text>
         </View>
       </View>

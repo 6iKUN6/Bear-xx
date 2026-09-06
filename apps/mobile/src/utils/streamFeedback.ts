@@ -1,7 +1,6 @@
 // 中文文案与载荷契约来自前后端共享包（唯一事实源）
 import {
   STREAM_TASK_EVENT_LABELS as EVENT_LABELS,
-  getAgentStrategyLabel,
   type StreamTaskPayloadMap,
 } from "@litter-bear/types/protocol";
 import {
@@ -19,6 +18,18 @@ const TOOL_LIFECYCLE_TYPES = new Set<StreamTaskEventType>([
   StreamTaskEventType.ToolCallError,
 ]);
 
+/**
+ * 编排步骤生命周期事件：Flow 节点与工作流步骤的 start / done / fail 共享
+ * 同一 traceKey，折叠为同一行（Codex 风格：一个节点一行，状态原地 ✓/●/✗）。
+ */
+const NODE_LIFECYCLE_TYPES = new Set<StreamTaskEventType>([
+  StreamTaskEventType.WorkflowStepStart,
+  StreamTaskEventType.WorkflowStepDone,
+  StreamTaskEventType.FlowNodeStarted,
+  StreamTaskEventType.FlowNodeCompleted,
+  StreamTaskEventType.FlowNodeFailed,
+]);
+
 const EVENT_TONES: Partial<
   Record<StreamTaskEventType, MessageStreamEventTone>
 > = {
@@ -32,6 +43,8 @@ const EVENT_TONES: Partial<
   [StreamTaskEventType.ToolCallError]: "error",
   [StreamTaskEventType.TaskError]: "error",
   [StreamTaskEventType.PlanReviewResolved]: "success",
+  [StreamTaskEventType.FlowNodeCompleted]: "success",
+  [StreamTaskEventType.FlowNodeFailed]: "error",
 };
 
 export function toMessageStreamFeedback(
@@ -49,7 +62,7 @@ export function toMessageStreamFeedback(
   const type = event.type as StreamTaskEventType;
   const payload = readPayload(event.data.payload);
   const publicStatus = readString(payload.publicStatus);
-  const title = publicStatus || EVENT_LABELS[type] || "任务状态更新";
+  let title = publicStatus || EVENT_LABELS[type] || "任务状态更新";
   // 摘要优先：后端在 done/error 的 payload.summary 里给出「已使用 xx，成功查询到…」，
   // 其次才回退到按事件类型拼装的入参/模型等细节。
   const detail =
@@ -61,6 +74,25 @@ export function toMessageStreamFeedback(
       ? readString(payloadOf(payload, StreamTaskEventType.ToolCallDone).summary)
       : undefined;
 
+  // Flow 节点：started/failed 带人话节点标题（管理员别名优先），completed 带耗时。
+  // 这些事件按 traceKey 折叠成一行，此处把人话标题与耗时挂到反馈事件上供行展示。
+  let durationMs: number | null | undefined;
+  if (type === StreamTaskEventType.FlowNodeStarted) {
+    const p = payloadOf(payload, StreamTaskEventType.FlowNodeStarted);
+    title = readString(p.title) ?? title;
+  } else if (type === StreamTaskEventType.FlowNodeCompleted) {
+    const p = payloadOf(payload, StreamTaskEventType.FlowNodeCompleted);
+    durationMs = p.durationMs ?? undefined;
+  } else if (type === StreamTaskEventType.FlowNodeFailed) {
+    const p = payloadOf(payload, StreamTaskEventType.FlowNodeFailed);
+    title = readString(p.title) ?? title;
+  }
+
+  const outputSummary =
+    type === StreamTaskEventType.ToolCallDone
+      ? payloadOf(payload, StreamTaskEventType.ToolCallDone).outputSummary
+      : undefined;
+
   return {
     id: resolveFeedbackId(event, type, payload),
     type: event.type,
@@ -69,7 +101,10 @@ export function toMessageStreamFeedback(
     tone: EVENT_TONES[type] || "info",
     display: isTextDisplayEvent(type) ? "text" : "panel",
     stage: traceStageFromEvent(type),
+    toolName: readString(payload.toolName) ?? readString(payload.name),
     toolSummary,
+    durationMs,
+    outputSummary,
     updatedAt: Date.now(),
   };
 }
@@ -107,10 +142,8 @@ export function toMessageStreamFeedbackFromTrace(
     id: traceItem.id,
     type: traceItem.type,
     title: traceItem.title,
-    detail: joinParts([
-      traceItem.summary || undefined,
-      formatTraceDuration(traceItem.durationMs),
-    ]),
+    // 耗时走独立的 durationMs 字段（行尾 tabular-nums 展示），不再拼进摘要文案
+    detail: traceItem.summary || undefined,
     tone: traceStatusTone(traceItem.status),
     // 与实时流保持一致：指派和收尾都是一行小字，刷新回显后不该变回卡片
     display:
@@ -125,6 +158,7 @@ export function toMessageStreamFeedbackFromTrace(
       traceItem.status.toUpperCase() === "SUCCESS"
         ? traceItem.summary ?? undefined
         : undefined,
+    durationMs: traceItem.durationMs ?? undefined,
     inputSummary: traceItem.inputSummary,
     outputSummary: traceItem.outputSummary,
     updatedAt: Date.now(),
@@ -193,6 +227,14 @@ function resolveFeedbackId(
     }
   }
 
+  // 编排步骤（Flow 节点 / 工作流步骤）按 traceKey 折叠为一行
+  if (NODE_LIFECYCLE_TYPES.has(type)) {
+    const traceKey = readString(payload.traceKey);
+    if (traceKey) {
+      return `node-${traceKey}`;
+    }
+  }
+
   return `${event.rawId || event.id || Date.now()}-${event.type}`;
 }
 
@@ -248,25 +290,18 @@ function readEventDetail(
     }
     case StreamTaskEventType.StrategySelected: {
       const payload = payloadOf(raw, StreamTaskEventType.StrategySelected);
-      return joinParts([
-        payload.mode && `策略 ${getAgentStrategyLabel(payload.mode)}`,
-        payload.reason,
-      ]);
+      // 不透出策略名等内部术语，只展示模型给出的理由
+      return payload.reason;
     }
     case StreamTaskEventType.SkillSelected: {
-      const payload = payloadOf(raw, StreamTaskEventType.SkillSelected);
-      return joinParts([
-        payload.skill && `能力 ${payload.skill}`,
-        payload.strategy && `策略 ${getAgentStrategyLabel(payload.strategy)}`,
-      ]);
+      // 能力/策略标识属内部术语，不展示
+      return undefined;
     }
     case StreamTaskEventType.WorkflowStepStart:
     case StreamTaskEventType.WorkflowStepDone: {
       const payload = payloadOf(raw, StreamTaskEventType.WorkflowStepDone);
-      return joinParts([
-        payload.step && `步骤 ${payload.title ?? payload.step}`,
-        payload.strategy && getAgentStrategyLabel(payload.strategy),
-      ]);
+      // 不透出策略名等内部术语，只展示人话步骤标题
+      return payload.title ?? payload.summary ?? undefined;
     }
     case StreamTaskEventType.ModelCallStart:
     case StreamTaskEventType.ModelCallDone: {
@@ -338,16 +373,175 @@ function traceStatusTone(status: string): MessageStreamEventTone {
   return "info";
 }
 
-function formatTraceDuration(durationMs?: number | null) {
+/** Codex 风格执行轨迹行 */
+export interface StreamTraceRow {
+  /** 行 key（折叠后的反馈事件 id） */
+  key: string;
+  /** 行状态：进行中 / 成功 / 失败 */
+  status: "run" | "done" | "fail";
+  /** 等宽动作名（工具名 / 节点人话标题） */
+  name: string;
+  /** 一句话人话摘要 */
+  summary?: string;
+  /** 该步耗时（毫秒） */
+  durationMs?: number | null;
+  /** 展开细节（入参/出参摘要的易读文本），无则不显示展开 caret */
+  detail?: string;
+}
+
+/**
+ * 编排/生命周期/消息终态等「非步骤」事件
+ * @description 这些是任务骨架或专有卡片的来源，不作为执行轨迹行展示：
+ * 指派/策略/能力属内部路由，审批与订单有专有卡片，任务与消息终态走消息状态。
+ */
+const NON_ROW_EVENT_TYPES = new Set<string>([
+  StreamTaskEventType.AgentRouted,
+  StreamTaskEventType.AgentLoopStart,
+  StreamTaskEventType.StrategySelected,
+  StreamTaskEventType.SkillSelected,
+  StreamTaskEventType.FlowRunStarted,
+  StreamTaskEventType.FlowRunResumed,
+  StreamTaskEventType.TaskCreated,
+  StreamTaskEventType.TaskStarted,
+  StreamTaskEventType.TaskCompleted,
+  StreamTaskEventType.TaskCanceled,
+  StreamTaskEventType.TaskExpired,
+  StreamTaskEventType.TaskError,
+  StreamTaskEventType.ConversationTitleUpdated,
+  StreamTaskEventType.MessageDone,
+  StreamTaskEventType.OrderCreated,
+  StreamTaskEventType.ApprovalRequired,
+  StreamTaskEventType.ApprovalResolved,
+  StreamTaskEventType.PlanReviewRequired,
+  StreamTaskEventType.PlanReviewResolved,
+  StreamTaskEventType.FlowWaitingHuman,
+]);
+
+/**
+ * FlowRunStarted 落入历史 trace 的固定标题（后端 conversation-trace.mapper 写入）
+ * @description 它代表「流程运行开始」这一骨架事件而非执行节点，摘要含流程版本 id
+ * 等内部信息，不作为执行轨迹行展示。实时流按事件类型过滤，历史只能按此标题过滤。
+ */
+const FLOW_RUN_TRACE_TITLE = "开始执行流程";
+
+/**
+ * 判断是否为一个「执行步骤」事件（工具调用 / Flow 节点 / 工作流步骤）
+ * @description 实时流与历史 trace 共用同一判定：实时事件按 StreamTaskEventType 过滤，
+ * 历史项按 traceStage（tool/workflow）过滤——两侧形状不同但 stage 已归一。
+ */
+function isStepEvent(event: MessageStreamEventFeedback) {
+  if (NON_ROW_EVENT_TYPES.has(event.type)) {
+    return false;
+  }
+  if (event.title === FLOW_RUN_TRACE_TITLE) {
+    return false;
+  }
+  return event.stage === "tool" || event.stage === "workflow";
+}
+
+/**
+ * 把反馈事件流整理成 Codex 风格执行轨迹行
+ * @param events 本轮已接收的全部反馈事件（已按生命周期折叠）
+ * @param streaming 是否仍在流式进行中（决定进行中行的 ● 呼吸态）
+ * @returns 返回按顺序的步骤行；空数组代表直答（无工具、无多步编排）
+ */
+export function buildStreamTraceRows(
+  events: MessageStreamEventFeedback[],
+  streaming: boolean,
+): StreamTraceRow[] {
+  return events.filter(isStepEvent).map((event) => ({
+    key: event.id,
+    status: rowStatus(event, streaming),
+    name: readRowName(event),
+    summary: readRowSummary(event),
+    durationMs: event.durationMs ?? undefined,
+    detail: readRowDetail(event),
+  }));
+}
+
+function rowStatus(
+  event: MessageStreamEventFeedback,
+  streaming: boolean,
+): StreamTraceRow["status"] {
+  if (event.tone === "error") {
+    return "fail";
+  }
+  if (event.tone === "success") {
+    return "done";
+  }
+  // info 进行中：仅当仍在流式时才呼吸 ●，历史回显一律视为已结束
+  return streaming ? "run" : "done";
+}
+
+function readRowName(event: MessageStreamEventFeedback) {
+  return event.toolName || event.title;
+}
+
+function readRowSummary(event: MessageStreamEventFeedback) {
+  // 摘要优先用后端给的人话总结；其次 detail（已滤掉策略名等内部术语）
+  return event.toolSummary || event.detail;
+}
+
+function readRowDetail(event: MessageStreamEventFeedback) {
+  const parts: string[] = [];
+  if (event.inputSummary) {
+    parts.push(`入参 ${formatSummaryObject(event.inputSummary)}`);
+  }
+  if (event.outputSummary) {
+    parts.push(`出参 ${formatSummaryObject(event.outputSummary)}`);
+  }
+  return parts.length ? parts.join("\n") : undefined;
+}
+
+function formatSummaryObject(value: Record<string, unknown>) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+/** 行尾耗时文案（tabular-nums 展示） */
+export function formatTraceRowDuration(durationMs?: number | null) {
   if (!durationMs || durationMs <= 0) {
     return undefined;
   }
 
   if (durationMs >= 1000) {
-    return `耗时 ${(durationMs / 1000).toFixed(1)}s`;
+    return `${(durationMs / 1000).toFixed(1)}s`;
   }
 
-  return `耗时 ${durationMs}ms`;
+  return `${durationMs}ms`;
+}
+
+/**
+ * 生命周期终态事件（done/completed/failed）
+ * @description 这些事件与开始事件折叠为同一行，但自身只携带结果信息（摘要/耗时/错误），
+ * 标题是通用文案（如「流程节点已完成」）——合并时不能让它盖掉开始事件写入的具体节点名。
+ */
+const LIFECYCLE_TERMINAL_TYPES = new Set<string>([
+  StreamTaskEventType.ToolCallDone,
+  StreamTaskEventType.ToolCallError,
+  StreamTaskEventType.ModelCallDone,
+  StreamTaskEventType.WorkflowStepDone,
+  StreamTaskEventType.FlowNodeCompleted,
+  StreamTaskEventType.FlowNodeFailed,
+]);
+
+/**
+ * 合并同一行的生命周期事件（start → done/failed）
+ * @description 终态事件回写状态/耗时/摘要，但标题保留开始事件的具体名称
+ * （Flow 节点标题只在 started 载荷里，completed/failed 不带或带通用文案）。
+ */
+export function mergeStreamFeedbackEvent(
+  prev: MessageStreamEventFeedback,
+  next: MessageStreamEventFeedback,
+): MessageStreamEventFeedback {
+  const merged = { ...prev, ...next };
+  if (LIFECYCLE_TERMINAL_TYPES.has(next.type) && prev.title) {
+    merged.title = prev.title;
+  }
+  return merged;
 }
 
 function traceStageFromTraceItem(

@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P0 组件预览 · 气泡 / 审批卡 / trace</title>
+<!--
+  Litter-Bear 小程序 UI 重设计 · P0 三组件聚焦预览
+  主题令牌：全部来自 @litter-bear/theme（packages/theme/dist 导出的 createThemeCssVariables 原值内联）。
+  覆盖 4 套主题（warm-workbench / mono-tool / soft-companion / purple-gradient）× 深浅双模式。
+  预览的三项改造（只改展示层，不动协议）：
+    1. 聊天气泡：用户右对齐 accent 实底气泡，AI 左侧直排无气泡框
+    2. HITL 审批卡：args 顶层标量渲染为事实行；嵌套/长文本收进「查看调用参数」折叠区；已处理收敛为一行结论
+    3. trace 显示：直答收敛为一行（直接回答 · 耗时 · tokens）；Flow 多步为时间线（人话步骤 + 耗时），不透出策略/节点名等内部术语
+  约束：只用小程序可实现 CSS（flex/grid、rem），不用 backdrop-filter / :has() / sticky 嵌套滚动 / oklch。
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    background: #e8e9ec;
+    color: #1b1c1e;
+    min-height: 100vh;
+  }
+  button { font: inherit; cursor: pointer; border: none; background: none; }
+
+  /* ── 顶部控制条 ── */
+  .control-bar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    background: #ffffff;
+    border-bottom: 1px solid #d8d9dd;
+  }
+  .control-bar .label { font-size: 0.8125rem; font-weight: 600; color: #5a5c60; }
+  .theme-btn {
+    padding: 0.375rem 0.75rem; border-radius: 999px;
+    font-size: 0.8125rem; color: #1b1c1e;
+    border: 1px solid #d8d9dd; background: #f5f5f6;
+  }
+  .theme-btn.active { background: #1b1c1e; color: #fff; border-color: #1b1c1e; }
+  .mode-btn {
+    padding: 0.375rem 0.75rem; border-radius: 999px;
+    font-size: 0.8125rem; border: 1px solid #d8d9dd; background: #f5f5f6;
+  }
+  .mode-btn.active { background: #1b1c1e; color: #fff; border-color: #1b1c1e; }
+
+  /* ── 舞台：三个组件场景并排 ── */
+  .stage {
+    display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-start;
+    padding: 2rem 1.25rem 4rem;
+    justify-content: center;
+  }
+  .scene { display: flex; flex-direction: column; gap: 0.75rem; }
+  .scene-title {
+    font-size: 0.875rem; font-weight: 700; color: #1b1c1e;
+    display: flex; align-items: baseline; gap: 0.5rem;
+  }
+  .scene-title .sub { font-size: 0.75rem; font-weight: 400; color: #86888d; }
+
+  /* ── 手机壳 ── */
+  .phone {
+    width: 22rem; flex-shrink: 0;
+    border-radius: 2rem; overflow: hidden;
+    border: 0.5rem solid #1b1c1e;
+    background: var(--lb-page-background);
+    box-shadow: 0 1.5rem 3rem rgba(0,0,0,0.18);
+  }
+  .screen {
+    background: var(--lb-page-background);
+    color: var(--lb-text-primary);
+    min-height: 34rem;
+    display: flex; flex-direction: column;
+  }
+  .screen-head {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--lb-line-soft);
+    display: flex; align-items: center; gap: 0.5rem;
+    background: var(--lb-surface);
+  }
+  .screen-head .title { font-size: 0.9375rem; font-weight: 700; color: var(--lb-text-primary); }
+  .msgs { padding: 1rem 0 1.5rem; display: flex; flex-direction: column; }
+
+  /* ════════════════════════════════════════════
+     1. 聊天气泡 · 左右分布
+     ════════════════════════════════════════════ */
+  .msg { display: flex; gap: 0.625rem; padding: 0 1rem; margin-bottom: 1.125rem; }
+  .msg-user { flex-direction: row-reverse; }
+  .avatar {
+    width: 2.25rem; height: 2.25rem; flex-shrink: 0;
+    border-radius: var(--lb-radius-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.875rem; font-weight: 700;
+    border: 1px solid var(--lb-line-soft);
+    background: var(--lb-surface);
+    color: var(--lb-text-secondary);
+    overflow: hidden;
+  }
+  .msg-user .avatar {
+    background: var(--lb-accent);
+    color: var(--lb-on-accent);
+    border-color: transparent;
+  }
+  .msg-body { min-width: 0; max-width: 78%; display: flex; flex-direction: column; }
+  .msg-user .msg-body { align-items: flex-end; }
+  .msg-meta {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.375rem;
+  }
+  .msg-user .msg-meta { flex-direction: row-reverse; }
+  .msg-name { font-size: 0.75rem; font-weight: 600; color: var(--lb-text-secondary); }
+  .msg-time { font-size: 0.6875rem; color: var(--lb-text-muted); }
+
+  /* AI：直排，无气泡框 */
+  .msg-ai .bubble {
+    font-size: 0.9375rem; line-height: 1.7; color: var(--lb-text-primary);
+  }
+  /* 用户：accent 实底气泡，不对称圆角（右下小角） */
+  .msg-user .bubble {
+    background: var(--lb-accent);
+    color: var(--lb-on-accent);
+    font-size: 0.9375rem; line-height: 1.65;
+    padding: 0.625rem 0.875rem;
+    border-radius: var(--lb-radius-md) var(--lb-radius-md) var(--lb-radius-xs) var(--lb-radius-md);
+    box-shadow: var(--lb-shadow-card);
+  }
+
+  /* ════════════════════════════════════════════
+     3. trace 显示 · 直答一行 / Flow 时间线
+     ════════════════════════════════════════════ */
+  /* 直答：收敛为一行 */
+  .trace-direct {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    margin: 0 1rem 1.125rem;
+    font-size: 0.75rem; color: var(--lb-text-muted);
+  }
+  .trace-direct .dot {
+    width: 0.375rem; height: 0.375rem; border-radius: 50%;
+    background: var(--lb-success); flex-shrink: 0;
+  }
+  .trace-direct .sep { color: var(--lb-line-strong); }
+
+  /* Flow：Codex 客户端风格 —— 扁平行列表，状态符号 + 动作名 + 耗时，可展开细节 */
+  .trace-codex {
+    margin: 0 1rem 1.125rem;
+    font-size: 0.8125rem;
+    border-top: 1px solid var(--lb-line-soft);
+    padding-top: 0.5rem;
+  }
+  .trace-codex-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 0.125rem 0.125rem 0.375rem;
+  }
+  .trace-codex-title { font-size: 0.75rem; font-weight: 600; color: var(--lb-text-muted); }
+  .trace-codex-total { font-size: 0.6875rem; color: var(--lb-text-muted); font-variant-numeric: tabular-nums; }
+
+  .cx-row {
+    display: flex; align-items: baseline; gap: 0.5rem;
+    padding: 0.3125rem 0.125rem;
+    min-height: 1.75rem;
+    border-radius: var(--lb-radius-xs);
+    cursor: pointer;
+  }
+  .cx-row:hover { background: var(--lb-surface-hover); }
+  .cx-glyph { width: 0.875rem; flex-shrink: 0; text-align: center; font-weight: 700; font-size: 0.75rem; }
+  .cx-glyph.done { color: var(--lb-success); }
+  .cx-glyph.run  { color: var(--lb-accent); animation: cx-blink 1s ease-in-out infinite; }
+  .cx-glyph.fail { color: var(--lb-danger); }
+  @keyframes cx-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .cx-name {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.75rem; font-weight: 600;
+    color: var(--lb-text-primary);
+    flex-shrink: 0;
+  }
+  .cx-summary {
+    min-width: 0; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.75rem; color: var(--lb-text-muted);
+  }
+  .cx-ms {
+    flex-shrink: 0; font-size: 0.6875rem; color: var(--lb-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .cx-caret { flex-shrink: 0; font-size: 0.625rem; color: var(--lb-text-muted); transition: transform 0.15s; }
+  .cx-row.open .cx-caret { transform: rotate(90deg); }
+
+  /* 展开的细节块：缩进 + 左侧竖线，等宽字体 */
+  .cx-detail {
+    margin: 0 0.125rem 0.375rem 1.5rem;
+    padding: 0.5rem 0.625rem;
+    border-left: 1px solid var(--lb-line-strong);
+    background: var(--lb-surface-muted);
+    border-radius: 0 var(--lb-radius-xs) var(--lb-radius-xs) 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.6875rem; line-height: 1.65;
+    color: var(--lb-text-secondary);
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .cx-detail[hidden] { display: none; }
+  .cx-detail .dim { color: var(--lb-text-muted); }
+
+  /* ════════════════════════════════════════════
+     2. HITL 审批卡 · 事实行 + 参数折叠 + 已处理一行
+     ════════════════════════════════════════════ */
+  .approval {
+    margin: 0 1rem 1.125rem;
+    background: var(--lb-surface);
+    border: 1px solid var(--lb-line-soft);
+    border-radius: var(--lb-radius-md);
+    padding: 0.875rem;
+    box-shadow: var(--lb-shadow-card);
+  }
+  .approval-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.625rem; }
+  .approval-badge {
+    width: 1.375rem; height: 1.375rem; border-radius: 50%; flex-shrink: 0;
+    background: var(--lb-warning-soft); color: var(--lb-warning);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .approval-title { font-size: 0.875rem; font-weight: 700; color: var(--lb-text-primary); flex: 1; }
+  .approval-tool {
+    font-size: 0.6875rem; color: var(--lb-text-muted);
+    background: var(--lb-surface-muted);
+    padding: 0.125rem 0.5rem; border-radius: 999px;
+  }
+  .approval-desc { font-size: 0.8125rem; line-height: 1.55; color: var(--lb-text-secondary); margin-bottom: 0.625rem; }
+
+  /* 事实行 */
+  .approval-facts {
+    border-top: 1px solid var(--lb-line-soft);
+    padding-top: 0.625rem; margin-bottom: 0.625rem;
+    display: flex; flex-direction: column; gap: 0.375rem;
+  }
+  .fact { display: flex; gap: 0.75rem; font-size: 0.8125rem; }
+  .fact .k { width: 3.5rem; flex-shrink: 0; color: var(--lb-text-muted); }
+  .fact .v { color: var(--lb-text-primary); font-weight: 500; min-width: 0; flex: 1; }
+
+  /* 参数折叠 */
+  .raw-toggle {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    font-size: 0.75rem; color: var(--lb-text-muted);
+    padding: 0.375rem 0; margin-bottom: 0.125rem;
+    min-height: 2rem;
+  }
+  .raw-toggle .caret { transition: transform 0.15s; display: inline-block; }
+  .raw-toggle.open .caret { transform: rotate(90deg); }
+  .raw-code {
+    background: var(--lb-surface-muted);
+    border: 1px solid var(--lb-line-soft);
+    border-radius: var(--lb-radius-sm);
+    padding: 0.625rem 0.75rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.6875rem; line-height: 1.6;
+    color: var(--lb-text-secondary);
+    white-space: pre-wrap; word-break: break-all;
+    margin-bottom: 0.625rem;
+  }
+  .raw-code[hidden] { display: none; }
+
+  .approval-actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+  .approval-btn {
+    flex: 1; padding: 0.5rem 0; border-radius: var(--lb-radius-sm);
+    font-size: 0.8125rem; font-weight: 600; text-align: center;
+    min-height: 2.75rem; display: flex; align-items: center; justify-content: center;
+  }
+  .approval-btn-primary { background: var(--lb-accent); color: var(--lb-on-accent); }
+  .approval-btn-ghost { background: var(--lb-surface-muted); color: var(--lb-text-primary); border: 1px solid var(--lb-line-soft); }
+  .approval-btn-danger { background: var(--lb-danger-soft); color: var(--lb-danger); }
+
+  /* 已处理：收敛为一行 */
+  .approval-resolved {
+    margin: 0 1rem 1.125rem;
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; color: var(--lb-text-muted);
+  }
+  .approval-resolved.ok { color: var(--lb-success); }
+  .approval-resolved.no { color: var(--lb-danger); }
+  .approval-resolved .ico { font-weight: 700; }
+
+  .legend {
+    max-width: 22rem; font-size: 0.75rem; line-height: 1.7; color: #5a5c60;
+    padding: 0 0.25rem;
+  }
+</style>
+</head>
+<body>
+
+<div class="control-bar">
+  <span class="label">主题</span>
+  <span id="theme-btns"></span>
+  <span class="label" style="margin-left:0.5rem">模式</span>
+  <button class="mode-btn" data-mode="light">浅色</button>
+  <button class="mode-btn" data-mode="dark">深色</button>
+</div>
+
+<div class="stage">
+
+  <!-- 场景 1：聊天气泡左右分布 -->
+  <div class="scene">
+    <div class="scene-title">1 · 聊天气泡<span class="sub">用户右侧 accent 气泡 · AI 左侧直排</span></div>
+    <div class="phone"><div class="screen">
+      <div class="screen-head"><span class="title">对话</span></div>
+      <div class="msgs">
+        <div class="msg msg-user">
+          <div class="avatar">用</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="msg-name">我</span><span class="msg-time">14:02</span></div>
+            <div class="bubble">帮我点两份巨无霸套餐，今天下午三点取</div>
+          </div>
+        </div>
+        <div class="msg msg-ai">
+          <div class="avatar">熊</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="msg-name">点餐助手</span><span class="msg-time">14:02</span></div>
+            <div class="bubble">好的，两份巨无霸套餐，取餐时间下午三点。我先查一下门店菜单确认库存。</div>
+          </div>
+        </div>
+        <div class="msg msg-user">
+          <div class="avatar">用</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="msg-name">我</span><span class="msg-time">14:03</span></div>
+            <div class="bubble">再加一杯可乐</div>
+          </div>
+        </div>
+        <div class="msg msg-ai">
+          <div class="avatar">熊</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="msg-name">点餐助手</span><span class="msg-time">14:03</span></div>
+            <div class="bubble">已加上一杯可乐。订单合计：巨无霸套餐 ×2、可乐 ×1。</div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <div class="legend">用户消息右对齐、accent 实底不对称圆角气泡；AI 消息左侧直排 markdown，头像+名字小字开头，无气泡框。</div>
+  </div>
+
+  <!-- 场景 2：HITL 审批卡 -->
+  <div class="scene">
+    <div class="scene-title">2 · HITL 审批卡<span class="sub">事实行 · 参数折叠 · 已处理一行</span></div>
+    <div class="phone"><div class="screen">
+      <div class="screen-head"><span class="title">审批</span></div>
+      <div class="msgs">
+
+        <!-- 待审批：事实行 + 参数折叠 -->
+        <div class="approval">
+          <div class="approval-head">
+            <span class="approval-badge">✋</span>
+            <span class="approval-title">待人工确认</span>
+            <span class="approval-tool">create_order</span>
+          </div>
+          <div class="approval-desc">即将为你创建一笔外带订单，请确认。</div>
+          <div class="approval-facts">
+            <div class="fact"><span class="k">商品</span><span class="v">巨无霸套餐 ×2、可乐 ×1</span></div>
+            <div class="fact"><span class="k">取餐时间</span><span class="v">今天 15:00</span></div>
+            <div class="fact"><span class="k">金额</span><span class="v">¥63.00</span></div>
+          </div>
+          <button class="raw-toggle" data-raw-toggle>
+            <span class="caret">▸</span><span>查看调用参数</span>
+          </button>
+          <div class="raw-code" hidden>{
+  "items": [
+    { "sku": "BIGMAC_COMBO", "qty": 2 },
+    { "sku": "COKE_M", "qty": 1 }
+  ],
+  "pickupTime": "2026-09-06T15:00:00+08:00",
+  "channel": "takeaway",
+  "remark": null
+}</div>
+          <div class="approval-actions">
+            <button class="approval-btn approval-btn-primary">通过</button>
+            <button class="approval-btn approval-btn-ghost">修改参数</button>
+            <button class="approval-btn approval-btn-danger">拒绝</button>
+          </div>
+        </div>
+
+        <!-- 已处理：收敛为一行 -->
+        <div class="approval-resolved ok"><span class="ico">✓</span>已通过 · create_order</div>
+        <div class="approval-resolved no"><span class="ico">✕</span>已拒绝 · create_order</div>
+
+      </div>
+    </div></div>
+    <div class="legend">args 顶层标量渲染为「键: 值」事实行，一眼可读；嵌套对象/长文本收进「查看调用参数」折叠区默认收起；已处理的审批收敛成一行结论。</div>
+  </div>
+
+  <!-- 场景 3：trace 显示 -->
+  <div class="scene">
+    <div class="scene-title">3 · trace 显示<span class="sub">直答一行 · Codex 风格执行轨迹</span></div>
+    <div class="phone"><div class="screen">
+      <div class="screen-head"><span class="title">执行轨迹</span></div>
+      <div class="msgs">
+
+        <div class="msg msg-ai">
+          <div class="avatar">熊</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="msg-name">助手</span><span class="msg-time">13:50</span></div>
+            <div class="bubble">北京明天多云转晴，气温 18–26°C，适合出行。</div>
+          </div>
+        </div>
+        <!-- 直答：收敛一行 -->
+        <div class="trace-direct">
+          <span class="dot"></span>直接回答<span class="sep">·</span>2.1s<span class="sep">·</span>1,248 tokens
+        </div>
+
+        <div class="msg msg-ai">
+          <div class="avatar">熊</div>
+          <div class="msg-body">
+            <div class="msg-meta"><span class="msg-name">点餐助手</span><span class="msg-time">14:02</span></div>
+            <div class="bubble">好的，我来为你下单。</div>
+          </div>
+        </div>
+        <!-- Flow：Codex 客户端风格 trace -->
+        <div class="trace-codex">
+          <div class="trace-codex-head">
+            <span class="trace-codex-title">执行过程</span>
+            <span class="trace-codex-total">4.6s</span>
+          </div>
+
+          <div class="cx-row" data-cx-toggle>
+            <span class="cx-glyph done">✓</span>
+            <span class="cx-name">理解需求</span>
+            <span class="cx-summary">识别为下单意图，提取商品与时间</span>
+            <span class="cx-ms">0.8s</span>
+            <span class="cx-caret">▸</span>
+          </div>
+          <div class="cx-detail" hidden><span class="dim">intent:</span> create_order
+<span class="dim">slots:</span> items=[巨无霸套餐×2], pickup=15:00</div>
+
+          <div class="cx-row" data-cx-toggle>
+            <span class="cx-glyph done">✓</span>
+            <span class="cx-name">search_menu</span>
+            <span class="cx-summary">查询门店菜单，确认库存</span>
+            <span class="cx-ms">2.1s</span>
+            <span class="cx-caret">▸</span>
+          </div>
+          <div class="cx-detail" hidden><span class="dim">args:</span> { "storeId": "S1024", "items": ["BIGMAC_COMBO×2"] }
+<span class="dim">result:</span> 库存充足，单价 ¥29.50</div>
+
+          <div class="cx-row" data-cx-toggle>
+            <span class="cx-glyph run">●</span>
+            <span class="cx-name">create_order</span>
+            <span class="cx-summary">准备创建订单，等待确认</span>
+            <span class="cx-ms">1.7s</span>
+            <span class="cx-caret">▸</span>
+          </div>
+          <div class="cx-detail" hidden><span class="dim">args:</span> { "items": [...], "pickupTime": "15:00" }
+<span class="dim">status:</span> 等待人工确认</div>
+        </div>
+
+      </div>
+    </div></div>
+    <div class="legend">直答（无工具、无多步）收敛为一行「直接回答 · 耗时 · tokens」；Flow/多步为 Codex 客户端风格的扁平行列表：状态符号（✓/●/✗）+ 等宽动作名 + 一句话摘要 + 耗时，点击行展开该步的输入/输出细节，默认收起。</div>
+  </div>
+
+</div>
+
+<script>
+const THEMES = {"warm-workbench":{"name":"暖色工作台","scheme":"light","light":{"--lb-page-background":"#f2f3f5","--lb-bg-start":"#f2f3f5","--lb-surface":"#ffffff","--lb-surface-strong":"#ffffff","--lb-surface-muted":"#f8f6f3","--lb-surface-hover":"#f0ece7","--lb-text-primary":"#29231f","--lb-text-secondary":"#6d655e","--lb-text-muted":"#918981","--lb-line-soft":"#e8e3de","--lb-line-strong":"#c7beb5","--lb-accent":"#b65f16","--lb-accent-strong":"#93490f","--lb-accent-soft":"#f7e5d2","--lb-accent-ink":"#71370c","--lb-accent-surface":"#b65f16","--lb-on-accent":"#ffffff","--lb-success":"#347747","--lb-success-soft":"#e6f3e8","--lb-info":"#3f6f9f","--lb-info-soft":"#eaf1f8","--lb-warning":"#ad7812","--lb-warning-soft":"#fbf1d7","--lb-danger":"#c23d35","--lb-danger-soft":"#fbe9e7","--lb-shadow-card":"0 0.25rem 0.875rem rgba(58, 45, 35, 0.055)","--lb-shadow-glow":"0 0.75rem 1.75rem rgba(125, 73, 27, 0.16)","--lb-radius-xs":"0.25rem","--lb-radius-sm":"0.375rem","--lb-radius-md":"0.5rem"},"dark":{"--lb-page-background":"#1c1815","--lb-bg-start":"#1c1815","--lb-surface":"#262019","--lb-surface-strong":"#2e2720","--lb-surface-muted":"#221c17","--lb-surface-hover":"#38302a","--lb-text-primary":"#f0e9e2","--lb-text-secondary":"#b9aca0","--lb-text-muted":"#8a7d70","--lb-line-soft":"#3d332a","--lb-line-strong":"#5a4c3e","--lb-accent":"#e0915a","--lb-accent-strong":"#c97a3f","--lb-accent-soft":"#3d2c1c","--lb-accent-ink":"#f5c99a","--lb-accent-surface":"#e0915a","--lb-on-accent":"#241a10","--lb-success":"#6fb483","--lb-success-soft":"#223324","--lb-info":"#7aa6cf","--lb-info-soft":"#22303c","--lb-warning":"#d3a54a","--lb-warning-soft":"#3a2f16","--lb-danger":"#e07b71","--lb-danger-soft":"#3d2320","--lb-shadow-card":"0 0.25rem 0.875rem rgba(0, 0, 0, 0.3)","--lb-shadow-glow":"0 0.75rem 1.75rem rgba(0, 0, 0, 0.4)","--lb-radius-xs":"0.25rem","--lb-radius-sm":"0.375rem","--lb-radius-md":"0.5rem"}},"mono-tool":{"name":"纯粹黑白工具","scheme":"dark","light":{"--lb-page-background":"#f5f5f6","--lb-bg-start":"#f5f5f6","--lb-surface":"#ffffff","--lb-surface-strong":"#ffffff","--lb-surface-muted":"#f0f0f1","--lb-surface-hover":"#e7e7e9","--lb-text-primary":"#1b1c1e","--lb-text-secondary":"#5a5c60","--lb-text-muted":"#86888d","--lb-line-soft":"#e0e0e2","--lb-line-strong":"#c4c4c8","--lb-accent":"#232425","--lb-accent-strong":"#000000","--lb-accent-soft":"#e2e2e4","--lb-accent-ink":"#1b1c1e","--lb-accent-surface":"#232425","--lb-on-accent":"#ffffff","--lb-success":"#2f7a4a","--lb-success-soft":"#e2f2e7","--lb-info":"#2f6fb0","--lb-info-soft":"#e3eefb","--lb-warning":"#a97a12","--lb-warning-soft":"#f8efd4","--lb-danger":"#c0432c","--lb-danger-soft":"#fbe5e1","--lb-shadow-card":"0 0.25rem 0.875rem rgba(0, 0, 0, 0.06)","--lb-shadow-glow":"0 1rem 2.5rem rgba(0, 0, 0, 0.12)","--lb-radius-xs":"0.125rem","--lb-radius-sm":"0.25rem","--lb-radius-md":"0.375rem"},"dark":{"--lb-page-background":"#1a1b1d","--lb-bg-start":"#1a1b1d","--lb-surface":"#242527","--lb-surface-strong":"#2e3033","--lb-surface-muted":"#202123","--lb-surface-hover":"#35373a","--lb-text-primary":"#e9eaec","--lb-text-secondary":"#b0b2b6","--lb-text-muted":"#82858b","--lb-line-soft":"#3d3f43","--lb-line-strong":"#575a60","--lb-accent":"#dadddf","--lb-accent-strong":"#c3c6c9","--lb-accent-soft":"#383a3e","--lb-accent-ink":"#f2f3f4","--lb-accent-surface":"#dadddf","--lb-on-accent":"#252629","--lb-success":"#78b88c","--lb-success-soft":"#233b2b","--lb-info":"#75a9d5","--lb-info-soft":"#233545","--lb-warning":"#d5b660","--lb-warning-soft":"#40381f","--lb-danger":"#df817b","--lb-danger-soft":"#452725","--lb-shadow-card":"0 0 0 transparent","--lb-shadow-glow":"0 1rem 2.5rem rgba(0, 0, 0, 0.34)","--lb-radius-xs":"0.125rem","--lb-radius-sm":"0.25rem","--lb-radius-md":"0.375rem"}},"soft-companion":{"name":"柔软陪伴助手","scheme":"light","light":{"--lb-page-background":"#f7f7fa","--lb-bg-start":"#f7f7fa","--lb-surface":"#ffffff","--lb-surface-strong":"#ffffff","--lb-surface-muted":"#f6f3f7","--lb-surface-hover":"#eee7f0","--lb-text-primary":"#3a2831","--lb-text-secondary":"#735f68","--lb-text-muted":"#9a808c","--lb-line-soft":"#e7d7de","--lb-line-strong":"#c99cab","--lb-accent":"#d84e68","--lb-accent-strong":"#b83a54","--lb-accent-soft":"#f8dce4","--lb-accent-ink":"#8c233d","--lb-accent-surface":"#d84e68","--lb-on-accent":"#ffffff","--lb-success":"#3f8c59","--lb-success-soft":"#e1f3e6","--lb-info":"#4f7fd4","--lb-info-soft":"#e7eefb","--lb-warning":"#c99622","--lb-warning-soft":"#fbf0d3","--lb-danger":"#c83f4d","--lb-danger-soft":"#fae5e8","--lb-shadow-card":"0 0.375rem 1rem rgba(91, 56, 73, 0.075)","--lb-shadow-glow":"0 0.75rem 2rem rgba(123, 66, 94, 0.14)","--lb-radius-xs":"0.25rem","--lb-radius-sm":"0.5rem","--lb-radius-md":"0.5rem"},"dark":{"--lb-page-background":"#231a20","--lb-bg-start":"#231a20","--lb-surface":"#2d2229","--lb-surface-strong":"#372932","--lb-surface-muted":"#281e24","--lb-surface-hover":"#3e2f39","--lb-text-primary":"#f3e6ec","--lb-text-secondary":"#c3aab4","--lb-text-muted":"#957e88","--lb-line-soft":"#463540","--lb-line-strong":"#6b4a58","--lb-accent":"#f07e95","--lb-accent-strong":"#d85a74","--lb-accent-soft":"#43222c","--lb-accent-ink":"#ffc4d0","--lb-accent-surface":"#f07e95","--lb-on-accent":"#33101b","--lb-success":"#6fb587","--lb-success-soft":"#243528","--lb-info":"#86a8e0","--lb-info-soft":"#253145","--lb-warning":"#d8ab4e","--lb-warning-soft":"#3a2f18","--lb-danger":"#e87b87","--lb-danger-soft":"#402227","--lb-shadow-card":"0 0.375rem 1rem rgba(0, 0, 0, 0.32)","--lb-shadow-glow":"0 0.75rem 2rem rgba(0, 0, 0, 0.4)","--lb-radius-xs":"0.25rem","--lb-radius-sm":"0.5rem","--lb-radius-md":"0.5rem"}},"purple-gradient":{"name":"原版紫色渐变","scheme":"light","light":{"--lb-page-background":"linear-gradient(135deg, #eef2ff, #f5ecff 52%, #fff0f6)","--lb-bg-start":"#f5ecff","--lb-surface":"rgba(255, 255, 255, 0.92)","--lb-surface-strong":"rgba(255, 255, 255, 0.98)","--lb-surface-muted":"rgba(255, 255, 255, 0.62)","--lb-surface-hover":"rgba(237, 233, 254, 0.82)","--lb-text-primary":"#111827","--lb-text-secondary":"#6b7280","--lb-text-muted":"#9ca3af","--lb-line-soft":"rgba(196, 181, 253, 0.3)","--lb-line-strong":"rgba(124, 58, 237, 0.34)","--lb-accent":"#7c3aed","--lb-accent-strong":"#6d28d9","--lb-accent-soft":"#f3e8ff","--lb-accent-ink":"#6d28d9","--lb-accent-surface":"linear-gradient(135deg, #7c3aed, #ec4899 52%, #4f46e5)","--lb-on-accent":"#ffffff","--lb-success":"#15803d","--lb-success-soft":"#dcfce7","--lb-info":"#4f46e5","--lb-info-soft":"#eef2ff","--lb-warning":"#f59e0b","--lb-warning-soft":"#fffbeb","--lb-danger":"#dc2626","--lb-danger-soft":"#fef2f2","--lb-shadow-card":"0 0.5rem 1.5rem rgba(124, 58, 237, 0.1)","--lb-shadow-glow":"0 1rem 2.625rem rgba(124, 58, 237, 0.28)","--lb-radius-xs":"0.375rem","--lb-radius-sm":"0.75rem","--lb-radius-md":"1rem"},"dark":{"--lb-page-background":"#17111f","--lb-bg-start":"#17111f","--lb-surface":"#211a2e","--lb-surface-strong":"#2a2138","--lb-surface-muted":"#1d1626","--lb-surface-hover":"#322847","--lb-text-primary":"#ece6f7","--lb-text-secondary":"#b0a3c8","--lb-text-muted":"#7e7096","--lb-line-soft":"#3a2d52","--lb-line-strong":"#5b4480","--lb-accent":"#a78bfa","--lb-accent-strong":"#8b5cf6","--lb-accent-soft":"#31204a","--lb-accent-ink":"#d6c6ff","--lb-accent-surface":"linear-gradient(135deg, #8b5cf6, #ec4899 52%, #6366f1)","--lb-on-accent":"#1d1030","--lb-success":"#5fb877","--lb-success-soft":"#1f3020","--lb-info":"#8b8ef0","--lb-info-soft":"#252a45","--lb-warning":"#e0aa3e","--lb-warning-soft":"#35291a","--lb-danger":"#ef6a6a","--lb-danger-soft":"#3a1f1f","--lb-shadow-card":"0 0.5rem 1.5rem rgba(0, 0, 0, 0.35)","--lb-shadow-glow":"0 1rem 2.625rem rgba(0, 0, 0, 0.45)","--lb-radius-xs":"0.375rem","--lb-radius-sm":"0.75rem","--lb-radius-md":"1rem"}}};
+
+const themeKeys = Object.keys(THEMES);
+let themeKey = themeKeys[0];
+let mode = THEMES[themeKey].scheme || "light";
+
+function applyTheme() {
+  const vars = THEMES[themeKey][mode];
+  const phone = document.querySelectorAll(".phone");
+  phone.forEach((el) => {
+    for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
+  });
+  document.querySelectorAll(".theme-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.theme === themeKey));
+  document.querySelectorAll(".mode-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.mode === mode));
+}
+
+// 主题按钮
+const btnWrap = document.getElementById("theme-btns");
+themeKeys.forEach((key) => {
+  const b = document.createElement("button");
+  b.className = "theme-btn";
+  b.dataset.theme = key;
+  b.textContent = THEMES[key].name;
+  b.addEventListener("click", () => {
+    themeKey = key;
+    mode = THEMES[key].scheme || "light";
+    applyTheme();
+  });
+  btnWrap.appendChild(b);
+});
+
+// 模式切换
+document.querySelectorAll(".mode-btn").forEach((b) =>
+  b.addEventListener("click", () => { mode = b.dataset.mode; applyTheme(); }));
+
+// 审批卡参数折叠
+document.querySelectorAll("[data-raw-toggle]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const code = btn.parentElement.querySelector(".raw-code");
+    const open = code.hasAttribute("hidden");
+    if (open) { code.removeAttribute("hidden"); btn.classList.add("open"); btn.lastChild.textContent = "收起调用参数"; }
+    else { code.setAttribute("hidden", ""); btn.classList.remove("open"); btn.lastChild.textContent = "查看调用参数"; }
+  });
+});
+
+// Codex 风格 trace：点击行展开/收起该步细节
+document.querySelectorAll("[data-cx-toggle]").forEach((row) => {
+  row.addEventListener("click", () => {
+    const detail = row.nextElementSibling;
+    if (!detail || !detail.classList.contains("cx-detail")) return;
+    const open = detail.hasAttribute("hidden");
+    if (open) { detail.removeAttribute("hidden"); row.classList.add("open"); }
+    else { detail.setAttribute("hidden", ""); row.classList.remove("open"); }
+  });
+});
+
+applyTheme();
+</script>
+</body>
+</html>

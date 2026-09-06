@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View, Text } from "@tarojs/components";
+import { View } from "@tarojs/components";
 import Taro, { useDidShow } from "@tarojs/taro";
+import AppIcon from "../../components/AppIcon";
 import ChatWorkspace from "../../components/ChatWorkspace";
 import HistoryDrawer from "../../components/HistoryDrawer";
 import NewChatPanel from "../../components/NewChatPanel";
@@ -31,10 +32,10 @@ export default function IndexPage() {
 
   const historyButton = (
     <View
-      className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[1.125rem] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
+      className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
       onClick={() => setDrawerOpen(true)}
     >
-      <Text className="at-icon at-icon-bullet-list leading-none [&::before]:block" />
+      <AppIcon name="list" className="h-[1.125rem] w-[1.125rem]" />
     </View>
   );
 

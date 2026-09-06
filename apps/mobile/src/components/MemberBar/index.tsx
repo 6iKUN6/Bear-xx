@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, Text } from "@tarojs/components";
 import AgentAvatar from "../AgentAvatar";
 import AgentSheet from "../AgentSheet";
+import AppIcon from "../AppIcon";
 import type { AgentSummary } from "../../api/agents";
 
 const MAX_STACKED_AVATARS = 4;
@@ -56,7 +57,7 @@ export default function MemberBar({
         <Text className='min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.3] text-[var(--lb-text-secondary)]'>
           {members.length} 位助手参与 · 点击 @ 指定回答
         </Text>
-        <Text className='at-icon at-icon-chevron-right shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
+        <AppIcon name='chevronRight' className='h-[0.75rem] w-[0.75rem] shrink-0 text-[var(--lb-text-muted)]' />
       </View>
 
       {open ? (
