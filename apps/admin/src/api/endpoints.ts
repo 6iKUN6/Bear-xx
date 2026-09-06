@@ -40,10 +40,10 @@ import type {
 } from "./types";
 
 // ---- 鉴权 ----
-export const login = (username: string, password: string) =>
+export const login = (account: string, password: string) =>
   request<AuthResponse>("/admin/auth/login", {
     method: "POST",
-    body: { username, password },
+    body: { username: account, password },
     skipAuth: true,
   });
 

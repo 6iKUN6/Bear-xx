@@ -172,7 +172,7 @@ export function UsersPage() {
                         )}
                         {!user.hasPasswordAccount && user.role === "USER" ? (
                           <p className="mt-1 text-[11px] text-muted-foreground">
-                            需先登记账号密码
+                            需先设置用户名或手机号密码
                           </p>
                         ) : null}
                       </td>
