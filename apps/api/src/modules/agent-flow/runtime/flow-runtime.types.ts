@@ -5,6 +5,7 @@ import type {
   FlowDefinition,
   FlowPlanLoopStopPolicy,
 } from '@litter-bear/types/agent-flow';
+import type { ReasoningSelection } from '@litter-bear/types';
 
 /** Flow 运行时校验错误。 */
 export interface FlowRuntimeValidationError {
@@ -23,6 +24,7 @@ export interface FlowRuntimeValidationResult {
 export interface FlowTaskRuntimeContext {
   phase: 'task';
   agentDefaultModelPreset: string | null;
+  agentDefaultReasoning?: ReasoningSelection;
   mcdonaldsCredentialId?: string;
 }
 
@@ -46,6 +48,7 @@ export interface CompiledFlowNodeBase {
 export interface CompiledAgentFlowNode extends CompiledFlowNodeBase {
   type: 'agent';
   modelPreset: string;
+  reasoning?: ReasoningSelection;
   toolGroups: readonly string[];
   skills: readonly string[];
   maxToolIterations: number;
@@ -55,6 +58,9 @@ export interface CompiledAgentFlowNode extends CompiledFlowNodeBase {
 /** 编译后的 Plan 节点。 */
 export interface CompiledPlanFlowNode extends CompiledFlowNodeBase {
   type: 'plan';
+  /** 规划使用的模型；编译期已把 agent-default 解析成具体预设 */
+  modelPreset: string;
+  reasoning?: ReasoningSelection;
   maxSteps: number;
 }
 
@@ -77,6 +83,9 @@ export interface CompiledApprovalFlowNode extends CompiledFlowNodeBase {
   kind: 'plan-review';
   /** 门禁策略；model 由模型判断是否需要人工确认，失败一律闭合为需要 */
   policy: FlowApprovalPolicy;
+  /** 仅 model 策略存在；编译期已把 agent-default 解析成具体预设 */
+  modelPreset?: string;
+  reasoning?: ReasoningSelection;
   /** 要审的是哪份计划；校验期已保证它指向 plan 节点的 steps */
   planRef: FlowRef;
 }
@@ -88,6 +97,7 @@ export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
   observationsRef?: FlowRef;
   /** 汇总使用的模型；编译期已把 agent-default 解析成具体预设 */
   modelPreset: string;
+  reasoning?: ReasoningSelection;
 }
 
 /** 编译后的起始节点。 */

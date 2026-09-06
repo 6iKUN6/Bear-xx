@@ -12,22 +12,41 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages';
 import type { LlmMessage } from '../../../llm/llm.types';
+import type { ModelContextIdentity } from '../../../llm/model-context.schema';
+import { replayModelContext } from '../../../llm/model-context';
 
 /**
  * 转换为 LangChain 消息列表
  * @param messages 通用聊天消息列表
  * @returns 返回 LangChain BaseMessage 数组
  */
-export function toLangChainMessages(messages: LlmMessage[]): BaseMessage[] {
-  return messages.map((message) => {
+export function toLangChainMessages(
+  messages: LlmMessage[],
+  modelContextIdentity?: ModelContextIdentity,
+  onInvalidModelContext?: () => void,
+): BaseMessage[] {
+  return messages.flatMap((message) => {
     if (message.role === 'system') {
-      return new SystemMessage(message.content);
+      return [new SystemMessage(message.content)];
     }
 
     if (message.role === 'assistant') {
-      return new AIMessage(message.content);
+      if (modelContextIdentity && message.modelContext !== undefined) {
+        try {
+          const replayed = replayModelContext(
+            message.modelContext,
+            modelContextIdentity,
+          );
+          if (replayed) {
+            return replayed;
+          }
+        } catch {
+          onInvalidModelContext?.();
+        }
+      }
+      return [new AIMessage(message.content)];
     }
 
-    return new HumanMessage(message.content);
+    return [new HumanMessage(message.content)];
   });
 }

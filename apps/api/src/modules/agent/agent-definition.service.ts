@@ -83,7 +83,7 @@ export class AgentDefinitionService {
     return {
       ...SYNTHETIC_DEFAULT,
       systemPrompt: row.systemPrompt,
-      modelPreset: row.modelPreset,
+      modelPreset: null,
     };
   }
 }

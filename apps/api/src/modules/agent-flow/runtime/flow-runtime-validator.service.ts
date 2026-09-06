@@ -96,6 +96,28 @@ export class FlowRuntimeValidator {
       );
       return;
     }
+    if (node.type === 'plan') {
+      this.validateModelPreset(
+        node.config.modelPreset,
+        node.config.reasoning,
+        `nodes.${nodeIndex}.config.modelPreset`,
+        context,
+        availableModels,
+        errors,
+      );
+      return;
+    }
+    if (node.type === 'approval' && node.config.policy === 'model') {
+      this.validateModelPreset(
+        node.config.modelPreset,
+        node.config.reasoning,
+        `nodes.${nodeIndex}.config.modelPreset`,
+        context,
+        availableModels,
+        errors,
+      );
+      return;
+    }
     if (node.type === 'synthesize') {
       // synthesize 没有工具与技能，只需要校验模型；走同一条路径以保证
       // agent-default 的解析与报错口径一致
@@ -124,6 +146,7 @@ export class FlowRuntimeValidator {
   private validateExecutor(
     executor: {
       modelPreset?: string;
+      reasoning?: import('@litter-bear/types').ReasoningSelection;
       toolGroups: readonly string[];
       skills: readonly string[];
     },
@@ -134,29 +157,14 @@ export class FlowRuntimeValidator {
     errors: FlowRuntimeValidationError[],
   ): void {
     const modelPreset = executor.modelPreset ?? 'agent-default';
-    if (modelPreset === 'agent-default') {
-      if (context.phase === 'task') {
-        if (!context.agentDefaultModelPreset) {
-          errors.push({
-            path: `${path}.modelPreset`,
-            rule: 'agent-default-resolved',
-            message: '任务未锁定 Agent 默认模型，不能执行 agent-default',
-          });
-        } else if (!availableModels.has(context.agentDefaultModelPreset)) {
-          errors.push({
-            path: `${path}.modelPreset`,
-            rule: 'model-preset-exists',
-            message: `任务锁定的默认模型「${context.agentDefaultModelPreset}」不可用`,
-          });
-        }
-      }
-    } else if (!availableModels.has(modelPreset)) {
-      errors.push({
-        path: `${path}.modelPreset`,
-        rule: 'model-preset-exists',
-        message: `模型预设「${modelPreset}」不存在或已禁用`,
-      });
-    }
+    this.validateModelPreset(
+      modelPreset,
+      executor.reasoning,
+      `${path}.modelPreset`,
+      context,
+      availableModels,
+      errors,
+    );
 
     // 配了工具却用一个没通过工具往返探测的模型，运行时才会炸在第一次工具回填上；
     // 这里提前拦住。能力档位来自真实探测，不是配置声明。
@@ -224,5 +232,95 @@ export class FlowRuntimeValidator {
         }
       }
     });
+  }
+
+  /**
+   * 校验节点声明的模型预设
+   * @param declaredModelPreset 节点声明的模型；缺省等同于 agent-default
+   * @param path 模型字段在 Definition 中的路径
+   * @param context 发布期或任务期上下文
+   * @param availableModels 当前可用模型预设集合
+   * @param errors 用于收集全部错误的数组
+   * @returns 无返回值
+   * @description 发布期允许 agent-default 占位；任务期必须已锁定为当前仍可用的具体预设。
+   * 显式预设在两个阶段都必须存在且启用。
+   */
+  private validateModelPreset(
+    declaredModelPreset: string | undefined,
+    reasoning: import('@litter-bear/types').ReasoningSelection | undefined,
+    path: string,
+    context: FlowRuntimeValidationContext,
+    availableModels: ReadonlySet<string>,
+    errors: FlowRuntimeValidationError[],
+  ): void {
+    const modelPreset = declaredModelPreset ?? 'agent-default';
+    if (modelPreset === 'agent-default') {
+      if (context.phase !== 'task') {
+        errors.push({
+          path,
+          rule: 'custom-flow-concrete-model',
+          message:
+            '自定义 Flow 的模型节点必须选择具体模型预设，不能使用 agent-default',
+        });
+        return;
+      }
+      if (!context.agentDefaultModelPreset) {
+        errors.push({
+          path,
+          rule: 'agent-default-resolved',
+          message: '任务未锁定 Agent 默认模型，不能执行 agent-default',
+        });
+      } else if (!availableModels.has(context.agentDefaultModelPreset)) {
+        errors.push({
+          path,
+          rule: 'model-preset-exists',
+          message: `任务锁定的默认模型「${context.agentDefaultModelPreset}」不可用`,
+        });
+      } else {
+        this.validateReasoning(
+          context.agentDefaultModelPreset,
+          context.agentDefaultReasoning,
+          path.replace(/\.modelPreset$/, '.reasoning'),
+          errors,
+        );
+      }
+      return;
+    }
+    if (!availableModels.has(modelPreset)) {
+      errors.push({
+        path,
+        rule: 'model-preset-exists',
+        message: `模型预设「${modelPreset}」不存在或已禁用`,
+      });
+      return;
+    }
+    this.validateReasoning(
+      modelPreset,
+      reasoning,
+      path.replace(/\.modelPreset$/, '.reasoning'),
+      errors,
+    );
+  }
+
+  /** 将目录异常收敛为可定位到节点字段的发布/任务校验错误。 */
+  private validateReasoning(
+    modelPreset: string,
+    reasoning: import('@litter-bear/types').ReasoningSelection | undefined,
+    path: string,
+    errors: FlowRuntimeValidationError[],
+  ): void {
+    try {
+      this.modelRegistry.normalizePresetReasoning(modelPreset, reasoning, {
+        requireExplicit: true,
+        applyDefault: false,
+      });
+    } catch (error) {
+      errors.push({
+        path,
+        rule: 'model-reasoning-compatible',
+        message:
+          error instanceof Error ? error.message : '模型思考参数不受支持',
+      });
+    }
   }
 }

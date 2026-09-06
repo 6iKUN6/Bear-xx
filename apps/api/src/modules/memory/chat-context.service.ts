@@ -76,6 +76,7 @@ export class ChatContextService {
         role: true,
         content: true,
         agentId: true,
+        modelContext: true,
       },
       orderBy: { createdAt: 'desc' },
       take: CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
@@ -146,6 +147,9 @@ export class ChatContextService {
         return {
           role: this.toLlmMessageRole(message.role),
           content: message.content,
+          ...(message.role === MessageRole.ASSISTANT && message.modelContext
+            ? { modelContext: message.modelContext }
+            : {}),
         };
       }),
     );

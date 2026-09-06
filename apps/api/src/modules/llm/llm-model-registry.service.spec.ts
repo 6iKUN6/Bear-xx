@@ -1,4 +1,8 @@
-import { ModelPresetCapability, ModelUpstreamFormat } from '@prisma/client';
+import {
+  ModelPresetCapability,
+  ModelProviderConnectionStatus,
+  ModelUpstreamFormat,
+} from '@prisma/client';
 import { LlmCredentialCryptoService } from './llm-credential-crypto.service';
 import { LlmModelRegistryService } from './llm-model-registry.service';
 
@@ -16,25 +20,37 @@ describe('LlmModelRegistryService', () => {
   function row(overrides: Record<string, unknown> = {}) {
     return {
       id: 'row-1',
+      connectionId: 'connection-1',
       presetId: 'openai:gpt-5.5',
       name: 'GPT-5.5',
       description: '',
-      platform: 'openai',
       model: 'gpt-5.5',
       upstreamFormat: ModelUpstreamFormat.OPENAI_CHAT_COMPLETIONS,
-      baseURL: null,
       temperature: null,
       maxOutputTokens: null,
       topP: null,
       enabled: true,
       isDefault: true,
-      apiKeyCiphertext: crypto.encrypt('sk-live-secret'),
-      apiKeyFingerprint: crypto.fingerprint('sk-live-secret'),
       capability: ModelPresetCapability.TOOLS,
       lastCheckedAt: null,
       lastCheckError: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      connection: {
+        id: 'connection-1',
+        connectionKey: 'openai-main',
+        providerKey: 'openai',
+        name: 'OpenAI 官方',
+        baseURL: 'https://api.openai.com/v1',
+        enabled: true,
+        apiKeyCiphertext: crypto.encrypt('sk-live-secret'),
+        apiKeyFingerprint: crypto.fingerprint('sk-live-secret'),
+        status: ModelProviderConnectionStatus.REACHABLE,
+        lastCheckedAt: null,
+        lastCheckError: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
       ...overrides,
     };
   }
@@ -62,6 +78,12 @@ describe('LlmModelRegistryService', () => {
     // 回归护栏：此前 listAvailableModels 直接返回内部预设，env 层预设带明文 key
     expect(JSON.stringify(summary)).not.toContain('sk-live-secret');
     expect(summary).not.toHaveProperty('apiKey');
+    expect(summary).toEqual(
+      expect.objectContaining({
+        name: 'GPT-5.5',
+        connectionName: 'OpenAI 官方',
+      }),
+    );
     expect(summary.apiKeyHint).toBe(
       crypto.toDisplayHint(crypto.fingerprint('sk-live-secret')),
     );
@@ -101,18 +123,16 @@ describe('LlmModelRegistryService', () => {
     await expect(registry.onModuleInit()).rejects.toThrow('db down');
   });
 
-  it('预设未配置 apiKey 时明确报错，不带空 key 打到上游', async () => {
-    const { registry } = await createRegistry([
-      row({ apiKeyCiphertext: null, apiKeyFingerprint: null }),
-    ]);
-
-    expect(() => registry.resolveTextRequest()).toThrow('尚未配置 apiKey');
-  });
-
   it('没有任何预设时明确提示去后台配置', async () => {
     const { registry } = await createRegistry([]);
 
     expect(() => registry.resolveTextRequest()).toThrow('请先在后台配置模型');
+  });
+
+  it('没有显式默认模型时不回退到列表第一项', async () => {
+    const { registry } = await createRegistry([row({ isDefault: false })]);
+
+    expect(() => registry.resolveTextRequest()).toThrow('未匹配到任何模型预设');
   });
 
   it('按 modelId 精确匹配，未命中时报错而不是回退默认预设', async () => {
@@ -146,7 +166,10 @@ describe('LlmModelRegistryService', () => {
     const { findMany } = await createRegistry([row()]);
 
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { enabled: true } }),
+      expect.objectContaining({
+        where: { enabled: true, connection: { enabled: true } },
+        include: { connection: true },
+      }),
     );
   });
 });

@@ -6,6 +6,7 @@ const FORMAT_BY_DB_VALUE: Record<ModelUpstreamFormat, LlmUpstreamFormat> = {
   [ModelUpstreamFormat.OPENAI_CHAT_COMPLETIONS]: 'openai_chat_completions',
   [ModelUpstreamFormat.OPENAI_RESPONSES]: 'openai_responses',
   [ModelUpstreamFormat.ANTHROPIC_MESSAGES]: 'anthropic_messages',
+  [ModelUpstreamFormat.GEMINI_GENERATE_CONTENT]: 'gemini_generate_content',
 };
 
 /** 运行时 wire 格式 → Prisma 枚举。 */
@@ -13,6 +14,7 @@ const DB_VALUE_BY_FORMAT: Record<LlmUpstreamFormat, ModelUpstreamFormat> = {
   openai_chat_completions: ModelUpstreamFormat.OPENAI_CHAT_COMPLETIONS,
   openai_responses: ModelUpstreamFormat.OPENAI_RESPONSES,
   anthropic_messages: ModelUpstreamFormat.ANTHROPIC_MESSAGES,
+  gemini_generate_content: ModelUpstreamFormat.GEMINI_GENERATE_CONTENT,
 };
 
 /** wire 格式 → SDK provider；provider 是派生值，不再单独存储。 */
@@ -20,6 +22,7 @@ const PROVIDER_BY_FORMAT: Record<LlmUpstreamFormat, LlmProviderName> = {
   openai_chat_completions: 'openai',
   openai_responses: 'openai',
   anthropic_messages: 'anthropic',
+  gemini_generate_content: 'google',
 };
 
 /**

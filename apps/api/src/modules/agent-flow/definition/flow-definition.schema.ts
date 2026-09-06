@@ -5,6 +5,8 @@ import {
 } from '@litter-bear/types/agent-flow';
 import { z } from 'zod';
 
+import { reasoningSelectionSchema } from '../../llm/model-reasoning.schema';
+
 /** FlowDefinition 的服务端安全上限。 */
 export const FLOW_DEFINITION_LIMITS = {
   /** Flow 名称的最大字符数。 */
@@ -114,6 +116,7 @@ const conditionCaseSchema = z
 const agentNodeConfigSchema = z
   .object({
     modelPreset: nonEmptyKeySchema.optional(),
+    reasoning: reasoningSelectionSchema.optional(),
     toolGroups: z.array(nonEmptyKeySchema).max(32),
     skills: z.array(nonEmptyKeySchema).max(32),
     maxToolIterations: z
@@ -123,6 +126,32 @@ const agentNodeConfigSchema = z
       .max(FLOW_DEFINITION_LIMITS.maxToolIterations),
   })
   .strict();
+
+const approvalNodeConfigSchema = z
+  .object({
+    kind: z.literal('plan-review'),
+    policy: z.enum(['always', 'never', 'model']),
+    modelPreset: nonEmptyKeySchema.optional(),
+    reasoning: reasoningSelectionSchema.optional(),
+    planRef: flowRefSchema,
+  })
+  .strict()
+  .superRefine((config, context) => {
+    if (config.policy !== 'model' && config.modelPreset !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['modelPreset'],
+        message: '只有 model 审批策略可以配置模型预设',
+      });
+    }
+    if (config.policy !== 'model' && config.reasoning !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reasoning'],
+        message: '只有 model 审批策略可以配置思考参数',
+      });
+    }
+  });
 
 const flowNodeSchema = z.discriminatedUnion('type', [
   z
@@ -152,6 +181,8 @@ const flowNodeSchema = z.discriminatedUnion('type', [
       type: z.literal('plan'),
       config: z
         .object({
+          modelPreset: nonEmptyKeySchema.optional(),
+          reasoning: reasoningSelectionSchema.optional(),
           maxSteps: z
             .number()
             .int()
@@ -180,13 +211,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
     .object({
       ...nodeBaseShape,
       type: z.literal('approval'),
-      config: z
-        .object({
-          kind: z.literal('plan-review'),
-          policy: z.enum(['always', 'never', 'model']),
-          planRef: flowRefSchema,
-        })
-        .strict(),
+      config: approvalNodeConfigSchema,
     })
     .strict(),
   z
@@ -197,6 +222,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
         .object({
           observationsRef: flowRefSchema.optional(),
           modelPreset: nonEmptyKeySchema.optional(),
+          reasoning: reasoningSelectionSchema.optional(),
         })
         .strict(),
     })

@@ -1,10 +1,17 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { flowDefinitionUsesAgentDefault } from '@litter-bear/types/agent-flow';
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
 import { TemporalClientService } from '../agent-flow/temporal/temporal-client.service';
 import { BuiltinFlowService } from '../agent-flow/builtin-flow.service';
 import { FlowRuntimeValidator } from '../agent-flow/runtime/flow-runtime-validator.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { ReasoningSelection } from '@litter-bear/types';
+import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
+import {
+  parsePersistedReasoningConfig,
+  toPersistedReasoningJson,
+} from '../llm/dto/reasoning-selection.dto';
 
 /** 已冻结到 StreamTask 的 Flow 任务快照。 */
 export interface FlowTaskSnapshot {
@@ -21,6 +28,10 @@ export interface FlowTaskSnapshot {
    * 会话就是这样失败的。
    */
   agentId: string;
+  /** 本轮 agent-default 解析后的稳定模型预设业务标识。 */
+  resolvedAgentModelPresetId: string | null;
+  /** 与默认模型同时解析并冻结的本轮思考选择。 */
+  resolvedAgentReasoningConfig: Prisma.InputJsonValue | typeof Prisma.JsonNull;
 }
 
 /** 派发一个已冻结 Flow 任务所需的最小持久化字段。 */
@@ -49,12 +60,13 @@ export class FlowTaskDispatcherService {
     private readonly temporalClientService: TemporalClientService,
     private readonly runtimeValidator: FlowRuntimeValidator,
     private readonly builtinFlow: BuiltinFlowService,
+    private readonly modelRegistry: LlmModelRegistryService,
   ) {}
 
   /**
    * 解析任务应锁定的已发布 Flow 快照
    * @param tx 当前创建 StreamTask 所在的 Prisma 事务客户端
-   * @param input 包含回答 Agent 的任务创建上下文
+   * @param input 包含回答 Agent 与本轮可选模型的任务创建上下文
    * @returns 返回可写入 StreamTask 的 Flow 快照；找不到可用 Agent 时抛错
    * @description **Flow 是唯一编排路径**：所有聊天都从这里取图，不再有「绑了 Flow 才走 Flow」
    * 的分叉。Agent 绑没绑 Flow 只决定用哪张图——绑了用它的，没绑用内置直接回复 Flow。
@@ -70,10 +82,26 @@ export class FlowTaskDispatcherService {
    */
   async resolveTaskFlowSnapshot(
     tx: Prisma.TransactionClient,
-    input: { agentId?: string },
+    input: {
+      agentId?: string;
+      selectedModelPresetId?: string;
+      reasoning?: ReasoningSelection;
+    },
   ): Promise<FlowTaskSnapshot> {
     const agentSelect = {
-      modelPreset: true,
+      defaultModelPreset: { select: { presetId: true } },
+      defaultReasoningConfig: true,
+      allowedModelPresets: {
+        select: {
+          modelPreset: {
+            select: {
+              presetId: true,
+              enabled: true,
+              connection: { select: { enabled: true } },
+            },
+          },
+        },
+      },
       defaultFlowVersion: {
         select: {
           id: true,
@@ -130,13 +158,31 @@ export class FlowTaskDispatcherService {
       throw new BadRequestException(`${source} FlowVersion 缺少入口节点`);
     }
 
+    const resolvedAgentModelPresetId = this.resolveAgentDefaultModel({
+      definition: parsed.definition,
+      selectedModelPresetId: input.selectedModelPresetId,
+      defaultModelPresetId: agent.defaultModelPreset?.presetId ?? null,
+      allowedModels: agent.allowedModelPresets.map((item) => item.modelPreset),
+    });
+    const resolvedReasoning = this.resolveAgentDefaultReasoning({
+      definition: parsed.definition,
+      selectedModelPresetId: input.selectedModelPresetId,
+      reasoning: input.reasoning,
+      resolvedModelPresetId: resolvedAgentModelPresetId,
+      defaultModelPresetId: agent.defaultModelPreset?.presetId ?? null,
+      defaultReasoning: parsePersistedReasoningConfig(
+        agent.defaultReasoningConfig,
+      )?.selection,
+    });
+
     // 任务锁定期校验：节点上的 `agent-default` 到这一刻才能解析成具体预设。
     // 不在这里拦，任务会被派发出去、在 Temporal Activity 里以
     // AGENT_FLOW_RUNTIME_CONTEXT_INVALID 失败，用户只看到一句「流程执行失败」，
     // 真实原因只能翻 worker 日志——错误必须还给发起者。
     const runtime = this.runtimeValidator.validate(parsed.definition, {
       phase: 'task',
-      agentDefaultModelPreset: agent.modelPreset,
+      agentDefaultModelPreset: resolvedAgentModelPresetId,
+      agentDefaultReasoning: resolvedReasoning,
     });
     if (!runtime.valid) {
       throw new BadRequestException({
@@ -150,7 +196,91 @@ export class FlowTaskDispatcherService {
       flowDigest: flowVersion.digest,
       currentStep: entryNode.id,
       agentId: agent.id,
+      resolvedAgentModelPresetId,
+      resolvedAgentReasoningConfig: resolvedReasoning
+        ? toPersistedReasoningJson(resolvedReasoning)
+        : Prisma.JsonNull,
     };
+  }
+
+  /** 解析 direct Agent 本轮最终思考选择，自定义 Flow 禁止请求级覆盖。 */
+  private resolveAgentDefaultReasoning(input: {
+    definition: Parameters<typeof flowDefinitionUsesAgentDefault>[0];
+    selectedModelPresetId?: string;
+    reasoning?: ReasoningSelection;
+    resolvedModelPresetId: string | null;
+    defaultModelPresetId: string | null;
+    defaultReasoning?: ReasoningSelection;
+  }): ReasoningSelection | undefined {
+    if (!flowDefinitionUsesAgentDefault(input.definition)) {
+      if (input.reasoning !== undefined) {
+        throw new BadRequestException(
+          '当前智能体使用自定义 Flow，不能为本轮覆盖思考参数',
+        );
+      }
+      return undefined;
+    }
+    if (!input.resolvedModelPresetId) {
+      return undefined;
+    }
+    const requested =
+      input.reasoning ??
+      (input.resolvedModelPresetId === input.defaultModelPresetId
+        ? input.defaultReasoning
+        : undefined);
+    return this.modelRegistry.normalizePresetReasoning(
+      input.resolvedModelPresetId,
+      requested,
+      { applyDefault: true },
+    );
+  }
+
+  /**
+   * 解析本轮 agent-default 对应的实际模型
+   * @param input 当前 Definition、终端选择、Agent 默认值与允许模型状态
+   * @returns 返回锁定到 StreamTask 的模型预设业务标识；Flow 不使用 agent-default 时返回 null
+   * @description 终端选择只允许替换 agent-default，且必须属于 Agent 允许集合。默认模型也必须
+   * 属于集合；目标预设或供应商连接停用时明确拒绝，不回退系统默认模型或集合第一项。
+   */
+  private resolveAgentDefaultModel(input: {
+    definition: Parameters<typeof flowDefinitionUsesAgentDefault>[0];
+    selectedModelPresetId?: string;
+    defaultModelPresetId: string | null;
+    allowedModels: readonly {
+      presetId: string;
+      enabled: boolean;
+      connection: { enabled: boolean };
+    }[];
+  }): string | null {
+    if (!flowDefinitionUsesAgentDefault(input.definition)) {
+      if (input.selectedModelPresetId) {
+        throw new BadRequestException(
+          '当前 Flow 不使用 agent-default，不能为本轮选择模型',
+        );
+      }
+      return null;
+    }
+
+    const resolved = input.selectedModelPresetId ?? input.defaultModelPresetId;
+    if (!resolved) {
+      throw new BadRequestException('当前智能体尚未配置默认模型');
+    }
+    const allowed = input.allowedModels.find(
+      (model) => model.presetId === resolved,
+    );
+    if (!allowed) {
+      throw new BadRequestException(
+        input.selectedModelPresetId
+          ? '本轮选择的模型不在当前智能体允许集合中'
+          : '当前智能体默认模型不在允许集合中',
+      );
+    }
+    if (!allowed.enabled || !allowed.connection.enabled) {
+      throw new BadRequestException(
+        `模型预设「${resolved}」或其供应商连接已停用`,
+      );
+    }
+    return resolved;
   }
 
   /**

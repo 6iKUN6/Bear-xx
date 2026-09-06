@@ -1,5 +1,8 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import type { FlowDefinition } from '@litter-bear/types/agent-flow';
+import {
+  AGENT_FLOW_SCHEMA_VERSION,
+  type FlowDefinition,
+} from '@litter-bear/types/agent-flow';
 import { CapabilityRegistry } from '../../ai/agent-loop/capability/capability.registry';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import { FlowRuntimeValidator } from './flow-runtime-validator.service';
@@ -23,6 +26,8 @@ describe('FlowRuntimeValidator', () => {
             listAvailableModels: () => [{ id: 'model-enabled' }],
             // 能力档位来自真实探测；默认给通过工具往返的档位
             getCapability: () => capability,
+            normalizePresetReasoning: (_presetId: string, selection: unknown) =>
+              selection,
           },
         },
       ],
@@ -72,10 +77,29 @@ describe('FlowRuntimeValidator', () => {
     ).toBe(true);
   });
 
-  it('发布期允许 agent-default，任务锁定期要求它解析为可用模型', () => {
-    const definition = baseDefinition();
+  it('发布期拒绝 agent-default，任务锁定期允许内置 direct Flow 解析它', () => {
+    const base = baseDefinition();
+    const definition: FlowDefinition = {
+      ...base,
+      nodes: base.nodes.map((node) =>
+        node.type === 'agent'
+          ? {
+              ...node,
+              config: { ...node.config, modelPreset: 'agent-default' },
+            }
+          : node,
+      ),
+    };
 
-    expect(validator.validate(definition)).toEqual({ valid: true, errors: [] });
+    expect(validator.validate(definition)).toEqual({
+      valid: false,
+      errors: [
+        expect.objectContaining({
+          path: 'nodes.0.config.modelPreset',
+          rule: 'custom-flow-concrete-model',
+        }),
+      ],
+    });
     expect(
       validator.validate(definition, {
         phase: 'task',
@@ -90,6 +114,12 @@ describe('FlowRuntimeValidator', () => {
         }),
       ],
     });
+    expect(
+      validator.validate(definition, {
+        phase: 'task',
+        agentDefaultModelPreset: 'model-enabled',
+      }),
+    ).toEqual({ valid: true, errors: [] });
     expect(
       validator.validate(definition, {
         phase: 'task',
@@ -163,7 +193,7 @@ function withToolGroup(): FlowDefinition {
  */
 function baseDefinition(): FlowDefinition {
   return {
-    schemaVersion: 1,
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
     kind: 'agent-flow',
     name: '运行时校验',
     policy: {
@@ -177,7 +207,7 @@ function baseDefinition(): FlowDefinition {
         id: 'answer',
         type: 'agent',
         config: {
-          modelPreset: 'agent-default',
+          modelPreset: 'model-enabled',
           toolGroups: [],
           skills: [],
           maxToolIterations: 1,

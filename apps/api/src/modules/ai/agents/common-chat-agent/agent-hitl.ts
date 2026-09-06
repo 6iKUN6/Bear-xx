@@ -9,6 +9,7 @@
  */
 
 import { humanInTheLoopMiddleware, type AnyAgentMiddleware } from 'langchain';
+import type { BaseMessage } from '@langchain/core/messages';
 import type {
   ApprovalDecision,
   ApprovalDecisionType,
@@ -51,6 +52,7 @@ export type HitlDecision =
 export interface InterruptReadable {
   getState(config: Record<string, unknown>): Promise<{
     tasks?: Array<{ interrupts?: Array<{ value?: unknown }> }>;
+    values?: { messages?: BaseMessage[] };
   }>;
 }
 

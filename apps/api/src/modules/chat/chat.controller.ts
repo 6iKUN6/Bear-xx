@@ -34,7 +34,6 @@ import {
 } from './dto/chat-response.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import type { LlmTextRequest } from '../llm/llm.types';
 import { Sse, SseInterceptor, type SseRequest } from '../../common/sse';
 
 @ApiTags('聊天')
@@ -74,7 +73,8 @@ export class ChatController {
       dto.conversationId,
       dto.content,
       this.requireUserId(userId),
-      this.buildLlmTextRequest(dto),
+      dto.selectedModelPresetId,
+      dto.reasoning,
       req.__sseAbortSignal,
       dto.agentId,
     );
@@ -159,7 +159,8 @@ export class ChatController {
       dto.conversationId,
       dto.content,
       this.requireUserId(userId),
-      this.buildLlmTextRequest(dto),
+      dto.selectedModelPresetId,
+      dto.reasoning,
       dto.agentId,
     );
   }
@@ -186,7 +187,8 @@ export class ChatController {
       audio.buffer,
       audio.originalname,
       this.requireUserId(userId),
-      this.buildLlmTextRequest(dto),
+      dto.selectedModelPresetId,
+      dto.reasoning,
       dto.agentId,
     );
   }
@@ -219,47 +221,5 @@ export class ChatController {
     }
 
     return userId;
-  }
-
-  /**
-   * 构建文本生成请求配置
-   * @param dto 包含模型选择字段的请求 DTO
-   * @returns 返回统一的文本生成请求配置；若未传任何模型相关字段则返回 undefined
-   * @description 将接口层的 modelId、provider、platform、model 以及生成参数组装成 llm 模块可直接消费的结构。
-   */
-  private buildLlmTextRequest(dto: {
-    modelId?: string;
-    provider?: string;
-    platform?: string;
-    model?: string;
-    temperature?: number;
-    maxOutputTokens?: number;
-    topP?: number;
-  }): LlmTextRequest | undefined {
-    const model =
-      dto.modelId || dto.provider || dto.platform || dto.model
-        ? {
-            modelId: dto.modelId,
-            provider: dto.provider,
-            platform: dto.platform,
-            model: dto.model,
-          }
-        : undefined;
-    const generation =
-      dto.temperature !== undefined ||
-      dto.maxOutputTokens !== undefined ||
-      dto.topP !== undefined
-        ? {
-            temperature: dto.temperature,
-            maxOutputTokens: dto.maxOutputTokens,
-            topP: dto.topP,
-          }
-        : undefined;
-
-    if (!model && !generation) {
-      return undefined;
-    }
-
-    return { model, generation };
   }
 }

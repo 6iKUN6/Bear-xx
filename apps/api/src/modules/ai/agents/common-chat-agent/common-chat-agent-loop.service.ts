@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Command } from '@langchain/langgraph';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { AIMessageChunk, type BaseMessage } from '@langchain/core/messages';
 import type { ApprovalDecision } from '@litter-bear/types/protocol';
-import { toLangChainMessages } from './llm-message.mapper';
 import {
   type CommonChatAgentLoopRequest,
   type CommonChatAgentStreamEvent,
@@ -12,7 +12,7 @@ import { AgentCheckpointerService } from './agent-checkpointer.service';
 import {
   buildHitlMiddleware,
   buildHitlResponse,
-  emitPendingApproval,
+  emitApprovalFromValue,
   readInterruptValue,
   type InterruptReadable,
 } from './agent-hitl';
@@ -54,20 +54,36 @@ export class CommonChatAgentLoopService {
     const agent = this.buildAgent(request, hitlTools);
     const config = this.buildStreamConfig(request, hitlTools.length > 0);
 
-    const stream = await (agent as unknown as StreamableAgent).stream(
-      { messages: toLangChainMessages(request.messages) },
+    const runnable = agent as unknown as StreamableAgent;
+    const collected = new CompletedMessageCollector();
+    const stream = await runnable.stream(
+      { messages: request.messages },
       config,
     );
     for await (const { event } of mapMessagesStream(
       stream,
       request.onModelTurn,
+      (chunk, namespace) => collected.add(chunk, namespace),
     )) {
       yield event;
     }
 
     if (hitlTools.length > 0 && request.threadId) {
-      yield* emitPendingApproval(agent, request.threadId, APPROVAL_NODE_KEY);
+      const interrupt = await readInterruptValue(runnable, request.threadId);
+      if (interrupt) {
+        yield* emitApprovalFromValue(interrupt, APPROVAL_NODE_KEY);
+        return;
+      }
+      await request.onCompletedMessages?.(
+        await this.readNewStateMessages(
+          runnable,
+          request.threadId,
+          request.messages.length,
+        ),
+      );
+      return;
     }
+    await request.onCompletedMessages?.(collected.finish());
   }
 
   /**
@@ -107,7 +123,18 @@ export class CommonChatAgentLoopService {
       yield event;
     }
 
-    yield* emitPendingApproval(runnable, request.threadId, APPROVAL_NODE_KEY);
+    const interrupt = await readInterruptValue(runnable, request.threadId);
+    if (interrupt) {
+      yield* emitApprovalFromValue(interrupt, APPROVAL_NODE_KEY);
+      return;
+    }
+    await request.onCompletedMessages?.(
+      await this.readNewStateMessages(
+        runnable,
+        request.threadId,
+        request.messages.length,
+      ),
+    );
   }
 
   private resolveHitlTools(request: CommonChatAgentLoopRequest): string[] {
@@ -142,4 +169,67 @@ export class CommonChatAgentLoopService {
         useHitl && request.threadId ? { thread_id: request.threadId } : {},
     };
   }
+
+  private async readNewStateMessages(
+    agent: StreamableAgent,
+    threadId: string,
+    inputMessageCount: number,
+  ): Promise<BaseMessage[]> {
+    const state = await agent.getState({
+      configurable: { thread_id: threadId },
+    });
+    return (state.values?.messages ?? []).slice(inputMessageCount);
+  }
+}
+
+/** 普通无 checkpoint 流中按模型轮次合并 AI chunk，并保留工具结果顺序。 */
+class CompletedMessageCollector {
+  private readonly messages: BaseMessage[] = [];
+  private pendingAi?: { turnKey?: string; message: AIMessageChunk };
+
+  add([message, metadata]: MessagesModeChunk, namespace: string[]): void {
+    if (AIMessageChunk.isInstance(message)) {
+      const turnKey = createTurnKey(metadata, namespace);
+      if (
+        this.pendingAi &&
+        (this.pendingAi.turnKey === turnKey ||
+          (!this.pendingAi.turnKey && !turnKey))
+      ) {
+        this.pendingAi.message = this.pendingAi.message.concat(message);
+        return;
+      }
+      this.flushAi();
+      this.pendingAi = { turnKey, message };
+      return;
+    }
+
+    this.flushAi();
+    if (message.type === 'tool') {
+      this.messages.push(message);
+    }
+  }
+
+  finish(): BaseMessage[] {
+    this.flushAi();
+    return [...this.messages];
+  }
+
+  private flushAi(): void {
+    if (!this.pendingAi) {
+      return;
+    }
+    this.messages.push(this.pendingAi.message);
+    this.pendingAi = undefined;
+  }
+}
+
+function createTurnKey(
+  metadata: Record<string, unknown>,
+  namespace: string[],
+): string | undefined {
+  const node = metadata.langgraph_node;
+  const step = metadata.langgraph_step;
+  return typeof node === 'string' && typeof step === 'number'
+    ? `${namespace.join('/')}#${node}#${step}`
+    : undefined;
 }

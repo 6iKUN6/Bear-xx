@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../../../llm/llm.service';
-import { KIMI_PLATFORM } from '../../../llm/providers/kimi';
 import type { LlmMessage } from '../../../llm/llm.types';
 import { z } from 'zod';
 import { buildTaskPlannerPrompt } from '../../../../prompts';
 import type { AgentLoopInput } from '../agent-loop.types';
 import type { AgentPlan, PlanStep } from './plan.types';
+import type { ReasoningSelection } from '@litter-bear/types';
 
 /** 模型规划最多产出的步骤数上限（再受 maxSteps 约束） */
 const PLANNER_HARD_STEP_CAP = 5;
@@ -35,14 +35,18 @@ export class PlannerService {
    * 生成任务计划
    * @param input agent loop 输入上下文
    * @param maxSteps 步骤预算上限
+   * @param feedback 已累计的重规划意见
+   * @param modelPreset Flow 节点编译后锁定的模型预设业务标识
    * @returns 返回结构化任务计划
-   * @description 使用 Kimi 预设做一次结构化输出调用，把用户请求拆解为可执行步骤；
+   * @description 使用 Flow plan 节点指定的预设做一次结构化输出调用，把用户请求拆解为可执行步骤；
    * 任何失败（模型不可用/输出非法/解析为空）都回退为"单步 = 原始请求"的兜底计划，保证主链路不被规划环节拖垮。
    */
   async plan(
     input: AgentLoopInput,
     maxSteps: number,
     feedback: string[] = [],
+    modelPreset?: string,
+    reasoning?: ReasoningSelection,
   ): Promise<AgentPlan> {
     const userText = this.readLatestUserText(input.messages);
     const toolNames = this.readToolNames(input.tools);
@@ -61,7 +65,14 @@ export class PlannerService {
         {
           schemaName: 'agent_plan',
           // 不覆盖 temperature：部分模型（如 kimi-for-coding）仅允许 temperature=1，交由预设/模型默认。
-          request: { model: { platform: KIMI_PLATFORM } },
+          ...(modelPreset
+            ? {
+                request: {
+                  model: { modelId: modelPreset },
+                  reasoning,
+                },
+              }
+            : {}),
           abortSignal: input.abortSignal,
         },
       );

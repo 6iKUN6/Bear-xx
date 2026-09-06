@@ -156,6 +156,7 @@ describe('ConversationService（单聊/群聊）', () => {
             id: 'message-1',
             role: 'ASSISTANT',
             content: '订单已创建',
+            modelContext: { version: 1, secret: 'hidden' },
             agentId: null,
             status: 'DONE',
             createdAt: new Date('2026-08-12T10:00:00.000Z'),
@@ -189,6 +190,7 @@ describe('ConversationService（单聊/群聊）', () => {
     expect(conversations[0]?.messages[0]?.orders).toEqual([
       expect.objectContaining({ id: 'order-1', externalOrderId: 'external-1' }),
     ]);
+    expect(conversations[0]?.messages[0]).not.toHaveProperty('modelContext');
     expect(prisma.mcDonaldsOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: 'user-1', messageId: { not: null } },

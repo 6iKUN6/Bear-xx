@@ -125,33 +125,38 @@ enum StorageAssetStatus {
 }
 
 /// 智能体 = 身份 + 执行绑定。身份是 name/avatar/systemPrompt，执行绑定是 defaultFlowVersionId。
-/// 模型、工具、技能与编排全部在 Flow 节点上声明；modelPreset 只作为 Flow 节点写
-/// `agent-default` 时的解析源，不是"这个智能体用什么模型"。
+/// 模型、工具、技能与编排全部在 Flow 节点上声明；允许模型集合与默认模型只负责解析
+/// Flow 节点中的 `agent-default`，不是独立执行路径。
 /// defaultFlowVersionId 为 null 时执行内置的「直接回复」Flow。
 model Agent {
-  id                   String            @id @default(cuid())
-  name                 String
-  description          String            @default("")
+  id                     String                    @id @default(cuid())
+  name                   String
+  description            String                    @default("")
   /// 头像 URL；null = 客户端显示名称首字
-  avatar               String?
-  systemPrompt         String?           @map("system_prompt") @db.Text
-  modelPreset          String?           @map("model_preset")
-  enabled              Boolean           @default(true)
-  visible              Boolean           @default(true)
-  minimumMembershipTier MembershipTier   @default(FREE) @map("minimum_membership_tier")
-  isDefault            Boolean           @default(false) @map("is_default")
-  defaultFlowVersionId String?           @map("default_flow_version_id")
-  defaultFlowVersion   AgentFlowVersion? @relation("AgentDefaultFlowVersion", fields: [defaultFlowVersionId], references: [id], onDelete: SetNull)
-  createdById          String?           @map("created_by_id")
-  createdBy            User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @updatedAt @map("updated_at")
+  avatar                 String?
+  systemPrompt           String?                   @map("system_prompt") @db.Text
+  enabled                Boolean                   @default(true)
+  visible                Boolean                   @default(true)
+  minimumMembershipTier  MembershipTier            @default(FREE) @map("minimum_membership_tier")
+  isDefault              Boolean                   @default(false) @map("is_default")
+  defaultFlowVersionId   String?                   @map("default_flow_version_id")
+  defaultFlowVersion     AgentFlowVersion?         @relation("AgentDefaultFlowVersion", fields: [defaultFlowVersionId], references: [id], onDelete: SetNull)
+  defaultModelPresetId   String?                   @map("default_model_preset_id")
+  defaultModelPreset     ModelPreset?              @relation("AgentDefaultModelPreset", fields: [defaultModelPresetId], references: [id], onDelete: Restrict)
+  /// direct Agent 默认模型的版本化思考选择；自定义 Flow Agent 不使用
+  defaultReasoningConfig Json?                     @map("default_reasoning_config")
+  allowedModelPresets    AgentAllowedModelPreset[]
+  createdById            String?                   @map("created_by_id")
+  createdBy              User?                     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
 
   @@index([enabled])
   @@index([visible])
   @@index([minimumMembershipTier])
   @@index([isDefault])
   @@index([defaultFlowVersionId])
+  @@index([defaultModelPresetId])
   @@map("agents")
 }
 
@@ -224,14 +229,14 @@ model AgentFlowAuditLog {
 
 /// 管理员对角色、会员和智能体开放策略的安全审计；不保存密码、令牌或第三方密钥。
 model ManagementAuditLog {
-  id         String                      @id @default(cuid())
-  actorId    String?                     @map("actor_id")
-  targetType ManagementAuditTargetType   @map("target_type")
-  targetId   String                      @map("target_id")
+  id         String                    @id @default(cuid())
+  actorId    String?                   @map("actor_id")
+  targetType ManagementAuditTargetType @map("target_type")
+  targetId   String                    @map("target_id")
   action     ManagementAuditAction
   before     Json?
   after      Json?
-  createdAt  DateTime                    @default(now()) @map("created_at")
+  createdAt  DateTime                  @default(now()) @map("created_at")
 
   actor User? @relation("ManagementAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
@@ -240,28 +245,45 @@ model ManagementAuditLog {
   @@map("management_audit_logs")
 }
 
-/// 数据化的模型预设：后台是唯一配置入口，apiKey 以 AES-256-GCM 密文落库。
-/// presetId 为业务标识（如 openai:gpt-5.5），供 Agent.modelPreset 引用与 registry 去重。
+/// 模型供应商连接：同一份 baseURL 与密钥可供多个模型预设复用。
+/// providerKey 指向代码内置的供应商模板；连接名和稳定 connectionKey 用于区分同供应商的多份连接。
+model ModelProviderConnection {
+  id                String                        @id @default(cuid())
+  connectionKey     String                        @unique @map("connection_key")
+  providerKey       String                        @map("provider_key")
+  name              String
+  baseURL           String                        @map("base_url")
+  enabled           Boolean                       @default(true)
+  apiKeyCiphertext  String                        @map("api_key_ciphertext") @db.Text
+  apiKeyFingerprint String                        @map("api_key_fingerprint")
+  status            ModelProviderConnectionStatus @default(UNVERIFIED)
+  lastCheckedAt     DateTime?                     @map("last_checked_at")
+  lastCheckError    String?                       @map("last_check_error") @db.Text
+  createdAt         DateTime                      @default(now()) @map("created_at")
+  updatedAt         DateTime                      @updatedAt @map("updated_at")
+  models            ModelPreset[]
+
+  @@index([providerKey])
+  @@index([enabled])
+  @@map("model_provider_connections")
+}
+
+/// 数据化的模型预设：后台是唯一配置入口，连接负责凭据和 URL，预设只保存模型级配置。
+/// presetId 是不可变业务标识，供 Agent 模型关系、任务快照与 Flow Definition 引用。
 model ModelPreset {
   id              String              @id @default(cuid())
+  connectionId    String              @map("connection_id")
   presetId        String              @unique @map("preset_id")
   name            String
   description     String              @default("")
-  platform        String
   model           String
   /// 上游 wire 格式；唯一决定用哪个 LangChain 客户端，SDK 由它推导
   upstreamFormat  ModelUpstreamFormat @default(OPENAI_CHAT_COMPLETIONS) @map("upstream_format")
-  baseURL         String?             @map("base_url")
   temperature     Float?
   maxOutputTokens Int?                @map("max_output_tokens")
   topP            Float?              @map("top_p")
   enabled         Boolean             @default(true)
   isDefault       Boolean             @default(false) @map("is_default")
-
-  /// 版本化 AES-256-GCM 密文（v1.<iv>.<authTag>.<ciphertext>）；明文只在解析请求期存在
-  apiKeyCiphertext  String? @map("api_key_ciphertext") @db.Text
-  /// apiKey 的 SHA-256 指纹，仅用于变更判断与脱敏展示，不可逆
-  apiKeyFingerprint String? @map("api_key_fingerprint")
 
   /// 由连通性探针实测写入的能力档位，决定该预设能否被带工具的节点使用
   capability     ModelPresetCapability @default(UNVERIFIED)
@@ -272,9 +294,29 @@ model ModelPreset {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  connection       ModelProviderConnection   @relation(fields: [connectionId], references: [id], onDelete: Restrict)
+  defaultForAgents Agent[]                   @relation("AgentDefaultModelPreset")
+  allowedForAgents AgentAllowedModelPreset[]
+
+  @@unique([connectionId, model])
+  @@index([connectionId])
   @@index([enabled])
   @@index([isDefault])
   @@map("model_presets")
+}
+
+/// Agent 允许终端选择的模型预设集合；默认模型必须是其中一项，由 AgentService 事务校验。
+model AgentAllowedModelPreset {
+  agentId       String   @map("agent_id")
+  modelPresetId String   @map("model_preset_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  agent       Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  modelPreset ModelPreset @relation(fields: [modelPresetId], references: [id], onDelete: Restrict)
+
+  @@id([agentId, modelPresetId])
+  @@index([modelPresetId])
+  @@map("agent_allowed_model_presets")
 }
 
 /// 上游可用的 wire 格式闭集。合法的 (platform, format) 组合由探针实测决定，不在此硬编码矩阵。
@@ -285,6 +327,8 @@ enum ModelUpstreamFormat {
   OPENAI_RESPONSES
   /// Anthropic Messages
   ANTHROPIC_MESSAGES
+  /// Google Gemini 原生 generateContent；保留 thinkingConfig 与 thoughtSignature 语义
+  GEMINI_GENERATE_CONTENT
 }
 
 /// 探针实测出的预设能力档位。
@@ -297,6 +341,13 @@ enum ModelPresetCapability {
   BASIC
   /// 工具往返闭环通过；可用于带 toolGroups 的 agent 节点
   TOOLS
+}
+
+/// 供应商连接最小连通性探测结果，不代表其下所有模型都支持工具。
+enum ModelProviderConnectionStatus {
+  UNVERIFIED
+  REACHABLE
+  UNREACHABLE
 }
 
 model Conversation {
@@ -346,6 +397,8 @@ model Message {
   /// 发言者：assistant 消息记录由哪个智能体生成；null = 默认助手/历史数据
   agentId         String?                     @map("agent_id")
   imageUrl        String?                     @map("image_url")
+  /// 供应商要求后续回传、但不得向 REST/SSE/Trace 暴露的模型上下文
+  modelContext    Json?                       @map("model_context")
   status          MessageStatus               @default(DONE)
   conversationId  String                      @map("conversation_id")
   conversation    Conversation                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -387,63 +440,68 @@ model SseTask {
 }
 
 model StreamTask {
-  id                    String                      @id @default(cuid())
-  type                  StreamTaskType
-  status                StreamTaskStatus            @default(PENDING)
-  userId                String                      @map("user_id")
-  user                  User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversationId        String?                     @map("conversation_id")
-  conversation          Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  messageId             String?                     @map("message_id")
-  message               Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  requestPayload        Json                        @map("request_payload")
-  executionState        Json?                       @map("execution_state")
-  resultPayload         Json?                       @map("result_payload")
-  agentId               String?                     @map("agent_id")
-  flowVersionId         String?                     @map("flow_version_id")
-  flowDigest            String?                     @map("flow_digest")
+  id                           String                      @id @default(cuid())
+  type                         StreamTaskType
+  status                       StreamTaskStatus            @default(PENDING)
+  userId                       String                      @map("user_id")
+  user                         User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId               String?                     @map("conversation_id")
+  conversation                 Conversation?               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId                    String?                     @map("message_id")
+  message                      Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  requestPayload               Json                        @map("request_payload")
+  executionState               Json?                       @map("execution_state")
+  resultPayload                Json?                       @map("result_payload")
+  agentId                      String?                     @map("agent_id")
+  /// 本任务中 agent-default 已解析出的稳定 ModelPreset.presetId；任务创建后不再随 Agent 改动。
+  resolvedAgentModelPresetId   String?                     @map("resolved_agent_model_preset_id")
+  /// 与 resolvedAgentModelPresetId 同时固化的版本化思考选择；重试和恢复只读该快照。
+  resolvedAgentReasoningConfig Json?                       @map("resolved_agent_reasoning_config")
+  flowVersionId                String?                     @map("flow_version_id")
+  flowDigest                   String?                     @map("flow_digest")
   /// Flow 的 flow.run.started 已发出的时刻，兼作「谁先抢到首个节点」的原子判据：
   /// 经 updateMany + `flowRunStartedAt: null` 条件声明，只有 count 为 1 的那个节点发事件。
   /// 不复用 startedAt —— 那一列非 Flow 的 runTask 也写，复用会让 Flow 语义静默失效。
-  flowRunStartedAt      DateTime?                   @map("flow_run_started_at")
+  flowRunStartedAt             DateTime?                   @map("flow_run_started_at")
   /// Flow 运行至今的模型与工具调用累计。放标量列而非 executionState JSON：预算是安全护栏，
   /// 只有 Prisma 原子 increment 才不会被并发节点的整块回写吞掉计数（吞掉即等于无限预算）。
-  flowModelCalls        Int                         @default(0) @map("flow_model_calls")
-  flowToolCalls         Int                         @default(0) @map("flow_tool_calls")
-  temporalWorkflowId    String?                     @map("temporal_workflow_id")
-  temporalRunId         String?                     @map("temporal_run_id")
+  flowModelCalls               Int                         @default(0) @map("flow_model_calls")
+  flowToolCalls                Int                         @default(0) @map("flow_tool_calls")
+  temporalWorkflowId           String?                     @map("temporal_workflow_id")
+  temporalRunId                String?                     @map("temporal_run_id")
   /// 取消 Signal 的投递终态时间；补偿派发器据此在 SQL 层排除已处理任务，
   /// 避免已投递记录永久占满按 updatedAt 排序的批次而饿死新取消任务
-  cancelSignalSettledAt DateTime?                   @map("cancel_signal_settled_at")
-  isTest                Boolean                     @default(false) @map("is_test")
-  currentAgent          String?                     @map("current_agent")
-  currentStep           String?                     @map("current_step")
-  currentRunId          String?                     @map("current_run_id")
-  lastEventId           Int                         @default(0) @map("last_event_id")
-  fullContent           String                      @default("") @map("full_content") @db.Text
-  errorMessage          String?                     @map("error_message") @db.Text
-  startedAt             DateTime?                   @map("started_at")
-  pausedAt              DateTime?                   @map("paused_at")
-  lastHeartbeatAt       DateTime?                   @map("last_heartbeat_at")
-  completedAt           DateTime?                   @map("completed_at")
-  expiresAt             DateTime?                   @map("expires_at")
-  createdAt             DateTime                    @default(now()) @map("created_at")
-  updatedAt             DateTime                    @updatedAt @map("updated_at")
-  runs                  StreamTaskRun[]             @relation("StreamTaskRuns")
-  events                StreamTaskEvent[]
-  turnTraceItems        ConversationTurnTraceItem[]
-  mcdonaldsOrders       McDonaldsOrder[]
-  flowVersion           AgentFlowVersion?           @relation("StreamTaskFlowVersion", fields: [flowVersionId], references: [id], onDelete: Restrict)
-  agentFlowApprovals    AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
-  agentFlowSignalOutbox AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxTask")
-  agentFlowNodeRuns     AgentFlowNodeExecution[]    @relation("AgentFlowNodeExecutionTask")
-  agentFlowNodeStates   AgentFlowNodeState[]        @relation("AgentFlowNodeStateTask")
+  cancelSignalSettledAt        DateTime?                   @map("cancel_signal_settled_at")
+  isTest                       Boolean                     @default(false) @map("is_test")
+  currentAgent                 String?                     @map("current_agent")
+  currentStep                  String?                     @map("current_step")
+  currentRunId                 String?                     @map("current_run_id")
+  lastEventId                  Int                         @default(0) @map("last_event_id")
+  fullContent                  String                      @default("") @map("full_content") @db.Text
+  errorMessage                 String?                     @map("error_message") @db.Text
+  startedAt                    DateTime?                   @map("started_at")
+  pausedAt                     DateTime?                   @map("paused_at")
+  lastHeartbeatAt              DateTime?                   @map("last_heartbeat_at")
+  completedAt                  DateTime?                   @map("completed_at")
+  expiresAt                    DateTime?                   @map("expires_at")
+  createdAt                    DateTime                    @default(now()) @map("created_at")
+  updatedAt                    DateTime                    @updatedAt @map("updated_at")
+  runs                         StreamTaskRun[]             @relation("StreamTaskRuns")
+  events                       StreamTaskEvent[]
+  turnTraceItems               ConversationTurnTraceItem[]
+  mcdonaldsOrders              McDonaldsOrder[]
+  flowVersion                  AgentFlowVersion?           @relation("StreamTaskFlowVersion", fields: [flowVersionId], references: [id], onDelete: Restrict)
+  agentFlowApprovals           AgentFlowApproval[]         @relation("AgentFlowApprovalTask")
+  agentFlowSignalOutbox        AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxTask")
+  agentFlowNodeRuns            AgentFlowNodeExecution[]    @relation("AgentFlowNodeExecutionTask")
+  agentFlowNodeStates          AgentFlowNodeState[]        @relation("AgentFlowNodeStateTask")
 
   @@index([userId, status])
   @@index([conversationId])
   @@index([messageId])
   @@index([currentRunId])
   @@index([agentId])
+  @@index([resolvedAgentModelPresetId])
   @@index([flowVersionId])
   @@index([temporalWorkflowId])
   @@index([isTest])

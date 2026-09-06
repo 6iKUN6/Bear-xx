@@ -45,7 +45,11 @@ export class AdminCapabilityController {
       // 与 FlowRuntimeValidator 用同一个判据，避免选择器列出发布期会被拒的预设
       modelPresets: this.modelRegistry.listAvailableModels().map((preset) => ({
         id: preset.id,
+        name: preset.name,
+        connectionName: preset.connectionName,
+        providerKey: preset.platform,
         model: preset.model,
+        reasoningCapability: preset.reasoningCapability ?? null,
       })),
     };
   }
