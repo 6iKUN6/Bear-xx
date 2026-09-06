@@ -507,6 +507,9 @@ export class BaseApiClient {
   private handleUnauthorized() {
     storage.remove(STORAGE_KEYS.TOKEN);
     storage.remove(STORAGE_KEYS.USER_INFO);
+    storage.remove(STORAGE_KEYS.AGENTS);
+    storage.remove(STORAGE_KEYS.SELECTED_AGENT_ID);
+    storage.remove(STORAGE_KEYS.AGENT_MODEL_SELECTIONS);
     Taro.redirectTo({ url: "/pages/login/index" });
   }
 

@@ -14,6 +14,7 @@
     "generate:api": "orval --config ./orval.config.ts",
     "generate:api:local": "node ../api/scripts/export-openapi.cjs && orval --config ./orval.config.ts",
     "test:agent": "tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --rootDir src --outDir /tmp/litter-bear-agent-avatar-test src/utils/agent.ts src/utils/agent.test.ts && node /tmp/litter-bear-agent-avatar-test/utils/agent.test.js",
+    "test:agent-cache": "tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck --rootDir src/services --outDir /tmp/litter-bear-agent-cache-test src/services/agent-cache.ts src/services/agent-cache.test.ts && node /tmp/litter-bear-agent-cache-test/agent-cache.test.js",
     "test:cos": "tsc -p tsconfig.cos-test.json && node .temp/cos-test/src/utils/cos-upload.test.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "build:weapp": "taro build --type weapp",
