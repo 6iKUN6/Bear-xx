@@ -10,19 +10,19 @@ import { ApiError } from "@/api/client";
 export function LoginPage() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
-  const [username, setUsername] = useState("");
+  const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !password) {
+    if (!account.trim() || !password) {
       toast.error("请输入账号和密码");
       return;
     }
     setLoading(true);
     try {
-      await login(username.trim(), password);
+      await login(account.trim(), password);
       navigate("/", { replace: true });
     } catch (err) {
       const message =
@@ -42,12 +42,12 @@ export function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="username">账号</Label>
+              <Label htmlFor="account">用户名或手机号</Label>
               <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="管理员账号"
+                id="account"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                placeholder="管理员用户名或手机号"
                 autoComplete="username"
               />
             </div>
