@@ -11,6 +11,6 @@ import type { ToolGroupDto } from './toolGroupDto';
 export interface AgentCapabilitiesDto {
   /** 可分配给智能体的工具组闭集（来自能力注册表） */
   toolGroups: ToolGroupDto[];
-  /** 可选的模型预设闭集。与 FlowRuntimeValidator 同一判据（listAvailableModels），因此不会列出发布期会被拒的选项；注册表加载时已过滤 enabled=false，故这里不含禁用预设。刻意不下发 baseURL 与 apiKeyHint——选择器只需要标识。 */
+  /** 可选的模型预设闭集。与 FlowRuntimeValidator 同一判据（listAvailableModels），因此不会列出发布期会被拒的选项；注册表加载时已过滤禁用模型和连接。刻意不下发 baseURL 与 apiKeyHint。 */
   modelPresets: ModelPresetOptionDto[];
 }

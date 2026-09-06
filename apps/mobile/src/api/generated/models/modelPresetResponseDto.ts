@@ -5,8 +5,8 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { ModelPresetConnectionSummaryDto } from './modelPresetConnectionSummaryDto';
 import type { ModelPresetResponseDtoApiKeyHint } from './modelPresetResponseDtoApiKeyHint';
-import type { ModelPresetResponseDtoBaseURL } from './modelPresetResponseDtoBaseURL';
 import type { ModelPresetResponseDtoCapability } from './modelPresetResponseDtoCapability';
 import type { ModelPresetResponseDtoLastCheckedAt } from './modelPresetResponseDtoLastCheckedAt';
 import type { ModelPresetResponseDtoLastCheckError } from './modelPresetResponseDtoLastCheckError';
@@ -14,6 +14,7 @@ import type { ModelPresetResponseDtoMaxOutputTokens } from './modelPresetRespons
 import type { ModelPresetResponseDtoTemperature } from './modelPresetResponseDtoTemperature';
 import type { ModelPresetResponseDtoTopP } from './modelPresetResponseDtoTopP';
 import type { ModelPresetResponseDtoUpstreamFormat } from './modelPresetResponseDtoUpstreamFormat';
+import type { ModelReasoningCapabilityDto } from './modelReasoningCapabilityDto';
 
 export interface ModelPresetResponseDto {
   id: string;
@@ -23,26 +24,21 @@ export interface ModelPresetResponseDto {
   upstreamFormat: ModelPresetResponseDtoUpstreamFormat;
   /** provider，由 upstreamFormat 推导 */
   provider: string;
-  platform: string;
   model: string;
-  /** @nullable */
-  baseURL: ModelPresetResponseDtoBaseURL;
   /** @nullable */
   temperature: ModelPresetResponseDtoTemperature;
   /** @nullable */
   maxOutputTokens: ModelPresetResponseDtoMaxOutputTokens;
   /** @nullable */
   topP: ModelPresetResponseDtoTopP;
+  /** @nullable */
+  reasoningCapability: ModelReasoningCapabilityDto | null;
   enabled: boolean;
   isDefault: boolean;
-  /** apiKey 是否已配置；密钥本身与完整指纹永不下发 */
+  /** API Key 是否已在所属连接配置；密钥本身永不下发 */
   apiKeyConfigured: boolean;
-  /**
-     * apiKey 脱敏标识（取自不可逆指纹尾部）
-     * @nullable
-     */
+  /** @nullable */
   apiKeyHint: ModelPresetResponseDtoApiKeyHint;
-  /** 探针实测的能力档位 */
   capability: ModelPresetResponseDtoCapability;
   /** @nullable */
   lastCheckedAt: ModelPresetResponseDtoLastCheckedAt;
@@ -50,4 +46,5 @@ export interface ModelPresetResponseDto {
   lastCheckError: ModelPresetResponseDtoLastCheckError;
   createdAt: number;
   updatedAt: number;
+  connection: ModelPresetConnectionSummaryDto;
 }

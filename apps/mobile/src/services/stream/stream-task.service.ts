@@ -9,6 +9,10 @@ import {
   normalizeStreamTaskEvent,
 } from "./stream-event.helpers";
 import type {
+  ChatTaskResultDto,
+  ReasoningSelectionDto,
+} from "../../api/generated/models";
+import type {
   ChatStreamInput,
   StreamTaskHandle,
   StreamTaskLifecycle,
@@ -24,6 +28,14 @@ export interface StreamTaskStatusSnapshot {
   fullContent: string;
   errorMessage: string | null;
   canResume: boolean;
+}
+
+export interface VoiceTaskInput {
+  filePath: string;
+  conversationId?: string;
+  agentId?: string;
+  selectedModelPresetId?: string;
+  reasoning?: ReasoningSelectionDto;
 }
 
 export class StreamTaskService {
@@ -47,6 +59,33 @@ export class StreamTaskService {
       },
       lifecycle,
     );
+  }
+
+  /**
+   * 上传语音并创建聊天任务
+   * @param input 音频临时路径以及本轮 Agent、模型和思考选择
+   * @returns 返回已创建任务的稳定标识
+   * @description reasoning 按 multipart 契约序列化成 JSON 字符串；任务创建后由调用方
+   * 使用同一个 taskId 接入现有 resume SSE 链路，避免为语音复制一套流协议。
+   */
+  async createVoiceTask(input: VoiceTaskInput): Promise<ChatTaskResultDto> {
+    const formData: Record<string, string> = {};
+    if (input.conversationId) formData.conversationId = input.conversationId;
+    if (input.agentId) formData.agentId = input.agentId;
+    if (input.selectedModelPresetId) {
+      formData.selectedModelPresetId = input.selectedModelPresetId;
+    }
+    if (input.reasoning) {
+      formData.reasoning = JSON.stringify(input.reasoning);
+    }
+
+    return apiClient.upload<ChatTaskResultDto, Record<string, string>>({
+      url: "/api/chat/voice-messages",
+      method: "POST",
+      filePath: input.filePath,
+      name: "audio",
+      formData,
+    });
   }
 
   resumeTask(

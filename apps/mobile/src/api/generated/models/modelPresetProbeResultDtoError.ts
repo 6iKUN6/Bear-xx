@@ -7,7 +7,6 @@
  */
 
 /**
- * 失败原因（安全文本）
  * @nullable
  */
 export type ModelPresetProbeResultDtoError = { [key: string]: unknown } | null;

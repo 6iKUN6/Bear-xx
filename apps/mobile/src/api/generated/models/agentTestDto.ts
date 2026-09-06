@@ -13,6 +13,4 @@ export interface AgentTestDto {
   conversationId?: string;
   /** 指定测试的智能体 id；不传用默认智能体 */
   agentId?: string;
-  /** 指定模型预设 id（覆盖 agent 的模型） */
-  modelPreset?: string;
 }

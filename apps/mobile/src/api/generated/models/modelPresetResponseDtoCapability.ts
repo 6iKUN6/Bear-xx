@@ -6,9 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 
-/**
- * 探针实测的能力档位
- */
 export type ModelPresetResponseDtoCapability = typeof ModelPresetResponseDtoCapability[keyof typeof ModelPresetResponseDtoCapability];
 
 

@@ -13,4 +13,5 @@ export const ModelPresetResponseDtoUpstreamFormat = {
   openai_chat_completions: 'openai_chat_completions',
   openai_responses: 'openai_responses',
   anthropic_messages: 'anthropic_messages',
+  gemini_generate_content: 'gemini_generate_content',
 } as const;

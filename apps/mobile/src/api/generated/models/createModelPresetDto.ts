@@ -8,22 +8,14 @@
 import type { CreateModelPresetDtoUpstreamFormat } from './createModelPresetDtoUpstreamFormat';
 
 export interface CreateModelPresetDto {
-  /** 业务预设 id（供 agent 引用） */
-  presetId: string;
-  /** 显示名 */
+  /** 模型显示名称 */
   name: string;
-  /** 描述 */
+  /** 模型用途说明 */
   description?: string;
-  /** 上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置 */
-  upstreamFormat: CreateModelPresetDtoUpstreamFormat;
-  /** 平台标签，仅用于分组展示，可自由填写（如 openai / kimi / 自建中转站） */
-  platform: string;
-  /** 模型名 */
+  /** 供应商模型 ID */
   model: string;
-  /** 上游 baseURL；留空用 SDK 默认地址 */
-  baseURL?: string;
-  /** apiKey 明文；仅在写入时提交，加密落库后永不回显。留空表示不修改 */
-  apiKey?: string;
+  /** 上游 wire 格式 */
+  upstreamFormat: CreateModelPresetDtoUpstreamFormat;
   /** temperature */
   temperature?: number;
   /** 最大输出 token */
@@ -32,6 +24,6 @@ export interface CreateModelPresetDto {
   topP?: number;
   /** 是否启用 */
   enabled?: boolean;
-  /** 是否默认预设 */
+  /** 是否设为系统默认模型 */
   isDefault?: boolean;
 }

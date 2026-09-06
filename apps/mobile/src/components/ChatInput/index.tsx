@@ -1,15 +1,12 @@
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useState,
-} from "react";
+import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { View, Text, Textarea } from "@tarojs/components";
 import AgentAvatar from "../AgentAvatar";
 import IconButton from "../IconButton";
 import VoiceButton from "../VoiceButton";
 import AgentSheet from "../AgentSheet";
+import ModelSelectionSheet from "../ModelSelectionSheet";
 import { useAgentStore } from "../../store/agentStore";
+import { useAgentModelSelection } from "../../hooks/useAgentModelSelection";
 import {
   findAgent,
   resolveAgentName,
@@ -18,6 +15,11 @@ import {
 } from "../../utils/agent";
 import { appSoftInputClass, safeAreaBottom } from "../../utils/style";
 import type { AgentSummary } from "../../api/agents";
+import {
+  isReasoningConfigurable,
+  modelSelectionFingerprint,
+  type AgentModelSelection,
+} from "../../services/agent-model-selection";
 
 /** 供外部（成员条/开场提示等）操控输入框 */
 export interface ChatInputHandle {
@@ -36,9 +38,17 @@ export type ChatInputMode = ChatAgentSelectionMode;
 
 interface ChatInputProps {
   /** agentId：本条消息的回答者；undefined = 交给后端（绑定/路由/默认） */
-  onSend: (content: string, agentId?: string) => void;
+  onSend: (
+    content: string,
+    agentId?: string,
+    modelSelection?: AgentModelSelection,
+  ) => void;
   onStop?: () => void;
-  onRecordComplete?: (filePath: string) => void;
+  onRecordComplete?: (
+    filePath: string,
+    agentId?: string,
+    modelSelection?: AgentModelSelection,
+  ) => void;
   isStreaming?: boolean;
   disabled?: boolean;
   /** 底部是否预留 safe-area（上方另有固定栏占位时传 false 避免双重留白） */
@@ -46,6 +56,10 @@ interface ChatInputProps {
   mode?: ChatInputMode;
   /** @ 提及候选（群聊=成员列表）；缺省用全部智能体 */
   mentionAgents?: AgentSummary[];
+  /** 当前会话已明确绑定的 Agent；群聊自动路由时不传 */
+  modelAgentId?: string;
+  /** 上一轮已发送配置，用于给出不阻断的新会话建议 */
+  lastModelSelectionFingerprint?: string;
   placeholder?: string;
 }
 
@@ -69,6 +83,8 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     reserveSafeArea = true,
     mode = "flex",
     mentionAgents,
+    modelAgentId,
+    lastModelSelectionFingerprint,
     placeholder,
   },
   ref,
@@ -76,10 +92,9 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   const [value, setValue] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "voice">("text");
   /** 弹层模式：switch = 切换当前智能体（粘性）；mention = @ 指定本条回答者 */
-  const [sheetMode, setSheetMode] = useState<"switch" | "mention" | null>(
-    null,
-  );
+  const [sheetMode, setSheetMode] = useState<"switch" | "mention" | null>(null);
   const [mention, setMention] = useState<MentionTarget | null>(null);
+  const [modelSheetOpen, setModelSheetOpen] = useState(false);
 
   const agents = useAgentStore((state) => state.agents);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
@@ -95,6 +110,23 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   const mentionCandidates = mentionAgents ?? agents;
   const canOpenSwitch = mode === "flex" && agents.length > 0;
   const canMention = mode !== "single" && mentionCandidates.length > 0;
+  const effectiveModelAgentId = mention?.agentId ?? modelAgentId;
+  const modelSelection = useAgentModelSelection(effectiveModelAgentId);
+  const showModelSettings = Boolean(
+    modelSelection.selectedModel &&
+    ((modelSelection.options?.models.length ?? 0) > 1 ||
+      isReasoningConfigurable(
+        modelSelection.selectedModel.reasoningCapability,
+      )),
+  );
+  const currentModelFingerprint = modelSelectionFingerprint(
+    modelSelection.selection,
+  );
+  const modelChangedFromPreviousRound = Boolean(
+    lastModelSelectionFingerprint &&
+    currentModelFingerprint &&
+    lastModelSelectionFingerprint !== currentModelFingerprint,
+  );
 
   const renderIcon = (name: string, extraClassName = "") => (
     <Text
@@ -161,7 +193,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
 
   const handleSend = () => {
     const content = value.trim();
-    if (!content || disabled || isStreaming) return;
+    if (!content || disabled || isStreaming || modelSelection.error) return;
     // single：回答者由后端按会话绑定解析；group：仅 @ 生效（不 @ = 自动路由）；
     // flex：本条 @ 优先于粘性选择。
     const effectiveAgentId = resolveOutgoingAgentId(
@@ -169,7 +201,7 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
       mention?.agentId,
       selectedAgentId,
     );
-    onSend(content, effectiveAgentId);
+    onSend(content, effectiveAgentId, modelSelection.selection);
     setValue("");
     setMention(null);
   };
@@ -183,7 +215,14 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   };
 
   const handleRecordComplete = (filePath: string) => {
-    onRecordComplete?.(filePath);
+    if (disabled || isStreaming || modelSelection.error) return;
+    const effectiveAgentId = resolveOutgoingAgentId(
+      mode,
+      mention?.agentId,
+      selectedAgentId,
+    );
+    onRecordComplete?.(filePath, effectiveAgentId, modelSelection.selection);
+    setMention(null);
   };
 
   const renderRightButtons = () => {
@@ -192,10 +231,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
         <>
           <IconButton
             icon={renderIcon("edit")}
-            variant='ghost'
+            variant="ghost"
             onClick={toggleMode}
           />
-          <IconButton icon={renderIcon("add")} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant="ghost" />
         </>
       );
     }
@@ -203,10 +242,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     if (isStreaming) {
       return (
         <>
-          <IconButton icon={renderIcon("add")} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant="ghost" />
           <IconButton
             icon={renderIcon("stop", "text-[var(--lb-on-accent)]")}
-            variant='primary'
+            variant="primary"
             onClick={handleStop}
           />
         </>
@@ -216,10 +255,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     if (hasContent) {
       return (
         <>
-          <IconButton icon={renderIcon("add")} variant='ghost' />
+          <IconButton icon={renderIcon("add")} variant="ghost" />
           <IconButton
             icon={renderIcon("arrow-up", "text-[var(--lb-on-accent)]")}
-            variant='primary'
+            variant="primary"
             onClick={handleSend}
           />
         </>
@@ -230,58 +269,82 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
       <>
         <IconButton
           icon={renderIcon("sound")}
-          variant='ghost'
+          variant="ghost"
           onClick={toggleMode}
         />
-        <IconButton icon={renderIcon("add")} variant='ghost' />
+        <IconButton icon={renderIcon("add")} variant="ghost" />
       </>
     );
   };
 
   return (
     <View
-      className='border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] pt-[0.5rem] box-border'
+      className="border-t border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.75rem] pt-[0.5rem] box-border"
       style={{ paddingBottom: reserveSafeArea ? safeAreaBottom(16) : 12 }}
     >
-      {/* 工具条：flex 显示粘性胶囊；group 仅显示 @ 标记；single 整条隐藏 */}
-      {mode !== "single" && (mode === "flex" || mention) ? (
-      <View className='mb-[0.5rem] flex min-w-0 items-center gap-[0.5rem]'>
-        {mode === "flex" ? (
-        <View
-          className='flex min-w-0 max-w-[60%] items-center gap-[0.375rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-page-background)] py-[0.25rem] pl-[0.25rem] pr-[0.625rem] box-border'
-          onClick={() => canOpenSwitch && setSheetMode("switch")}
-        >
-          <AgentAvatar
-            className='h-[1.375rem] w-[1.375rem] shrink-0 rounded-full bg-[var(--lb-surface)]'
-            name={currentName}
-            avatar={currentAgent?.avatar}
-            size='xs'
-          />
-          <Text className='block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium leading-[1.3] text-[var(--lb-text-primary)]'>
-            {currentName}
-          </Text>
-          {canOpenSwitch ? (
-            <Text className='at-icon at-icon-chevron-down shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block' />
-          ) : null}
-        </View>
-        ) : null}
-
-        {mention ? (
-          <View
-            className='flex min-w-0 items-center gap-[0.25rem] rounded-full bg-[var(--lb-accent-soft)] px-[0.625rem] py-[0.3125rem] box-border'
-            onClick={clearMention}
-          >
-            <Text className='block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium leading-[1.3] text-[var(--lb-accent-ink)]'>
-              本条 @{mention.name}
-            </Text>
-            <Text className='at-icon at-icon-close shrink-0 text-[0.625rem] leading-none text-[var(--lb-accent-ink)] [&::before]:block' />
-          </View>
-        ) : null}
-      </View>
+      {modelSelection.error && effectiveModelAgentId ? (
+        <Text className="mb-[0.375rem] block text-[0.6875rem] text-[var(--lb-danger)]">
+          模型设置加载失败，本条消息暂不可发送
+        </Text>
+      ) : null}
+      {modelChangedFromPreviousRound ? (
+        <Text className="mb-[0.375rem] block text-[0.6875rem] text-[var(--lb-warning)]">
+          模型设置与上一轮不同，建议新建会话以保持上下文一致
+        </Text>
       ) : null}
 
-      <View className='flex items-end gap-[0.75rem]'>
-        <View className='flex-1 min-w-0'>
+      {/* 工具条：Agent 身份和模型设置都属于下一条消息，在输入框上方集中展示。 */}
+      {(mode !== "single" && (mode === "flex" || mention)) ||
+      showModelSettings ? (
+        <View className="mb-[0.5rem] flex min-w-0 items-center gap-[0.5rem]">
+          {mode === "flex" ? (
+            <View
+              className="flex min-w-0 max-w-[60%] items-center gap-[0.375rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-page-background)] py-[0.25rem] pl-[0.25rem] pr-[0.625rem] box-border"
+              onClick={() => canOpenSwitch && setSheetMode("switch")}
+            >
+              <AgentAvatar
+                className="h-[1.375rem] w-[1.375rem] shrink-0 rounded-full bg-[var(--lb-surface)]"
+                name={currentName}
+                avatar={currentAgent?.avatar}
+                size="xs"
+              />
+              <Text className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.8125rem] font-medium leading-[1.3] text-[var(--lb-text-primary)]">
+                {currentName}
+              </Text>
+              {canOpenSwitch ? (
+                <Text className="at-icon at-icon-chevron-down shrink-0 text-[0.75rem] leading-none text-[var(--lb-text-muted)] [&::before]:block" />
+              ) : null}
+            </View>
+          ) : null}
+
+          {mention ? (
+            <View
+              className="flex min-w-0 items-center gap-[0.25rem] rounded-full bg-[var(--lb-accent-soft)] px-[0.625rem] py-[0.3125rem] box-border"
+              onClick={clearMention}
+            >
+              <Text className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium leading-[1.3] text-[var(--lb-accent-ink)]">
+                本条 @{mention.name}
+              </Text>
+              <Text className="at-icon at-icon-close shrink-0 text-[0.625rem] leading-none text-[var(--lb-accent-ink)] [&::before]:block" />
+            </View>
+          ) : null}
+
+          {showModelSettings && modelSelection.selectedModel ? (
+            <View
+              className="flex min-w-0 items-center gap-[0.25rem] rounded-full border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] px-[0.625rem] py-[0.3125rem]"
+              onClick={() => setModelSheetOpen(true)}
+            >
+              <Text className="block max-w-[9rem] overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium text-[var(--lb-text-secondary)]">
+                {modelSelection.selectedModel.name}
+              </Text>
+              <Text className="at-icon at-icon-chevron-down shrink-0 text-[0.625rem] text-[var(--lb-text-muted)]" />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View className="flex items-end gap-[0.75rem]">
+        <View className="flex-1 min-w-0">
           {inputMode === "text" ? (
             <Textarea
               className={`${appSoftInputClass} w-full min-h-[2.625rem] max-h-[7.5rem] rounded-[var(--lb-radius-md)] px-[0.875rem] py-[0.625rem] box-border text-[0.9375rem] leading-[1.5] text-[var(--lb-text-primary)]`}
@@ -293,24 +356,26 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
                   ? "发消息..."
                   : "发消息，输入 @ 指定谁来回答...")
               }
-              placeholderClass='text-[var(--lb-text-muted)]'
+              placeholderClass="text-[var(--lb-text-muted)]"
               maxlength={2000}
               // 流式输出期间只挡「发送」不挡「输入」：右侧按钮此时是停止键，
               // 本就没有发送入口，再禁用输入框只会让人连下一句都打不了。
-              disabled={disabled}
+              disabled={disabled || Boolean(modelSelection.error)}
               autoHeight
-              confirmType='send'
+              confirmType="send"
               onConfirm={handleSend}
             />
           ) : (
             <VoiceButton
               onRecordComplete={handleRecordComplete}
-              disabled={disabled}
+              disabled={
+                disabled || isStreaming || Boolean(modelSelection.error)
+              }
             />
           )}
         </View>
 
-        <View className='flex items-center gap-[0.5rem]'>
+        <View className="flex items-center gap-[0.5rem]">
           {renderRightButtons()}
         </View>
       </View>
@@ -319,11 +384,22 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
         <AgentSheet
           title={sheetMode === "mention" ? "@ 谁来回答这条" : "切换智能体"}
           agents={sheetMode === "mention" ? mentionCandidates : agents}
-          selectedAgentId={
-            sheetMode === "switch" ? selectedAgentId : undefined
-          }
+          selectedAgentId={sheetMode === "switch" ? selectedAgentId : undefined}
           onSelect={handleSheetSelect}
           onClose={() => setSheetMode(null)}
+        />
+      ) : null}
+
+      {modelSheetOpen &&
+      modelSelection.options &&
+      modelSelection.selectedModel ? (
+        <ModelSelectionSheet
+          models={modelSelection.options.models}
+          selectedModel={modelSelection.selectedModel}
+          reasoning={modelSelection.selection?.reasoning}
+          onSelectModel={modelSelection.changeModel}
+          onChangeReasoning={modelSelection.changeReasoning}
+          onClose={() => setModelSheetOpen(false)}
         />
       ) : null}
     </View>

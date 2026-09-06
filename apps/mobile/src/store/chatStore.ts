@@ -27,6 +27,10 @@ interface ChatState {
   ensureDraftConversation: () => string;
   replaceConversationId: (draftId: string, conversationId: string) => void;
   updateConversationTitle: (conversationId: string, title: string) => void;
+  updateConversationModelSelection: (
+    conversationId: string,
+    fingerprint: string,
+  ) => void;
 
   addMessage: (msg: Message) => void;
   updateMessageContent: (msgId: string, content: string) => void;
@@ -205,6 +209,26 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
           : state.currentConversation;
 
       return { conversations, currentConversation };
+    });
+  },
+
+  updateConversationModelSelection(conversationId, fingerprint) {
+    set((state) => {
+      const conversations = state.conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, lastModelSelectionFingerprint: fingerprint }
+          : conversation,
+      );
+      return {
+        conversations,
+        currentConversation:
+          state.currentConversation?.id === conversationId
+            ? {
+                ...state.currentConversation,
+                lastModelSelectionFingerprint: fingerprint,
+              }
+            : state.currentConversation,
+      };
     });
   },
 

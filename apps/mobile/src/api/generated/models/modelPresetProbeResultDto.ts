@@ -9,15 +9,9 @@ import type { ModelPresetProbeResultDtoCapability } from './modelPresetProbeResu
 import type { ModelPresetProbeResultDtoError } from './modelPresetProbeResultDtoError';
 
 export interface ModelPresetProbeResultDto {
-  /** 探测出的能力档位 */
   capability: ModelPresetProbeResultDtoCapability;
-  /** L1 连通性是否通过 */
   reachable: boolean;
-  /** L2 工具往返是否闭环 */
   toolRoundTrip: boolean;
-  /**
-     * 失败原因（安全文本）
-     * @nullable
-     */
+  /** @nullable */
   error: ModelPresetProbeResultDtoError;
 }

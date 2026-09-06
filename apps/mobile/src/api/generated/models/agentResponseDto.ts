@@ -7,10 +7,11 @@
  */
 import type { AgentResponseDtoAccessReason } from './agentResponseDtoAccessReason';
 import type { AgentResponseDtoDefaultFlowVersionId } from './agentResponseDtoDefaultFlowVersionId';
+import type { AgentResponseDtoDefaultModelPresetId } from './agentResponseDtoDefaultModelPresetId';
 import type { AgentResponseDtoMinimumMembershipTier } from './agentResponseDtoMinimumMembershipTier';
-import type { AgentResponseDtoModelPreset } from './agentResponseDtoModelPreset';
 import type { AgentResponseDtoRequiredTier } from './agentResponseDtoRequiredTier';
 import type { AgentResponseDtoSystemPrompt } from './agentResponseDtoSystemPrompt';
+import type { ReasoningSelectionDto } from './reasoningSelectionDto';
 
 export interface AgentResponseDto {
   id: string;
@@ -26,8 +27,15 @@ export interface AgentResponseDto {
      * @nullable
      */
   systemPrompt: AgentResponseDtoSystemPrompt;
+  /**
+     * Agent 默认模型预设业务 ID；null 表示不提供 agent-default
+     * @nullable
+     */
+  defaultModelPresetId: AgentResponseDtoDefaultModelPresetId;
   /** @nullable */
-  modelPreset: AgentResponseDtoModelPreset;
+  defaultReasoning: ReasoningSelectionDto | null;
+  /** 允许终端选择并用于解析 agent-default 的模型预设业务 ID */
+  allowedModelPresetIds: string[];
   /**
      * 默认执行的已发布 FlowVersion ID；null=执行内置的直接回复 Flow
      * @nullable

@@ -7,7 +7,7 @@
  */
 
 /**
- * 默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置
+ * 默认执行的已发布 FlowVersion ID；null 表示执行系统内置的直接回复 Flow
  * @nullable
  */
 export type UpdateAgentDtoDefaultFlowVersionId = { [key: string]: unknown } | null;

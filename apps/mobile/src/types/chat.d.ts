@@ -109,6 +109,8 @@ interface Conversation {
   agentIds?: string[];
   /** 默认回答者；GROUP 下 null = 自动路由 */
   defaultAgentId?: string | null;
+  /** 本地记录上一轮已提交的模型选择，只用于给出上下文切换建议 */
+  lastModelSelectionFingerprint?: string;
   messages: Message[];
   createdAt: number;
   updatedAt: number;
