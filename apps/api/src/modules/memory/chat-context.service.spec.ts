@@ -78,6 +78,7 @@ describe('ChatContextService', () => {
         role: true,
         content: true,
         agentId: true,
+        modelContext: true,
       },
       orderBy: { createdAt: 'desc' },
       take: CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
@@ -114,11 +115,13 @@ describe('ChatContextService', () => {
         role: MessageRole.ASSISTANT,
         content: '我是B的回答',
         agentId: 'agent-b',
+        modelContext: { version: 1, marker: 'self' },
       },
       {
         role: MessageRole.ASSISTANT,
         content: '深圳今天晴',
         agentId: 'agent-a',
+        modelContext: { version: 1, marker: 'foreign' },
       },
       { role: MessageRole.USER, content: '@天气专家 深圳天气?', agentId: null },
     ]);
@@ -138,7 +141,11 @@ describe('ChatContextService', () => {
     expect(bundle.messages.slice(1)).toEqual([
       { role: 'user', content: '@天气专家 深圳天气?' },
       { role: 'user', content: '[助手·天气专家]: 深圳今天晴' },
-      { role: 'assistant', content: '我是B的回答' },
+      {
+        role: 'assistant',
+        content: '我是B的回答',
+        modelContext: { version: 1, marker: 'self' },
+      },
     ]);
   });
 

@@ -11,10 +11,12 @@ import {
 } from '@prisma/client';
 import { ApplicationFailure } from '@temporalio/client';
 import { z } from 'zod';
+import { parsePersistedReasoningConfig } from '../../llm/dto/reasoning-selection.dto';
 import {
   FLOW_CONDITION_ELSE_BRANCH,
   FLOW_LOOP_AGAIN_BRANCH,
   FLOW_LOOP_DONE_BRANCH,
+  flowDefinitionUsesAgentDefault,
   flowLoopRegions,
   flowNodeBranchKeys,
   type FlowConditionCase,
@@ -48,6 +50,8 @@ import {
 } from '../../ai/agent-loop/execution/plan-prompt.builder';
 import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
 import { LlmService } from '../../llm/llm.service';
+import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
+import type { ModelContextEnvelope } from '../../llm/model-context.schema';
 import {
   STEP_EVALUATOR,
   type StepEvaluator,
@@ -65,6 +69,7 @@ import type {
   CompiledAgentFlowNode,
   CompiledConditionFlowNode,
   CompiledFlowNode,
+  CompiledFlowPlan,
   CompiledLoopFlowNode,
 } from '../runtime/flow-runtime.types';
 import type {
@@ -152,6 +157,7 @@ interface AgentFlowExecutionContext {
   };
   flowId: string;
   definition: FlowDefinition;
+  compiledPlan: CompiledFlowPlan;
   node: CompiledFlowNode;
   agentSystemPrompt: string | null;
   mcdonaldsCredentialId?: string;
@@ -173,6 +179,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     @Inject(STEP_EVALUATOR) private readonly stepEvaluator: StepEvaluator,
     private readonly taskEventService: AgentFlowTaskEventService,
     private readonly llmService: LlmService,
+    private readonly modelRegistry: LlmModelRegistryService,
   ) {}
 
   /**
@@ -622,6 +629,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         flowModelCalls: true,
         flowToolCalls: true,
         requestPayload: true,
+        resolvedAgentModelPresetId: true,
+        resolvedAgentReasoningConfig: true,
         flowVersionId: true,
         flowDigest: true,
         flowVersion: {
@@ -650,14 +659,20 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         'AGENT_FLOW_INVALID_SNAPSHOT',
       );
     }
+    // Admin 与 Activity Worker 是独立进程；只刷新 API 进程内缓存会让 Flow 长期看不到
+    // 新连接或新能力档位。Activity 边界刷新后，本次编译与模型解析读取同一份注册表。
+    await this.modelRegistry.invalidate();
     const agent = await this.prisma.agent.findUnique({
       where: { id: task.agentId },
-      select: { modelPreset: true, systemPrompt: true },
+      select: { systemPrompt: true },
     });
     // 只在图上真有节点写 agent-default 时才要求：此前这里无条件拒绝，于是即使每个节点
     // 都指定了具体预设，也必须先给智能体配一个用不到的默认模型。按节点判定的精确报错由
     // 任务期校验（agent-default-resolved）给出，这里只是防御性兜底。
-    if (!agent?.modelPreset && definitionNeedsAgentDefault(parsed.definition)) {
+    if (
+      !task.resolvedAgentModelPresetId &&
+      flowDefinitionUsesAgentDefault(parsed.definition)
+    ) {
       throw createNonRetryableActivityFailure(
         'Flow 任务未锁定智能体默认模型',
         'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
@@ -667,13 +682,30 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       task.requestPayload,
       'mcdonaldsCredentialId',
     );
+    let agentDefaultReasoning:
+      import('@litter-bear/types').ReasoningSelection | undefined;
+    try {
+      agentDefaultReasoning = parsePersistedReasoningConfig(
+        task.resolvedAgentReasoningConfig,
+      )?.selection;
+    } catch {
+      throw createNonRetryableActivityFailure(
+        'Flow 任务锁定的思考配置已损坏',
+        'AGENT_FLOW_TASK_SNAPSHOT_MISMATCH',
+      );
+    }
     const compiled = this.flowCompiler.compile(parsed.definition, {
-      agentDefaultModelPreset: agent?.modelPreset ?? null,
+      agentDefaultModelPreset: task.resolvedAgentModelPresetId,
+      agentDefaultReasoning,
       ...(mcdonaldsCredentialId ? { mcdonaldsCredentialId } : {}),
     });
     if (!compiled.success) {
+      const details = compiled.errors
+        .slice(0, 5)
+        .map((error) => `${error.path} [${error.rule}] ${error.message}`)
+        .join('；');
       throw createNonRetryableActivityFailure(
-        'Flow 任务期能力校验失败',
+        `Flow 任务期能力校验失败：${details}`,
         'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
       );
     }
@@ -704,6 +736,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       },
       flowId: task.flowVersion.flowId,
       definition: parsed.definition,
+      compiledPlan: compiled.plan,
       node,
       agentSystemPrompt: agent?.systemPrompt ?? null,
       ...(mcdonaldsCredentialId ? { mcdonaldsCredentialId } : {}),
@@ -808,7 +841,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       );
     }
     if (context.node.type === 'plan') {
-      return this.executePlanNode(context, input, context.node.maxSteps);
+      return this.executePlanNode(context, input, context.node);
     }
     if (context.node.type === 'approval') {
       return this.executePlanReviewNode(
@@ -860,20 +893,26 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * 执行一个 Flow 计划节点
    * @param context 当前编译后的节点执行上下文
    * @param input Temporal 节点执行标识
-   * @param maxSteps 当前计划节点声明的步骤预算
+   * @param node 已编译的计划节点，包含步骤预算与具体模型预设
    * @returns 返回已持久化计划后的默认完成分支；预算已耗尽时返回停止结果
    * @description 规划使用既有 PlannerService 的结构化输出与单步降级语义；计划正文只写入任务执行状态，绝不进入客户端消息增量或 Temporal History。
    */
   private async executePlanNode(
     context: AgentFlowExecutionContext,
     input: AgentFlowNodeExecutionInput,
-    maxSteps: number,
+    node: Extract<CompiledFlowNode, { type: 'plan' }>,
   ): Promise<AgentFlowNodeExecutionResult> {
     const budget = this.createBudgetTracker(context);
     if (budget.modelCallExhausted()) {
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
-    const plan = await this.createPlan(context, maxSteps, []);
+    const plan = await this.createPlan(
+      context,
+      node.maxSteps,
+      [],
+      node.modelPreset,
+      node.reasoning,
+    );
     // 只在真的调了模型时记账：fromModel 为 false 说明 Planner 已降级为规则单步计划。
     // fromModel 只在这里用于记账，不再持久化——它唯一的下游消费者 buildStepPrompt 从不读它。
     if (plan.fromModel) {
@@ -939,10 +978,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     if (budget.modelCallExhausted()) {
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
+    const planNode = this.readPlanNode(context, node.planRef);
     const replanned = await this.createPlan(
       context,
-      this.readPlanNodeMaxSteps(context, node.planRef),
+      planNode.maxSteps,
       nextFeedback,
+      planNode.modelPreset,
+      planNode.reasoning,
     );
     // 重新规划同样是一次真实模型调用，反复 reject_replan 必须计入预算
     if (replanned.fromModel) {
@@ -986,7 +1028,12 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return this.completeApproval(context, input, steps, '按配置自动确认计划');
     }
     if (node.policy === 'model') {
-      const verdict = await this.judgePlanReviewNeeded(context, steps);
+      const verdict = await this.judgePlanReviewNeeded(
+        context,
+        steps,
+        node.modelPreset,
+        node.reasoning,
+      );
       if (!verdict.needsReview) {
         return this.completeApproval(
           context,
@@ -1009,6 +1056,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * 由模型判断一份计划是否需要人工确认
    * @param context 当前编译后的节点执行上下文
    * @param steps 待审的计划步骤
+   * @param modelPreset 审批节点编译后锁定的模型预设业务标识
    * @returns 返回判定结果与一句理由
    * @description 任何失败路径都返回「需要人工确认」：模型额度耗尽、调用异常、输出不符合闭集
    * 都算失败。漏掉一次该确认的代价远大于多问一次，因此这里不能失败开放。
@@ -1016,8 +1064,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   private async judgePlanReviewNeeded(
     context: AgentFlowExecutionContext,
     steps: PlanStep[],
+    modelPreset: string | undefined,
+    reasoning: import('@litter-bear/types').ReasoningSelection | undefined,
   ): Promise<{ needsReview: boolean; reason: string }> {
     const budget = this.createBudgetTracker(context);
+    if (!modelPreset) {
+      return { needsReview: true, reason: '门禁模型配置缺失，转人工确认' };
+    }
     if (budget.modelCallExhausted()) {
       return { needsReview: true, reason: '模型调用额度已用尽，转人工确认' };
     }
@@ -1033,7 +1086,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           },
         ],
         planReviewGateSchema,
-        { schemaName: 'plan_review_gate' },
+        {
+          schemaName: 'plan_review_gate',
+          request: {
+            model: { modelId: modelPreset },
+            reasoning,
+          },
+        },
       );
       budget.countModelCall();
       await budget.flush();
@@ -1160,6 +1219,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const stream = resumeDecision
       ? this.commonChatAgentService.resumeEvents({
           modelPreset: node.executor.modelPreset,
+          reasoning: node.executor.reasoning,
           messages: chatContext.messages,
           systemPrompt: stepPrompt,
           tools,
@@ -1170,6 +1230,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         })
       : this.commonChatAgentService.streamEvents({
           modelPreset: node.executor.modelPreset,
+          reasoning: node.executor.reasoning,
           messages: chatContext.messages,
           systemPrompt: stepPrompt,
           tools,
@@ -1403,7 +1464,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     return this.executeAgentNode(
       context,
       input,
-      toSynthesizeExecutor(node.modelPreset),
+      toSynthesizeExecutor(node.modelPreset, node.reasoning),
       resumeDecision as ApprovalDecision | undefined,
       systemPrompt,
     );
@@ -1414,6 +1475,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * @param context 当前 Flow 节点执行上下文
    * @param maxSteps 当前计划步骤预算
    * @param feedback 已累计的计划打回意见
+   * @param modelPreset 当前 plan 节点编译后锁定的模型预设业务标识
    * @returns 返回结构化或降级后的计划
    * @description Planner 的模型调用失败会在其内部回退为单步计划；本方法只负责把冻结会话与系统提示词转换成其所需输入，确保 Flow 不进入旧策略路由。
    */
@@ -1421,9 +1483,11 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     context: AgentFlowExecutionContext,
     maxSteps: number,
     feedback: string[],
+    modelPreset: string,
+    reasoning?: import('@litter-bear/types').ReasoningSelection,
   ): Promise<AgentPlan> {
     const input = await this.createAgentLoopInput(context, []);
-    return this.planner.plan(input, maxSteps, feedback);
+    return this.planner.plan(input, maxSteps, feedback, modelPreset, reasoning);
   }
 
   /**
@@ -1594,9 +1658,18 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
     const onModelTurn = budget.countModelCall;
+    // 只有终节点保存供应商私有上下文；中间节点不得把它带入 outputs 或消息表。
+    const isAnswer = isAnswerNode(context);
+    let modelContext: ModelContextEnvelope | undefined;
+    const onCompletedModelContext = isAnswer
+      ? (contextValue: ModelContextEnvelope) => {
+          modelContext = contextValue;
+        }
+      : undefined;
     const stream = resumeDecision
       ? this.commonChatAgentService.resumeEvents({
           modelPreset: node.modelPreset,
+          reasoning: node.reasoning,
           messages: chatContext.messages,
           systemPrompt,
           tools: capabilities.tools,
@@ -1604,19 +1677,21 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           approvalToolNames: capabilities.approvalToolNames,
           decision: resumeDecision,
           onModelTurn,
+          ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
         })
       : this.commonChatAgentService.streamEvents({
           modelPreset: node.modelPreset,
+          reasoning: node.reasoning,
           messages: chatContext.messages,
           systemPrompt,
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
           onModelTurn,
+          ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
         });
     // 只有终节点的产出会成为这条助手消息的正文；中间 agent 节点静默执行，正文进
     // outputs.text 供下游 $ref 引用。理由见 isAnswerNode。
-    const isAnswer = isAnswerNode(context);
     const result = await this.consumeAgentStream(context, input, stream, {
       initialContent: isAnswer ? context.task.fullContent : '',
       publishMessageDelta: isAnswer,
@@ -1652,6 +1727,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       {
         ...(isAnswer ? { fullContent: result.fullContent } : {}),
         outputs: { text: result.nodeText },
+        ...(modelContext ? { modelContext } : {}),
       },
     );
   }
@@ -1876,6 +1952,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     options: {
       fullContent?: string;
       outputs?: Record<string, unknown>;
+      modelContext?: ModelContextEnvelope;
     } = {},
   ): Promise<AgentFlowNodeCompletedResult> {
     const event = await this.prisma.$transaction(async (transaction) => {
@@ -1885,6 +1962,12 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         summary,
         ...(options.outputs ? { outputs: options.outputs } : {}),
       });
+      if (options.modelContext) {
+        await transaction.message.update({
+          where: { id: context.task.messageId },
+          data: { modelContext: toInputJsonValue(options.modelContext) },
+        });
+      }
       return this.taskEventService.persistInTransaction(transaction, {
         taskId: context.task.id,
         streamId: context.task.streamId,
@@ -2152,19 +2235,19 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   }
 
   /**
-   * 取出被审计划所属 plan 节点声明的步数上限
+   * 取出被审计划所属的已编译 plan 节点
    * @param context 当前编译后的节点执行上下文
    * @param ref 审批节点的 planRef
-   * @returns 返回该 plan 节点 config 里的 maxSteps
-   * @description 打回重规划要按同样的步数上限重来。校验期的 approval-plan-source 规则已保证
-   * planRef 指向 plan 节点，因此这里取不到就是快照损坏。
+   * @returns 返回包含具体模型与步骤上限的编译节点
+   * @description 打回重规划要沿用原 plan 节点的模型和步数上限。校验期的
+   * approval-plan-source 规则已保证 planRef 指向 plan 节点，因此这里取不到就是快照损坏。
    */
-  private readPlanNodeMaxSteps(
+  private readPlanNode(
     context: AgentFlowExecutionContext,
     ref: FlowRef,
-  ): number {
-    const source = context.definition.nodes.find(
-      (node) => node.id === ref.$ref[0],
+  ): Extract<CompiledFlowNode, { type: 'plan' }> {
+    const source = context.compiledPlan.nodes.find(
+      (node) => node.key === ref.$ref[0],
     );
     if (source?.type !== 'plan') {
       throw createNonRetryableActivityFailure(
@@ -2172,7 +2255,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         'AGENT_FLOW_INVALID_SNAPSHOT',
       );
     }
-    return source.config.maxSteps;
+    return source;
   }
 
   /**
@@ -2417,9 +2500,11 @@ function toFlowCapabilityDecision(
  */
 function toSynthesizeExecutor(
   modelPreset: string,
+  reasoning?: import('@litter-bear/types').ReasoningSelection,
 ): Omit<CompiledAgentFlowNode, 'key' | 'type'> {
   return {
     modelPreset,
+    reasoning,
     toolGroups: [],
     skills: [],
     maxToolIterations: 1,
@@ -3170,25 +3255,4 @@ function isAnswerNode(context: AgentFlowExecutionContext): boolean {
   return context.definition.edges.some(
     (edge) => edge.from === context.node.key && endIds.has(edge.to),
   );
-}
-
-/**
- * 判断图上是否有节点依赖智能体默认模型
- * @param definition 已通过结构校验的 Definition
- * @returns 返回是否存在写了 agent-default（或省略模型）的节点
- * @description agent / plan-loop 内部 executor / synthesize 三处都可以写 agent-default。
- * 缺省等同于 agent-default，因此「没写」也算依赖。
- */
-function definitionNeedsAgentDefault(definition: FlowDefinition): boolean {
-  const needs = (declared: string | undefined): boolean =>
-    !declared || declared === 'agent-default';
-  return definition.nodes.some((node) => {
-    if (node.type === 'agent' || node.type === 'synthesize') {
-      return needs(node.config.modelPreset);
-    }
-    if (node.type === 'plan-loop') {
-      return needs(node.config.executor.modelPreset);
-    }
-    return false;
-  });
 }

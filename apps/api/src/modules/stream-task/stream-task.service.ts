@@ -11,6 +11,7 @@ import {
   APPROVAL_DECISION_LABELS,
   PLAN_REVIEW_DECISION_LABELS,
 } from '@litter-bear/types/protocol';
+import type { ReasoningSelection } from '@litter-bear/types';
 import type {
   AgentRoutedPayload,
   ApprovalDecision,
@@ -51,9 +52,7 @@ import type {
 import type {
   LlmMessage,
   LlmRunMetrics,
-  LlmTextRequest,
   LlmTokenUsageMetrics,
-  ResolvedLlmTextRequest,
 } from '../llm/llm.types';
 import { LlmService } from '../llm/llm.service';
 import { ConversationService } from '../conversation/conversation.service';
@@ -90,7 +89,6 @@ import {
 
 interface ChatTaskPayload {
   content: string;
-  llm?: ResolvedLlmTextRequest;
   agentId?: string;
   /** 创建任务时锁定的用户级麦当劳凭据；只用于动态 MCP 工具装配。 */
   mcdonaldsCredentialId?: string;
@@ -177,15 +175,16 @@ export class StreamTaskService {
    * @param conversationId 会话ID
    * @param content 用户消息内容
    * @param userId 用户ID
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 基于文本消息创建一条可恢复的流式聊天任务，并将本次请求的模型选择配置持久化到任务中。
+   * @description 基于文本消息创建可恢复任务；模型选择先按 Agent 允许集合解析，再以稳定预设标识锁定到任务。
    */
   async createChatTask(
     conversationId: string | undefined,
     content: string,
     userId: string,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     agentId?: string,
     isTest = false,
   ) {
@@ -194,7 +193,8 @@ export class StreamTaskService {
       content,
       userId,
       StreamTaskType.CHAT_COMPLETION,
-      llmRequest,
+      selectedModelPresetId,
+      reasoning,
       agentId,
       isTest,
     );
@@ -205,7 +205,7 @@ export class StreamTaskService {
    * @param conversationId 会话ID
    * @param content 用户消息内容
    * @param userId 用户ID
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @param signal 连接中断信号
    * @returns 返回包含异步流式事件的对象
    * @description 用于聊天主入口：先创建可恢复任务，再在同一请求中直接进入首轮流式事件，同时向客户端下发 task.created 事件。
@@ -214,7 +214,8 @@ export class StreamTaskService {
     conversationId: string | undefined,
     content: string,
     userId: string,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     signal?: AbortSignal,
     agentId?: string,
     isTest = false,
@@ -231,7 +232,8 @@ export class StreamTaskService {
       conversationId,
       content,
       userId,
-      llmRequest,
+      selectedModelPresetId,
+      reasoning,
       answering.agentId,
       isTest,
     );
@@ -475,16 +477,17 @@ export class StreamTaskService {
    * @param audioBuffer 音频二进制数据
    * @param filename 音频文件名
    * @param userId 用户ID
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 先将音频转写成文本，再复用文本任务创建逻辑生成可恢复的流式任务，并保留模型配置。
+   * @description 先将音频转写成文本，再复用文本任务创建逻辑锁定本条消息的模型选择。
    */
   async createVoiceTask(
     conversationId: string | undefined,
     audioBuffer: Buffer,
     filename: string,
     userId: string,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     agentId?: string,
   ) {
     const content = await this.aiService.transcribeAudio(audioBuffer, filename);
@@ -493,7 +496,8 @@ export class StreamTaskService {
       content,
       userId,
       StreamTaskType.VOICE_COMPLETION,
-      llmRequest,
+      selectedModelPresetId,
+      reasoning,
       agentId,
     );
   }
@@ -504,31 +508,22 @@ export class StreamTaskService {
    * @param content 消息内容
    * @param userId 用户ID
    * @param type 任务类型
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 在一个事务内依次写入用户消息、assistant 占位消息以及 流式任务记录，并将解析后的模型配置一并持久化。
+   * @description 在一个事务内写入消息、Flow 快照与任务；只持久化解析后的稳定模型预设标识，不保存 URL、生成参数或密钥。
    */
   private async createTextTask(
     conversationId: string | undefined,
     content: string,
     userId: string,
     type: StreamTaskType,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     agentId?: string,
     isTest = false,
   ) {
-    const resolvedLlmRequest =
-      this.commonChatAgentRunnerService.resolveTextRequest(llmRequest);
     const mcdonaldsCredentialId =
       await this.mcdonaldsCredentialService.getActiveCredentialId(userId);
-    const requestPayload = JSON.parse(
-      JSON.stringify({
-        content,
-        llm: resolvedLlmRequest,
-        agentId,
-        mcdonaldsCredentialId,
-      }),
-    ) as Prisma.JsonObject;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const targetConversationId = await this.resolveConversationId(
@@ -569,7 +564,16 @@ export class StreamTaskService {
       const flowSnapshot =
         await this.flowTaskDispatcher.resolveTaskFlowSnapshot(tx, {
           agentId,
+          selectedModelPresetId,
+          reasoning,
         });
+      const requestPayload = JSON.parse(
+        JSON.stringify({
+          content,
+          agentId: flowSnapshot.agentId,
+          mcdonaldsCredentialId,
+        }),
+      ) as Prisma.JsonObject;
 
       //assistant 消息入库（agentId 记录发言者，供群聊消息归属与身份感知上下文）
       const assistantMessage = await tx.message.create({
@@ -1550,7 +1554,6 @@ export class StreamTaskService {
       ? await this.commonChatAgentRunnerService.resumeConversationRun({
           conversationId: task.conversationId,
           pendingMessageId: task.messageId,
-          llm: payload.llm,
           agentId: payload.agentId,
           taskId: task.id,
           userId: task.userId,
@@ -1565,7 +1568,6 @@ export class StreamTaskService {
       : await this.commonChatAgentRunnerService.prepareConversationRun({
           conversationId: task.conversationId,
           pendingMessageId: task.messageId,
-          llm: payload.llm,
           agentId: payload.agentId,
           taskId: task.id,
           userId: task.userId,
@@ -1591,8 +1593,6 @@ export class StreamTaskService {
       conversationId: task.conversationId,
       messageId: task.messageId,
       messageCount: agentRun.messages.length,
-      model: this.toSafeTaskModelLog(payload.llm),
-      generation: payload.llm?.generation,
       hasSystemPrompt: Boolean(agentRun.systemPrompt),
       toolCount: agentRun.tools.length,
       hasSummary: Boolean(agentRun.context.summary),
@@ -2955,33 +2955,6 @@ export class StreamTaskService {
     }
 
     this.logger.log(this.formatTaskLog(event, payload));
-  }
-
-  private toSafeTaskModelLog(llmRequest: ChatTaskPayload['llm']) {
-    if (!llmRequest?.model) {
-      return undefined;
-    }
-
-    return {
-      id: llmRequest.model.id,
-      provider: llmRequest.model.provider,
-      platform: llmRequest.model.platform,
-      model: llmRequest.model.model,
-      baseURL: this.toSafeBaseUrl(llmRequest.model.baseURL),
-      hasApiKey: Boolean(llmRequest.model.apiKey),
-    };
-  }
-
-  private toSafeBaseUrl(baseURL: string | undefined) {
-    if (!baseURL) {
-      return undefined;
-    }
-
-    try {
-      return new URL(baseURL).origin;
-    } catch {
-      return '[invalid-url]';
-    }
   }
 
   private isDebugEnabled() {

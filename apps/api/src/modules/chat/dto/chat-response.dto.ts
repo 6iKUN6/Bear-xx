@@ -68,26 +68,22 @@ export class VoiceCompletionsFormDataDto {
   conversationId?: string;
 
   @ApiPropertyOptional({
-    description: '模型预设 ID，优先级最高，例如 openai:gpt-4o-mini',
-    example: 'openai:gpt-4o-mini',
+    description:
+      '本条消息选择的模型预设业务 ID；必须属于回答智能体允许集合，仅替换 Flow 中的 agent-default',
+    example: 'deepseek-official:deepseek-chat',
   })
-  modelId?: string;
+  selectedModelPresetId?: string;
 
-  @ApiPropertyOptional({ description: 'LLM Provider 名称', example: 'openai' })
-  provider?: string;
+  @ApiPropertyOptional({
+    description: '指定使用的智能体 id；不传则使用会话或系统默认智能体',
+    example: 'agent_abc123',
+  })
+  agentId?: string;
 
-  @ApiPropertyOptional({ description: '模型平台或商家名称', example: 'openai' })
-  platform?: string;
-
-  @ApiPropertyOptional({ description: '模型名称', example: 'gpt-4o-mini' })
-  model?: string;
-
-  @ApiPropertyOptional({ description: '采样温度', example: 0.7 })
-  temperature?: number;
-
-  @ApiPropertyOptional({ description: '最大输出 Token 数', example: 2048 })
-  maxOutputTokens?: number;
-
-  @ApiPropertyOptional({ description: 'Top P 采样参数', example: 1 })
-  topP?: number;
+  @ApiPropertyOptional({
+    type: 'string',
+    description: 'JSON 字符串形式的本轮思考设置，仅 direct Agent 可用',
+    example: '{"activation":"enabled","effort":"high"}',
+  })
+  reasoning?: string;
 }

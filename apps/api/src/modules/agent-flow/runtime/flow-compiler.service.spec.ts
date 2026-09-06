@@ -32,6 +32,8 @@ describe('FlowCompiler', () => {
             listAvailableModels: () => [{ id: 'model-enabled' }],
             // 已通过工具往返探测；带工具的节点才允许使用
             getCapability: () => 'tools',
+            normalizePresetReasoning: (_presetId: string, selection: unknown) =>
+              selection,
           },
         },
       ],
@@ -150,7 +152,76 @@ describe('FlowCompiler', () => {
     }
     expect(planLoop.planLoopPolicy.maxSteps).toBe(5);
   });
+
+  it('分别编译 plan 与模型审批节点声明的模型', () => {
+    const result = compiler.compile(planAndModelApprovalDefinition(), {
+      agentDefaultModelPreset: 'model-enabled',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error('有效的模型审批 Flow 不应编译失败');
+    }
+    expect(result.plan.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'plan',
+          type: 'plan',
+          modelPreset: 'model-enabled',
+        }),
+        expect.objectContaining({
+          key: 'review',
+          type: 'approval',
+          policy: 'model',
+          modelPreset: 'model-enabled',
+        }),
+      ]),
+    );
+  });
 });
+
+/**
+ * 创建带模型审批的有效 FlowDefinition
+ * @returns 返回 plan 与 model approval 都使用 agent-default 的线性 Definition
+ * @description 锁住两种新增模型字段都经过编译期解析，而不是在 Activity 中临时选择系统默认模型。
+ */
+function planAndModelApprovalDefinition(): FlowDefinition {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: '规划与模型审批',
+    policy: {
+      maxSteps: 3,
+      maxModelCalls: 3,
+      maxToolCalls: 0,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'plan',
+        type: 'plan',
+        config: { modelPreset: 'agent-default', maxSteps: 3 },
+      },
+      {
+        id: 'review',
+        type: 'approval',
+        config: {
+          kind: 'plan-review',
+          policy: 'model',
+          modelPreset: 'agent-default',
+          planRef: { $ref: ['plan', 'steps'] },
+        },
+      },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'plan' },
+      { from: 'plan', to: 'review' },
+      { from: 'review', to: 'end', when: 'approved' },
+    ],
+  };
+}
 
 /**
  * 创建包含审批工具的线性 FlowDefinition

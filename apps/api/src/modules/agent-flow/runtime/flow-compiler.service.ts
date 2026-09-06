@@ -101,6 +101,15 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'plan',
+          modelPreset: this.resolveModelPreset(
+            node.config.modelPreset,
+            context,
+          ),
+          reasoning: this.resolveReasoning(
+            node.config.modelPreset,
+            node.config.reasoning,
+            context,
+          ),
           maxSteps: node.config.maxSteps,
         };
       case 'plan-loop':
@@ -123,6 +132,19 @@ export class FlowCompiler {
           type: 'approval',
           kind: node.config.kind,
           policy: node.config.policy,
+          ...(node.config.policy === 'model'
+            ? {
+                modelPreset: this.resolveModelPreset(
+                  node.config.modelPreset,
+                  context,
+                ),
+                reasoning: this.resolveReasoning(
+                  node.config.modelPreset,
+                  node.config.reasoning,
+                  context,
+                ),
+              }
+            : {}),
           planRef: node.config.planRef,
         };
       case 'synthesize':
@@ -135,6 +157,11 @@ export class FlowCompiler {
             : {}),
           modelPreset: this.resolveModelPreset(
             node.config.modelPreset,
+            context,
+          ),
+          reasoning: this.resolveReasoning(
+            node.config.modelPreset,
+            node.config.reasoning,
             context,
           ),
         };
@@ -189,6 +216,11 @@ export class FlowCompiler {
     }
     return {
       modelPreset: this.resolveModelPreset(config.modelPreset, context),
+      reasoning: this.resolveReasoning(
+        config.modelPreset,
+        config.reasoning,
+        context,
+      ),
       toolGroups: [...config.toolGroups],
       skills: [...config.skills],
       maxToolIterations: config.maxToolIterations,
@@ -203,8 +235,8 @@ export class FlowCompiler {
    * @param declared 节点上声明的预设；缺省或 agent-default 即跟随智能体默认
    * @param context 任务锁定的运行时上下文
    * @returns 返回具体模型预设标识
-   * @description agent 节点与 synthesize 节点共用：两者都允许写 agent-default，解析口径
-   * 必须一致。任务期校验已先按节点判过一遍，这里的抛错只是防御性兜底。
+   * @description 所有会调用模型的节点共用：缺省模型都表示 agent-default，解析口径必须一致。
+   * 任务期校验已先按节点判过一遍，这里的抛错只是防御性兜底。
    */
   private resolveModelPreset(
     declared: string | undefined,
@@ -218,6 +250,18 @@ export class FlowCompiler {
       throw new Error('agent-default 未在任务上下文中解析');
     }
     return resolved;
+  }
+
+  /** agent-default 继承任务快照，其余节点使用已发布 Definition 中的思考选择。 */
+  private resolveReasoning(
+    declaredModel: string | undefined,
+    declaredReasoning:
+      import('@litter-bear/types').ReasoningSelection | undefined,
+    context: Omit<FlowTaskRuntimeContext, 'phase'>,
+  ): import('@litter-bear/types').ReasoningSelection | undefined {
+    return declaredModel === 'agent-default' || !declaredModel
+      ? context.agentDefaultReasoning
+      : declaredReasoning;
   }
 }
 

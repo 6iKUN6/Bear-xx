@@ -11,6 +11,7 @@ import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
 import { STEP_EVALUATOR } from '../../ai/agent-loop/execution/step-evaluator';
 import { LlmService } from '../../llm/llm.service';
+import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import { AgentFlowActivities } from './agent-flow.activities';
 
 describe('AgentFlowActivities', () => {
@@ -61,6 +62,7 @@ describe('AgentFlowActivities', () => {
   };
   const planner = { plan: jest.fn() };
   const llmService = { generateStructured: jest.fn() };
+  const modelRegistry = { invalidate: jest.fn() };
   const stepEvaluator = { enough: jest.fn() };
   const taskEventService = {
     persistInTransaction: jest.fn(),
@@ -91,6 +93,7 @@ describe('AgentFlowActivities', () => {
       eventName: 'flow.node.started',
       data: '{}',
     });
+    modelRegistry.invalidate.mockResolvedValue(undefined);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentFlowActivities,
@@ -106,6 +109,7 @@ describe('AgentFlowActivities', () => {
         { provide: STEP_EVALUATOR, useValue: stepEvaluator },
         { provide: AgentFlowTaskEventService, useValue: taskEventService },
         { provide: LlmService, useValue: llmService },
+        { provide: LlmModelRegistryService, useValue: modelRegistry },
       ],
     }).compile();
     activities = module.get(AgentFlowActivities);
@@ -195,6 +199,7 @@ describe('AgentFlowActivities', () => {
       fullContent: '',
       executionState: null,
       requestPayload: {},
+      resolvedAgentModelPresetId: 'openai:test',
       flowVersionId: 'version-1',
       flowDigest: 'a'.repeat(64),
       flowVersion: {
@@ -205,7 +210,6 @@ describe('AgentFlowActivities', () => {
       },
     });
     prisma.agent.findUnique.mockResolvedValue({
-      modelPreset: 'openai:test',
       systemPrompt: null,
     });
     flowCompiler.compile.mockReturnValue({
@@ -252,6 +256,10 @@ describe('AgentFlowActivities', () => {
         tools: [],
         threadId: 'task-1:version-1:answer',
       }),
+    );
+    expect(modelRegistry.invalidate).toHaveBeenCalledTimes(1);
+    expect(modelRegistry.invalidate.mock.invocationCallOrder[0]).toBeLessThan(
+      flowCompiler.compile.mock.invocationCallOrder[0],
     );
     expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(3);
   });
@@ -441,6 +449,7 @@ describe('AgentFlowActivities', () => {
         key: 'plan',
         type: 'plan',
         next: { default: 'review' },
+        modelPreset: 'openai:test',
         maxSteps: 3,
       },
     });
@@ -471,6 +480,8 @@ describe('AgentFlowActivities', () => {
       }),
       3,
       [],
+      'openai:test',
+      undefined,
     );
     // 计划是本节点的**声明输出**，下游经 $ref 读它；此前它藏在 executionState 的全局
     // blob 里，图上有两个 plan 节点时根本说不清用的是哪份
@@ -1082,6 +1093,7 @@ describe('AgentFlowActivities', () => {
         next: { approved: 'execute' },
         kind: 'plan-review',
         policy,
+        ...(policy === 'model' ? { modelPreset: 'openai:test' } : {}),
         planRef: { $ref: ['plan', 'steps'] },
       },
       ...(budgetUsage ? { budgetUsage } : {}),
@@ -1119,6 +1131,7 @@ describe('AgentFlowActivities', () => {
       flowModelCalls: 0,
       flowToolCalls: 0,
       requestPayload: { content: '帮我查一下' },
+      resolvedAgentModelPresetId: 'openai:test',
       flowVersionId: 'version-1',
       flowDigest: 'a'.repeat(64),
       flowVersion: {
@@ -1129,7 +1142,6 @@ describe('AgentFlowActivities', () => {
       },
     });
     prisma.agent.findUnique.mockResolvedValue({
-      modelPreset: 'openai:test',
       systemPrompt: null,
     });
     flowCompiler.compile.mockReturnValue({
@@ -1311,6 +1323,40 @@ describe('AgentFlowActivities', () => {
     expect(readCompletedFullContent()).toBe('你好');
   });
 
+  it('终节点把隐藏模型上下文与幂等完成事实写在同一事务', async () => {
+    mockAgentNode();
+    const modelContext = {
+      version: 1 as const,
+      providerKey: 'kimi',
+      upstreamFormat: 'openai_chat_completions' as const,
+      model: 'kimi-k3',
+      reasoningFingerprint: 'a'.repeat(64),
+      policy: 'full-tool-transcript' as const,
+      payload: { messages: [] },
+    };
+    commonChatAgentService.streamEvents.mockImplementation(
+      (request: {
+        onCompletedModelContext?: (context: typeof modelContext) => void;
+      }) => {
+        request.onCompletedModelContext?.(modelContext);
+        return textEventStream('你好');
+      },
+    );
+
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
+    });
+
+    expect(prisma.message.update).toHaveBeenCalledWith({
+      where: { id: 'message-1' },
+      data: { modelContext },
+    });
+    expect(prisma.agentFlowNodeExecution.create).toHaveBeenCalledTimes(1);
+  });
+
   it('中间 agent 节点不吐字，正文只进声明输出', async () => {
     // 并行分支里的 agent 节点走的就是这条路径：它的 token 不能进这条助手消息的正文，
     // 否则两条分支会交错写同一段文本、并各写一次 fullContent 后互相覆盖。
@@ -1398,6 +1444,13 @@ describe('AgentFlowActivities', () => {
 
     expect(result).toMatchObject({ kind: 'completed', outcome: 'approved' });
     expect(prisma.agentFlowApproval.create).not.toHaveBeenCalled();
+    expect(llmService.generateStructured).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        request: { model: { modelId: 'openai:test' } },
+      }),
+    );
   });
 
   it('门禁 model 判定需要人工时照常等待', async () => {
@@ -1571,6 +1624,7 @@ describe('AgentFlowActivities', () => {
       flowModelCalls: input.budgetUsage?.modelCalls ?? 0,
       flowToolCalls: input.budgetUsage?.toolCalls ?? 0,
       requestPayload: {},
+      resolvedAgentModelPresetId: 'openai:test',
       flowVersionId: 'version-1',
       flowDigest: 'a'.repeat(64),
       flowVersion: {
@@ -1581,7 +1635,6 @@ describe('AgentFlowActivities', () => {
       },
     });
     prisma.agent.findUnique.mockResolvedValue({
-      modelPreset: 'openai:test',
       systemPrompt: null,
     });
     flowCompiler.compile.mockReturnValue({

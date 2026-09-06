@@ -125,7 +125,11 @@ function planExecutePreset(): FlowDefinition {
     policy: DEFAULT_POLICY,
     nodes: [
       { id: 'start', type: 'start', config: {} },
-      { id: 'plan', type: 'plan', config: { maxSteps: 6 } },
+      {
+        id: 'plan',
+        type: 'plan',
+        config: { modelPreset: 'agent-default', maxSteps: 6 },
+      },
       {
         id: 'review',
         type: 'approval',
@@ -176,7 +180,11 @@ function hybridPreset(): FlowDefinition {
     policy: DEFAULT_POLICY,
     nodes: [
       { id: 'start', type: 'start', config: {} },
-      { id: 'plan', type: 'plan', config: { maxSteps: 6 } },
+      {
+        id: 'plan',
+        type: 'plan',
+        config: { modelPreset: 'agent-default', maxSteps: 6 },
+      },
       {
         id: 'execute',
         type: 'plan-loop',

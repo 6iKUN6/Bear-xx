@@ -5,11 +5,11 @@ import type {
   ToolCallErrorPayload,
   ToolCallStartPayload,
 } from '@litter-bear/types/protocol';
-import type { LlmMessage } from '../../../llm/llm.types';
+import type { BaseMessage } from '@langchain/core/messages';
 import { StreamTaskEventType } from '../../../stream-task/stream-task-event.types';
 
 export interface CommonChatAgentLoopRequest {
-  messages: LlmMessage[];
+  messages: BaseMessage[];
   systemPrompt?: string;
   tools?: unknown[];
   /** HITL 会话标识（checkpointer thread_id）；= taskId */
@@ -24,6 +24,8 @@ export interface CommonChatAgentLoopRequest {
    * 会直接漏给前端。不传时行为完全不变。
    */
   onModelTurn?: () => void;
+  /** Agent 正常完成后交付本轮新增的原始 AI/tool 消息；等待审批时不触发。 */
+  onCompletedMessages?: (messages: BaseMessage[]) => void | Promise<void>;
 }
 
 /**

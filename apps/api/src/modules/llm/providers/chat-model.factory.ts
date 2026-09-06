@@ -3,13 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { LLMResult } from '@langchain/core/outputs';
-import { ChatAnthropic } from '@langchain/anthropic';
-import { ChatOpenAICompletions, ChatOpenAIResponses } from '@langchain/openai';
+import { ChatAnthropic, type ChatAnthropicInput } from '@langchain/anthropic';
+import {
+  ChatGoogleGenerativeAI,
+  type GoogleGenerativeAIChatInput,
+} from '@langchain/google-genai';
+import { ChatOpenAIResponses } from '@langchain/openai';
 import type { ResolvedLlmTextRequest } from '../llm.types';
+import { findModelReasoningCapability } from '../model-reasoning.catalog';
 import {
   recordModelCallEnd,
   recordModelCallStart,
 } from '../../ai/telemetry/model-call-context';
+import { ReasoningContextChatOpenAICompletions } from './reasoning-context-chat-openai';
 
 /**
  * 模型调用用量采集回调
@@ -89,6 +95,8 @@ export class LlmChatModelFactory {
         return this.createOpenAiResponsesChatModel(request);
       case 'openai_chat_completions':
         return this.createOpenAiCompatibleChatModel(request);
+      case 'gemini_generate_content':
+        return this.createGeminiChatModel(request);
       default:
         throw new BadRequestException(
           `未支持的上游格式: ${String(request.model.upstreamFormat)}`,
@@ -136,7 +144,7 @@ export class LlmChatModelFactory {
     const { model, generation } = request;
     const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
 
-    return new ChatOpenAICompletions({
+    return new ReasoningContextChatOpenAICompletions({
       model: model.model,
       apiKey: model.apiKey,
       temperature: generation.temperature,
@@ -145,6 +153,7 @@ export class LlmChatModelFactory {
       maxRetries,
       timeout: timeoutMs,
       callbacks: [MODEL_CALL_USAGE_CALLBACK],
+      modelKwargs: this.createOpenAiCompatibleReasoningKwargs(request),
       configuration: { baseURL: model.baseURL },
     });
   }
@@ -161,6 +170,7 @@ export class LlmChatModelFactory {
     const { model, generation } = request;
     const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
 
+    const reasoning = this.createAnthropicReasoningParams(request);
     return new ChatAnthropic({
       model: model.model,
       apiKey: model.apiKey,
@@ -170,8 +180,139 @@ export class LlmChatModelFactory {
       topP: generation.topP,
       maxRetries,
       callbacks: [MODEL_CALL_USAGE_CALLBACK],
+      ...reasoning,
       // Anthropic SDK 的超时通过 clientOptions 透传（无顶层 timeout 参数）。
       clientOptions: { timeout: timeoutMs },
     });
+  }
+
+  /** 创建 Google Gemini 原生 generateContent 模型。 */
+  private createGeminiChatModel(
+    request: ResolvedLlmTextRequest,
+  ): BaseChatModel {
+    const { model, generation } = request;
+    const { maxRetries } = this.resolveResilienceOptions();
+    const chatModel = new ChatGoogleGenerativeAI({
+      model: model.model,
+      apiKey: model.apiKey,
+      baseUrl: model.baseURL,
+      temperature: generation.temperature,
+      maxOutputTokens: generation.maxOutputTokens,
+      topP: generation.topP,
+      maxRetries,
+      callbacks: [MODEL_CALL_USAGE_CALLBACK],
+      thinkingConfig: this.createGeminiThinkingConfig(request),
+    });
+
+    if (request.reasoning?.effort === 'minimal') {
+      // @langchain/google-genai 2.2 的类型比 Gemini 3 API 少 MINIMAL，但 invocationParams
+      // 会原样透传该官方值。把差异收敛在 provider 工厂，业务层仍只使用统一强度闭集。
+      Object.assign(chatModel, {
+        thinkingConfig: { thinkingLevel: 'MINIMAL' },
+      });
+    }
+    return chatModel;
+  }
+
+  /** 将统一选择映射为受控的 OpenAI 兼容扩展字段。 */
+  private createOpenAiCompatibleReasoningKwargs(
+    request: ResolvedLlmTextRequest,
+  ): Record<string, unknown> | undefined {
+    const capability = findModelReasoningCapability(
+      request.model.platform,
+      request.model.upstreamFormat,
+      request.model.model,
+    );
+    const mapping = capability?.requestMapping;
+    if (!mapping || mapping.kind !== 'openai-compatible') {
+      return undefined;
+    }
+
+    const result: Record<string, unknown> = {};
+    const selection = request.reasoning;
+    if (mapping.activation === 'thinking.type' && selection?.activation) {
+      result.thinking = { type: selection.activation };
+    }
+    if (mapping.activation === 'enable_thinking' && selection?.activation) {
+      result.enable_thinking = selection.activation !== 'disabled';
+    }
+    if (mapping.effort && selection?.effort) {
+      result.reasoning_effort = selection.effort;
+    }
+    if (mapping.budget && typeof selection?.budgetTokens === 'number') {
+      result.thinking_budget = selection.budgetTokens;
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  /** 将统一选择映射为 Anthropic thinking/outputConfig。 */
+  private createAnthropicReasoningParams(
+    request: ResolvedLlmTextRequest,
+  ): Partial<Pick<ChatAnthropicInput, 'thinking' | 'outputConfig'>> {
+    const capability = findModelReasoningCapability(
+      request.model.platform,
+      request.model.upstreamFormat,
+      request.model.model,
+    );
+    const mapping = capability?.requestMapping;
+    const selection = request.reasoning;
+    if (!mapping || mapping.kind !== 'anthropic') {
+      return {};
+    }
+    if (selection?.activation === 'disabled') {
+      return { thinking: { type: 'disabled' } };
+    }
+    if (mapping.mode === 'budget') {
+      return typeof selection?.budgetTokens === 'number'
+        ? {
+            thinking: {
+              type: 'enabled',
+              budget_tokens: selection.budgetTokens,
+            },
+          }
+        : {};
+    }
+    const effort = selection?.effort;
+    return {
+      thinking: { type: 'adaptive' },
+      ...(effort && effort !== 'minimal' ? { outputConfig: { effort } } : {}),
+    };
+  }
+
+  /** 将统一选择映射为 Gemini thinkingConfig。 */
+  private createGeminiThinkingConfig(
+    request: ResolvedLlmTextRequest,
+  ): GoogleGenerativeAIChatInput['thinkingConfig'] {
+    const capability = findModelReasoningCapability(
+      request.model.platform,
+      request.model.upstreamFormat,
+      request.model.model,
+    );
+    const mapping = capability?.requestMapping;
+    const selection = request.reasoning;
+    if (!mapping || mapping.kind !== 'gemini') {
+      return undefined;
+    }
+    if (mapping.mode === 'budget') {
+      return {
+        thinkingBudget:
+          selection?.activation === 'disabled'
+            ? 0
+            : selection?.budgetTokens === 'auto' ||
+                selection?.budgetTokens === undefined
+              ? -1
+              : selection.budgetTokens,
+      };
+    }
+    if (!selection?.effort || selection.effort === 'minimal') {
+      return undefined;
+    }
+    if (selection.effort === 'low') {
+      return { thinkingLevel: 'LOW' };
+    }
+    if (selection.effort === 'medium') {
+      return { thinkingLevel: 'MEDIUM' };
+    }
+    return selection.effort === 'high' ? { thinkingLevel: 'HIGH' } : undefined;
   }
 }

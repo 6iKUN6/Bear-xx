@@ -1,8 +1,13 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  flowDefinitionUsesAgentDefault,
+  type FlowDefinition,
+} from '@litter-bear/types/agent-flow';
 import {
   AgentFlowVersionStatus,
   ManagementAuditAction,
@@ -18,14 +23,38 @@ import { validateFlowDefinition } from '../agent-flow/definition/flow-definition
 import { AgentDefinitionService } from './agent-definition.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
-import { AgentResponseDto } from './dto/agent-response.dto';
+import {
+  AgentModelOptionsDto,
+  AgentResponseDto,
+} from './dto/agent-response.dto';
 import {
   AgentAccessService,
   type MembershipAccessSubject,
   type AgentAccessDecision,
 } from '../agent-access/agent-access.service';
+import type { ReasoningSelection } from '@litter-bear/types';
+import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
+import {
+  parsePersistedReasoningConfig,
+  parseReasoningSelection,
+  toPersistedReasoningJson,
+} from '../llm/dto/reasoning-selection.dto';
 
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
+
+const MODEL_PRESET_SELECTION = {
+  id: true,
+  presetId: true,
+  name: true,
+  model: true,
+  enabled: true,
+  connection: {
+    select: {
+      providerKey: true,
+      enabled: true,
+    },
+  },
+} as const;
 
 /**
  * 智能体 CRUD
@@ -38,6 +67,7 @@ export class AgentService {
     private readonly prisma: PrismaService,
     private readonly agentDefinitionService: AgentDefinitionService,
     private readonly agentAccessService: AgentAccessService,
+    private readonly modelRegistry: LlmModelRegistryService,
   ) {}
 
   async list(userId?: string): Promise<AgentResponseDto[]> {
@@ -58,6 +88,77 @@ export class AgentService {
       throw new NotFoundException('智能体不存在');
     }
     return this.toResponse(agent, await this.loadMembershipSubject(userId));
+  }
+
+  /**
+   * 列出指定智能体允许终端选择的可用模型
+   * @param id 智能体 ID
+   * @param userId 当前登录用户 ID
+   * @returns 返回默认模型和不含连接凭据的安全模型选项
+   * @description 使用资格与 visible 分开判断；有效 Flow 不消费 agent-default 时返回空集合。
+   */
+  async listModelOptions(
+    id: string,
+    userId: string,
+  ): Promise<AgentModelOptionsDto> {
+    const agent = await this.prisma.agent.findUnique({
+      where: { id },
+      include: AGENT_FLOW_INCLUDE,
+    });
+    if (!agent) {
+      throw new NotFoundException('智能体不存在');
+    }
+    const subject = await this.loadMembershipSubject(userId);
+    const access = this.agentAccessService.evaluate(
+      subject ?? {
+        membershipTier: MembershipTier.FREE,
+        membershipExpiresAt: null,
+      },
+      {
+        enabled: agent.enabled,
+        minimumMembershipTier: agent.minimumMembershipTier,
+      },
+    );
+    if (!access.canUse) {
+      throw new ForbiddenException('当前用户无权使用该智能体');
+    }
+
+    const definition = this.resolveEffectiveDefinition(
+      agent.defaultFlowVersion?.definition,
+    );
+    if (!flowDefinitionUsesAgentDefault(definition)) {
+      return {
+        agentId: agent.id,
+        defaultModelPresetId: null,
+        defaultReasoning: null,
+        models: [],
+      };
+    }
+
+    const models = agent.allowedModelPresets
+      .map((item) => item.modelPreset)
+      .filter((preset) => preset.enabled && preset.connection.enabled)
+      .map((preset) => ({
+        modelPresetId: preset.presetId,
+        name: preset.name,
+        providerKey: preset.connection.providerKey,
+        model: preset.model,
+        reasoningCapability:
+          this.modelRegistry.getReasoningCapability(preset.presetId) ?? null,
+      }));
+    const defaultPresetId = agent.defaultModelPreset?.presetId ?? null;
+    return {
+      agentId: agent.id,
+      defaultModelPresetId: models.some(
+        (model) => model.modelPresetId === defaultPresetId,
+      )
+        ? defaultPresetId
+        : null,
+      defaultReasoning:
+        parsePersistedReasoningConfig(agent.defaultReasoningConfig)
+          ?.selection ?? null,
+      models,
+    };
   }
 
   /** 查询后台全部智能体及原始开放配置 */
@@ -82,8 +183,15 @@ export class AgentService {
   }
 
   async create(dto: CreateAgentDto, userId: string): Promise<AgentResponseDto> {
-    await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
     const agent = await this.runSerializableTransaction(async (tx) => {
+      const execution = await this.resolveExecutionConfig(tx, {
+        flowVersionId: dto.defaultFlowVersionId ?? null,
+        allowedModelPresetIds: dto.allowedModelPresetIds ?? [],
+        defaultModelPresetId: dto.defaultModelPresetId ?? null,
+        defaultReasoning: parseReasoningSelection(
+          dto.defaultReasoning ?? undefined,
+        ),
+      });
       const created = await tx.agent.create({
         include: AGENT_FLOW_INCLUDE,
         data: {
@@ -91,13 +199,33 @@ export class AgentService {
           description: dto.description ?? '',
           avatar: dto.avatar?.trim() || null,
           systemPrompt: dto.systemPrompt ?? null,
-          modelPreset: dto.modelPreset ?? null,
-          defaultFlowVersionId: dto.defaultFlowVersionId ?? null,
+          ...(execution.flowVersionId
+            ? {
+                defaultFlowVersion: {
+                  connect: { id: execution.flowVersionId },
+                },
+              }
+            : {}),
+          ...(execution.defaultModel
+            ? {
+                defaultModelPreset: {
+                  connect: { id: execution.defaultModel.id },
+                },
+              }
+            : {}),
+          defaultReasoningConfig: execution.defaultReasoning
+            ? toPersistedReasoningJson(execution.defaultReasoning)
+            : Prisma.JsonNull,
+          allowedModelPresets: {
+            create: execution.allowedModels.map((model) => ({
+              modelPresetId: model.id,
+            })),
+          },
           enabled: dto.enabled ?? true,
           visible: dto.visible ?? true,
           minimumMembershipTier:
             dto.minimumMembershipTier ?? MembershipTier.FREE,
-          createdById: userId,
+          createdBy: { connect: { id: userId } },
         },
       });
       await tx.managementAuditLog.create({
@@ -120,79 +248,97 @@ export class AgentService {
     dto: UpdateAgentDto,
     actorId?: string,
   ): Promise<AgentResponseDto> {
-    await this.ensurePublishedFlowVersion(dto.defaultFlowVersionId);
-    const data = {
-      name: dto.name,
-      description: dto.description,
-      // undefined=不改；null/空串=清空，客户端显示名称首字
-      avatar: dto.avatar === undefined ? undefined : dto.avatar?.trim() || null,
-      systemPrompt: dto.systemPrompt,
-      modelPreset: dto.modelPreset,
-      defaultFlowVersionId: dto.defaultFlowVersionId,
-      enabled: dto.enabled,
-      visible: dto.visible,
-      minimumMembershipTier: dto.minimumMembershipTier,
-    };
-
-    if (actorId) {
-      const agent = await this.runSerializableTransaction(async (tx) => {
-        const currentAgent = await tx.agent.findUnique({ where: { id } });
-        if (!currentAgent) {
-          throw new NotFoundException('智能体不存在');
-        }
-        this.assertDefaultAgentUpdate(currentAgent, data);
-        const updated = await tx.agent.update({
-          where: { id },
-          data,
-          include: AGENT_FLOW_INCLUDE,
-        });
-        if (
-          currentAgent.enabled !== updated.enabled ||
+    const agent = await this.runSerializableTransaction(async (tx) => {
+      const currentAgent = await tx.agent.findUnique({
+        where: { id },
+        include: AGENT_FLOW_INCLUDE,
+      });
+      if (!currentAgent) {
+        throw new NotFoundException('智能体不存在');
+      }
+      const execution = await this.resolveExecutionConfig(tx, {
+        flowVersionId:
+          dto.defaultFlowVersionId === undefined
+            ? currentAgent.defaultFlowVersionId
+            : dto.defaultFlowVersionId,
+        allowedModelPresetIds:
+          dto.allowedModelPresetIds ??
+          currentAgent.allowedModelPresets.map(
+            (item) => item.modelPreset.presetId,
+          ),
+        defaultModelPresetId:
+          dto.defaultModelPresetId === undefined
+            ? (currentAgent.defaultModelPreset?.presetId ?? null)
+            : dto.defaultModelPresetId,
+        defaultReasoning:
+          dto.defaultReasoning === undefined
+            ? parsePersistedReasoningConfig(currentAgent.defaultReasoningConfig)
+                ?.selection
+            : parseReasoningSelection(dto.defaultReasoning ?? undefined),
+      });
+      const executionChanged =
+        dto.defaultFlowVersionId !== undefined ||
+        dto.allowedModelPresetIds !== undefined ||
+        dto.defaultModelPresetId !== undefined ||
+        dto.defaultReasoning !== undefined;
+      const data: Prisma.AgentUpdateInput = {
+        name: dto.name,
+        description: dto.description,
+        // undefined=不改；null/空串=清空，客户端显示名称首字
+        avatar:
+          dto.avatar === undefined ? undefined : dto.avatar?.trim() || null,
+        systemPrompt: dto.systemPrompt,
+        enabled: dto.enabled,
+        visible: dto.visible,
+        minimumMembershipTier: dto.minimumMembershipTier,
+        ...(dto.defaultFlowVersionId !== undefined
+          ? {
+              defaultFlowVersion: execution.flowVersionId
+                ? { connect: { id: execution.flowVersionId } }
+                : { disconnect: true },
+            }
+          : {}),
+        ...(executionChanged
+          ? {
+              defaultModelPreset: execution.defaultModel
+                ? { connect: { id: execution.defaultModel.id } }
+                : { disconnect: true },
+              allowedModelPresets: {
+                deleteMany: {},
+                create: execution.allowedModels.map((model) => ({
+                  modelPresetId: model.id,
+                })),
+              },
+              defaultReasoningConfig: execution.defaultReasoning
+                ? toPersistedReasoningJson(execution.defaultReasoning)
+                : Prisma.JsonNull,
+            }
+          : {}),
+      };
+      this.assertDefaultAgentUpdate(currentAgent, data);
+      const updated = await tx.agent.update({
+        where: { id },
+        data,
+        include: AGENT_FLOW_INCLUDE,
+      });
+      if (
+        actorId &&
+        (currentAgent.enabled !== updated.enabled ||
           currentAgent.visible !== updated.visible ||
-          currentAgent.minimumMembershipTier !== updated.minimumMembershipTier
-        ) {
-          await tx.managementAuditLog.create({
-            data: {
-              actorId,
-              targetType: ManagementAuditTargetType.AGENT,
-              targetId: id,
-              action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
-              before: this.accessSnapshot(currentAgent),
-              after: this.accessSnapshot(updated),
-            },
-          });
-        }
-        return updated;
-      });
-      this.agentDefinitionService.invalidate();
-      return this.toResponse(agent);
-    }
-
-    if (dto.enabled === false) {
-      const agent = await this.runSerializableTransaction(async (tx) => {
-        const currentAgent = await tx.agent.findUnique({ where: { id } });
-        if (!currentAgent) {
-          throw new NotFoundException('智能体不存在');
-        }
-        if (currentAgent.isDefault) {
-          throw new BadRequestException('默认智能体不可停用');
-        }
-        return tx.agent.update({
-          where: { id },
-          data,
-          include: AGENT_FLOW_INCLUDE,
+          currentAgent.minimumMembershipTier !== updated.minimumMembershipTier)
+      ) {
+        await tx.managementAuditLog.create({
+          data: {
+            actorId,
+            targetType: ManagementAuditTargetType.AGENT,
+            targetId: id,
+            action: ManagementAuditAction.AGENT_ACCESS_UPDATED,
+            before: this.accessSnapshot(currentAgent),
+            after: this.accessSnapshot(updated),
+          },
         });
-      });
-
-      this.agentDefinitionService.invalidate();
-      return this.toResponse(agent);
-    }
-
-    await this.ensureExists(id);
-    const agent = await this.prisma.agent.update({
-      where: { id },
-      data,
-      include: AGENT_FLOW_INCLUDE,
+      }
+      return updated;
     });
     this.agentDefinitionService.invalidate();
     return this.toResponse(agent);
@@ -334,33 +480,130 @@ export class AgentService {
     throw new Error('可串行化事务重试状态异常');
   }
 
-  private async ensureExists(id: string): Promise<Agent> {
-    const agent = await this.prisma.agent.findUnique({ where: { id } });
-    if (!agent) {
-      throw new NotFoundException('智能体不存在');
+  /**
+   * 解析并校验智能体的执行配置
+   * @param tx 当前可串行化事务客户端
+   * @param input 待保存的 FlowVersion、允许模型和默认模型业务标识
+   * @returns 返回可直接写入关系字段的 FlowVersion ID、默认模型和允许模型记录
+   * @description 未绑定 Flow 时使用内置 direct Definition；绑定时要求版本已发布且 Definition
+   * 符合当前契约。只有有效 Definition 使用 agent-default 时才允许并要求配置模型集合，且集合内
+   * 每个预设及其供应商连接都必须启用。
+   */
+  private async resolveExecutionConfig(
+    tx: Prisma.TransactionClient,
+    input: {
+      flowVersionId: string | null;
+      allowedModelPresetIds: string[];
+      defaultModelPresetId: string | null;
+      defaultReasoning?: ReasoningSelection;
+    },
+  ) {
+    let definition: FlowDefinition;
+    if (input.flowVersionId) {
+      const version = await tx.agentFlowVersion.findUnique({
+        where: { id: input.flowVersionId },
+        select: { status: true, definition: true },
+      });
+      if (!version || version.status !== AgentFlowVersionStatus.PUBLISHED) {
+        throw new BadRequestException('只能绑定已发布的 Flow 版本');
+      }
+      definition = this.resolveEffectiveDefinition(version.definition);
+    } else {
+      definition = createFlowDefinitionPreset('direct');
     }
-    return agent;
+
+    const usesAgentDefault = flowDefinitionUsesAgentDefault(definition);
+    if (!usesAgentDefault) {
+      if (
+        input.allowedModelPresetIds.length > 0 ||
+        input.defaultModelPresetId !== null ||
+        input.defaultReasoning !== undefined
+      ) {
+        throw new BadRequestException(
+          '当前 Flow 不使用 agent-default，不能配置 Agent 允许模型或默认模型',
+        );
+      }
+      return {
+        flowVersionId: input.flowVersionId,
+        defaultModel: null,
+        allowedModels: [],
+        defaultReasoning: undefined,
+      };
+    }
+
+    if (input.allowedModelPresetIds.length === 0) {
+      throw new BadRequestException(
+        '当前 Flow 使用 agent-default，请至少选择一个允许模型',
+      );
+    }
+    if (!input.defaultModelPresetId) {
+      throw new BadRequestException(
+        '当前 Flow 使用 agent-default，请选择 Agent 默认模型',
+      );
+    }
+    if (!input.allowedModelPresetIds.includes(input.defaultModelPresetId)) {
+      throw new BadRequestException('Agent 默认模型必须属于允许模型集合');
+    }
+
+    const allowedModels = await tx.modelPreset.findMany({
+      where: { presetId: { in: input.allowedModelPresetIds } },
+      select: MODEL_PRESET_SELECTION,
+    });
+    const modelsByPresetId = new Map(
+      allowedModels.map((model) => [model.presetId, model]),
+    );
+    const missingPresetId = input.allowedModelPresetIds.find(
+      (presetId) => !modelsByPresetId.has(presetId),
+    );
+    if (missingPresetId) {
+      throw new BadRequestException(`模型预设「${missingPresetId}」不存在`);
+    }
+    const orderedModels = input.allowedModelPresetIds.map((presetId) =>
+      modelsByPresetId.get(presetId)!,
+    );
+    const unavailableModel = orderedModels.find(
+      (model) => !model.enabled || !model.connection.enabled,
+    );
+    if (unavailableModel) {
+      throw new BadRequestException(
+        `模型预设「${unavailableModel.presetId}」或其供应商连接已停用`,
+      );
+    }
+
+    const defaultReasoning = this.modelRegistry.normalizePresetReasoning(
+      input.defaultModelPresetId,
+      input.defaultReasoning,
+      { applyDefault: true },
+    );
+
+    return {
+      flowVersionId: input.flowVersionId,
+      defaultModel: modelsByPresetId.get(input.defaultModelPresetId)!,
+      allowedModels: orderedModels,
+      defaultReasoning,
+    };
   }
 
   /**
-   * 校验待绑定的默认 FlowVersion 已发布
-   * @param versionId 管理端提交的 FlowVersion ID；undefined/null 表示不绑定或清除绑定
-   * @returns 无返回值
-   * @description Agent 只能指向不可变的 PUBLISHED 版本，避免新任务读取会被继续编辑的草稿或已归档的历史版本。
+   * 解析智能体当前生效的 Flow Definition
+   * @param boundDefinition 已绑定发布版本的 Definition；为空表示使用内置 direct Flow
+   * @returns 返回符合当前 schemaVersion 和图结构约束的 Flow Definition
+   * @description 该方法用于读取端判断 agent-default 依赖；损坏或旧版本工件会明确报错，
+   * 避免向终端返回一套实际无法执行的模型选项。
    */
-  private async ensurePublishedFlowVersion(
-    versionId: string | null | undefined,
-  ): Promise<void> {
-    if (versionId === undefined || versionId === null) {
-      return;
+  private resolveEffectiveDefinition(
+    boundDefinition: Prisma.JsonValue | null | undefined,
+  ): FlowDefinition {
+    if (!boundDefinition) {
+      return createFlowDefinitionPreset('direct');
     }
-    const version = await this.prisma.agentFlowVersion.findUnique({
-      where: { id: versionId },
-      select: { status: true },
-    });
-    if (!version || version.status !== AgentFlowVersionStatus.PUBLISHED) {
-      throw new BadRequestException('只能绑定已发布的 Flow 版本');
+    const parsed = validateFlowDefinition(boundDefinition);
+    if (!parsed.success) {
+      throw new BadRequestException(
+        `智能体绑定的 Flow 版本不兼容当前契约：${parsed.errors[0]?.message ?? 'Definition 无效'}`,
+      );
     }
+    return parsed.definition;
   }
 
   private toResponse(
@@ -384,7 +627,13 @@ export class AgentService {
       description: agent.description,
       avatar: agent.avatar,
       systemPrompt: agent.systemPrompt,
-      modelPreset: agent.modelPreset,
+      defaultModelPresetId: agent.defaultModelPreset?.presetId ?? null,
+      defaultReasoning:
+        parsePersistedReasoningConfig(agent.defaultReasoningConfig)
+          ?.selection ?? null,
+      allowedModelPresetIds: agent.allowedModelPresets.map(
+        (item) => item.modelPreset.presetId,
+      ),
       defaultFlowVersionId: agent.defaultFlowVersionId,
       toolGroups: resolveAgentToolGroups(agent.defaultFlowVersion?.definition),
       enabled: agent.enabled,
@@ -470,17 +719,17 @@ export class AgentService {
  */
 const AGENT_FLOW_INCLUDE = {
   defaultFlowVersion: { select: { definition: true } },
+  defaultModelPreset: { select: { presetId: true } },
+  allowedModelPresets: {
+    orderBy: { createdAt: 'asc' },
+    select: { modelPreset: { select: MODEL_PRESET_SELECTION } },
+  },
 } as const;
 
 /** Agent 行加上绑定 Flow 版本的 Definition。 */
-type AgentWithFlow = Agent & {
-  /**
-   * 绑定版本的 Definition
-   * @description 刻意**不可选**：写成可选的话，忘了带 `AGENT_FLOW_INCLUDE` 的查询依然
-   * 编译通过，只是运行时静默返回空工具组——那种错误要靠肉眼看界面才会发现。
-   */
-  defaultFlowVersion: { definition: Prisma.JsonValue } | null;
-};
+type AgentWithFlow = Prisma.AgentGetPayload<{
+  include: typeof AGENT_FLOW_INCLUDE;
+}>;
 
 /**
  * 推导一个智能体可用的工具组

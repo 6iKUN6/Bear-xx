@@ -62,8 +62,6 @@ async function main() {
         name: '通用助手',
         description: '默认对话智能体；未绑定 Flow 时执行内置的直接回复',
         systemPrompt: null,
-        // 留空即执行内置的「直接回复」Flow；模型由部署方在后台配置后再填
-        modelPreset: null,
         enabled: true,
         visible: true,
         minimumMembershipTier: MembershipTier.FREE,

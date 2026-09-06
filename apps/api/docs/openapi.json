@@ -326,6 +326,42 @@
         ]
       }
     },
+    "/api/agents/{id}/models": {
+      "get": {
+        "operationId": "AgentController_models",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentModelOptionsDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "获取智能体可选模型",
+        "tags": [
+          "智能体"
+        ]
+      }
+    },
     "/api/agents/{id}": {
       "get": {
         "operationId": "AgentController_get",
@@ -1469,6 +1505,307 @@
         ]
       }
     },
+    "/api/admin/model-provider-templates": {
+      "get": {
+        "operationId": "AdminModelProviderTemplateController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelProviderTemplateResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "内置模型供应商模板（管理员）",
+        "tags": [
+          "管理-模型供应商"
+        ]
+      }
+    },
+    "/api/admin/model-provider-connections": {
+      "get": {
+        "operationId": "AdminModelProviderConnectionController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelProviderConnectionResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "供应商连接列表（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      },
+      "post": {
+        "operationId": "AdminModelProviderConnectionController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateModelProviderConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProviderConnectionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "新建供应商连接及模型（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      }
+    },
+    "/api/admin/model-provider-connections/{id}": {
+      "get": {
+        "operationId": "AdminModelProviderConnectionController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProviderConnectionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "供应商连接详情（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminModelProviderConnectionController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateModelProviderConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProviderConnectionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "更新供应商连接（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminModelProviderConnectionController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "删除空供应商连接（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      }
+    },
+    "/api/admin/model-provider-connections/{id}/models": {
+      "post": {
+        "operationId": "AdminModelProviderConnectionController_createModel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateModelPresetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPresetResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "在供应商连接下新增模型（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      }
+    },
+    "/api/admin/model-provider-connections/{id}/probe": {
+      "post": {
+        "operationId": "AdminModelProviderConnectionController_probe",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeModelProviderConnectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProviderConnectionProbeResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "执行供应商连接最小探测（管理员）",
+        "tags": [
+          "管理-模型供应商连接"
+        ]
+      }
+    },
     "/api/admin/model-presets": {
       "get": {
         "operationId": "AdminModelPresetController_list",
@@ -1497,27 +1834,28 @@
         "tags": [
           "管理-模型预设"
         ]
-      },
-      "post": {
-        "operationId": "AdminModelPresetController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateModelPresetDto"
-              }
+      }
+    },
+    "/api/admin/model-presets/{id}/references": {
+      "get": {
+        "operationId": "AdminModelPresetController_references",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
             }
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ModelPresetResponseDto"
+                  "$ref": "#/components/schemas/ModelPresetReferencesResponseDto"
                 }
               }
             }
@@ -1528,7 +1866,7 @@
             "bearer": []
           }
         ],
-        "summary": "新建模型预设（管理员）",
+        "summary": "查询模型预设引用（管理员）",
         "tags": [
           "管理-模型预设"
         ]
@@ -1648,48 +1986,9 @@
         ]
       }
     },
-    "/api/admin/model-presets/probe": {
-      "post": {
-        "description": "两级探测：L1 验证连通性，L2 验证工具往返闭环。不落库、不改动任何预设。",
-        "operationId": "AdminModelPresetController_probeDraft",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProbeModelPresetDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelPresetProbeResultDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "探测尚未保存的模型连接（管理员）",
-        "tags": [
-          "管理-模型预设"
-        ]
-      }
-    },
     "/api/admin/model-presets/{id}/probe": {
       "post": {
-        "description": "使用已落库的密文密钥；结论写入 capability 与 lastCheck* 字段。",
-        "operationId": "AdminModelPresetController_probeExisting",
+        "operationId": "AdminModelPresetController_probe",
         "parameters": [
           {
             "name": "id",
@@ -1717,7 +2016,7 @@
             "bearer": []
           }
         ],
-        "summary": "探测已保存的模型预设并写回能力档位（管理员）",
+        "summary": "探测模型完整能力并写回档位（管理员）",
         "tags": [
           "管理-模型预设"
         ]
@@ -3658,6 +3957,44 @@
           }
         }
       },
+      "ReasoningSelectionDto": {
+        "type": "object",
+        "properties": {
+          "activation": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "disabled",
+              "auto"
+            ]
+          },
+          "effort": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          "budgetTokens": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "auto"
+                ]
+              }
+            ]
+          }
+        }
+      },
       "AgentResponseDto": {
         "type": "object",
         "properties": {
@@ -3683,10 +4020,30 @@
             "nullable": true,
             "description": "系统提示词；null=用内置默认"
           },
-          "modelPreset": {
+          "defaultModelPresetId": {
             "type": "object",
             "nullable": true,
-            "example": "kimi"
+            "description": "Agent 默认模型预设业务 ID；null 表示不提供 agent-default",
+            "example": "deepseek-official:deepseek-chat"
+          },
+          "defaultReasoning": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningSelectionDto"
+              }
+            ]
+          },
+          "allowedModelPresetIds": {
+            "description": "允许终端选择并用于解析 agent-default 的模型预设业务 ID",
+            "example": [
+              "deepseek-official:deepseek-chat"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "defaultFlowVersionId": {
             "type": "object",
@@ -3764,7 +4121,9 @@
           "description",
           "avatar",
           "systemPrompt",
-          "modelPreset",
+          "defaultModelPresetId",
+          "defaultReasoning",
+          "allowedModelPresetIds",
           "defaultFlowVersionId",
           "toolGroups",
           "enabled",
@@ -3776,6 +4135,223 @@
           "isDefault",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "ReasoningActivationCapabilityDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "enabled",
+                "disabled",
+                "auto"
+              ]
+            }
+          },
+          "defaultValue": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "disabled",
+              "auto"
+            ]
+          },
+          "configurable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "values",
+          "defaultValue",
+          "configurable"
+        ]
+      },
+      "ReasoningEffortCapabilityDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          },
+          "defaultValue": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          "configurable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "values",
+          "defaultValue",
+          "configurable"
+        ]
+      },
+      "ReasoningBudgetCapabilityDto": {
+        "type": "object",
+        "properties": {
+          "supportsAuto": {
+            "type": "boolean"
+          },
+          "minimum": {
+            "type": "number"
+          },
+          "maximum": {
+            "type": "number"
+          },
+          "lessThanMaxOutputTokens": {
+            "type": "boolean"
+          },
+          "defaultValue": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "auto"
+                ]
+              }
+            ]
+          },
+          "configurable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "supportsAuto",
+          "defaultValue",
+          "configurable"
+        ]
+      },
+      "ModelReasoningCapabilityDto": {
+        "type": "object",
+        "properties": {
+          "activation": {
+            "$ref": "#/components/schemas/ReasoningActivationCapabilityDto"
+          },
+          "effort": {
+            "$ref": "#/components/schemas/ReasoningEffortCapabilityDto"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/ReasoningBudgetCapabilityDto"
+          },
+          "defaultSelection": {
+            "$ref": "#/components/schemas/ReasoningSelectionDto"
+          },
+          "temperaturePolicy": {
+            "type": "string",
+            "enum": [
+              "allowed",
+              "forbidden",
+              "forbidden_when_enabled"
+            ]
+          },
+          "topPPolicy": {
+            "type": "string",
+            "enum": [
+              "allowed",
+              "forbidden",
+              "forbidden_when_enabled"
+            ]
+          }
+        },
+        "required": [
+          "temperaturePolicy",
+          "topPPolicy"
+        ]
+      },
+      "AgentModelOptionDto": {
+        "type": "object",
+        "properties": {
+          "modelPresetId": {
+            "type": "string",
+            "example": "deepseek-official:deepseek-chat"
+          },
+          "name": {
+            "type": "string",
+            "example": "DeepSeek Chat"
+          },
+          "providerKey": {
+            "type": "string",
+            "example": "deepseek"
+          },
+          "model": {
+            "type": "string",
+            "example": "deepseek-chat"
+          },
+          "reasoningCapability": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelReasoningCapabilityDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "modelPresetId",
+          "name",
+          "providerKey",
+          "model",
+          "reasoningCapability"
+        ]
+      },
+      "AgentModelOptionsDto": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "example": "cmf_agent_123"
+          },
+          "defaultModelPresetId": {
+            "type": "string",
+            "nullable": true,
+            "example": "deepseek-official:deepseek-chat"
+          },
+          "defaultReasoning": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningSelectionDto"
+              }
+            ]
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentModelOptionDto"
+            }
+          }
+        },
+        "required": [
+          "agentId",
+          "defaultModelPresetId",
+          "defaultReasoning",
+          "models"
         ]
       },
       "AdminLoginDto": {
@@ -4127,14 +4703,35 @@
             "type": "string",
             "description": "系统提示词；留空则回退到内置默认提示词"
           },
-          "modelPreset": {
+          "allowedModelPresetIds": {
+            "description": "允许终端为 agent-default 选择的模型预设业务 ID；有效 Flow 不使用 agent-default 时必须为空",
+            "example": [
+              "deepseek-official:deepseek-chat"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModelPresetId": {
             "type": "string",
-            "description": "模型预设 id；留空则用请求指定或全局默认模型",
-            "example": "kimi"
+            "description": "Agent 默认模型预设业务 ID；必须属于 allowedModelPresetIds，终端未选择时用于解析 agent-default",
+            "nullable": true,
+            "example": "deepseek-official:deepseek-chat"
+          },
+          "defaultReasoning": {
+            "nullable": true,
+            "description": "direct Agent 默认模型的思考设置",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningSelectionDto"
+              }
+            ]
           },
           "defaultFlowVersionId": {
             "type": "object",
-            "description": "默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置",
+            "description": "默认执行的已发布 FlowVersion ID；null 表示执行系统内置的直接回复 Flow",
             "nullable": true
           },
           "enabled": {
@@ -4185,14 +4782,35 @@
             "type": "string",
             "description": "系统提示词；留空则回退到内置默认提示词"
           },
-          "modelPreset": {
+          "allowedModelPresetIds": {
+            "description": "允许终端为 agent-default 选择的模型预设业务 ID；有效 Flow 不使用 agent-default 时必须为空",
+            "example": [
+              "deepseek-official:deepseek-chat"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultModelPresetId": {
             "type": "string",
-            "description": "模型预设 id；留空则用请求指定或全局默认模型",
-            "example": "kimi"
+            "description": "Agent 默认模型预设业务 ID；必须属于 allowedModelPresetIds，终端未选择时用于解析 agent-default",
+            "nullable": true,
+            "example": "deepseek-official:deepseek-chat"
+          },
+          "defaultReasoning": {
+            "nullable": true,
+            "description": "direct Agent 默认模型的思考设置",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningSelectionDto"
+              }
+            ]
           },
           "defaultFlowVersionId": {
             "type": "object",
-            "description": "默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置",
+            "description": "默认执行的已发布 FlowVersion ID；null 表示执行系统内置的直接回复 Flow",
             "nullable": true
           },
           "enabled": {
@@ -4944,15 +5562,43 @@
             "example": "gpt-5.6-terra",
             "description": "预设标识，写进节点 modelPreset"
           },
+          "name": {
+            "type": "string",
+            "example": "GPT-5.5",
+            "description": "模型预设显示名称"
+          },
+          "connectionName": {
+            "type": "string",
+            "example": "OpenAI 官方",
+            "description": "所属供应商连接显示名称"
+          },
+          "providerKey": {
+            "type": "string",
+            "example": "openai",
+            "description": "供应商模板标识，用于显示固定 Logo"
+          },
           "model": {
             "type": "string",
             "example": "gpt-5.6",
             "description": "底层模型名，仅用于界面区分同名预设"
+          },
+          "reasoningCapability": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelReasoningCapabilityDto"
+              }
+            ]
           }
         },
         "required": [
           "id",
-          "model"
+          "name",
+          "connectionName",
+          "providerKey",
+          "model",
+          "reasoningCapability"
         ]
       },
       "AgentCapabilitiesDto": {
@@ -4966,7 +5612,7 @@
             }
           },
           "modelPresets": {
-            "description": "可选的模型预设闭集。与 FlowRuntimeValidator 同一判据（listAvailableModels），因此不会列出发布期会被拒的选项；注册表加载时已过滤 enabled=false，故这里不含禁用预设。刻意不下发 baseURL 与 apiKeyHint——选择器只需要标识。",
+            "description": "可选的模型预设闭集。与 FlowRuntimeValidator 同一判据（listAvailableModels），因此不会列出发布期会被拒的选项；注册表加载时已过滤禁用模型和连接。刻意不下发 baseURL 与 apiKeyHint。",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ModelPresetOptionDto"
@@ -5101,15 +5747,135 @@
             "type": "string",
             "description": "指定测试的智能体 id；不传用默认智能体",
             "example": "agent_abc123"
-          },
-          "modelPreset": {
-            "type": "string",
-            "description": "指定模型预设 id（覆盖 agent 的模型）",
-            "example": "openai:gpt-5.5"
           }
         },
         "required": [
           "content"
+        ]
+      },
+      "ModelProviderRecommendedModelDto": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "upstreamFormat": {
+            "type": "string",
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages",
+              "gemini_generate_content"
+            ]
+          },
+          "reasoningCapability": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelReasoningCapabilityDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "model",
+          "name",
+          "upstreamFormat",
+          "reasoningCapability"
+        ]
+      },
+      "ModelProviderTemplateResponseDto": {
+        "type": "object",
+        "properties": {
+          "providerKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "defaultBaseURL": {
+            "type": "object",
+            "nullable": true
+          },
+          "defaultUpstreamFormat": {
+            "type": "string",
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages",
+              "gemini_generate_content"
+            ]
+          },
+          "allowedUpstreamFormats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "openai_chat_completions",
+                "openai_responses",
+                "anthropic_messages",
+                "gemini_generate_content"
+              ]
+            }
+          },
+          "recommendedModels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelProviderRecommendedModelDto"
+            }
+          }
+        },
+        "required": [
+          "providerKey",
+          "name",
+          "defaultBaseURL",
+          "defaultUpstreamFormat",
+          "allowedUpstreamFormats",
+          "recommendedModels"
+        ]
+      },
+      "ModelPresetConnectionSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "connectionKey": {
+            "type": "string"
+          },
+          "providerKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "baseURL": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "reachable",
+              "unreachable"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "connectionKey",
+          "providerKey",
+          "name",
+          "baseURL",
+          "enabled",
+          "status"
         ]
       },
       "ModelPresetResponseDto": {
@@ -5132,22 +5898,16 @@
             "enum": [
               "openai_chat_completions",
               "openai_responses",
-              "anthropic_messages"
+              "anthropic_messages",
+              "gemini_generate_content"
             ]
           },
           "provider": {
             "type": "string",
             "description": "provider，由 upstreamFormat 推导"
           },
-          "platform": {
-            "type": "string"
-          },
           "model": {
             "type": "string"
-          },
-          "baseURL": {
-            "type": "object",
-            "nullable": true
           },
           "temperature": {
             "type": "object",
@@ -5161,6 +5921,15 @@
             "type": "object",
             "nullable": true
           },
+          "reasoningCapability": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelReasoningCapabilityDto"
+              }
+            ]
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -5169,18 +5938,14 @@
           },
           "apiKeyConfigured": {
             "type": "boolean",
-            "description": "apiKey 是否已配置；密钥本身与完整指纹永不下发",
-            "example": true
+            "description": "API Key 是否已在所属连接配置；密钥本身永不下发"
           },
           "apiKeyHint": {
             "type": "object",
-            "description": "apiKey 脱敏标识（取自不可逆指纹尾部）",
-            "nullable": true,
-            "example": "Key ...a1b2c3"
+            "nullable": true
           },
           "capability": {
             "type": "string",
-            "description": "探针实测的能力档位",
             "enum": [
               "unverified",
               "unreachable",
@@ -5201,6 +5966,9 @@
           },
           "updatedAt": {
             "type": "number"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/ModelPresetConnectionSummaryDto"
           }
         },
         "required": [
@@ -5210,12 +5978,11 @@
           "description",
           "upstreamFormat",
           "provider",
-          "platform",
           "model",
-          "baseURL",
           "temperature",
           "maxOutputTokens",
           "topP",
+          "reasoningCapability",
           "enabled",
           "isDefault",
           "apiKeyConfigured",
@@ -5224,195 +5991,424 @@
           "lastCheckedAt",
           "lastCheckError",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "connection"
         ]
       },
-      "CreateModelPresetDto": {
+      "ModelProviderConnectionResponseDto": {
         "type": "object",
         "properties": {
-          "presetId": {
-            "type": "string",
-            "description": "业务预设 id（供 agent 引用）",
-            "example": "openai:gpt-5.5"
+          "id": {
+            "type": "string"
+          },
+          "connectionKey": {
+            "type": "string"
+          },
+          "providerKey": {
+            "type": "string"
           },
           "name": {
-            "type": "string",
-            "description": "显示名",
-            "example": "GPT-5.5"
-          },
-          "description": {
-            "type": "string",
-            "description": "描述"
-          },
-          "upstreamFormat": {
-            "type": "string",
-            "description": "上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置",
-            "enum": [
-              "openai_chat_completions",
-              "openai_responses",
-              "anthropic_messages"
-            ]
-          },
-          "platform": {
-            "type": "string",
-            "description": "平台标签，仅用于分组展示，可自由填写（如 openai / kimi / 自建中转站）",
-            "example": "openai"
-          },
-          "model": {
-            "type": "string",
-            "description": "模型名",
-            "example": "gpt-5.5"
+            "type": "string"
           },
           "baseURL": {
-            "type": "string",
-            "description": "上游 baseURL；留空用 SDK 默认地址"
-          },
-          "apiKey": {
-            "type": "string",
-            "description": "apiKey 明文；仅在写入时提交，加密落库后永不回显。留空表示不修改"
-          },
-          "temperature": {
-            "type": "number",
-            "description": "temperature"
-          },
-          "maxOutputTokens": {
-            "type": "number",
-            "description": "最大输出 token"
-          },
-          "topP": {
-            "type": "number",
-            "description": "topP"
+            "type": "string"
           },
           "enabled": {
-            "type": "boolean",
-            "description": "是否启用",
-            "default": true
+            "type": "boolean"
           },
-          "isDefault": {
-            "type": "boolean",
-            "description": "是否默认预设",
-            "default": false
+          "apiKeyConfigured": {
+            "type": "boolean"
+          },
+          "apiKeyHint": {
+            "type": "object",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unverified",
+              "reachable",
+              "unreachable"
+            ]
+          },
+          "lastCheckedAt": {
+            "type": "object",
+            "nullable": true
+          },
+          "lastCheckError": {
+            "type": "object",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelPresetResponseDto"
+            }
+          },
+          "agentReferenceCount": {
+            "type": "number"
+          },
+          "flowReferenceCount": {
+            "type": "number"
+          },
+          "taskReferenceCount": {
+            "type": "number"
           }
         },
         "required": [
-          "presetId",
+          "id",
+          "connectionKey",
+          "providerKey",
           "name",
-          "upstreamFormat",
-          "platform",
-          "model"
+          "baseURL",
+          "enabled",
+          "apiKeyConfigured",
+          "apiKeyHint",
+          "status",
+          "lastCheckedAt",
+          "lastCheckError",
+          "createdAt",
+          "updatedAt",
+          "models",
+          "agentReferenceCount",
+          "flowReferenceCount",
+          "taskReferenceCount"
         ]
       },
-      "UpdateModelPresetDto": {
+      "CreateConnectionModelDto": {
         "type": "object",
         "properties": {
-          "presetId": {
-            "type": "string",
-            "description": "业务预设 id（供 agent 引用）",
-            "example": "openai:gpt-5.5"
-          },
           "name": {
             "type": "string",
-            "description": "显示名",
-            "example": "GPT-5.5"
+            "description": "模型显示名称",
+            "example": "DeepSeek Chat"
           },
           "description": {
             "type": "string",
-            "description": "描述"
-          },
-          "upstreamFormat": {
-            "type": "string",
-            "description": "上游 wire 格式；决定使用哪个 SDK。provider 由它推导，不单独配置",
-            "enum": [
-              "openai_chat_completions",
-              "openai_responses",
-              "anthropic_messages"
-            ]
-          },
-          "platform": {
-            "type": "string",
-            "description": "平台标签，仅用于分组展示，可自由填写（如 openai / kimi / 自建中转站）",
-            "example": "openai"
+            "description": "模型用途说明"
           },
           "model": {
             "type": "string",
-            "description": "模型名",
-            "example": "gpt-5.5"
+            "description": "供应商模型 ID",
+            "example": "deepseek-chat"
           },
-          "baseURL": {
-            "type": "string",
-            "description": "上游 baseURL；留空用 SDK 默认地址"
-          },
-          "apiKey": {
-            "type": "string",
-            "description": "apiKey 明文；仅在写入时提交，加密落库后永不回显。留空表示不修改"
-          },
-          "temperature": {
-            "type": "number",
-            "description": "temperature"
-          },
-          "maxOutputTokens": {
-            "type": "number",
-            "description": "最大输出 token"
-          },
-          "topP": {
-            "type": "number",
-            "description": "topP"
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "是否启用",
-            "default": true
-          },
-          "isDefault": {
-            "type": "boolean",
-            "description": "是否默认预设",
-            "default": false
-          }
-        }
-      },
-      "ProbeModelPresetDto": {
-        "type": "object",
-        "properties": {
           "upstreamFormat": {
             "type": "string",
             "description": "上游 wire 格式",
             "enum": [
               "openai_chat_completions",
               "openai_responses",
-              "anthropic_messages"
+              "anthropic_messages",
+              "gemini_generate_content"
             ]
           },
-          "platform": {
-            "type": "string",
-            "description": "平台标签",
-            "example": "openai"
+          "temperature": {
+            "type": "number",
+            "description": "temperature"
           },
-          "model": {
-            "type": "string",
-            "description": "模型名",
-            "example": "gpt-5.5"
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 token"
           },
-          "baseURL": {
-            "type": "string",
-            "description": "上游 baseURL"
+          "topP": {
+            "type": "number",
+            "description": "topP"
           },
-          "apiKey": {
-            "type": "string",
-            "description": "apiKey 明文；对已落库预设探测时可省略，此时使用已保存的密钥"
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "是否设为系统默认模型"
           }
         },
         "required": [
-          "upstreamFormat",
-          "platform",
-          "model"
+          "name",
+          "model",
+          "upstreamFormat"
         ]
+      },
+      "CreateModelProviderConnectionDto": {
+        "type": "object",
+        "properties": {
+          "providerKey": {
+            "type": "string",
+            "description": "内置供应商模板标识",
+            "example": "deepseek"
+          },
+          "name": {
+            "type": "string",
+            "description": "连接显示名称",
+            "example": "DeepSeek 官方"
+          },
+          "baseURL": {
+            "type": "string",
+            "description": "供应商 API 根地址"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "API Key 明文，仅写入并加密落库"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateConnectionModelDto"
+            }
+          }
+        },
+        "required": [
+          "providerKey",
+          "name",
+          "baseURL",
+          "apiKey",
+          "models"
+        ]
+      },
+      "CreateModelPresetDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "模型显示名称",
+            "example": "DeepSeek Chat"
+          },
+          "description": {
+            "type": "string",
+            "description": "模型用途说明"
+          },
+          "model": {
+            "type": "string",
+            "description": "供应商模型 ID",
+            "example": "deepseek-chat"
+          },
+          "upstreamFormat": {
+            "type": "string",
+            "description": "上游 wire 格式",
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages",
+              "gemini_generate_content"
+            ]
+          },
+          "temperature": {
+            "type": "number",
+            "description": "temperature"
+          },
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 token"
+          },
+          "topP": {
+            "type": "number",
+            "description": "topP"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "是否设为系统默认模型"
+          }
+        },
+        "required": [
+          "name",
+          "model",
+          "upstreamFormat"
+        ]
+      },
+      "UpdateModelProviderConnectionDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "连接显示名称"
+          },
+          "baseURL": {
+            "type": "string",
+            "description": "供应商 API 根地址"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "新 API Key；省略表示保持已保存密钥不变"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用"
+          }
+        }
+      },
+      "ProbeModelProviderConnectionDto": {
+        "type": "object",
+        "properties": {
+          "modelPresetId": {
+            "type": "string",
+            "description": "属于当前连接的模型预设数据库 ID"
+          }
+        },
+        "required": [
+          "modelPresetId"
+        ]
+      },
+      "ModelProviderConnectionProbeResultDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "reachable",
+              "unreachable"
+            ]
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status",
+          "reachable",
+          "error"
+        ]
+      },
+      "ModelPresetReferenceDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "flow",
+              "task"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "object",
+            "nullable": true
+          },
+          "version": {
+            "type": "object",
+            "nullable": true
+          },
+          "status": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "name",
+          "versionId",
+          "version",
+          "status"
+        ]
+      },
+      "ModelPresetReferencesResponseDto": {
+        "type": "object",
+        "properties": {
+          "agentCount": {
+            "type": "number"
+          },
+          "flowCount": {
+            "type": "number"
+          },
+          "taskCount": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelPresetReferenceDto"
+            }
+          }
+        },
+        "required": [
+          "agentCount",
+          "flowCount",
+          "taskCount",
+          "items"
+        ]
+      },
+      "UpdateModelPresetDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "模型显示名称",
+            "example": "DeepSeek Chat"
+          },
+          "description": {
+            "type": "string",
+            "description": "模型用途说明"
+          },
+          "model": {
+            "type": "string",
+            "description": "供应商模型 ID",
+            "example": "deepseek-chat"
+          },
+          "upstreamFormat": {
+            "type": "string",
+            "description": "上游 wire 格式",
+            "enum": [
+              "openai_chat_completions",
+              "openai_responses",
+              "anthropic_messages",
+              "gemini_generate_content"
+            ]
+          },
+          "temperature": {
+            "type": "number",
+            "description": "temperature"
+          },
+          "maxOutputTokens": {
+            "type": "number",
+            "description": "最大输出 token"
+          },
+          "topP": {
+            "type": "number",
+            "description": "topP"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用",
+            "default": true
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "是否设为系统默认模型"
+          }
+        }
       },
       "ModelPresetProbeResultDto": {
         "type": "object",
         "properties": {
           "capability": {
             "type": "string",
-            "description": "探测出的能力档位",
             "enum": [
               "unverified",
               "unreachable",
@@ -5421,16 +6417,13 @@
             ]
           },
           "reachable": {
-            "type": "boolean",
-            "description": "L1 连通性是否通过"
+            "type": "boolean"
           },
           "toolRoundTrip": {
-            "type": "boolean",
-            "description": "L2 工具往返是否闭环"
+            "type": "boolean"
           },
           "error": {
             "type": "object",
-            "description": "失败原因（安全文本）",
             "nullable": true
           }
         },
@@ -6811,41 +7804,6 @@
       "ChatCompletionsDto": {
         "type": "object",
         "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "模型预设 ID，优先级最高，例如 openai:gpt-4o-mini",
-            "example": "openai:gpt-4o-mini"
-          },
-          "provider": {
-            "type": "string",
-            "description": "LLM Provider 名称，例如 openai",
-            "example": "openai"
-          },
-          "platform": {
-            "type": "string",
-            "description": "模型平台或商家名称，例如 openai、deepseek",
-            "example": "openai"
-          },
-          "model": {
-            "type": "string",
-            "description": "模型名称，例如 gpt-4o-mini",
-            "example": "gpt-4o-mini"
-          },
-          "temperature": {
-            "type": "number",
-            "description": "采样温度，建议范围 0 到 2",
-            "example": 0.7
-          },
-          "maxOutputTokens": {
-            "type": "number",
-            "description": "最大输出 Token 数",
-            "example": 2048
-          },
-          "topP": {
-            "type": "number",
-            "description": "Top P 采样参数，范围 0 到 1",
-            "example": 1
-          },
           "conversationId": {
             "type": "string",
             "description": "会话 ID；首轮消息可不传，后端会自动创建新会话",
@@ -6860,6 +7818,19 @@
             "type": "string",
             "description": "指定使用的智能体 id；不传则用默认智能体",
             "example": "agent_abc123"
+          },
+          "selectedModelPresetId": {
+            "type": "string",
+            "description": "本条消息选择的模型预设业务 ID；必须属于回答智能体允许集合，仅替换 Flow 中的 agent-default",
+            "example": "deepseek-official:deepseek-chat"
+          },
+          "reasoning": {
+            "description": "仅 direct Agent 可用的本轮思考设置",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningSelectionDto"
+              }
+            ]
           }
         },
         "required": [
@@ -6879,40 +7850,20 @@
             "description": "会话 ID；首轮语音消息可不传，后端会自动创建新会话",
             "example": "cmf_conv_123"
           },
-          "modelId": {
+          "selectedModelPresetId": {
             "type": "string",
-            "description": "模型预设 ID，优先级最高，例如 openai:gpt-4o-mini",
-            "example": "openai:gpt-4o-mini"
+            "description": "本条消息选择的模型预设业务 ID；必须属于回答智能体允许集合，仅替换 Flow 中的 agent-default",
+            "example": "deepseek-official:deepseek-chat"
           },
-          "provider": {
+          "agentId": {
             "type": "string",
-            "description": "LLM Provider 名称",
-            "example": "openai"
+            "description": "指定使用的智能体 id；不传则使用会话或系统默认智能体",
+            "example": "agent_abc123"
           },
-          "platform": {
+          "reasoning": {
             "type": "string",
-            "description": "模型平台或商家名称",
-            "example": "openai"
-          },
-          "model": {
-            "type": "string",
-            "description": "模型名称",
-            "example": "gpt-4o-mini"
-          },
-          "temperature": {
-            "type": "number",
-            "description": "采样温度",
-            "example": 0.7
-          },
-          "maxOutputTokens": {
-            "type": "number",
-            "description": "最大输出 Token 数",
-            "example": 2048
-          },
-          "topP": {
-            "type": "number",
-            "description": "Top P 采样参数",
-            "example": 1
+            "description": "JSON 字符串形式的本轮思考设置，仅 direct Agent 可用",
+            "example": "{\"activation\":\"enabled\",\"effort\":\"high\"}"
           }
         },
         "required": [

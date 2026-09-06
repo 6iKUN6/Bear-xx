@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ApprovalDecision } from '@litter-bear/types/protocol';
+import type { ReasoningSelection } from '@litter-bear/types';
+import type { BaseMessage } from '@langchain/core/messages';
 import { LlmService } from '../../../llm/llm.service';
 import type {
   LlmGenerationConfig,
@@ -9,8 +11,18 @@ import type {
   LlmTextRequest,
   ResolvedLlmTextRequest,
 } from '../../../llm/llm.types';
+import {
+  createReasoningFingerprint,
+  findModelReasoningCapability,
+} from '../../../llm/model-reasoning.catalog';
+import { extractModelContext } from '../../../llm/model-context';
+import type {
+  ModelContextEnvelope,
+  ModelContextIdentity,
+} from '../../../llm/model-context.schema';
 import { CommonChatAgentLoopService } from './common-chat-agent-loop.service';
 import type { CommonChatAgentStreamEvent } from './common-chat-agent.types';
+import { toLangChainMessages } from './llm-message.mapper';
 
 export interface CommonChatAgentRequest {
   modelPreset?: string | LlmModelPreset;
@@ -18,6 +30,7 @@ export interface CommonChatAgentRequest {
   messages: LlmMessage[];
   systemPrompt?: string;
   generation?: LlmGenerationConfig;
+  reasoning?: ReasoningSelection;
   tools?: unknown[];
   /** HITL 会话标识（checkpointer thread_id）；= taskId */
   threadId?: string;
@@ -26,6 +39,10 @@ export interface CommonChatAgentRequest {
   abortSignal?: AbortSignal;
   /** 底层模型每被真实调用一次回调一次；见 CommonChatAgentLoopRequest.onModelTurn */
   onModelTurn?: () => void;
+  /** 仅最终回答节点传入；正常完成后接收严格校验的隐藏模型上下文。 */
+  onCompletedModelContext?: (
+    context: ModelContextEnvelope,
+  ) => void | Promise<void>;
 }
 
 @Injectable()
@@ -95,12 +112,14 @@ export class CommonChatAgentService {
           modelId: request.modelPreset,
         },
         generation: request.generation,
+        reasoning: request.reasoning,
       };
     }
 
     if (!request.modelPreset) {
       return {
         generation: request.generation,
+        reasoning: request.reasoning,
       };
     }
 
@@ -121,6 +140,7 @@ export class CommonChatAgentService {
           request.modelPreset.maxOutputTokens,
         topP: request.generation?.topP ?? request.modelPreset.topP,
       },
+      reasoning: request.reasoning,
     };
   }
 
@@ -139,6 +159,7 @@ export class CommonChatAgentService {
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const resolvedRequest = this.llmService.resolveTextRequest(llmRequest);
     const chatModel = this.llmService.createChatModel(resolvedRequest);
+    const modelContext = this.prepareModelContext(request, resolvedRequest);
 
     this.debugLog('agent.common_chat.request', {
       model: this.toSafeModelLog(resolvedRequest),
@@ -152,13 +173,14 @@ export class CommonChatAgentService {
 
     for await (const event of this.commonChatAgentLoopService.stream({
       model: chatModel,
-      messages: request.messages,
+      messages: modelContext.messages,
       systemPrompt: request.systemPrompt,
       tools: request.tools,
       threadId: request.threadId,
       approvalToolNames: request.approvalToolNames,
       abortSignal: request.abortSignal,
       onModelTurn: request.onModelTurn,
+      onCompletedMessages: modelContext.onCompletedMessages,
     })) {
       yield event;
     }
@@ -177,10 +199,11 @@ export class CommonChatAgentService {
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const resolvedRequest = this.llmService.resolveTextRequest(llmRequest);
     const chatModel = this.llmService.createChatModel(resolvedRequest);
+    const modelContext = this.prepareModelContext(request, resolvedRequest);
 
     for await (const event of this.commonChatAgentLoopService.resume({
       model: chatModel,
-      messages: request.messages,
+      messages: modelContext.messages,
       systemPrompt: request.systemPrompt,
       tools: request.tools,
       threadId: request.threadId,
@@ -188,9 +211,98 @@ export class CommonChatAgentService {
       decision: request.decision,
       abortSignal: request.abortSignal,
       onModelTurn: request.onModelTurn,
+      onCompletedMessages: modelContext.onCompletedMessages,
     })) {
       yield event;
     }
+  }
+
+  private prepareModelContext(
+    request: CommonChatAgentRequest,
+    resolvedRequest: ResolvedLlmTextRequest,
+  ): {
+    messages: BaseMessage[];
+    onCompletedMessages?: (messages: BaseMessage[]) => Promise<void>;
+  } {
+    const identity = this.createModelContextIdentity(resolvedRequest);
+    let invalidContextCount = 0;
+    const messages = toLangChainMessages(request.messages, identity, () => {
+      invalidContextCount += 1;
+    });
+    if (invalidContextCount > 0) {
+      this.warnModelContext('model_context.replay_rejected', resolvedRequest, {
+        count: invalidContextCount,
+      });
+    }
+
+    if (!identity || !request.onCompletedModelContext) {
+      return { messages };
+    }
+    return {
+      messages,
+      onCompletedMessages: async (completedMessages) => {
+        try {
+          const context = extractModelContext(completedMessages, identity);
+          if (context) {
+            await request.onCompletedModelContext?.(context);
+          }
+        } catch {
+          this.warnModelContext(
+            'model_context.extraction_failed',
+            resolvedRequest,
+            { messageCount: completedMessages.length },
+          );
+        }
+      },
+    };
+  }
+
+  private createModelContextIdentity(
+    request: ResolvedLlmTextRequest,
+  ): ModelContextIdentity | undefined {
+    const capability = findModelReasoningCapability(
+      request.model.platform,
+      request.model.upstreamFormat,
+      request.model.model,
+    );
+    if (!capability || capability.contextPolicy === 'none') {
+      return undefined;
+    }
+    return {
+      providerKey: request.model.platform,
+      upstreamFormat: request.model.upstreamFormat,
+      model: request.model.model,
+      reasoningFingerprint: createReasoningFingerprint(
+        request.model.platform,
+        request.model.upstreamFormat,
+        request.model.model,
+        request.reasoning,
+      ),
+      policy: capability.contextPolicy,
+    };
+  }
+
+  private warnModelContext(
+    event: string,
+    request: ResolvedLlmTextRequest,
+    detail: Record<string, number>,
+  ): void {
+    const capability = findModelReasoningCapability(
+      request.model.platform,
+      request.model.upstreamFormat,
+      request.model.model,
+    );
+    Logger.warn(
+      this.formatLog(event, {
+        version: 1,
+        providerKey: request.model.platform,
+        upstreamFormat: request.model.upstreamFormat,
+        model: request.model.model,
+        policy: capability?.contextPolicy ?? 'none',
+        ...detail,
+      }),
+      CommonChatAgentService.name,
+    );
   }
 
   private toSafeModelLog(request: ResolvedLlmTextRequest) {

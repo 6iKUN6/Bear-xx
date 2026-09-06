@@ -6,10 +6,16 @@ import { AdminController } from './admin.controller';
 import { AdminCapabilityController } from './admin-capability.controller';
 import { AdminAgentTestController } from './admin-agent-test.controller';
 import { AdminModelPresetController } from './admin-model-preset.controller';
+import {
+  AdminModelProviderConnectionController,
+  AdminModelProviderTemplateController,
+} from './admin-model-provider.controller';
 import { AdminObservabilityService } from './admin-observability.service';
 import { AgentTestSessionService } from './agent-test-session.service';
 import { ModelPresetService } from './model-preset.service';
 import { ModelPresetProbeService } from './model-preset-probe.service';
+import { ModelPresetReferenceService } from './model-preset-reference.service';
+import { ModelProviderConnectionService } from './model-provider-connection.service';
 import { AuthModule } from '../auth/auth.module';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminUserController } from './admin-user.controller';
@@ -38,6 +44,8 @@ import { AdminStorageController } from './admin-storage.controller';
     AdminController,
     AdminCapabilityController,
     AdminAgentTestController,
+    AdminModelProviderTemplateController,
+    AdminModelProviderConnectionController,
     AdminModelPresetController,
   ],
   providers: [
@@ -45,6 +53,8 @@ import { AdminStorageController } from './admin-storage.controller';
     AgentTestSessionService,
     ModelPresetService,
     ModelPresetProbeService,
+    ModelPresetReferenceService,
+    ModelProviderConnectionService,
     AdminUserService,
   ],
 })

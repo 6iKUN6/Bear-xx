@@ -1,4 +1,6 @@
-export type LlmProviderName = 'openai' | 'anthropic';
+import type { ReasoningSelection } from '@litter-bear/types';
+
+export type LlmProviderName = 'openai' | 'anthropic' | 'google';
 
 /**
  * 上游 wire 格式闭集
@@ -7,7 +9,41 @@ export type LlmProviderName = 'openai' | 'anthropic';
  * 不存在的状态。合法的 (platform, format) 组合由连通性探针实测决定，不硬编码矩阵。
  */
 export type LlmUpstreamFormat =
-  'openai_chat_completions' | 'openai_responses' | 'anthropic_messages';
+  | 'openai_chat_completions'
+  | 'openai_responses'
+  | 'anthropic_messages'
+  | 'gemini_generate_content';
+
+export interface LlmReasoningActivationCapability {
+  values: readonly ('enabled' | 'disabled' | 'auto')[];
+  defaultValue: 'enabled' | 'disabled' | 'auto';
+  configurable: boolean;
+}
+
+export interface LlmReasoningEffortCapability {
+  values: readonly ('minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max')[];
+  defaultValue: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  configurable: boolean;
+}
+
+export interface LlmReasoningBudgetCapability {
+  supportsAuto: boolean;
+  minimum?: number;
+  maximum?: number;
+  lessThanMaxOutputTokens?: boolean;
+  defaultValue: number | 'auto';
+  configurable: boolean;
+}
+
+/** 可安全下发前端的模型思考能力投影。 */
+export interface LlmReasoningCapability {
+  activation?: LlmReasoningActivationCapability;
+  effort?: LlmReasoningEffortCapability;
+  budget?: LlmReasoningBudgetCapability;
+  defaultSelection?: ReasoningSelection;
+  temperaturePolicy: 'allowed' | 'forbidden' | 'forbidden_when_enabled';
+  topPPolicy: 'allowed' | 'forbidden' | 'forbidden_when_enabled';
+}
 
 /**
  * 由探针实测得出的预设能力档位
@@ -20,6 +56,8 @@ export type LlmPresetCapability =
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** 仅服务端内部使用；不得进入 REST、SSE、Trace 或客户端状态。 */
+  modelContext?: unknown;
 }
 
 export interface LlmModelConfig {
@@ -48,6 +86,8 @@ export interface LlmModelPreset extends LlmModelConfig {
  */
 export interface LlmModelPresetSummary {
   id: string;
+  name: string;
+  connectionName: string;
   platform: string;
   model: string;
   provider: LlmProviderName;
@@ -60,6 +100,7 @@ export interface LlmModelPresetSummary {
   temperature?: number;
   maxOutputTokens?: number;
   topP?: number;
+  reasoningCapability?: LlmReasoningCapability;
 }
 
 export interface LlmModelSelector {
@@ -78,6 +119,7 @@ export interface LlmGenerationConfig {
 export interface LlmTextRequest {
   model?: LlmModelSelector;
   generation?: LlmGenerationConfig;
+  reasoning?: ReasoningSelection;
 }
 
 export interface ResolvedLlmModelConfig extends LlmModelConfig {
@@ -90,6 +132,7 @@ export interface ResolvedLlmModelConfig extends LlmModelConfig {
 export interface ResolvedLlmTextRequest {
   model: ResolvedLlmModelConfig;
   generation: LlmGenerationConfig;
+  reasoning?: ReasoningSelection;
 }
 
 export interface LlmStreamOptions {

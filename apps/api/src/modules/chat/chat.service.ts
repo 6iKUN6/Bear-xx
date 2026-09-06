@@ -4,8 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { StreamTaskService } from '../stream-task/stream-task.service';
 import { MessageRole, MessageStatus } from '@prisma/client';
-import type { LlmTextRequest } from '../llm/llm.types';
 import type { TaskStreamResult } from '../stream-task/stream-task.service';
+import type { ReasoningSelection } from '@litter-bear/types';
 
 @Injectable()
 export class ChatService {
@@ -23,22 +23,24 @@ export class ChatService {
    * @param conversationId 会话ID
    * @param content 用户消息内容
    * @param userId 用户ID
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 负责接收文本聊天请求，并将模型选择与生成参数一并委托给流式任务模块处理。
+   * @description 负责接收文本聊天请求，并将受 Agent 允许集合约束的单条消息模型选择委托给流式任务模块处理。
    */
   async createCompletionTask(
     conversationId: string | undefined,
     content: string,
     userId: string,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     agentId?: string,
   ) {
     return this.streamTaskService.createChatTask(
       conversationId,
       content,
       userId,
-      llmRequest,
+      selectedModelPresetId,
+      reasoning,
       agentId,
     );
   }
@@ -48,7 +50,7 @@ export class ChatService {
    * @param conversationId 会话ID
    * @param content 用户消息内容
    * @param userId 用户ID
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @param signal 连接中断信号
    * @returns 返回包含异步流式事件的对象
    * @description 统一处理文本消息发送、首轮自动建会话、任务创建和首轮流式建链，供聊天主入口直接使用。
@@ -57,7 +59,8 @@ export class ChatService {
     conversationId: string | undefined,
     content: string,
     userId: string,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     signal?: AbortSignal,
     agentId?: string,
   ): Promise<TaskStreamResult> {
@@ -65,7 +68,8 @@ export class ChatService {
       conversationId,
       content,
       userId,
-      llmRequest,
+      selectedModelPresetId,
+      reasoning,
       signal,
       agentId,
     );
@@ -77,16 +81,17 @@ export class ChatService {
    * @param audioBuffer 音频二进制数据
    * @param filename 音频文件名
    * @param userId 用户ID
-   * @param llmRequest 文本生成请求配置
+   * @param selectedModelPresetId 本条消息选择的 Agent 允许模型预设业务标识
    * @returns 返回任务信息，包含 taskId、messageId 和初始状态
-   * @description 负责接收语音聊天请求，先转写音频内容，再携带模型配置创建对应的可恢复的流式任务。
+   * @description 负责接收语音聊天请求，先转写音频内容，再携带受限的单条消息模型选择创建可恢复任务。
    */
   async createVoiceTask(
     conversationId: string | undefined,
     audioBuffer: Buffer,
     filename: string,
     userId: string,
-    llmRequest?: LlmTextRequest,
+    selectedModelPresetId?: string,
+    reasoning?: ReasoningSelection,
     agentId?: string,
   ) {
     return this.streamTaskService.createVoiceTask(
@@ -94,7 +99,8 @@ export class ChatService {
       audioBuffer,
       filename,
       userId,
-      llmRequest,
+      selectedModelPresetId,
+      reasoning,
       agentId,
     );
   }

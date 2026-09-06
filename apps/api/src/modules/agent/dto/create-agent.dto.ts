@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsOptional,
@@ -7,6 +10,9 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MembershipTier } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { IsObject, ValidateNested } from 'class-validator';
+import { ReasoningSelectionDto } from '../../llm/dto/reasoning-selection.dto';
 
 export class CreateAgentDto {
   @ApiProperty({ description: '智能体名称', example: '通用助手' })
@@ -39,16 +45,44 @@ export class CreateAgentDto {
   systemPrompt?: string;
 
   @ApiPropertyOptional({
-    description: '模型预设 id；留空则用请求指定或全局默认模型',
-    example: 'kimi',
+    description:
+      '允许终端为 agent-default 选择的模型预设业务 ID；有效 Flow 不使用 agent-default 时必须为空',
+    type: String,
+    isArray: true,
+    example: ['deepseek-official:deepseek-chat'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(32)
+  @IsString({ each: true })
+  allowedModelPresetIds?: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    description:
+      'Agent 默认模型预设业务 ID；必须属于 allowedModelPresetIds，终端未选择时用于解析 agent-default',
+    nullable: true,
+    example: 'deepseek-official:deepseek-chat',
   })
   @IsOptional()
   @IsString()
-  modelPreset?: string;
+  defaultModelPresetId?: string | null;
+
+  @ApiPropertyOptional({
+    type: ReasoningSelectionDto,
+    nullable: true,
+    description: 'direct Agent 默认模型的思考设置',
+  })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ReasoningSelectionDto)
+  defaultReasoning?: ReasoningSelectionDto | null;
 
   @ApiPropertyOptional({
     description:
-      '默认执行的已发布 FlowVersion ID；null 表示继续使用历史策略配置',
+      '默认执行的已发布 FlowVersion ID；null 表示执行系统内置的直接回复 Flow',
     nullable: true,
   })
   @IsOptional()

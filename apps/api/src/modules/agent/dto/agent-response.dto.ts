@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { MembershipTier } from '@prisma/client';
 import { AgentAccessDenialReason } from '../../agent-access/agent-access.service';
+import {
+  ModelReasoningCapabilityDto,
+  ReasoningSelectionDto,
+} from '../../llm/dto/reasoning-selection.dto';
 
 export class AgentResponseDto {
   @ApiProperty({ example: 'cmf_agent_123' })
@@ -22,8 +26,23 @@ export class AgentResponseDto {
   @ApiProperty({ nullable: true, description: '系统提示词；null=用内置默认' })
   systemPrompt: string | null;
 
-  @ApiProperty({ nullable: true, example: 'kimi' })
-  modelPreset: string | null;
+  @ApiProperty({
+    nullable: true,
+    description: 'Agent 默认模型预设业务 ID；null 表示不提供 agent-default',
+    example: 'deepseek-official:deepseek-chat',
+  })
+  defaultModelPresetId: string | null;
+
+  @ApiProperty({ type: ReasoningSelectionDto, nullable: true })
+  defaultReasoning: ReasoningSelectionDto | null;
+
+  @ApiProperty({
+    type: String,
+    isArray: true,
+    description: '允许终端选择并用于解析 agent-default 的模型预设业务 ID',
+    example: ['deepseek-official:deepseek-chat'],
+  })
+  allowedModelPresetIds: string[];
 
   @ApiProperty({
     nullable: true,
@@ -69,4 +88,41 @@ export class AgentResponseDto {
 
   @ApiProperty({ example: 1735689600000 })
   updatedAt: number;
+}
+
+/** 终端可安全展示和提交的 Agent 模型选项。 */
+export class AgentModelOptionDto {
+  @ApiProperty({ example: 'deepseek-official:deepseek-chat' })
+  modelPresetId: string;
+
+  @ApiProperty({ example: 'DeepSeek Chat' })
+  name: string;
+
+  @ApiProperty({ example: 'deepseek' })
+  providerKey: string;
+
+  @ApiProperty({ example: 'deepseek-chat' })
+  model: string;
+
+  @ApiProperty({ type: ModelReasoningCapabilityDto, nullable: true })
+  reasoningCapability: ModelReasoningCapabilityDto | null;
+}
+
+/** 指定 Agent 当前允许终端选择的可用模型。 */
+export class AgentModelOptionsDto {
+  @ApiProperty({ example: 'cmf_agent_123' })
+  agentId: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'deepseek-official:deepseek-chat',
+  })
+  defaultModelPresetId: string | null;
+
+  @ApiProperty({ type: ReasoningSelectionDto, nullable: true })
+  defaultReasoning: ReasoningSelectionDto | null;
+
+  @ApiProperty({ type: AgentModelOptionDto, isArray: true })
+  models: AgentModelOptionDto[];
 }

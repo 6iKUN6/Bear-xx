@@ -1,8 +1,26 @@
-import { AgentFlowVersionStatus } from '@prisma/client';
+import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 
 describe('FlowTaskDispatcherService', () => {
+  function agentModelConfig(presetId: string | null) {
+    return {
+      defaultModelPreset: presetId ? { presetId } : null,
+      defaultReasoningConfig: null,
+      allowedModelPresets: presetId
+        ? [
+            {
+              modelPreset: {
+                presetId,
+                enabled: true,
+                connection: { enabled: true },
+              },
+            },
+          ]
+        : [],
+    };
+  }
+
   function createService(runtimeValid = true) {
     // 任务锁定期校验的替身：默认放行，专门的用例再让它失败
     const runtimeValidator = {
@@ -42,6 +60,11 @@ describe('FlowTaskDispatcherService', () => {
         definition: createFlowDefinitionPreset('direct'),
       }),
     };
+    const modelRegistry = {
+      normalizePresetReasoning: jest.fn(
+        (_presetId: string, selection: unknown) => selection,
+      ),
+    };
 
     return {
       service: new FlowTaskDispatcherService(
@@ -49,11 +72,13 @@ describe('FlowTaskDispatcherService', () => {
         temporalClient as never,
         runtimeValidator as never,
         builtinFlow as never,
+        modelRegistry as never,
       ),
       prisma,
       temporalClient,
       runtimeValidator,
       builtinFlow,
+      modelRegistry,
     };
   }
 
@@ -61,7 +86,7 @@ describe('FlowTaskDispatcherService', () => {
     const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
-      modelPreset: 'openai:gpt-5.5',
+      ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: {
         id: 'flow-version-1',
         digest: 'a'.repeat(64),
@@ -81,6 +106,8 @@ describe('FlowTaskDispatcherService', () => {
       // 入口现在是声明式的 start 节点，不再是「第一个没有入边的业务节点」
       currentStep: 'start',
       agentId: 'agent-1',
+      resolvedAgentModelPresetId: 'openai:gpt-5.5',
+      resolvedAgentReasoningConfig: Prisma.JsonNull,
     });
   });
 
@@ -90,7 +117,7 @@ describe('FlowTaskDispatcherService', () => {
     // AGENT_FLOW_RUNTIME_CONTEXT_INVALID 死掉，用户只看到一句「流程执行失败」
     const { service, prisma, runtimeValidator } = createService(false);
     prisma.agent.findUnique.mockResolvedValue({
-      modelPreset: null,
+      ...agentModelConfig(null),
       defaultFlowVersion: {
         id: 'flow-version-1',
         digest: 'a'.repeat(64),
@@ -104,12 +131,121 @@ describe('FlowTaskDispatcherService', () => {
         agentId: 'agent-1',
         isTest: true,
       }),
-    ).rejects.toThrow(/无法运行/);
+    ).rejects.toThrow('当前智能体尚未配置默认模型');
 
+    expect(runtimeValidator.validate).not.toHaveBeenCalled();
+  });
+
+  it('本条消息选择允许集合中的模型并锁定到任务快照', async () => {
+    const { service, prisma, runtimeValidator, modelRegistry } =
+      createService();
+    modelRegistry.normalizePresetReasoning.mockReturnValue({ effort: 'high' });
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      defaultModelPreset: { presetId: 'model-default' },
+      defaultReasoningConfig: {
+        version: 1,
+        selection: { effort: 'low' },
+      },
+      allowedModelPresets: [
+        {
+          modelPreset: {
+            presetId: 'model-default',
+            enabled: true,
+            connection: { enabled: true },
+          },
+        },
+        {
+          modelPreset: {
+            presetId: 'model-selected',
+            enabled: true,
+            connection: { enabled: true },
+          },
+        },
+      ],
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
+    });
+
+    const snapshot = await service.resolveTaskFlowSnapshot(
+      { agent: prisma.agent } as never,
+      { agentId: 'agent-1', selectedModelPresetId: 'model-selected' },
+    );
+
+    expect(snapshot.resolvedAgentModelPresetId).toBe('model-selected');
+    expect(snapshot.resolvedAgentReasoningConfig).toEqual({
+      version: 1,
+      selection: { effort: 'high' },
+    });
+    expect(modelRegistry.normalizePresetReasoning).toHaveBeenCalledWith(
+      'model-selected',
+      undefined,
+      { applyDefault: true },
+    );
     expect(runtimeValidator.validate).toHaveBeenCalledWith(expect.anything(), {
       phase: 'task',
-      agentDefaultModelPreset: null,
+      agentDefaultModelPreset: 'model-selected',
+      agentDefaultReasoning: { effort: 'high' },
     });
+  });
+
+  it('拒绝选择 Agent 允许集合之外的模型', async () => {
+    const { service, prisma, runtimeValidator } = createService();
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ...agentModelConfig('model-default'),
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
+    });
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+        selectedModelPresetId: 'model-outside',
+      }),
+    ).rejects.toThrow('不在当前智能体允许集合中');
+    expect(runtimeValidator.validate).not.toHaveBeenCalled();
+  });
+
+  it('Flow 全部使用显式模型时拒绝无效的终端模型覆盖', async () => {
+    const { service, prisma } = createService();
+    const direct = createFlowDefinitionPreset('direct');
+    const explicit = {
+      ...direct,
+      nodes: direct.nodes.map((node) =>
+        node.type === 'agent'
+          ? {
+              ...node,
+              config: { ...node.config, modelPreset: 'model-explicit' },
+            }
+          : node,
+      ),
+    };
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ...agentModelConfig(null),
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: explicit,
+      },
+    });
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+        selectedModelPresetId: 'model-selected',
+      }),
+    ).rejects.toThrow('当前 Flow 不使用 agent-default');
   });
 
   it('普通聊天同样走 Flow，不再有 isTest 闸门', async () => {
@@ -117,7 +253,7 @@ describe('FlowTaskDispatcherService', () => {
     const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
-      modelPreset: 'openai:gpt-5.5',
+      ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: null,
     });
 
@@ -135,7 +271,7 @@ describe('FlowTaskDispatcherService', () => {
     const { service, prisma } = createService();
     prisma.agent.findFirst.mockResolvedValue({
       id: 'default-agent-id',
-      modelPreset: 'openai:gpt-5.5',
+      ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: null,
     });
 
@@ -221,7 +357,7 @@ describe('FlowTaskDispatcherService', () => {
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
-      modelPreset: 'openai:gpt-5.5',
+      ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: null,
     });
 
@@ -239,6 +375,8 @@ describe('FlowTaskDispatcherService', () => {
       flowDigest: 'b'.repeat(64),
       currentStep: 'start',
       agentId: 'agent-1',
+      resolvedAgentModelPresetId: 'openai:gpt-5.5',
+      resolvedAgentReasoningConfig: Prisma.JsonNull,
     });
   });
 
@@ -246,7 +384,7 @@ describe('FlowTaskDispatcherService', () => {
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
-      modelPreset: 'openai:gpt-5.5',
+      ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: {
         id: 'flow-version-1',
         digest: 'a'.repeat(64),
@@ -273,7 +411,7 @@ describe('FlowTaskDispatcherService', () => {
     const { service, prisma, builtinFlow } = createService();
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
-      modelPreset: 'openai:gpt-5.5',
+      ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: null,
     });
     builtinFlow.findDirectVersion.mockResolvedValue(null);

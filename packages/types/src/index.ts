@@ -6,3 +6,4 @@
  */
 export * from "./protocol";
 export * from "./agent-flow/index.js";
+export * from "./model-reasoning.js";

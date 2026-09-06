@@ -25,14 +25,6 @@ export class AgentTestDto {
   @IsOptional()
   @IsString()
   agentId?: string;
-
-  @ApiPropertyOptional({
-    description: '指定模型预设 id（覆盖 agent 的模型）',
-    example: 'openai:gpt-5.5',
-  })
-  @IsOptional()
-  @IsString()
-  modelPreset?: string;
 }
 
 export class TestSessionDto {

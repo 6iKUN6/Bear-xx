@@ -1,14 +1,18 @@
+import type { ReasoningSelection } from "../model-reasoning.js";
+
 /**
  * AgentFlow Definition 当前支持的 JSON schema 版本。
  * @description 2 引入变量模型（`$ref`）、condition 分支与泛化的分支键；3 引入必需的 start 节点，
  * 并用它取代 `$input` 这个凭空存在的变量来源；4 把计划数据从隐式的全局状态改为显式 `$ref`
  * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点；6 引入受控 loop 节点；
- * 7 引入每张图唯一且强制显式连接的 end 节点。
+ * 7 引入每张图唯一且强制显式连接的 end 节点；8 让 plan 与模型审批显式声明模型，
+ * 从而让 Flow 内全部模型调用都服从同一套模型归属规则；9 为每个真实模型调用节点增加
+ * 供应商无关的思考选择。
  * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 7 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 9 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -89,6 +93,7 @@ export interface FlowPolicy {
 export interface FlowAgentNodeConfig {
   /** 缺省时继承任务锁定的 Agent 默认模型。 */
   readonly modelPreset?: string;
+  readonly reasoning?: ReasoningSelection;
   readonly toolGroups: readonly string[];
   readonly skills: readonly string[];
   readonly maxToolIterations: number;
@@ -96,6 +101,9 @@ export interface FlowAgentNodeConfig {
 
 /** Plan 节点配置。 */
 export interface FlowPlanNodeConfig {
+  /** 缺省时继承任务锁定的 Agent 默认模型。 */
+  readonly modelPreset?: string;
+  readonly reasoning?: ReasoningSelection;
   readonly maxSteps: number;
 }
 
@@ -136,6 +144,10 @@ export type FlowApprovalPolicy = "always" | "never" | "model";
 export interface FlowApprovalNodeConfig {
   readonly kind: "plan-review";
   readonly policy: FlowApprovalPolicy;
+  /** 仅 policy=model 时生效；缺省时继承任务锁定的 Agent 默认模型。 */
+  readonly modelPreset?: string;
+  /** 仅 policy=model 时生效，并按所选模型的能力目录校验。 */
+  readonly reasoning?: ReasoningSelection;
   /** 要审的是哪份计划；必须指向 plan 节点（重规划要用它的 maxSteps） */
   readonly planRef: FlowRef;
 }
@@ -281,6 +293,7 @@ export interface FlowSynthesizeNodeConfig {
    * synthesize 不能」，且任何含 synthesize 的图都强制要求智能体配了默认模型。
    */
   readonly modelPreset?: string;
+  readonly reasoning?: ReasoningSelection;
 }
 
 /** 汇总节点。 */
@@ -551,6 +564,36 @@ export interface FlowDefinition {
   readonly nodes: readonly FlowNode[];
   readonly edges: readonly FlowEdge[];
   readonly layout?: FlowLayout;
+}
+
+/**
+ * 判断一张 Flow 是否依赖任务锁定的 Agent 默认模型
+ * @param definition 已通过结构校验或由内置模板生成的 Flow Definition
+ * @returns 任一真实模型调用节点缺省模型或声明 agent-default 时返回 true
+ * @description Agent 保存校验、任务快照和 Admin 表单必须共用这一判据。审批节点只有
+ * policy=model 时才调用模型；always/never 即使脏数据带了 modelPreset 也不应制造依赖。
+ */
+export function flowDefinitionUsesAgentDefault(
+  definition: Pick<FlowDefinition, "nodes">,
+): boolean {
+  return definition.nodes.some((node) => {
+    const usesDefault = (modelPreset: string | undefined) =>
+      !modelPreset || modelPreset === "agent-default";
+    switch (node.type) {
+      case "agent":
+      case "plan":
+      case "synthesize":
+        return usesDefault(node.config.modelPreset);
+      case "plan-loop":
+        return usesDefault(node.config.executor.modelPreset);
+      case "approval":
+        return (
+          node.config.policy === "model" && usesDefault(node.config.modelPreset)
+        );
+      default:
+        return false;
+    }
+  });
 }
 
 /** 内置 Flow 预设名称。 */

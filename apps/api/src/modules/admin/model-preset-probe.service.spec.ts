@@ -128,4 +128,16 @@ describe('ModelPresetProbeService', () => {
 
     expect(result.error).toHaveLength(500);
   });
+
+  it('错误文本意外回显密钥时先脱敏再返回', async () => {
+    const { probe } = createProbe({
+      plainInvoke: () =>
+        Promise.reject(new Error(`request failed with ${target.apiKey}`)),
+    });
+
+    const result = await probe.probe(target);
+
+    expect(result.error).toContain('[REDACTED]');
+    expect(result.error).not.toContain(target.apiKey);
+  });
 });

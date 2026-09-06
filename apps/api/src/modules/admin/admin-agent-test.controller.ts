@@ -34,7 +34,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Sse, SseInterceptor, type SseRequest } from '../../common/sse';
-import type { LlmTextRequest } from '../llm/llm.types';
 
 /**
  * 管理端智能体流式测试
@@ -101,15 +100,12 @@ export class AdminAgentTestController {
     if (!userId) {
       throw new UnauthorizedException('请先登录');
     }
-    const llmRequest: LlmTextRequest | undefined = dto.modelPreset
-      ? { model: { modelId: dto.modelPreset } }
-      : undefined;
-
     return this.streamTaskService.streamChatTask(
       dto.conversationId, // 传入则续接测试会话（多轮记忆），不传新建
       dto.content,
       userId,
-      llmRequest,
+      undefined,
+      undefined,
       req.__sseAbortSignal,
       dto.agentId,
       true, // isTest

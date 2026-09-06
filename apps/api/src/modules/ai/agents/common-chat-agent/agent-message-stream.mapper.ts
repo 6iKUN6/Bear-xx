@@ -171,6 +171,7 @@ function createMessageChunkParser() {
 export async function* mapMessagesStream(
   stream: AsyncIterable<MessagesModeChunk | SubgraphMessagesModeChunk>,
   onModelTurn?: () => void,
+  onMessageChunk?: (chunk: MessagesModeChunk, namespace: string[]) => void,
 ): AsyncGenerator<MappedAgentEvent, void, unknown> {
   const parse = createMessageChunkParser();
   const countTurn = createModelTurnCounter(onModelTurn);
@@ -180,6 +181,7 @@ export async function* mapMessagesStream(
       ? rawChunk
       : ([[], rawChunk] as [string[], MessagesModeChunk]);
 
+    onMessageChunk?.(messageChunk, namespace);
     countTurn(namespace, messageChunk);
     for (const event of parse(messageChunk)) {
       yield { event, namespace };

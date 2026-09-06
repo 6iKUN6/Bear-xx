@@ -37,6 +37,12 @@ export interface ModelPresetProbeResult {
   };
 }
 
+/** 供应商连接的最小对话探测结论。 */
+export interface ModelProviderReachabilityResult {
+  reachable: boolean;
+  error?: string;
+}
+
 /**
  * 模型预设连通性探针
  * @description 分两级：L1 验证 key / baseURL / 模型名可用，L2 验证工具往返能闭环。
@@ -58,10 +64,8 @@ export class ModelPresetProbeService {
    * L1 通过但 L2 失败降级为 basic，该预设仍可用于 synthesize 这类无工具节点。
    */
   async probe(target: ModelPresetProbeTarget): Promise<ModelPresetProbeResult> {
-    const model = this.createModel(target);
-
-    const reachable = await this.runReachabilityProbe(model);
-    if (!reachable.ok) {
+    const reachable = await this.probeReachability(target);
+    if (!reachable.reachable) {
       return {
         capability: 'unreachable',
         error: reachable.error,
@@ -69,7 +73,11 @@ export class ModelPresetProbeService {
       };
     }
 
-    const toolRoundTrip = await this.runToolRoundTripProbe(model);
+    const model = this.createModel(target);
+    const toolRoundTrip = await this.runToolRoundTripProbe(
+      model,
+      target.apiKey,
+    );
     if (!toolRoundTrip.ok) {
       return {
         capability: 'basic',
@@ -85,13 +93,34 @@ export class ModelPresetProbeService {
   }
 
   /**
+   * 只执行连接级最小对话探测
+   * @param target 连接及其下用于发起请求的模型参数
+   * @returns 返回连接是否可达与安全错误文本
+   * @description 连接级探测只证明 URL、密钥和选定模型可完成一次对话，不把结果冒充成
+   * 该模型或同连接其他模型的工具能力结论。
+   */
+  async probeReachability(
+    target: ModelPresetProbeTarget,
+  ): Promise<ModelProviderReachabilityResult> {
+    const result = await this.runReachabilityProbe(
+      this.createModel(target),
+      target.apiKey,
+    );
+    return result.ok
+      ? { reachable: true }
+      : { reachable: false, error: result.error };
+  }
+
+  /**
    * L1 连通性探针
    * @param model 已构造的聊天模型
+   * @param apiKey 本次探测使用的密钥，用于清理异常文本中的意外回显
    * @returns 返回是否连通与安全错误文本
    * @description 只发一条最小消息，验证 apiKey、baseURL 与模型名拼写。
    */
   private async runReachabilityProbe(
     model: BaseChatModel,
+    apiKey: string,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       await model.invoke([new HumanMessage('ping')], {
@@ -99,13 +128,14 @@ export class ModelPresetProbeService {
       });
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: this.toSafeErrorMessage(error) };
+      return { ok: false, error: this.toSafeErrorMessage(error, apiKey) };
     }
   }
 
   /**
    * L2 工具往返探针
    * @param model 已构造的聊天模型
+   * @param apiKey 本次探测使用的密钥，用于清理异常文本中的意外回显
    * @returns 返回工具往返是否闭环与安全错误文本
    * @description 完整走一遍「模型发起 tool_call → 回灌 tool result → 模型正常收尾」。
    * 关键在第二次 invoke：工具调用 id 语义不匹配的上游正是在这一步返回 400，只发第一轮
@@ -113,6 +143,7 @@ export class ModelPresetProbeService {
    */
   private async runToolRoundTripProbe(
     model: BaseChatModel,
+    apiKey: string,
   ): Promise<{ ok: boolean; error?: string }> {
     if (!model.bindTools) {
       return { ok: false, error: '当前模型客户端不支持工具绑定' };
@@ -162,7 +193,7 @@ export class ModelPresetProbeService {
       );
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: this.toSafeErrorMessage(error) };
+      return { ok: false, error: this.toSafeErrorMessage(error, apiKey) };
     }
   }
 
@@ -192,13 +223,17 @@ export class ModelPresetProbeService {
   /**
    * 转换可安全持久化与展示的错误说明
    * @param error 上游或 SDK 抛出的未知错误
+   * @param apiKey 本次请求使用的密钥明文
    * @returns 返回受长度限制的错误文本
    * @description 错误文本会落库并展示在后台，必须假定它可能包含被回显的请求内容；
-   * 这里只取 message 并截断，且调用方保证 apiKey 从不进入 message。
+   * 这里只取 message，先移除可能被 SDK 或代理意外回显的密钥，再做长度限制。
    */
-  private toSafeErrorMessage(error: unknown): string {
-    const message =
+  private toSafeErrorMessage(error: unknown, apiKey: string): string {
+    const rawMessage =
       error instanceof Error ? error.message : '未知的模型连通性错误';
+    const message = apiKey
+      ? rawMessage.split(apiKey).join('[REDACTED]')
+      : rawMessage;
     this.logger.debug(`模型预设探测失败：${message.slice(0, 200)}`);
     return message.slice(0, 500);
   }

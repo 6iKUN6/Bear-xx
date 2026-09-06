@@ -5,16 +5,27 @@ import {
   ServiceUnavailableException,
   type OnModuleInit,
 } from '@nestjs/common';
-import { ModelPresetCapability, type ModelPreset } from '@prisma/client';
+import {
+  ModelPresetCapability,
+  type ModelPreset,
+  type ModelProviderConnection,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { ReasoningSelection } from '@litter-bear/types';
 import { LlmCredentialCryptoService } from './llm-credential-crypto.service';
 import { toProviderName, toUpstreamFormat } from './llm-upstream-format';
+import {
+  findModelReasoningCapability,
+  normalizeReasoningSelection,
+  toReasoningCapabilityProjection,
+  type NormalizeReasoningOptions,
+} from './model-reasoning.catalog';
 import type {
   LlmModelPreset,
   LlmModelPresetSummary,
   LlmModelSelector,
   LlmPresetCapability,
-  LlmProviderName,
+  LlmReasoningCapability,
   LlmTextRequest,
   ResolvedLlmTextRequest,
 } from './llm.types';
@@ -32,6 +43,9 @@ const CAPABILITY_BY_DB_VALUE: Record<
 
 /** 内部生效预设：在 DB 行基础上带上密文，解密延后到真正调用模型时。 */
 interface RegisteredModelPreset extends LlmModelPreset {
+  name: string;
+  connectionName: string;
+  isDefault: boolean;
   apiKeyCiphertext: string | null;
   apiKeyFingerprint: string | null;
 }
@@ -66,7 +80,8 @@ export class LlmModelRegistryService implements OnModuleInit {
    */
   async invalidate(): Promise<void> {
     const rows = await this.prisma.modelPreset.findMany({
-      where: { enabled: true },
+      where: { enabled: true, connection: { enabled: true } },
+      include: { connection: true },
       orderBy: [{ isDefault: 'desc' }, { presetId: 'asc' }],
     });
     this.modelPresets = rows.map((row) => this.toRegisteredPreset(row));
@@ -82,6 +97,8 @@ export class LlmModelRegistryService implements OnModuleInit {
   listAvailableModels(): LlmModelPresetSummary[] {
     return this.requireLoadedPresets().map((preset) => ({
       id: preset.id,
+      name: preset.name,
+      connectionName: preset.connectionName,
       platform: preset.platform,
       model: preset.model,
       provider: preset.provider,
@@ -95,6 +112,13 @@ export class LlmModelRegistryService implements OnModuleInit {
       temperature: preset.temperature,
       maxOutputTokens: preset.maxOutputTokens,
       topP: preset.topP,
+      reasoningCapability: toReasoningCapabilityProjection(
+        findModelReasoningCapability(
+          preset.platform,
+          preset.upstreamFormat ?? 'openai_chat_completions',
+          preset.model,
+        ),
+      ),
     }));
   }
 
@@ -109,13 +133,29 @@ export class LlmModelRegistryService implements OnModuleInit {
     request?: LlmTextRequest | ResolvedLlmTextRequest,
   ): ResolvedLlmTextRequest {
     if (this.isResolvedTextRequest(request)) {
-      return request;
+      return {
+        ...request,
+        reasoning: normalizeReasoningSelection(
+          request.model.platform,
+          request.model.upstreamFormat,
+          request.model.model,
+          request.reasoning,
+          { applyDefault: false, generation: request.generation },
+        ),
+      };
     }
 
     const preset = this.resolvePreset(request?.model);
     if (!preset) {
       throw new BadRequestException('未匹配到任何模型预设，请先在后台配置模型');
     }
+
+    const generation = {
+      temperature: request?.generation?.temperature ?? preset.temperature,
+      maxOutputTokens:
+        request?.generation?.maxOutputTokens ?? preset.maxOutputTokens,
+      topP: request?.generation?.topP ?? preset.topP,
+    };
 
     return {
       model: {
@@ -127,13 +167,57 @@ export class LlmModelRegistryService implements OnModuleInit {
         apiKey: this.decryptApiKey(preset),
         baseURL: preset.baseURL,
       },
-      generation: {
-        temperature: request?.generation?.temperature ?? preset.temperature,
-        maxOutputTokens:
-          request?.generation?.maxOutputTokens ?? preset.maxOutputTokens,
-        topP: request?.generation?.topP ?? preset.topP,
-      },
+      generation,
+      reasoning: normalizeReasoningSelection(
+        preset.platform,
+        preset.upstreamFormat ?? 'openai_chat_completions',
+        preset.model,
+        request?.reasoning,
+        { applyDefault: false, generation },
+      ),
     };
+  }
+
+  /** 读取指定预设可安全下发前端的思考能力。 */
+  getReasoningCapability(presetId: string): LlmReasoningCapability | undefined {
+    const preset = this.requireLoadedPresets().find(
+      (item) => item.id === presetId,
+    );
+    if (!preset) {
+      return undefined;
+    }
+    return toReasoningCapabilityProjection(
+      findModelReasoningCapability(
+        preset.platform,
+        preset.upstreamFormat ?? 'openai_chat_completions',
+        preset.model,
+      ),
+    );
+  }
+
+  /** 按指定预设的精确能力目录规范化思考选择。 */
+  normalizePresetReasoning(
+    presetId: string,
+    selection: ReasoningSelection | undefined,
+    options: NormalizeReasoningOptions = {},
+  ): ReasoningSelection | undefined {
+    const preset = this.resolvePreset({ modelId: presetId });
+    if (!preset) {
+      throw new BadRequestException(`未找到模型预设: ${presetId}`);
+    }
+    const generation = {
+      temperature: preset.temperature,
+      maxOutputTokens: preset.maxOutputTokens,
+      topP: preset.topP,
+      ...options.generation,
+    };
+    return normalizeReasoningSelection(
+      preset.platform,
+      preset.upstreamFormat ?? 'openai_chat_completions',
+      preset.model,
+      selection,
+      { ...options, generation },
+    );
   }
 
   /**
@@ -153,22 +237,27 @@ export class LlmModelRegistryService implements OnModuleInit {
    * @returns 返回带密文的内部预设
    * @description provider 由 upstreamFormat 单向推导，不再是独立字段：两处存同一事实必然漂移。
    */
-  private toRegisteredPreset(row: ModelPreset): RegisteredModelPreset {
+  private toRegisteredPreset(
+    row: ModelPreset & { connection: ModelProviderConnection },
+  ): RegisteredModelPreset {
     const upstreamFormat = toUpstreamFormat(row.upstreamFormat);
     return {
       id: row.presetId,
+      name: row.name,
+      connectionName: row.connection.name,
+      isDefault: row.isDefault,
       provider: toProviderName(upstreamFormat),
       upstreamFormat,
-      platform: row.platform,
+      platform: row.connection.providerKey,
       model: row.model,
-      baseURL: row.baseURL ?? undefined,
+      baseURL: row.connection.baseURL,
       temperature: row.temperature ?? undefined,
       maxOutputTokens: row.maxOutputTokens ?? undefined,
       topP: row.topP ?? undefined,
       enabled: row.enabled,
       capability: CAPABILITY_BY_DB_VALUE[row.capability],
-      apiKeyCiphertext: row.apiKeyCiphertext,
-      apiKeyFingerprint: row.apiKeyFingerprint,
+      apiKeyCiphertext: row.connection.apiKeyCiphertext,
+      apiKeyFingerprint: row.connection.apiKeyFingerprint,
     };
   }
 
@@ -260,11 +349,11 @@ export class LlmModelRegistryService implements OnModuleInit {
   /**
    * 获取默认模型预设
    * @returns 返回后台标记为默认的预设
-   * @description 默认模型由后台的 isDefault 决定（invalidate 已按 isDefault 优先排序），
-   * 不再读 LLM_DEFAULT_MODEL_ID 与 LLM_MODEL：配置入口只有一个才不会出现两边打架。
+   * @description 只认后台显式标记的 isDefault，不在默认模型停用或连接停用后退回列表第一项。
+   * 第一版不做自动故障切换，静默换模型会改变能力、成本和供应商边界。
    */
   private getDefaultModelPreset(): RegisteredModelPreset | undefined {
-    return this.requireLoadedPresets()[0];
+    return this.requireLoadedPresets().find((preset) => preset.isDefault);
   }
 
   /**
@@ -281,18 +370,5 @@ export class LlmModelRegistryService implements OnModuleInit {
       return false;
     }
     return 'id' in model && 'platform' in model && 'provider' in model;
-  }
-
-  /**
-   * 校验 provider 取值
-   * @param provider 待校验的字符串
-   * @returns 返回受支持的 provider
-   * @description 仅保留 openai 与 anthropic 两种 SDK；其余上游一律通过 OpenAI 兼容格式接入。
-   */
-  private ensureSupportedProvider(provider: string): LlmProviderName {
-    if (provider === 'openai' || provider === 'anthropic') {
-      return provider;
-    }
-    throw new BadRequestException(`不支持的模型 provider: ${provider}`);
   }
 }
