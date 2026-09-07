@@ -34,6 +34,7 @@ export class ChatService {
     selectedModelPresetId?: string,
     reasoning?: ReasoningSelection,
     agentId?: string,
+    imageAssetId?: string,
   ) {
     return this.streamTaskService.createChatTask(
       conversationId,
@@ -42,6 +43,8 @@ export class ChatService {
       selectedModelPresetId,
       reasoning,
       agentId,
+      false,
+      imageAssetId,
     );
   }
 
@@ -63,6 +66,7 @@ export class ChatService {
     reasoning?: ReasoningSelection,
     signal?: AbortSignal,
     agentId?: string,
+    imageAssetId?: string,
   ): Promise<TaskStreamResult> {
     return this.streamTaskService.streamChatTask(
       conversationId,
@@ -72,6 +76,8 @@ export class ChatService {
       reasoning,
       signal,
       agentId,
+      false,
+      imageAssetId,
     );
   }
 

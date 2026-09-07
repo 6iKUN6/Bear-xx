@@ -102,6 +102,7 @@ model StorageAsset {
   status       StorageAssetStatus @default(ACTIVE)
   uploadedById String?            @map("uploaded_by_id")
   uploadedBy   User?              @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  messages     Message[]
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
 
@@ -397,6 +398,9 @@ model Message {
   /// 发言者：assistant 消息记录由哪个智能体生成；null = 默认助手/历史数据
   agentId         String?                     @map("agent_id")
   imageUrl        String?                     @map("image_url")
+  /// 用户消息附带的上传图片；与 imageUrl（AI 生图结果）语义分离
+  imageAssetId    String?                     @map("image_asset_id")
+  imageAsset      StorageAsset?               @relation(fields: [imageAssetId], references: [id], onDelete: Restrict)
   /// 供应商要求后续回传、但不得向 REST/SSE/Trace 暴露的模型上下文
   modelContext    Json?                       @map("model_context")
   status          MessageStatus               @default(DONE)
@@ -409,6 +413,7 @@ model Message {
   mcdonaldsOrders McDonaldsOrder[]
 
   @@index([conversationId])
+  @@index([imageAssetId])
   @@map("messages")
 }
 

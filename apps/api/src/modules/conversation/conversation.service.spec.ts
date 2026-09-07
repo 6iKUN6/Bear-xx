@@ -47,6 +47,7 @@ describe('ConversationService（单聊/群聊）', () => {
             effectiveTier: 'FREE',
           }),
         } as never,
+        { resolveAccessUrl: jest.fn() } as never,
       ),
       prisma,
     };

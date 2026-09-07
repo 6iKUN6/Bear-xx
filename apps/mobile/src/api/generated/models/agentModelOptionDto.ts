@@ -14,4 +14,6 @@ export interface AgentModelOptionDto {
   model: string;
   /** @nullable */
   reasoningCapability: ModelReasoningCapabilityDto | null;
+  /** 是否支持当前聊天图片输入 */
+  supportsVision: boolean;
 }

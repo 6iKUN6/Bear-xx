@@ -4,11 +4,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  AIMessage,
-  HumanMessage,
-  SystemMessage,
-} from '@langchain/core/messages';
 import type { ZodType } from 'zod';
 import { LlmModelRegistryService } from './llm-model-registry.service';
 import { LlmChatModelFactory } from './providers/chat-model.factory';
@@ -25,7 +20,9 @@ import type {
   LlmStructuredOptions,
   ResolvedLlmTextRequest,
   LlmTokenUsageMetrics,
+  LlmVisionRequestTransform,
 } from './llm.types';
+import { toLangChainMessages } from '../ai/agents/common-chat-agent/llm-message.mapper';
 
 /** 生图 provider 类型：openai 兼容（gpt-image / dall-e / 中转站）| 豆包 Seedream（Ark） */
 type ImageProviderKind = 'openai' | 'seedream';
@@ -71,7 +68,7 @@ export class LlmService {
   ): AsyncGenerator<string> {
     const resolvedRequest = this.modelRegistry.resolveTextRequest(request);
     const chatModel = this.createChatModel(resolvedRequest);
-    const langChainMessages = this.toLangChainMessages(messages);
+    const langChainMessages = toLangChainMessages(messages);
     const startedAt = Date.now();
     let rawChunkCount = 0;
     let parsedChunkCount = 0;
@@ -167,7 +164,7 @@ export class LlmService {
   ): Promise<string> {
     const resolvedRequest = this.modelRegistry.resolveTextRequest(request);
     const chatModel = this.createChatModel(resolvedRequest);
-    const langChainMessages = this.toLangChainMessages(messages);
+    const langChainMessages = toLangChainMessages(messages);
     const startedAt = Date.now();
 
     this.debugLog('llm.generate.request', {
@@ -230,7 +227,7 @@ export class LlmService {
     const resolvedRequest = this.modelRegistry.resolveTextRequest(
       options?.request,
     );
-    const langChainMessages = this.toLangChainMessages(messages);
+    const langChainMessages = toLangChainMessages(messages);
     const startedAt = Date.now();
     const schemaName = options?.schemaName ?? 'structured_output';
 
@@ -410,28 +407,11 @@ export class LlmService {
    * @returns 返回可执行流式生成的 LangChain 聊天模型实例
    * @description 委托统一模型工厂根据 provider 创建具体 LangChain ChatModel 实例。
    */
-  createChatModel(request: ResolvedLlmTextRequest) {
-    return this.chatModelFactory.createChatModel(request);
-  }
-
-  /**
-   * 转换为 LangChain 消息列表
-   * @param messages 通用聊天消息列表
-   * @returns 返回 LangChain BaseMessage 数组
-   * @description 将系统内部统一的消息结构转换为 LangChain 消费的消息对象，避免在业务层直接耦合 LangChain 消息类型。
-   */
-  private toLangChainMessages(messages: LlmMessage[]) {
-    return messages.map((message) => {
-      if (message.role === 'system') {
-        return new SystemMessage(message.content);
-      }
-
-      if (message.role === 'assistant') {
-        return new AIMessage(message.content);
-      }
-
-      return new HumanMessage(message.content);
-    });
+  createChatModel(
+    request: ResolvedLlmTextRequest,
+    visionTransform?: LlmVisionRequestTransform,
+  ) {
+    return this.chatModelFactory.createChatModel(request, visionTransform);
   }
 
   /**

@@ -54,6 +54,15 @@ export interface CosUploadCredential {
   expiresAt: number;
 }
 
+export interface CosObjectMetadata {
+  contentLength: number;
+  contentType: string;
+}
+
+export interface CosDownloadedObject extends CosObjectMetadata {
+  body: Buffer;
+}
+
 /**
  * 腾讯云 COS 对象存储
  * @description 统一签发单对象 HTTPS PUT 预签名 URL、生成公有读访问 URL，
@@ -132,6 +141,63 @@ export class CosStorageService {
       );
     }
     return credential.key;
+  }
+
+  /**
+   * 读取对象的真实元数据。
+   * @param key 已登记的 COS 对象 key
+   * @returns 返回 COS 实际 Content-Length 与 Content-Type
+   * @description 聊天附件不能信任客户端登记的大小和 MIME；在创建任务前通过带服务端凭据的
+   * HEAD 请求核对真实对象，避免伪造登记值绕过视觉输入上限。
+   */
+  async getObjectMetadata(key: string): Promise<CosObjectMetadata> {
+    this.assertSafeKey(key);
+    const config = this.requireConfig();
+    let result: COS.HeadObjectResult;
+    try {
+      result = await this.createClient(config).headObject({
+        Bucket: config.bucket,
+        Region: config.region,
+        Key: key,
+      });
+    } catch {
+      throw new ServiceUnavailableException('腾讯云 COS 对象元数据读取失败');
+    }
+    return this.readObjectMetadata(result.headers);
+  }
+
+  /**
+   * 下载一个有明确字节上限的 COS 对象。
+   * @param key 已登记的 COS 对象 key
+   * @param maxBytes 允许读入内存的最大字节数
+   * @returns 返回对象二进制与 COS 实际元数据
+   * @description 先 HEAD 拒绝超限对象，再用 Range 多取一个字节作为竞态保护；即使对象在
+   * HEAD 后被替换，也不会无界读入 Activity Worker 内存。
+   */
+  async downloadObject(
+    key: string,
+    maxBytes: number,
+  ): Promise<CosDownloadedObject> {
+    const metadata = await this.getObjectMetadata(key);
+    if (metadata.contentLength > maxBytes) {
+      throw new BadRequestException(`COS 对象不能超过 ${maxBytes} 字节`);
+    }
+    const config = this.requireConfig();
+    let result: COS.GetObjectResult;
+    try {
+      result = await this.createClient(config).getObject({
+        Bucket: config.bucket,
+        Region: config.region,
+        Key: key,
+        Range: `bytes=0-${maxBytes}`,
+      });
+    } catch {
+      throw new ServiceUnavailableException('腾讯云 COS 对象下载失败');
+    }
+    if (result.Body.length > maxBytes) {
+      throw new BadRequestException(`COS 对象不能超过 ${maxBytes} 字节`);
+    }
+    return { body: result.Body, ...metadata };
   }
 
   /**
@@ -222,6 +288,34 @@ export class CosStorageService {
         },
       );
     });
+  }
+
+  /** 使用已校验配置创建 COS SDK 客户端。 */
+  private createClient(config: CosStorageConfig): COS {
+    return new COS({
+      SecretId: config.secretId,
+      SecretKey: config.secretKey,
+    });
+  }
+
+  /** 从 COS 响应头收窄出可信对象大小与 MIME。 */
+  private readObjectMetadata(
+    headers: COS.Headers | undefined,
+  ): CosObjectMetadata {
+    const contentLength = Number(headers?.['content-length']);
+    const contentType = headers?.['content-type'];
+    if (
+      !Number.isSafeInteger(contentLength) ||
+      contentLength <= 0 ||
+      typeof contentType !== 'string' ||
+      !contentType.trim()
+    ) {
+      throw new ServiceUnavailableException('腾讯云 COS 对象元数据不完整');
+    }
+    return {
+      contentLength,
+      contentType: contentType.split(';', 1)[0].trim().toLowerCase(),
+    };
   }
 
   /**

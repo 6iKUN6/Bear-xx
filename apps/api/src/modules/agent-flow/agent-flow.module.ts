@@ -17,6 +17,7 @@ import { AgentFlowActivities } from './temporal/agent-flow.activities';
 import { TemporalClientService } from './temporal/temporal-client.service';
 import { AgentFlowSignalOutboxService } from './temporal/agent-flow-signal-outbox.service';
 import { AgentFlowCancellationDispatcherService } from './temporal/agent-flow-cancellation-dispatcher.service';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AgentFlowCancellationDispatcherService } from './temporal/agent-flow-ca
     LlmModule,
     MemoryModule,
     ConversationTraceModule,
+    StorageModule,
     forwardRef(() => StreamTaskModule),
   ],
   controllers: [AgentFlowController],

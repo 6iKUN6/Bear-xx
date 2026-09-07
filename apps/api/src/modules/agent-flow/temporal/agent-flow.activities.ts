@@ -51,6 +51,7 @@ import {
 import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
 import { LlmService } from '../../llm/llm.service';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
+import type { LlmMessage } from '../../llm/llm.types';
 import type { ModelContextEnvelope } from '../../llm/model-context.schema';
 import {
   STEP_EVALUATOR,
@@ -63,6 +64,7 @@ import type {
 import { ChatContextService } from '../../memory/chat-context.service';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.service';
+import { StorageAssetService } from '../../storage/storage-asset.service';
 import { validateFlowDefinition } from '../definition/flow-definition.validator';
 import { FlowCompiler } from '../runtime/flow-compiler.service';
 import type {
@@ -152,6 +154,7 @@ interface AgentFlowExecutionContext {
     budgetUsage: PersistedFlowBudgetUsage;
     /** Flow 级根变量 `$input.text`：本轮用户消息正文，供条件判定引用 */
     inputText: string;
+    imageAssetId?: string;
     flowVersionId: string;
     flowDigest: string;
   };
@@ -180,6 +183,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     private readonly taskEventService: AgentFlowTaskEventService,
     private readonly llmService: LlmService,
     private readonly modelRegistry: LlmModelRegistryService,
+    private readonly storageAssetService: StorageAssetService,
   ) {}
 
   /**
@@ -731,6 +735,11 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           toolCalls: task.flowToolCalls,
         },
         inputText: readJsonString(task.requestPayload, 'content') ?? '',
+        ...(readJsonString(task.requestPayload, 'imageAssetId')
+          ? {
+              imageAssetId: readJsonString(task.requestPayload, 'imageAssetId'),
+            }
+          : {}),
         flowVersionId: task.flowVersionId,
         flowDigest: task.flowDigest,
       },
@@ -1660,6 +1669,14 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const onModelTurn = budget.countModelCall;
     // 只有终节点保存供应商私有上下文；中间节点不得把它带入 outputs 或消息表。
     const isAnswer = isAnswerNode(context);
+    const vision =
+      isAnswer && context.task.imageAssetId
+        ? await this.prepareAnswerVision(
+            context,
+            node.modelPreset,
+            chatContext.messages,
+          )
+        : undefined;
     let modelContext: ModelContextEnvelope | undefined;
     const onCompletedModelContext = isAnswer
       ? (contextValue: ModelContextEnvelope) => {
@@ -1670,7 +1687,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       ? this.commonChatAgentService.resumeEvents({
           modelPreset: node.modelPreset,
           reasoning: node.reasoning,
-          messages: chatContext.messages,
+          messages: vision?.messages ?? chatContext.messages,
           systemPrompt,
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
@@ -1678,17 +1695,19 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           decision: resumeDecision,
           onModelTurn,
           ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
+          ...(vision?.transform ? { visionTransform: vision.transform } : {}),
         })
       : this.commonChatAgentService.streamEvents({
           modelPreset: node.modelPreset,
           reasoning: node.reasoning,
-          messages: chatContext.messages,
+          messages: vision?.messages ?? chatContext.messages,
           systemPrompt,
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
           onModelTurn,
           ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
+          ...(vision?.transform ? { visionTransform: vision.transform } : {}),
         });
     // 只有终节点的产出会成为这条助手消息的正文；中间 agent 节点静默执行，正文进
     // outputs.text 供下游 $ref 引用。理由见 isAnswerNode。
@@ -1730,6 +1749,63 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         ...(modelContext ? { modelContext } : {}),
       },
     );
+  }
+
+  /**
+   * 为最终回答节点注入当前用户图片。
+   * @param context 当前 Flow 执行上下文
+   * @param modelPreset 回答节点锁定的模型预设 ID
+   * @param messages 当前会话文字上下文
+   * @returns 返回带公网图片 URL 的消息；K3 额外返回仅驻留内存的发包替换
+   * @description 只修改最后一条 user 消息。历史图片不自动回放；Data URI 不进入消息状态，
+   * 因而不会写进 LangGraph checkpoint、数据库、Redis 或 Temporal History。
+   */
+  private async prepareAnswerVision(
+    context: AgentFlowExecutionContext,
+    modelPreset: string,
+    messages: LlmMessage[],
+  ) {
+    const transport = this.modelRegistry.getVisionTransport(modelPreset);
+    if (!transport || !context.task.imageAssetId) {
+      throw createNonRetryableActivityFailure(
+        `回答节点模型「${modelPreset}」不支持图片输入`,
+        'AGENT_FLOW_VISION_MODEL_UNSUPPORTED',
+      );
+    }
+    const image = await this.storageAssetService.prepareChatImageForModel(
+      context.task.userId,
+      context.task.imageAssetId,
+      transport,
+    );
+    const lastUserIndex = messages.findLastIndex(
+      (message) => message.role === 'user',
+    );
+    if (lastUserIndex < 0) {
+      throw createNonRetryableActivityFailure(
+        '图片任务缺少当前用户消息',
+        'AGENT_FLOW_TASK_SNAPSHOT_MISMATCH',
+      );
+    }
+    const withImage = messages.map((message, index) =>
+      index === lastUserIndex
+        ? {
+            ...message,
+            content: context.task.inputText,
+            image: { url: image.publicUrl, detail: 'auto' as const },
+          }
+        : message,
+    );
+    return {
+      messages: withImage,
+      ...(image.wireDataUri
+        ? {
+            transform: {
+              sourceUrl: image.publicUrl,
+              dataUri: image.wireDataUri,
+            },
+          }
+        : {}),
+    };
   }
 
   /**

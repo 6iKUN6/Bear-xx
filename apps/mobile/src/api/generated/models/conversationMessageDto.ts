@@ -7,6 +7,7 @@
  */
 import type { ConversationMessageDtoAgentId } from './conversationMessageDtoAgentId';
 import type { ConversationMessageDtoAgentName } from './conversationMessageDtoAgentName';
+import type { ConversationMessageDtoImageUrl } from './conversationMessageDtoImageUrl';
 import type { ConversationMessageDtoRole } from './conversationMessageDtoRole';
 import type { ConversationMessageDtoStatus } from './conversationMessageDtoStatus';
 import type { ConversationMessageTraceItemDto } from './conversationMessageTraceItemDto';
@@ -19,6 +20,11 @@ export interface ConversationMessageDto {
   role: ConversationMessageDtoRole;
   /** 消息文本内容 */
   content: string;
+  /**
+     * 用户附件或 AI 生图的动态访问 URL
+     * @nullable
+     */
+  imageUrl?: ConversationMessageDtoImageUrl;
   /**
      * 发言智能体 id；null = 用户消息或默认助手
      * @nullable

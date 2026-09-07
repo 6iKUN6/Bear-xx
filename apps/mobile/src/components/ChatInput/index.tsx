@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
-import { View, Text, Textarea } from "@tarojs/components";
+import Taro from "@tarojs/taro";
+import { Image, View, Text, Textarea } from "@tarojs/components";
 import AgentAvatar from "../AgentAvatar";
 import AppIcon from "../AppIcon";
 import type { AppIconName } from "../AppIcon";
@@ -22,6 +23,14 @@ import {
   modelSelectionFingerprint,
   type AgentModelSelection,
 } from "../../services/agent-model-selection";
+import {
+  prepareChatImage,
+  uploadChatImage,
+  type PreparedChatImage,
+  type UploadedChatImage,
+} from "../../utils/chat-image";
+
+export type ChatImageAttachment = UploadedChatImage;
 
 /** 供外部（成员条/开场提示等）操控输入框 */
 export interface ChatInputHandle {
@@ -44,6 +53,7 @@ interface ChatInputProps {
     content: string,
     agentId?: string,
     modelSelection?: AgentModelSelection,
+    image?: ChatImageAttachment,
   ) => void;
   onStop?: () => void;
   onRecordComplete?: (
@@ -72,7 +82,6 @@ interface MentionTarget {
   name: string;
 }
 
-
 export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   {
     onSend,
@@ -95,6 +104,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
   const [sheetMode, setSheetMode] = useState<"switch" | "mention" | null>(null);
   const [mention, setMention] = useState<MentionTarget | null>(null);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<PreparedChatImage | null>(
+    null,
+  );
+  const [imageBusy, setImageBusy] = useState(false);
 
   const agents = useAgentStore((state) => state.agents);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
@@ -135,7 +148,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     />
   );
 
-  const hasContent = value.trim().length > 0;
+  const hasContent = value.trim().length > 0 || Boolean(selectedImage);
+  const imageUnsupported = Boolean(
+    selectedImage &&
+    modelSelection.selectedModel &&
+    !modelSelection.selectedModel.supportsVision,
+  );
 
   const handleInput = (next: string) => {
     // 末尾新敲出 @ → 呼出提及选择（仅追加输入时触发，避免删除/粘贴误弹）
@@ -192,9 +210,17 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     setMention(null);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const content = value.trim();
-    if (!content || disabled || isStreaming || modelSelection.error) return;
+    if (
+      (!content && !selectedImage) ||
+      disabled ||
+      isStreaming ||
+      imageBusy ||
+      imageUnsupported ||
+      modelSelection.error
+    )
+      return;
     // single：回答者由后端按会话绑定解析；group：仅 @ 生效（不 @ = 自动路由）；
     // flex：本条 @ 优先于粘性选择。
     const effectiveAgentId = resolveOutgoingAgentId(
@@ -202,9 +228,60 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
       mention?.agentId,
       selectedAgentId,
     );
-    onSend(content, effectiveAgentId, modelSelection.selection);
-    setValue("");
-    setMention(null);
+    try {
+      setImageBusy(Boolean(selectedImage));
+      const uploadedImage = selectedImage
+        ? await uploadChatImage(selectedImage)
+        : undefined;
+      onSend(
+        content,
+        effectiveAgentId,
+        modelSelection.selection,
+        uploadedImage,
+      );
+      setValue("");
+      setMention(null);
+      setSelectedImage(null);
+    } catch (error) {
+      await Taro.showToast({
+        title: error instanceof Error ? error.message : "图片上传失败",
+        icon: "none",
+      });
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const handleChooseImage = async () => {
+    if (disabled || imageBusy) return;
+    try {
+      const action = await Taro.showActionSheet({
+        itemList: ["拍照", "从相册选择"],
+      });
+      const selected = await Taro.chooseMedia({
+        count: 1,
+        mediaType: ["image"],
+        sourceType: [action.tapIndex === 0 ? "camera" : "album"],
+        sizeType: ["original"],
+      });
+      const file = selected.tempFiles[0];
+      if (!file?.tempFilePath) return;
+      setImageBusy(true);
+      await Taro.showLoading({ title: "处理图片中", mask: true });
+      setInputMode("text");
+      setSelectedImage(await prepareChatImage(file.tempFilePath));
+    } catch (error) {
+      const message = readTaroErrorMessage(error);
+      if (!message.toLowerCase().includes("cancel")) {
+        await Taro.showToast({
+          title: message || "图片处理失败",
+          icon: "none",
+        });
+      }
+    } finally {
+      Taro.hideLoading();
+      setImageBusy(false);
+    }
   };
 
   const handleStop = () => {
@@ -236,7 +313,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
             shape="round"
             onClick={toggleMode}
           />
-          <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
+          <IconButton
+            icon={renderIcon("plus")}
+            variant="ghost"
+            shape="round"
+            onClick={handleChooseImage}
+          />
         </>
       );
     }
@@ -244,7 +326,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     if (isStreaming) {
       return (
         <>
-          <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
+          <IconButton
+            icon={renderIcon("plus")}
+            variant="ghost"
+            shape="round"
+            onClick={handleChooseImage}
+          />
           <IconButton
             icon={renderIcon("stop", "text-[var(--lb-on-accent)]")}
             variant="primary"
@@ -258,7 +345,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     if (hasContent) {
       return (
         <>
-          <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
+          <IconButton
+            icon={renderIcon("plus")}
+            variant="ghost"
+            shape="round"
+            onClick={handleChooseImage}
+          />
           <IconButton
             icon={renderIcon("send", "text-[var(--lb-on-accent)]")}
             variant="primary"
@@ -277,7 +369,12 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
           shape="round"
           onClick={toggleMode}
         />
-        <IconButton icon={renderIcon("plus")} variant="ghost" shape="round" />
+        <IconButton
+          icon={renderIcon("plus")}
+          variant="ghost"
+          shape="round"
+          onClick={handleChooseImage}
+        />
       </>
     );
   };
@@ -296,6 +393,34 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
         <Text className="mb-[0.375rem] block text-[0.6875rem] text-[var(--lb-warning)]">
           模型设置与上一轮不同，建议新建会话以保持上下文一致
         </Text>
+      ) : null}
+      {imageUnsupported ? (
+        <Text className="mb-[0.375rem] block text-[0.6875rem] text-[var(--lb-danger)]">
+          当前模型不支持图片输入
+        </Text>
+      ) : null}
+
+      {selectedImage ? (
+        <View className="mb-[0.5rem] flex items-end gap-[0.5rem]">
+          <View className="relative h-[4.5rem] w-[4.5rem] overflow-hidden rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface-muted)]">
+            <Image
+              className="h-full w-full"
+              src={selectedImage.previewUrl}
+              mode="aspectFill"
+            />
+            <View
+              className="absolute right-[0.25rem] top-[0.25rem] flex h-[1.5rem] w-[1.5rem] items-center justify-center rounded-full bg-[rgba(0,0,0,0.62)] text-white"
+              onClick={() => !imageBusy && setSelectedImage(null)}
+            >
+              <AppIcon name="close" className="h-[0.875rem] w-[0.875rem]" />
+            </View>
+          </View>
+          {imageBusy ? (
+            <Text className="pb-[0.125rem] text-[0.6875rem] text-[var(--lb-text-muted)]">
+              正在处理图片…
+            </Text>
+          ) : null}
+        </View>
       ) : null}
 
       {/* 工具条：Agent 身份和模型设置都属于下一条消息，在输入框上方集中展示。 */}
@@ -317,7 +442,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
                 {currentName}
               </Text>
               {canOpenSwitch ? (
-                <AppIcon name="chevronDown" className="h-[0.75rem] w-[0.75rem] shrink-0 text-[var(--lb-text-muted)]" />
+                <AppIcon
+                  name="chevronDown"
+                  className="h-[0.75rem] w-[0.75rem] shrink-0 text-[var(--lb-text-muted)]"
+                />
               ) : null}
             </View>
           ) : null}
@@ -330,7 +458,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
               <Text className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium leading-[1.3] text-[var(--lb-accent-ink)]">
                 本条 @{mention.name}
               </Text>
-              <AppIcon name="close" className="h-[0.625rem] w-[0.625rem] shrink-0 text-[var(--lb-accent-ink)]" />
+              <AppIcon
+                name="close"
+                className="h-[0.625rem] w-[0.625rem] shrink-0 text-[var(--lb-accent-ink)]"
+              />
             </View>
           ) : null}
 
@@ -342,7 +473,10 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
               <Text className="block max-w-[9rem] overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-medium text-[var(--lb-text-secondary)]">
                 {modelSelection.selectedModel.name}
               </Text>
-              <AppIcon name="chevronDown" className="h-[0.625rem] w-[0.625rem] shrink-0 text-[var(--lb-text-muted)]" />
+              <AppIcon
+                name="chevronDown"
+                className="h-[0.625rem] w-[0.625rem] shrink-0 text-[var(--lb-text-muted)]"
+              />
             </View>
           ) : null}
         </View>
@@ -410,3 +544,16 @@ export default forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
     </View>
   );
 });
+
+function readTaroErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "errMsg" in error &&
+    typeof error.errMsg === "string"
+  ) {
+    return error.errMsg;
+  }
+  return "图片处理失败";
+}

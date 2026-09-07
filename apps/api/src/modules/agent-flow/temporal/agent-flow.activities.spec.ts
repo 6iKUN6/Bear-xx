@@ -12,6 +12,7 @@ import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
 import { STEP_EVALUATOR } from '../../ai/agent-loop/execution/step-evaluator';
 import { LlmService } from '../../llm/llm.service';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
+import { StorageAssetService } from '../../storage/storage-asset.service';
 import { AgentFlowActivities } from './agent-flow.activities';
 
 describe('AgentFlowActivities', () => {
@@ -62,7 +63,11 @@ describe('AgentFlowActivities', () => {
   };
   const planner = { plan: jest.fn() };
   const llmService = { generateStructured: jest.fn() };
-  const modelRegistry = { invalidate: jest.fn() };
+  const modelRegistry = {
+    invalidate: jest.fn(),
+    getVisionTransport: jest.fn(),
+  };
+  const storageAssetService = { prepareChatImageForModel: jest.fn() };
   const stepEvaluator = { enough: jest.fn() };
   const taskEventService = {
     persistInTransaction: jest.fn(),
@@ -110,6 +115,7 @@ describe('AgentFlowActivities', () => {
         { provide: AgentFlowTaskEventService, useValue: taskEventService },
         { provide: LlmService, useValue: llmService },
         { provide: LlmModelRegistryService, useValue: modelRegistry },
+        { provide: StorageAssetService, useValue: storageAssetService },
       ],
     }).compile();
     activities = module.get(AgentFlowActivities);

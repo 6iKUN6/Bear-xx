@@ -47,6 +47,20 @@ export function toLangChainMessages(
       return [new AIMessage(message.content)];
     }
 
+    if (message.image) {
+      return [
+        new HumanMessage([
+          { type: 'text', text: message.content },
+          {
+            type: 'image_url',
+            image_url: {
+              url: message.image.url,
+              ...(message.image.detail ? { detail: message.image.detail } : {}),
+            },
+          },
+        ]),
+      ];
+    }
     return [new HumanMessage(message.content)];
   });
 }

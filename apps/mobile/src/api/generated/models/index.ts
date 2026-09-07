@@ -87,6 +87,7 @@ export * from './conversationDtoDefaultAgentId';
 export * from './conversationMessageDto';
 export * from './conversationMessageDtoAgentId';
 export * from './conversationMessageDtoAgentName';
+export * from './conversationMessageDtoImageUrl';
 export * from './conversationMessageDtoRole';
 export * from './conversationMessageDtoStatus';
 export * from './conversationMessageTraceItemDto';

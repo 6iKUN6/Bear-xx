@@ -75,6 +75,8 @@ interface Message {
   id: string;
   role: MessageRole;
   content: string;
+  /** 用户上传图片或 AI 生图的动态访问 URL。 */
+  imageUrl?: string | null;
   status: MessageStatus;
   createdAt: number;
   /** 发言智能体 id；null/缺省 = 用户消息或默认助手 */

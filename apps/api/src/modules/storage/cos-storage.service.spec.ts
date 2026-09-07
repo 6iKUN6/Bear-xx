@@ -20,12 +20,18 @@ type CosGetObjectUrl = (
 ) => void;
 
 const mockGetObjectUrl = jest.fn<CosGetObjectUrl>();
+const mockHeadObject = jest.fn();
+const mockGetObject = jest.fn();
 
 // 不能加 { virtual: true }：cos-nodejs-sdk-v5 是真实依赖，虚拟 mock 按模块名注册而非解析路径；
 // 同一 worker 内若有别的 spec 先解析过该模块，mock 会失效，本 spec 会打到真实 COS SDK 并签出真签名。
 jest.mock('cos-nodejs-sdk-v5', () => ({
   __esModule: true,
-  default: jest.fn(() => ({ getObjectUrl: mockGetObjectUrl })),
+  default: jest.fn(() => ({
+    getObjectUrl: mockGetObjectUrl,
+    headObject: mockHeadObject,
+    getObject: mockGetObject,
+  })),
 }));
 
 describe('CosStorageService', () => {
@@ -54,6 +60,43 @@ describe('CosStorageService', () => {
 
   beforeEach(() => {
     mockGetObjectUrl.mockReset();
+    mockHeadObject.mockReset();
+    mockGetObject.mockReset();
+  });
+
+  it('从 COS HEAD 读取真实对象大小与 MIME', async () => {
+    mockHeadObject.mockResolvedValue({
+      headers: {
+        'content-length': '2048',
+        'content-type': 'image/webp; charset=binary',
+      },
+    });
+    const service = createService();
+
+    await expect(
+      service.getObjectMetadata('image/path/a.webp'),
+    ).resolves.toEqual({
+      contentLength: 2048,
+      contentType: 'image/webp',
+    });
+  });
+
+  it('下载图片时使用 maxBytes Range 并拒绝超限响应体', async () => {
+    mockHeadObject.mockResolvedValue({
+      headers: {
+        'content-length': '4',
+        'content-type': 'image/png',
+      },
+    });
+    mockGetObject.mockResolvedValue({ Body: Buffer.alloc(5) });
+    const service = createService();
+
+    await expect(service.downloadObject('image/path/a.png', 4)).rejects.toThrow(
+      '不能超过 4 字节',
+    );
+    expect(mockGetObject).toHaveBeenCalledWith(
+      expect.objectContaining({ Range: 'bytes=0-4' }),
+    );
   });
 
   afterEach(() => {
