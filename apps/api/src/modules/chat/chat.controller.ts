@@ -71,12 +71,13 @@ export class ChatController {
   ) {
     return this.chatService.streamMessage(
       dto.conversationId,
-      dto.content,
+      dto.content ?? '',
       this.requireUserId(userId),
       dto.selectedModelPresetId,
       dto.reasoning,
       req.__sseAbortSignal,
       dto.agentId,
+      dto.imageAssetId,
     );
   }
 
@@ -157,11 +158,12 @@ export class ChatController {
   private createChatMessageTask(dto: ChatCompletionsDto, userId: string) {
     return this.chatService.createCompletionTask(
       dto.conversationId,
-      dto.content,
+      dto.content ?? '',
       this.requireUserId(userId),
       dto.selectedModelPresetId,
       dto.reasoning,
       dto.agentId,
+      dto.imageAssetId,
     );
   }
 

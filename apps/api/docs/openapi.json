@@ -4309,6 +4309,10 @@
                 "$ref": "#/components/schemas/ModelReasoningCapabilityDto"
               }
             ]
+          },
+          "supportsVision": {
+            "type": "boolean",
+            "description": "是否支持当前聊天图片输入"
           }
         },
         "required": [
@@ -4316,7 +4320,8 @@
           "name",
           "providerKey",
           "model",
-          "reasoningCapability"
+          "reasoningCapability",
+          "supportsVision"
         ]
       },
       "AgentModelOptionsDto": {
@@ -7646,6 +7651,11 @@
             "description": "消息文本内容",
             "example": "你好"
           },
+          "imageUrl": {
+            "type": "object",
+            "description": "用户附件或 AI 生图的动态访问 URL",
+            "nullable": true
+          },
           "agentId": {
             "type": "object",
             "description": "发言智能体 id；null = 用户消息或默认助手",
@@ -7811,8 +7821,13 @@
           },
           "content": {
             "type": "string",
-            "description": "用户消息内容",
-            "example": "你好，请帮我写一首诗"
+            "description": "用户消息内容；与 imageAssetId 至少提供一项",
+            "example": "请分析这张图片"
+          },
+          "imageAssetId": {
+            "type": "string",
+            "description": "本人已登记且 usage=chat-image 的图片资产 ID",
+            "example": "cmf_asset_123"
           },
           "agentId": {
             "type": "string",
@@ -7832,10 +7847,7 @@
               }
             ]
           }
-        },
-        "required": [
-          "content"
-        ]
+        }
       },
       "VoiceCompletionsFormDataDto": {
         "type": "object",

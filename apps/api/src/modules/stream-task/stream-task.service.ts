@@ -86,10 +86,12 @@ import {
   AgentAccessDenialReason,
   AgentAccessService,
 } from '../agent-access/agent-access.service';
+import { StorageAssetService } from '../storage/storage-asset.service';
 
 interface ChatTaskPayload {
   content: string;
   agentId?: string;
+  imageAssetId?: string;
   /** 创建任务时锁定的用户级麦当劳凭据；只用于动态 MCP 工具装配。 */
   mcdonaldsCredentialId?: string;
 }
@@ -164,6 +166,7 @@ export class StreamTaskService {
     private readonly agentFlowApprovalService: AgentFlowApprovalService,
     private readonly agentFlowSignalOutboxService: AgentFlowSignalOutboxService,
     private readonly agentAccessService: AgentAccessService,
+    private readonly storageAssetService: StorageAssetService,
   ) {
     this.bufferTtl =
       this.configService.get<number>('STREAM_TASK_BUFFER_TTL') ??
@@ -187,6 +190,7 @@ export class StreamTaskService {
     reasoning?: ReasoningSelection,
     agentId?: string,
     isTest = false,
+    imageAssetId?: string,
   ) {
     return this.createTextTask(
       conversationId,
@@ -197,6 +201,7 @@ export class StreamTaskService {
       reasoning,
       agentId,
       isTest,
+      imageAssetId,
     );
   }
 
@@ -219,12 +224,13 @@ export class StreamTaskService {
     signal?: AbortSignal,
     agentId?: string,
     isTest = false,
+    imageAssetId?: string,
   ): Promise<TaskStreamResult> {
     // 未显式指定回答者时按会话形态解析：单聊=绑定 agent；群聊=固定默认或自动路由
     const answering = await this.resolveAnsweringAgent(
       conversationId,
       userId,
-      content,
+      content.trim() || '图片消息',
       agentId,
     );
 
@@ -236,6 +242,7 @@ export class StreamTaskService {
       reasoning,
       answering.agentId,
       isTest,
+      imageAssetId,
     );
     // 路由结果落成真事件（在开流之前写，openTaskStream 从 '0' 读全量缓冲，
     // 客户端照样收得到）。task.created 是 prependEvent 合成的、不入持久化流，
@@ -521,7 +528,20 @@ export class StreamTaskService {
     reasoning?: ReasoningSelection,
     agentId?: string,
     isTest = false,
+    imageAssetId?: string,
   ) {
+    const messageContent = content.trim();
+    if (!messageContent && !imageAssetId) {
+      throw new BadRequestException('消息文字和图片至少提供一项');
+    }
+    const chatImage = imageAssetId
+      ? await this.storageAssetService.validateChatImageAsset(
+          userId,
+          imageAssetId,
+        )
+      : undefined;
+    const modelContent =
+      messageContent || (chatImage ? '请描述并分析这张图片' : '');
     const mcdonaldsCredentialId =
       await this.mcdonaldsCredentialService.getActiveCredentialId(userId);
 
@@ -540,9 +560,10 @@ export class StreamTaskService {
       await tx.message.create({
         data: {
           role: MessageRole.USER,
-          content,
+          content: messageContent,
           status: MessageStatus.DONE,
           conversationId: targetConversationId,
+          imageAssetId: chatImage?.assetId,
         },
       });
 
@@ -554,7 +575,7 @@ export class StreamTaskService {
       if (userMessageCount === 1) {
         await tx.conversation.update({
           where: { id: targetConversationId },
-          data: { title: content.slice(0, 20) },
+          data: { title: messageContent.slice(0, 20) || '图片消息' },
         });
       }
 
@@ -566,12 +587,14 @@ export class StreamTaskService {
           agentId,
           selectedModelPresetId,
           reasoning,
+          requiresVision: Boolean(chatImage),
         });
       const requestPayload = JSON.parse(
         JSON.stringify({
-          content,
+          content: modelContent,
           agentId: flowSnapshot.agentId,
           mcdonaldsCredentialId,
+          imageAssetId: chatImage?.assetId,
         }),
       ) as Prisma.JsonObject;
 

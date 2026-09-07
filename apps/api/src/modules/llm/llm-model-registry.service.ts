@@ -29,6 +29,10 @@ import type {
   LlmTextRequest,
   ResolvedLlmTextRequest,
 } from './llm.types';
+import {
+  findModelVisionTransport,
+  type LlmVisionTransport,
+} from './model-vision.catalog';
 
 /** Prisma 能力枚举 → 运行时能力档位。 */
 const CAPABILITY_BY_DB_VALUE: Record<
@@ -114,6 +118,13 @@ export class LlmModelRegistryService implements OnModuleInit {
       topP: preset.topP,
       reasoningCapability: toReasoningCapabilityProjection(
         findModelReasoningCapability(
+          preset.platform,
+          preset.upstreamFormat ?? 'openai_chat_completions',
+          preset.model,
+        ),
+      ),
+      supportsVision: Boolean(
+        findModelVisionTransport(
           preset.platform,
           preset.upstreamFormat ?? 'openai_chat_completions',
           preset.model,
@@ -229,6 +240,20 @@ export class LlmModelRegistryService implements OnModuleInit {
   getCapability(presetId: string): LlmPresetCapability | undefined {
     return this.requireLoadedPresets().find((item) => item.id === presetId)
       ?.capability;
+  }
+
+  /** 读取指定预设的视觉图片传输方式；未命中闭集时返回 undefined。 */
+  getVisionTransport(presetId: string): LlmVisionTransport | undefined {
+    const preset = this.requireLoadedPresets().find(
+      (item) => item.id === presetId,
+    );
+    return preset
+      ? findModelVisionTransport(
+          preset.platform,
+          preset.upstreamFormat ?? 'openai_chat_completions',
+          preset.model,
+        )
+      : undefined;
   }
 
   /**

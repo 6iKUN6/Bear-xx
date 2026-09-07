@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { flowDefinitionUsesAgentDefault } from '@litter-bear/types/agent-flow';
+import {
+  flowDefinitionUsesAgentDefault,
+  type FlowDefinition,
+} from '@litter-bear/types/agent-flow';
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
 import { TemporalClientService } from '../agent-flow/temporal/temporal-client.service';
@@ -86,6 +89,7 @@ export class FlowTaskDispatcherService {
       agentId?: string;
       selectedModelPresetId?: string;
       reasoning?: ReasoningSelection;
+      requiresVision?: boolean;
     },
   ): Promise<FlowTaskSnapshot> {
     const agentSelect = {
@@ -190,6 +194,12 @@ export class FlowTaskDispatcherService {
         errors: runtime.errors,
       });
     }
+    if (input.requiresVision) {
+      this.assertVisionAnswerModels(
+        parsed.definition,
+        resolvedAgentModelPresetId,
+      );
+    }
 
     return {
       flowVersionId: flowVersion.id,
@@ -201,6 +211,48 @@ export class FlowTaskDispatcherService {
         ? toPersistedReasoningJson(resolvedReasoning)
         : Prisma.JsonNull,
     };
+  }
+
+  /**
+   * 校验所有可能产出最终正文的节点都支持视觉输入。
+   * @param definition 当前任务冻结的 Flow Definition
+   * @param agentDefaultModelPresetId 本轮已解析的 agent-default 预设
+   * @returns 无返回值；存在非视觉回答节点时拒绝创建任务
+   * @description 条件分支可能有多个互斥回答节点，任务创建时无法预知最终分支，因此必须全部
+   * 通过视觉闭集。只检查直接连接 end 的 agent/synthesize，与 Activity 的正文生产者判据一致。
+   */
+  private assertVisionAnswerModels(
+    definition: FlowDefinition,
+    agentDefaultModelPresetId: string | null,
+  ): void {
+    const endIds = new Set(
+      definition.nodes
+        .filter((node) => node.type === 'end')
+        .map((node) => node.id),
+    );
+    const answerIds = new Set(
+      definition.edges
+        .filter((edge) => endIds.has(edge.to))
+        .map((edge) => edge.from),
+    );
+    for (const node of definition.nodes) {
+      if (
+        !answerIds.has(node.id) ||
+        (node.type !== 'agent' && node.type !== 'synthesize')
+      ) {
+        continue;
+      }
+      const configured = node.config.modelPreset;
+      const presetId =
+        !configured || configured === 'agent-default'
+          ? agentDefaultModelPresetId
+          : configured;
+      if (!presetId || !this.modelRegistry.getVisionTransport(presetId)) {
+        throw new BadRequestException(
+          `回答节点「${node.name ?? node.id}」使用的模型不支持图片输入`,
+        );
+      }
+    }
   }
 
   /** 解析 direct Agent 本轮最终思考选择，自定义 Flow 禁止请求级覆盖。 */

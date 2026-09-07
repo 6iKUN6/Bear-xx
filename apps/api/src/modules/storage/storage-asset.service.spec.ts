@@ -17,6 +17,7 @@ describe('StorageAssetService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
       },
       $transaction: jest.fn((operations: Array<Promise<unknown>>) =>
@@ -28,6 +29,8 @@ describe('StorageAssetService', () => {
       resolveAccessUrl: jest.fn(
         (key: string) => `https://cdn.example.com/${key}`,
       ),
+      getObjectMetadata: jest.fn(),
+      downloadObject: jest.fn(),
     };
     return {
       service: new StorageAssetService(
@@ -52,6 +55,72 @@ describe('StorageAssetService', () => {
     createdAt: new Date('2026-08-01T00:00:00Z'),
     updatedAt: new Date('2026-08-01T00:00:00Z'),
   };
+
+  it('聊天图片同时校验登记事实与 COS 真实元数据', async () => {
+    const { service, prisma, cos } = createService();
+    const chatAsset = { ...assetRow, usage: 'chat-image' };
+    prisma.storageAsset.findFirst.mockResolvedValue(chatAsset);
+    cos.getObjectMetadata.mockResolvedValue({
+      contentLength: 1024,
+      contentType: 'image/png',
+    });
+
+    await expect(
+      service.validateChatImageAsset('user-1', chatAsset.id),
+    ).resolves.toEqual({
+      assetId: chatAsset.id,
+      publicUrl: `https://cdn.example.com/${chatAsset.key}`,
+      mimeType: 'image/png',
+      size: 1024,
+    });
+    expect(prisma.storageAsset.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: chatAsset.id,
+        uploadedById: 'user-1',
+        kind: StorageAssetKind.IMAGE,
+        usage: 'chat-image',
+        status: StorageAssetStatus.ACTIVE,
+      },
+    });
+  });
+
+  it('拒绝 COS 实际大小与客户端登记不一致的聊天图片', async () => {
+    const { service, prisma, cos } = createService();
+    prisma.storageAsset.findFirst.mockResolvedValue({
+      ...assetRow,
+      usage: 'chat-image',
+    });
+    cos.getObjectMetadata.mockResolvedValue({
+      contentLength: 2048,
+      contentType: 'image/png',
+    });
+
+    await expect(
+      service.validateChatImageAsset('user-1', assetRow.id),
+    ).rejects.toThrow('登记大小与 COS 实际对象不一致');
+  });
+
+  it('K3 图片下载后只返回内存 Data URI，不改变资产记录', async () => {
+    const { service, prisma, cos } = createService();
+    const chatAsset = { ...assetRow, usage: 'chat-image' };
+    prisma.storageAsset.findFirst.mockResolvedValue(chatAsset);
+    cos.downloadObject.mockResolvedValue({
+      body: Buffer.from('image'),
+      contentLength: 1024,
+      contentType: 'image/png',
+    });
+
+    const result = await service.prepareChatImageForModel(
+      'user-1',
+      chatAsset.id,
+      'data_uri',
+    );
+
+    expect(result.wireDataUri).toBe(
+      `data:image/png;base64,${Buffer.from('image').toString('base64')}`,
+    );
+    expect(prisma.storageAsset.update).not.toHaveBeenCalled();
+  });
 
   it('登记本人 key：按前缀推断 kind 并返回拼好的访问 URL', async () => {
     const { service, prisma } = createService();

@@ -118,4 +118,41 @@ describe('LlmChatModelFactory reasoning mapping', () => {
       thinkingConfig: { thinkingBudget: -1 },
     });
   });
+
+  it('K3 发包时把公网 URL 替换为 Data URI，原消息体不含 Base64', async () => {
+    const originalFetch = global.fetch;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+    global.fetch = fetchMock;
+    const publicUrl = 'https://cdn.example.com/image.webp';
+    const dataUri = 'data:image/webp;base64,aW1hZ2U=';
+    const body = JSON.stringify({
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'image_url', image_url: { url: publicUrl } }],
+        },
+      ],
+    });
+
+    try {
+      const visionFetch = factory['createVisionTransformFetch']({
+        sourceUrl: publicUrl,
+        dataUri,
+      });
+      await visionFetch('https://api.example.com/chat/completions', {
+        method: 'POST',
+        body,
+      });
+
+      expect(body).not.toContain('base64');
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.example.com/chat/completions',
+        expect.objectContaining({ body: expect.stringContaining(dataUri) }),
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

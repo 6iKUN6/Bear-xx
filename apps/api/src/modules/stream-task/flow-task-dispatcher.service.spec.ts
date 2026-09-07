@@ -64,6 +64,7 @@ describe('FlowTaskDispatcherService', () => {
       normalizePresetReasoning: jest.fn(
         (_presetId: string, selection: unknown) => selection,
       ),
+      getVisionTransport: jest.fn(),
     };
 
     return {
@@ -81,6 +82,54 @@ describe('FlowTaskDispatcherService', () => {
       modelRegistry,
     };
   }
+
+  it('图片任务要求所有最终回答节点命中视觉能力闭集', async () => {
+    const { service, prisma, modelRegistry } = createService();
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ...agentModelConfig('openai:gpt-5.6-sol'),
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
+    });
+    modelRegistry.getVisionTransport.mockReturnValue('public_url');
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+        requiresVision: true,
+      }),
+    ).resolves.toMatchObject({
+      resolvedAgentModelPresetId: 'openai:gpt-5.6-sol',
+    });
+    expect(modelRegistry.getVisionTransport).toHaveBeenCalledWith(
+      'openai:gpt-5.6-sol',
+    );
+  });
+
+  it('图片任务在最终回答模型不支持视觉时创建前拒绝', async () => {
+    const { service, prisma } = createService();
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ...agentModelConfig('deepseek:chat'),
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
+    });
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+        requiresVision: true,
+      }),
+    ).rejects.toThrow('使用的模型不支持图片输入');
+  });
 
   it('仅为测试会话锁定 Agent 已发布 FlowVersion', async () => {
     const { service, prisma } = createService();

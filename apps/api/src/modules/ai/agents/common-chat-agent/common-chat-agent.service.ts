@@ -9,6 +9,7 @@ import type {
   LlmMessage,
   LlmModelPreset,
   LlmTextRequest,
+  LlmVisionRequestTransform,
   ResolvedLlmTextRequest,
 } from '../../../llm/llm.types';
 import {
@@ -43,6 +44,8 @@ export interface CommonChatAgentRequest {
   onCompletedModelContext?: (
     context: ModelContextEnvelope,
   ) => void | Promise<void>;
+  /** K3 等不接受公网图片 URL 时使用；仅存在于当前 Worker 内存。 */
+  visionTransform?: LlmVisionRequestTransform;
 }
 
 @Injectable()
@@ -158,7 +161,10 @@ export class CommonChatAgentService {
     llmRequest: LlmTextRequest | ResolvedLlmTextRequest,
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const resolvedRequest = this.llmService.resolveTextRequest(llmRequest);
-    const chatModel = this.llmService.createChatModel(resolvedRequest);
+    const chatModel = this.llmService.createChatModel(
+      resolvedRequest,
+      request.visionTransform,
+    );
     const modelContext = this.prepareModelContext(request, resolvedRequest);
 
     this.debugLog('agent.common_chat.request', {
@@ -198,7 +204,10 @@ export class CommonChatAgentService {
     llmRequest: LlmTextRequest | ResolvedLlmTextRequest,
   ): AsyncGenerator<CommonChatAgentStreamEvent, void, unknown> {
     const resolvedRequest = this.llmService.resolveTextRequest(llmRequest);
-    const chatModel = this.llmService.createChatModel(resolvedRequest);
+    const chatModel = this.llmService.createChatModel(
+      resolvedRequest,
+      request.visionTransform,
+    );
     const modelContext = this.prepareModelContext(request, resolvedRequest);
 
     for await (const event of this.commonChatAgentLoopService.resume({

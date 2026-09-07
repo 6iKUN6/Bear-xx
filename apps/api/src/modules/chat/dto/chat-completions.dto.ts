@@ -3,9 +3,10 @@ import {
   IsNotEmpty,
   IsObject,
   IsOptional,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ReasoningSelectionDto } from '../../llm/dto/reasoning-selection.dto';
 
@@ -18,10 +19,23 @@ export class ChatCompletionsDto {
   @IsString()
   conversationId?: string;
 
-  @ApiProperty({ description: '用户消息内容', example: '你好，请帮我写一首诗' })
+  @ApiPropertyOptional({
+    description: '用户消息内容；与 imageAssetId 至少提供一项',
+    example: '请分析这张图片',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20000)
+  content?: string;
+
+  @ApiPropertyOptional({
+    description: '本人已登记且 usage=chat-image 的图片资产 ID',
+    example: 'cmf_asset_123',
+  })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  content: string;
+  imageAssetId?: string;
 
   @ApiPropertyOptional({
     description: '指定使用的智能体 id；不传则用默认智能体',

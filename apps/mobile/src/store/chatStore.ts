@@ -91,7 +91,9 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
     set((state) => {
       // 草稿只活在本地（未发送前服务端没有记录），远程列表里不存在，
       // 直接整体覆盖会把它连同用户已输入的上下文一起丢掉。
-      const drafts = state.conversations.filter((c) => isDraftConversation(c.id));
+      const drafts = state.conversations.filter((c) =>
+        isDraftConversation(c.id),
+      );
       const conversations = [
         ...drafts,
         ...remote.map(normalizeConversationStreamFeedback),
@@ -104,7 +106,9 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
 
       // 流式进行中不能用远程覆盖：服务端此刻的消息落后于正在增量拼接的本地内容，
       // 覆盖会把已经渲染出来的半截回答抹掉。草稿同理，远程没有对应记录。
-      const hasInFlight = current.messages.some((m) => m.status === "streaming");
+      const hasInFlight = current.messages.some(
+        (m) => m.status === "streaming",
+      );
       if (hasInFlight || isDraftConversation(current.id)) {
         return { conversations };
       }
@@ -154,10 +158,15 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   upsertConversation(conversation: Conversation) {
     set((state) => {
       const exists = state.conversations.some((c) => c.id === conversation.id);
-      const normalized = { ...conversation, messages: conversation.messages ?? [] };
+      const normalized = {
+        ...conversation,
+        messages: conversation.messages ?? [],
+      };
       const conversations = exists
         ? state.conversations.map((c) =>
-            c.id === normalized.id ? { ...c, ...normalized, messages: c.messages } : c,
+            c.id === normalized.id
+              ? { ...c, ...normalized, messages: c.messages }
+              : c,
           )
         : [normalized, ...state.conversations];
       const currentConversation = exists
@@ -252,7 +261,7 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
         // 用第一条用户消息作为标题
         title:
           state.currentConversation.messages.length === 0 && msg.role === "user"
-            ? msg.content.slice(0, 20)
+            ? msg.content.slice(0, 20) || "图片消息"
             : state.currentConversation.title,
       };
 
@@ -502,7 +511,8 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   setMessagePlanReview(
     msgId: string,
     payload: PlanReviewRequiredPayload | null,
-  ) {    set((state) => {
+  ) {
+    set((state) => {
       if (!state.currentConversation) return state;
 
       const messages = state.currentConversation.messages.map((m) =>

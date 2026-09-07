@@ -11,6 +11,7 @@ import {
   AgentAccessDenialReason,
   AgentAccessService,
 } from '../agent-access/agent-access.service';
+import { CosStorageService } from '../storage/cos-storage.service';
 
 @Injectable()
 export class ConversationService {
@@ -18,6 +19,7 @@ export class ConversationService {
     private readonly prisma: PrismaService,
     private readonly mcdonaldsOrderService: McDonaldsOrderService,
     private readonly agentAccessService: AgentAccessService,
+    private readonly cosStorageService: CosStorageService,
   ) {}
 
   /**
@@ -34,6 +36,7 @@ export class ConversationService {
         messages: {
           orderBy: { createdAt: 'asc' },
           include: {
+            imageAsset: { select: { key: true } },
             turnTraceItems: {
               orderBy: { sequence: 'asc' },
             },
@@ -104,6 +107,9 @@ export class ConversationService {
         id: m.id,
         role: m.role.toLowerCase(),
         content: m.content,
+        imageUrl: m.imageAsset
+          ? this.cosStorageService.resolveAccessUrl(m.imageAsset.key)
+          : m.imageUrl,
         agentId: m.agentId,
         agentName: m.agentId ? (agentNameById.get(m.agentId) ?? null) : null,
         status: m.status.toLowerCase(),

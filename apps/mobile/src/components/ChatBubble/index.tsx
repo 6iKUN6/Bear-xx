@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
+import Taro from "@tarojs/taro";
 import { Image, View, Text } from "@tarojs/components";
 import {
   StreamTaskEventType,
@@ -102,9 +103,7 @@ function ChatBubble({
   }
 
   // 正常助手消息才按 id 解析；null 代表后端默认智能体，可显示其配置头像。
-  const speakerAgent = !isUser
-    ? findAgent(agents, message.agentId)
-    : undefined;
+  const speakerAgent = !isUser ? findAgent(agents, message.agentId) : undefined;
   const displayName = isUser
     ? userInfo?.nickname || "用户"
     : message.agentName || speakerAgent?.name || FALLBACK_AGENT_NAME;
@@ -129,8 +128,8 @@ function ChatBubble({
         <AgentAvatar
           name={displayName}
           avatar={speakerAgent?.avatar}
-          size='sm'
-          className='h-[2.25rem] w-[2.25rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border'
+          size="sm"
+          className="h-[2.25rem] w-[2.25rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] box-border"
         />
       )}
 
@@ -144,37 +143,52 @@ function ChatBubble({
             isUser ? "flex-row-reverse" : ""
           }`}
         >
-          <Text className='block min-w-0 max-w-full flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]'>
+          <Text className="block min-w-0 max-w-full flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]">
             {displayName}
           </Text>
-          <Text className='shrink-0 text-[0.6875rem] leading-none text-[var(--lb-text-muted)]'>
+          <Text className="shrink-0 text-[0.6875rem] leading-none text-[var(--lb-text-muted)]">
             {formatTime(message.createdAt)}
           </Text>
         </View>
 
-        {!isUser && <View className='mt-[0.5rem] min-w-0'>{extra}</View>}
+        {!isUser && <View className="mt-[0.5rem] min-w-0">{extra}</View>}
 
         <View className={bubbleBodyClass(isUser)}>
+          {message.imageUrl ? (
+            <Image
+              className={`block h-[9rem] w-[12rem] max-w-full rounded-[var(--lb-radius-sm)] bg-[var(--lb-surface-muted)] ${message.content ? "mb-[0.5rem]" : ""}`}
+              src={message.imageUrl}
+              mode="aspectFill"
+              onClick={() =>
+                void Taro.previewImage({
+                  current: message.imageUrl ?? undefined,
+                  urls: message.imageUrl ? [message.imageUrl] : [],
+                })
+              }
+            />
+          ) : null}
           {isUser ? (
-            // 用户输入是纯文本：不走 markdown（rich-text 的 <p> 自带 margin-bottom:8px，
-            // 会把单行文字顶上去、底部空一截）。pre-wrap 保留换行，单行即垂直居中。
-            <Text className='block whitespace-pre-wrap break-words text-[0.875rem] leading-[1.6]'>
-              {message.content}
-            </Text>
-          ) : (
+            message.content ? (
+              // 用户输入是纯文本：不走 markdown（rich-text 的 <p> 自带 margin-bottom:8px，
+              // 会把单行文字顶上去、底部空一截）。pre-wrap 保留换行，单行即垂直居中。
+              <Text className="block whitespace-pre-wrap break-words text-[0.875rem] leading-[1.6]">
+                {message.content}
+              </Text>
+            ) : null
+          ) : message.content || message.status === "streaming" ? (
             <StreamingMarkdownContent
               content={message.content}
               emptyText={
                 message.status === "streaming" ? "正在组织回复..." : undefined
               }
-              className='text-[var(--lb-text-primary)]'
+              className="text-[var(--lb-text-primary)]"
               streaming={isStreaming}
             />
-          )}
+          ) : null}
         </View>
 
         {!isUser && message.orders?.length ? (
-          <View className='mt-[0.75rem] flex min-w-0 flex-col gap-[0.625rem]'>
+          <View className="mt-[0.75rem] flex min-w-0 flex-col gap-[0.625rem]">
             {message.orders.map((order) => (
               <McdonaldsOrderCard
                 key={order.id}
@@ -189,7 +203,7 @@ function ChatBubble({
         ) : null}
 
         {!isUser && message.pendingApproval && (
-          <View className='mt-[0.5rem] min-w-0'>
+          <View className="mt-[0.5rem] min-w-0">
             <ApprovalCard
               payload={message.pendingApproval}
               onDecision={(decision) => onApproval?.(message.id, decision)}
@@ -198,7 +212,7 @@ function ChatBubble({
         )}
 
         {!isUser && message.resolvedApproval && (
-          <View className='mt-[0.5rem] min-w-0'>
+          <View className="mt-[0.5rem] min-w-0">
             <ApprovalCard
               payload={message.resolvedApproval.payload}
               resolved
@@ -208,7 +222,7 @@ function ChatBubble({
         )}
 
         {!isUser && message.pendingPlanReview && (
-          <View className='mt-[0.5rem] min-w-0'>
+          <View className="mt-[0.5rem] min-w-0">
             <PlanReviewCard
               payload={message.pendingPlanReview}
               onDecision={(decision) => onPlanReview?.(message.id, decision)}
@@ -217,7 +231,7 @@ function ChatBubble({
         )}
 
         {message.status === "error" && (
-          <Text className='mt-[0.375rem] block px-[0.375rem] text-[0.75rem] text-[var(--lb-danger)]'>
+          <Text className="mt-[0.375rem] block px-[0.375rem] text-[0.75rem] text-[var(--lb-danger)]">
             发送失败
           </Text>
         )}
@@ -233,8 +247,8 @@ function ChatBubble({
  */
 function UnassignedNotice({ text }: { text: string }) {
   return (
-    <View className='flex w-full min-w-0 items-center box-border'>
-      <Text className='min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.35] text-[var(--lb-text-muted)]'>
+    <View className="flex w-full min-w-0 items-center box-border">
+      <Text className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] leading-[1.35] text-[var(--lb-text-muted)]">
         {text}
       </Text>
     </View>
@@ -251,16 +265,16 @@ function BubbleAvatar({
   if (avatarUrl) {
     return (
       <Image
-        className='h-[2.25rem] w-[2.25rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] box-border'
+        className="h-[2.25rem] w-[2.25rem] shrink-0 rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] box-border"
         src={avatarUrl}
-        mode='aspectFill'
+        mode="aspectFill"
       />
     );
   }
 
   return (
-    <View className='flex h-[2.25rem] w-[2.25rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-md)] bg-[var(--lb-accent)]'>
-      <Text className='text-[0.875rem] font-bold leading-none text-[var(--lb-on-accent)]'>
+    <View className="flex h-[2.25rem] w-[2.25rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-md)] bg-[var(--lb-accent)]">
+      <Text className="text-[0.875rem] font-bold leading-none text-[var(--lb-on-accent)]">
         {readInitial(name)}
       </Text>
     </View>
@@ -322,9 +336,9 @@ function DefaultBubbleExtraSlot({
 
 function WaitingStreamFeedback() {
   return (
-    <View className='chat-bubble-waiting-feedback'>
-      <View className='chat-bubble-waiting-shimmer' />
-      <View className='relative z-[2] flex items-center gap-[0.375rem]'>
+    <View className="chat-bubble-waiting-feedback">
+      <View className="chat-bubble-waiting-shimmer" />
+      <View className="relative z-[2] flex items-center gap-[0.375rem]">
         <View className={`${appLoadingDotClass} bg-[var(--lb-info)]`} />
         <View
           className={`${appLoadingDotClass} bg-[var(--lb-accent)] [animation-delay:120ms]`}
@@ -333,7 +347,7 @@ function WaitingStreamFeedback() {
           className={`${appLoadingDotClass} bg-[var(--lb-success)] [animation-delay:240ms]`}
         />
       </View>
-      <Text className='relative z-[2] ml-[0.25rem] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]'>
+      <Text className="relative z-[2] ml-[0.25rem] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[0.75rem] font-semibold leading-[1.35] text-[var(--lb-text-secondary)]">
         正在连接对话服务
       </Text>
     </View>

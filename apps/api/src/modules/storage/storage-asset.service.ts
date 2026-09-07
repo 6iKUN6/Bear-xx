@@ -23,6 +23,7 @@ import type {
   AdminStorageAssetListQueryDto,
   AdminStorageAssetPageDto,
 } from './dto/admin-storage.dto';
+import type { LlmVisionTransport } from '../llm/model-vision.catalog';
 
 const ADMIN_IMAGE_CONTENT_TYPES: Readonly<Record<string, string>> = {
   jpg: 'image/jpeg',
@@ -33,6 +34,20 @@ const ADMIN_IMAGE_CONTENT_TYPES: Readonly<Record<string, string>> = {
 };
 const SHARED_IMAGE_MAX_SIZE = 10 * 1024 * 1024;
 const AGENT_AVATAR_MAX_SIZE = 2 * 1024 * 1024;
+export const CHAT_IMAGE_MAX_SIZE = 4 * 1024 * 1024;
+const CHAT_IMAGE_CONTENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+export interface ResolvedChatImage {
+  assetId: string;
+  publicUrl: string;
+  mimeType: string;
+  size: number;
+  wireDataUri?: string;
+}
 
 /** 资产登记服务内部使用的完整输入；Admin 可额外保存原文件名。 */
 export interface RegisterStorageAssetInput extends RegisterAssetDto {
@@ -62,6 +77,71 @@ export class StorageAssetService {
   ): Promise<StorageAssetDto> {
     const asset = await this.registerAssetRecord(userId, dto);
     return this.toStorageDto(asset);
+  }
+
+  /**
+   * 校验当前用户可用于聊天识图的图片资产。
+   * @param userId 当前聊天用户 ID
+   * @param assetId 客户端提交的 StorageAsset ID
+   * @returns 返回经数据库事实与 COS 真实元数据共同校验的图片投影
+   * @description 只接受本人、ACTIVE、chat-image 的 JPEG/PNG/WebP，并通过 COS HEAD 验证
+   * 实际类型和大小。任何失败都发生在聊天消息与任务落库之前。
+   */
+  async validateChatImageAsset(
+    userId: string,
+    assetId: string,
+  ): Promise<ResolvedChatImage> {
+    const asset = await this.loadChatImageAsset(userId, assetId);
+    const metadata = await this.cosStorageService.getObjectMetadata(asset.key);
+    this.assertChatImageMetadata(
+      metadata.contentType,
+      metadata.contentLength,
+      asset.mimeType,
+      asset.size,
+    );
+    return {
+      assetId: asset.id,
+      publicUrl: this.cosStorageService.resolveAccessUrl(asset.key),
+      mimeType: metadata.contentType,
+      size: metadata.contentLength,
+    };
+  }
+
+  /**
+   * 为 Activity Worker 构造模型视觉输入。
+   * @param userId 当前任务用户 ID
+   * @param assetId 任务载荷中锁定的图片资产 ID
+   * @param transport 目标模型要求的图片传输方式
+   * @returns 返回公网 URL；data_uri 模式额外返回只存在于 Worker 内存的 Data URI
+   * @description GPT 直接消费公网 URL；K3 从 COS 下载一次。Base64 不写数据库、Redis、
+   * Temporal Payload 或 LangGraph checkpoint，由模型请求发送层临时替换。
+   */
+  async prepareChatImageForModel(
+    userId: string,
+    assetId: string,
+    transport: LlmVisionTransport,
+  ): Promise<ResolvedChatImage> {
+    if (transport === 'public_url') {
+      return this.validateChatImageAsset(userId, assetId);
+    }
+    const asset = await this.loadChatImageAsset(userId, assetId);
+    const downloaded = await this.cosStorageService.downloadObject(
+      asset.key,
+      CHAT_IMAGE_MAX_SIZE,
+    );
+    this.assertChatImageMetadata(
+      downloaded.contentType,
+      downloaded.contentLength,
+      asset.mimeType,
+      asset.size,
+    );
+    return {
+      assetId: asset.id,
+      publicUrl: this.cosStorageService.resolveAccessUrl(asset.key),
+      mimeType: downloaded.contentType,
+      size: downloaded.contentLength,
+      wireDataUri: `data:${downloaded.contentType};base64,${downloaded.body.toString('base64')}`,
+    };
   }
 
   /**
@@ -103,6 +183,44 @@ export class StorageAssetService {
         size: dto.size ?? undefined,
       },
     });
+  }
+
+  /** 读取并校验聊天图片的数据库归属与状态事实。 */
+  private async loadChatImageAsset(userId: string, assetId: string) {
+    const asset = await this.prisma.storageAsset.findFirst({
+      where: {
+        id: assetId,
+        uploadedById: userId,
+        kind: StorageAssetKind.IMAGE,
+        usage: 'chat-image',
+        status: StorageAssetStatus.ACTIVE,
+      },
+    });
+    if (!asset) {
+      throw new BadRequestException('图片资产不存在、不可用或不属于当前用户');
+    }
+    return asset;
+  }
+
+  /** 校验 COS 真实元数据，并拒绝登记信息与真实对象不一致。 */
+  private assertChatImageMetadata(
+    actualMimeType: string,
+    actualSize: number,
+    declaredMimeType: string | null,
+    declaredSize: number | null,
+  ): void {
+    if (!CHAT_IMAGE_CONTENT_TYPES.has(actualMimeType)) {
+      throw new BadRequestException('聊天图片仅支持 JPEG、PNG 或 WebP');
+    }
+    if (actualSize > CHAT_IMAGE_MAX_SIZE) {
+      throw new BadRequestException('聊天图片不能超过 4MB');
+    }
+    if (declaredMimeType && declaredMimeType.toLowerCase() !== actualMimeType) {
+      throw new BadRequestException('图片登记 MIME 与 COS 实际对象不一致');
+    }
+    if (declaredSize !== null && declaredSize !== actualSize) {
+      throw new BadRequestException('图片登记大小与 COS 实际对象不一致');
+    }
   }
 
   /**

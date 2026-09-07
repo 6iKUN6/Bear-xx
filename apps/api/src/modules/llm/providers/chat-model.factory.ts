@@ -9,7 +9,10 @@ import {
   type GoogleGenerativeAIChatInput,
 } from '@langchain/google-genai';
 import { ChatOpenAIResponses } from '@langchain/openai';
-import type { ResolvedLlmTextRequest } from '../llm.types';
+import type {
+  LlmVisionRequestTransform,
+  ResolvedLlmTextRequest,
+} from '../llm.types';
 import { findModelReasoningCapability } from '../model-reasoning.catalog';
 import {
   recordModelCallEnd,
@@ -37,6 +40,29 @@ const MODEL_CALL_USAGE_CALLBACK = {
 /** LLM 调用健壮性默认值：重试次数与单次请求超时 */
 const DEFAULT_LLM_MAX_RETRIES = 3;
 const DEFAULT_LLM_TIMEOUT_MS = 30000;
+
+/** 递归复制 JSON 请求体，并只替换与目标 URL 完全相等的字符串。 */
+function replaceExactString(
+  value: unknown,
+  source: string,
+  replacement: string,
+): unknown {
+  if (value === source) {
+    return replacement;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceExactString(item, source, replacement));
+  }
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      replaceExactString(item, source, replacement),
+    ]),
+  );
+}
 
 @Injectable()
 export class LlmChatModelFactory {
@@ -87,14 +113,17 @@ export class LlmChatModelFactory {
    * @returns 返回可执行流式生成的 LangChain ChatModel 实例
    * @description 根据 provider 创建对应 SDK 的模型实例，避免业务层直接耦合具体模型供应商。
    */
-  createChatModel(request: ResolvedLlmTextRequest): BaseChatModel {
+  createChatModel(
+    request: ResolvedLlmTextRequest,
+    visionTransform?: LlmVisionRequestTransform,
+  ): BaseChatModel {
     switch (request.model.upstreamFormat) {
       case 'anthropic_messages':
         return this.createAnthropicChatModel(request);
       case 'openai_responses':
         return this.createOpenAiResponsesChatModel(request);
       case 'openai_chat_completions':
-        return this.createOpenAiCompatibleChatModel(request);
+        return this.createOpenAiCompatibleChatModel(request, visionTransform);
       case 'gemini_generate_content':
         return this.createGeminiChatModel(request);
       default:
@@ -140,6 +169,7 @@ export class LlmChatModelFactory {
    */
   private createOpenAiCompatibleChatModel(
     request: ResolvedLlmTextRequest,
+    visionTransform?: LlmVisionRequestTransform,
   ): BaseChatModel {
     const { model, generation } = request;
     const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
@@ -154,8 +184,42 @@ export class LlmChatModelFactory {
       timeout: timeoutMs,
       callbacks: [MODEL_CALL_USAGE_CALLBACK],
       modelKwargs: this.createOpenAiCompatibleReasoningKwargs(request),
-      configuration: { baseURL: model.baseURL },
+      configuration: {
+        baseURL: model.baseURL,
+        ...(visionTransform
+          ? { fetch: this.createVisionTransformFetch(visionTransform) }
+          : {}),
+      },
     });
+  }
+
+  /**
+   * 创建只改写当前图片 URL 的请求发送器。
+   * @param transform 公网 URL 与对应 Data URI
+   * @returns 返回兼容 OpenAI SDK 的 fetch
+   * @description LangGraph checkpoint 只保存不含 Base64 的公网 URL；K3 发包前才在内存中
+   * 精确替换同值字符串。工具多轮与 SDK 重试复用同一 Data URI，不重复下载对象。
+   */
+  private createVisionTransformFetch(
+    transform: LlmVisionRequestTransform,
+  ): typeof fetch {
+    return async (input, init) => {
+      if (typeof init?.body !== 'string') {
+        return fetch(input, init);
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(init.body);
+      } catch {
+        return fetch(input, init);
+      }
+      return fetch(input, {
+        ...init,
+        body: JSON.stringify(
+          replaceExactString(parsed, transform.sourceUrl, transform.dataUri),
+        ),
+      });
+    };
   }
 
   /**

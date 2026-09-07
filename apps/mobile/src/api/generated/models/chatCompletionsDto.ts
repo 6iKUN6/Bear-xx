@@ -10,8 +10,10 @@ import type { ReasoningSelectionDto } from './reasoningSelectionDto';
 export interface ChatCompletionsDto {
   /** 会话 ID；首轮消息可不传，后端会自动创建新会话 */
   conversationId?: string;
-  /** 用户消息内容 */
-  content: string;
+  /** 用户消息内容；与 imageAssetId 至少提供一项 */
+  content?: string;
+  /** 本人已登记且 usage=chat-image 的图片资产 ID */
+  imageAssetId?: string;
   /** 指定使用的智能体 id；不传则用默认智能体 */
   agentId?: string;
   /** 本条消息选择的模型预设业务 ID；必须属于回答智能体允许集合，仅替换 Flow 中的 agent-default */

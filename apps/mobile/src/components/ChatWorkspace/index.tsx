@@ -10,7 +10,7 @@ import type {
 } from "@litter-bear/types/protocol";
 import MessageList from "../MessageList";
 import ChatInput from "../ChatInput";
-import type { ChatInputHandle } from "../ChatInput";
+import type { ChatImageAttachment, ChatInputHandle } from "../ChatInput";
 import MemberBar from "../MemberBar";
 import NavBar from "../NavBar";
 import PageShell from "../PageShell";
@@ -403,6 +403,7 @@ export default function ChatWorkspace({
     content: string,
     agentId?: string,
     modelSelection?: AgentModelSelection,
+    image?: ChatImageAttachment,
   ) => {
     const localConversationId =
       currentConversation?.id || ensureDraftConversation();
@@ -414,6 +415,7 @@ export default function ChatWorkspace({
       id: genMsgId(),
       role: "user",
       content,
+      imageUrl: image?.imageUrl,
       status: "done",
       createdAt: Date.now(),
     };
@@ -451,6 +453,7 @@ export default function ChatWorkspace({
       {
         conversationId: requestConversationId,
         content,
+        imageAssetId: image?.imageAssetId,
         agentId,
         selectedModelPresetId: modelSelection?.modelPresetId,
         reasoning: modelSelection?.reasoning,

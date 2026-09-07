@@ -56,6 +56,11 @@ export type LlmPresetCapability =
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** 当前用户消息的一张视觉输入；仅在最终回答节点的内存消息中存在。 */
+  image?: {
+    url: string;
+    detail?: 'auto' | 'low' | 'high';
+  };
   /** 仅服务端内部使用；不得进入 REST、SSE、Trace 或客户端状态。 */
   modelContext?: unknown;
 }
@@ -101,6 +106,7 @@ export interface LlmModelPresetSummary {
   maxOutputTokens?: number;
   topP?: number;
   reasoningCapability?: LlmReasoningCapability;
+  supportsVision: boolean;
 }
 
 export interface LlmModelSelector {
@@ -133,6 +139,12 @@ export interface ResolvedLlmTextRequest {
   model: ResolvedLlmModelConfig;
   generation: LlmGenerationConfig;
   reasoning?: ReasoningSelection;
+}
+
+/** 仅存在于一次模型执行内存中的图片 URL 到 Data URI 替换。 */
+export interface LlmVisionRequestTransform {
+  sourceUrl: string;
+  dataUri: string;
 }
 
 export interface LlmStreamOptions {

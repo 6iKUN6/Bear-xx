@@ -128,6 +128,7 @@ function getMessageScrollSignal(message: Message) {
     message.id,
     message.status,
     message.content.length,
+    message.imageUrl ?? "",
     currentEventId,
     eventCount,
     expanded,

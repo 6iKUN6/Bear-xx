@@ -124,6 +124,13 @@ export class ConversationMessageDto {
   content: string;
 
   @ApiProperty({
+    description: '用户附件或 AI 生图的动态访问 URL',
+    nullable: true,
+    required: false,
+  })
+  imageUrl?: string | null;
+
+  @ApiProperty({
     description: '发言智能体 id；null = 用户消息或默认助手',
     nullable: true,
     required: false,

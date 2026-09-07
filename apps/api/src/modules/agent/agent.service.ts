@@ -145,6 +145,9 @@ export class AgentService {
         model: preset.model,
         reasoningCapability:
           this.modelRegistry.getReasoningCapability(preset.presetId) ?? null,
+        supportsVision: Boolean(
+          this.modelRegistry.getVisionTransport(preset.presetId),
+        ),
       }));
     const defaultPresetId = agent.defaultModelPreset?.presetId ?? null;
     return {

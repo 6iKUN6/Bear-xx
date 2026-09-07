@@ -57,6 +57,7 @@ describe('StreamTaskService', () => {
       flowApprovalService as never,
       flowSignalOutboxService as never,
       new AgentAccessService(),
+      {} as never,
     );
 
     return {

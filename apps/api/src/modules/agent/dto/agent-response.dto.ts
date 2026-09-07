@@ -106,6 +106,9 @@ export class AgentModelOptionDto {
 
   @ApiProperty({ type: ModelReasoningCapabilityDto, nullable: true })
   reasoningCapability: ModelReasoningCapabilityDto | null;
+
+  @ApiProperty({ description: '是否支持当前聊天图片输入' })
+  supportsVision: boolean;
 }
 
 /** 指定 Agent 当前允许终端选择的可用模型。 */
