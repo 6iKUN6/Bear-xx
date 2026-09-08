@@ -34,7 +34,10 @@ export function readFileAsArrayBuffer(
     fileReader.readFile({
       filePath,
       success: ({ data }) => {
-        if (data instanceof ArrayBuffer) {
+        if (
+          typeof data !== "string" &&
+          Object.prototype.toString.call(data) === "[object ArrayBuffer]"
+        ) {
           resolve(data);
           return;
         }

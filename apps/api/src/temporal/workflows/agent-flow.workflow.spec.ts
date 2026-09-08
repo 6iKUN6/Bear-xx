@@ -843,6 +843,41 @@ describe('agentFlowWorkflow', () => {
     }
   });
 
+  it('模型超时直接收敛为可重试的 timeout 错误', async () => {
+    const finalized: Array<{
+      errorCategory?: string;
+      errorReason?: string;
+    }> = [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: singleNodeSnapshot(),
+        executeNode: () =>
+          Promise.reject(
+            ApplicationFailure.nonRetryable(
+              '模型响应超时，请重试',
+              'AGENT_FLOW_LLM_TIMEOUT',
+            ),
+          ),
+        finalizeRun: ({ errorCategory, errorReason }) => {
+          finalized.push({ errorCategory, errorReason });
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    try {
+      await running.handle.result().catch(() => undefined);
+      expect(finalized).toEqual([
+        {
+          errorCategory: 'timeout',
+          errorReason: '模型响应超时，请重试',
+        },
+      ]);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
   it('非 ApplicationFailure 异常不透出 message，避免带出连接串或密钥', async () => {
     const finalized: Array<{ errorCategory?: string; errorReason?: string }> =
       [];

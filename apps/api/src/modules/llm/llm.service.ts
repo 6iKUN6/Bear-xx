@@ -13,6 +13,7 @@ import type {
   LlmImageEditRequest,
   LlmImageRequest,
   LlmImageResult,
+  LlmModelRuntimeOptions,
   LlmMessage,
   LlmTextRequest,
   LlmStreamOptions,
@@ -404,14 +405,21 @@ export class LlmService {
   /**
    * 创建聊天模型实例
    * @param request 已解析的文本生成请求配置
+   * @param visionTransform 可选的图片 URL 发包转换
+   * @param runtimeOptions 当前调用的重试等运行时覆盖
    * @returns 返回可执行流式生成的 LangChain 聊天模型实例
    * @description 委托统一模型工厂根据 provider 创建具体 LangChain ChatModel 实例。
    */
   createChatModel(
     request: ResolvedLlmTextRequest,
     visionTransform?: LlmVisionRequestTransform,
+    runtimeOptions?: LlmModelRuntimeOptions,
   ) {
-    return this.chatModelFactory.createChatModel(request, visionTransform);
+    return this.chatModelFactory.createChatModel(
+      request,
+      visionTransform,
+      runtimeOptions,
+    );
   }
 
   /**

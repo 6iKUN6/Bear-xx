@@ -3,6 +3,7 @@ import {
   readFileAsArrayBuffer,
   type CosFileReader,
 } from "./cos-upload-file.js";
+import { runInNewContext } from "node:vm";
 
 function expectThrows(callback: () => void, message: string): void {
   try {
@@ -42,6 +43,15 @@ async function run(): Promise<void> {
   const result = await readFileAsArrayBuffer("/tmp/image.png", createReader(data));
   if (!(result instanceof ArrayBuffer)) {
     throw new Error("文件系统的 ArrayBuffer 结果应可用于上传");
+  }
+
+  const crossRealmData: ArrayBuffer = runInNewContext("new ArrayBuffer(1)");
+  const crossRealmResult = await readFileAsArrayBuffer(
+    "/tmp/cross-realm-image.png",
+    createReader(crossRealmData),
+  );
+  if (Object.prototype.toString.call(crossRealmResult) !== "[object ArrayBuffer]") {
+    throw new Error("跨 Realm 的 ArrayBuffer 结果应可用于上传");
   }
 
   await expectRejected(

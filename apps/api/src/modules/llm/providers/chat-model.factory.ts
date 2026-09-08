@@ -10,6 +10,7 @@ import {
 } from '@langchain/google-genai';
 import { ChatOpenAIResponses } from '@langchain/openai';
 import type {
+  LlmModelRuntimeOptions,
   LlmVisionRequestTransform,
   ResolvedLlmTextRequest,
 } from '../llm.types';
@@ -70,23 +71,28 @@ export class LlmChatModelFactory {
 
   /**
    * 解析 LLM 调用健壮性参数
+   * @param runtimeOptions 当前模型实例的可选运行时覆盖
    * @returns 返回重试次数与单次请求超时（毫秒）
    * @description 从环境变量读取 LLM_MAX_RETRIES / LLM_TIMEOUT_MS，非法或缺省时回退到默认值。
    * maxRetries 由 LangChain AsyncCaller 消费，对 429/5xx/超时做指数退避；timeout 用于避免请求无限挂起。
    */
-  private resolveResilienceOptions(): {
+  private resolveResilienceOptions(runtimeOptions?: LlmModelRuntimeOptions): {
     maxRetries: number;
     timeoutMs: number;
   } {
     return {
-      maxRetries: this.readPositiveInt(
-        this.configService.get<string>('LLM_MAX_RETRIES'),
-        DEFAULT_LLM_MAX_RETRIES,
-      ),
-      timeoutMs: this.readPositiveInt(
-        this.configService.get<string>('LLM_TIMEOUT_MS'),
-        DEFAULT_LLM_TIMEOUT_MS,
-      ),
+      maxRetries:
+        runtimeOptions?.maxRetries ??
+        this.readPositiveInt(
+          this.configService.get<string>('LLM_MAX_RETRIES'),
+          DEFAULT_LLM_MAX_RETRIES,
+        ),
+      timeoutMs:
+        runtimeOptions?.timeoutMs ??
+        this.readPositiveInt(
+          this.configService.get<string>('LLM_TIMEOUT_MS'),
+          DEFAULT_LLM_TIMEOUT_MS,
+        ),
     };
   }
 
@@ -110,22 +116,29 @@ export class LlmChatModelFactory {
   /**
    * 创建聊天模型实例
    * @param request 已解析的文本生成请求配置
+   * @param visionTransform 可选的图片 URL 发包转换
+   * @param runtimeOptions 当前调用的重试等运行时覆盖
    * @returns 返回可执行流式生成的 LangChain ChatModel 实例
    * @description 根据 provider 创建对应 SDK 的模型实例，避免业务层直接耦合具体模型供应商。
    */
   createChatModel(
     request: ResolvedLlmTextRequest,
     visionTransform?: LlmVisionRequestTransform,
+    runtimeOptions?: LlmModelRuntimeOptions,
   ): BaseChatModel {
     switch (request.model.upstreamFormat) {
       case 'anthropic_messages':
-        return this.createAnthropicChatModel(request);
+        return this.createAnthropicChatModel(request, runtimeOptions);
       case 'openai_responses':
-        return this.createOpenAiResponsesChatModel(request);
+        return this.createOpenAiResponsesChatModel(request, runtimeOptions);
       case 'openai_chat_completions':
-        return this.createOpenAiCompatibleChatModel(request, visionTransform);
+        return this.createOpenAiCompatibleChatModel(
+          request,
+          visionTransform,
+          runtimeOptions,
+        );
       case 'gemini_generate_content':
-        return this.createGeminiChatModel(request);
+        return this.createGeminiChatModel(request, runtimeOptions);
       default:
         throw new BadRequestException(
           `未支持的上游格式: ${String(request.model.upstreamFormat)}`,
@@ -136,6 +149,7 @@ export class LlmChatModelFactory {
   /**
    * 创建走 Responses 协议的 OpenAI 模型实例
    * @param request 已解析的文本生成请求配置
+   * @param runtimeOptions 当前模型实例的可选运行时覆盖
    * @returns 返回 LangChain ChatOpenAIResponses 实例
    * @description Responses 与 Chat Completions 的工具调用 id 语义不同（`fc_` 对 `call_`），
    * 两者混用会在回填工具结果时报 400 —— 这正是 docs/agent-loop-evolution.md 记录的那次事故。
@@ -144,9 +158,11 @@ export class LlmChatModelFactory {
    */
   private createOpenAiResponsesChatModel(
     request: ResolvedLlmTextRequest,
+    runtimeOptions?: LlmModelRuntimeOptions,
   ): BaseChatModel {
     const { model, generation } = request;
-    const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
+    const { maxRetries, timeoutMs } =
+      this.resolveResilienceOptions(runtimeOptions);
 
     return new ChatOpenAIResponses({
       model: model.model,
@@ -164,15 +180,19 @@ export class LlmChatModelFactory {
   /**
    * 创建 OpenAI 兼容聊天模型实例
    * @param request 已解析的文本生成请求配置
+   * @param visionTransform 可选的图片 URL 发包转换
+   * @param runtimeOptions 当前模型实例的可选运行时覆盖
    * @returns 返回 LangChain ChatOpenAICompletions 实例
    * @description 覆盖 OpenAI 与一切 OpenAI 兼容网关（DeepSeek / Kimi / 豆包 / 自建中转站）；这是默认且最稳的格式，工具调用 id 为 `call_` 语义。
    */
   private createOpenAiCompatibleChatModel(
     request: ResolvedLlmTextRequest,
     visionTransform?: LlmVisionRequestTransform,
+    runtimeOptions?: LlmModelRuntimeOptions,
   ): BaseChatModel {
     const { model, generation } = request;
-    const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
+    const { maxRetries, timeoutMs } =
+      this.resolveResilienceOptions(runtimeOptions);
 
     return new ReasoningContextChatOpenAICompletions({
       model: model.model,
@@ -225,14 +245,17 @@ export class LlmChatModelFactory {
   /**
    * 创建 Anthropic 聊天模型实例
    * @param request 已解析的文本生成请求配置
+   * @param runtimeOptions 当前模型实例的可选运行时覆盖
    * @returns 返回 LangChain ChatAnthropic 实例
    * @description 使用 Anthropic SDK 参数创建 Claude 模型；baseURL 会映射为 ChatAnthropic 的 anthropicApiUrl。
    */
   private createAnthropicChatModel(
     request: ResolvedLlmTextRequest,
+    runtimeOptions?: LlmModelRuntimeOptions,
   ): BaseChatModel {
     const { model, generation } = request;
-    const { maxRetries, timeoutMs } = this.resolveResilienceOptions();
+    const { maxRetries, timeoutMs } =
+      this.resolveResilienceOptions(runtimeOptions);
 
     const reasoning = this.createAnthropicReasoningParams(request);
     return new ChatAnthropic({
@@ -250,12 +273,18 @@ export class LlmChatModelFactory {
     });
   }
 
-  /** 创建 Google Gemini 原生 generateContent 模型。 */
+  /**
+   * 创建 Google Gemini 原生 generateContent 模型
+   * @param request 已解析的文本生成请求配置
+   * @param runtimeOptions 当前模型实例的可选运行时覆盖
+   * @returns 返回 LangChain ChatGoogleGenerativeAI 实例
+   */
   private createGeminiChatModel(
     request: ResolvedLlmTextRequest,
+    runtimeOptions?: LlmModelRuntimeOptions,
   ): BaseChatModel {
     const { model, generation } = request;
-    const { maxRetries } = this.resolveResilienceOptions();
+    const { maxRetries } = this.resolveResilienceOptions(runtimeOptions);
     const chatModel = new ChatGoogleGenerativeAI({
       model: model.model,
       apiKey: model.apiKey,

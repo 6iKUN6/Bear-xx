@@ -34,7 +34,10 @@ import {
   type PlanReviewDecision,
   type TaskErrorCategory,
 } from '@litter-bear/types/protocol';
-import { isRetryableTaskErrorCategory } from '../../llm/llm-error';
+import {
+  classifyLlmError,
+  isRetryableTaskErrorCategory,
+} from '../../llm/llm-error';
 import { chatAgentCommonPrompt, planReviewGatePrompt } from '../../../prompts';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
@@ -86,6 +89,11 @@ import type {
 } from '../../../temporal/workflows/agent-flow.workflow.types';
 
 const FLOW_APPROVAL_TIMEOUT_SECONDS = 900;
+/** Flow 内由 LangChain 消费的单次模型请求边界；失败不再叠加 Temporal 整节点重试。 */
+const AGENT_FLOW_MODEL_RUNTIME = {
+  maxRetries: 1,
+  timeoutMs: 25000,
+} as const;
 
 /**
  * 计划审批门禁的结构化输出闭集
@@ -1236,6 +1244,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           approvalToolNames,
           decision: resumeDecision,
           onModelTurn: budget.countModelCall,
+          modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
         })
       : this.commonChatAgentService.streamEvents({
           modelPreset: node.executor.modelPreset,
@@ -1246,12 +1255,18 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           threadId: stepExecutionId,
           approvalToolNames,
           onModelTurn: budget.countModelCall,
+          modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
         });
-    const result = await this.consumeAgentStream(context, input, stream, {
-      initialContent: '',
-      publishMessageDelta: false,
-      budget,
-    });
+    let result: Awaited<ReturnType<AgentFlowActivities['consumeAgentStream']>>;
+    try {
+      result = await this.consumeAgentStream(context, input, stream, {
+        initialContent: '',
+        publishMessageDelta: false,
+        budget,
+      });
+    } catch (error) {
+      throw toAgentFlowModelFailure(error);
+    }
     resumeDecision = undefined;
     await budget.flush();
     if (result.overspent) {
@@ -1694,6 +1709,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           approvalToolNames: capabilities.approvalToolNames,
           decision: resumeDecision,
           onModelTurn,
+          modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
           ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
           ...(vision?.transform ? { visionTransform: vision.transform } : {}),
         })
@@ -1706,16 +1722,22 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
           onModelTurn,
+          modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
           ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
           ...(vision?.transform ? { visionTransform: vision.transform } : {}),
         });
     // 只有终节点的产出会成为这条助手消息的正文；中间 agent 节点静默执行，正文进
     // outputs.text 供下游 $ref 引用。理由见 isAnswerNode。
-    const result = await this.consumeAgentStream(context, input, stream, {
-      initialContent: isAnswer ? context.task.fullContent : '',
-      publishMessageDelta: isAnswer,
-      budget,
-    });
+    let result: Awaited<ReturnType<AgentFlowActivities['consumeAgentStream']>>;
+    try {
+      result = await this.consumeAgentStream(context, input, stream, {
+        initialContent: isAnswer ? context.task.fullContent : '',
+        publishMessageDelta: isAnswer,
+        budget,
+      });
+    } catch (error) {
+      throw toAgentFlowModelFailure(error);
+    }
     await budget.flush();
     // 中间节点的正文不能进任务：它是从空串起算的自己那一段，写进 fullContent 会
     // 覆盖掉真正的回复。中止与等待两条路径都要按这个走。
@@ -3305,6 +3327,30 @@ function createNonRetryableActivityFailure(
   type: string,
 ): ApplicationFailure {
   return ApplicationFailure.nonRetryable(message, type);
+}
+
+/**
+ * 将 Agent 节点的模型超时转换为不会重复整轮 Activity 的安全失败
+ * @param error LangChain 或模型 SDK 抛出的原始错误
+ * @returns 非超时错误保持原样；该返回仅用于满足 throw 表达式的类型
+ * @description AgentFlow 已允许 LangChain 在同一次模型请求内补试一次。若补试仍超时，
+ * 再交给 Temporal 重跑整个节点会重复消息生成甚至工具循环，并把 30 秒故障放大到数分钟。
+ * OpenAI SDK 在外部 timeout signal 触发时会使用 “Request was aborted.”，而 AgentFlow
+ * 不向模型传用户取消 signal，因此这里可明确把该文案归为请求超时。
+ */
+function toAgentFlowModelFailure(error: unknown): unknown {
+  const classified = classifyLlmError(error);
+  const abortedByModelTimeout =
+    classified.category === 'unknown' &&
+    error instanceof Error &&
+    error.message.trim().toLowerCase() === 'request was aborted.';
+  if (classified.category === 'timeout' || abortedByModelTimeout) {
+    return ApplicationFailure.nonRetryable(
+      '模型响应超时，请重试',
+      'AGENT_FLOW_LLM_TIMEOUT',
+    );
+  }
+  return error;
 }
 
 /**
