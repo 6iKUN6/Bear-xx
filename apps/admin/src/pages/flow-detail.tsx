@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
+  FileJson,
   GitBranch,
   Loader2,
   Pencil,
@@ -58,6 +59,8 @@ export function FlowDetailPage() {
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [previewVersion, setPreviewVersion] =
     useState<AgentFlowVersion | null>(null);
+  // Definition JSON 收进弹窗：页面主体留给版本表，编辑时经按钮打开
+  const [jsonOpen, setJsonOpen] = useState(false);
 
   const versions = flow?.versions ?? [];
   // 默认落在草稿上——那是唯一可编辑的版本
@@ -275,6 +278,89 @@ export function FlowDetailPage() {
         </Button>
       </div>
 
+      {selected ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="text-sm font-medium text-foreground">
+              v{selected.version} FlowDefinition
+            </span>
+            {isDraft ? null : <Badge variant="outline">只读</Badge>}
+            {dirty ? <Badge variant="warning">未保存</Badge> : null}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setJsonOpen(true)}
+          >
+            <FileJson className="h-4 w-4" />
+            {isDraft ? "编辑 JSON" : "查看 JSON"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <Download className="h-4 w-4" />
+            导出
+          </Button>
+          {isDraft ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSave}
+                disabled={!dirty || !parsed.ok || saveDraft.isPending}
+              >
+                {saveDraft.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                保存
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleValidate}
+                // 服务端校验的是已保存的版本，草稿脏着校验只会给出过时结论
+                title={dirty ? "先保存：校验针对已保存的版本" : undefined}
+                disabled={dirty || validate.isPending}
+              >
+                {validate.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                校验
+              </Button>
+              <Button
+                size="sm"
+                onClick={handlePublish}
+                disabled={dirty || publish.isPending}
+                title={dirty ? "先保存再发布" : undefined}
+              >
+                {publish.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Rocket className="h-4 w-4" />
+                )}
+                发布
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              onClick={handleFork}
+              disabled={importDefinition.isPending}
+              title="已发布与已归档版本不可编辑，以当前内容开一份新草稿"
+            >
+              {importDefinition.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <GitBranch className="h-4 w-4" />
+              )}
+              另存为草稿
+            </Button>
+          )}
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>版本历史</CardTitle>
@@ -377,121 +463,57 @@ export function FlowDetailPage() {
       </Card>
 
       {selected ? (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle className="flex items-center gap-2">
-              v{selected.version} FlowDefinition
-              {isDraft ? null : (
-                <Badge variant="outline">只读</Badge>
-              )}
-              {dirty ? <Badge variant="warning">未保存</Badge> : null}
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleExport}>
-                <Download className="h-4 w-4" />
-                导出
-              </Button>
-              {isDraft ? (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={!dirty || !parsed.ok || saveDraft.isPending}
-                  >
-                    {saveDraft.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                    保存
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleValidate}
-                    // 服务端校验的是已保存的版本，草稿脏着校验只会给出过时结论
-                    title={dirty ? "先保存：校验针对已保存的版本" : undefined}
-                    disabled={dirty || validate.isPending}
-                  >
-                    {validate.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4" />
-                    )}
-                    校验
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handlePublish}
-                    disabled={dirty || publish.isPending}
-                    title={dirty ? "先保存再发布" : undefined}
-                  >
-                    {publish.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Rocket className="h-4 w-4" />
-                    )}
-                    发布
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={handleFork}
-                  disabled={importDefinition.isPending}
-                  title="已发布与已归档版本不可编辑，以当前内容开一份新草稿"
-                >
-                  {importDefinition.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <GitBranch className="h-4 w-4" />
-                  )}
-                  另存为草稿
-                </Button>
-              )}
+        <Dialog open={jsonOpen} onOpenChange={setJsonOpen}>
+          <DialogContent className="flex h-[82vh] w-[92vw] max-w-[92vw] flex-col">
+            <div className="shrink-0">
+              <DialogTitle>v{selected.version} FlowDefinition</DialogTitle>
+              <DialogDescription>
+                {isDraft
+                  ? "草稿可编辑；保存、校验、发布在表格上方的工具栏操作"
+                  : `${versionStatusMeta(selected.status).name}版本只读`}
+              </DialogDescription>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               readOnly={!isDraft}
               spellCheck={false}
-              className="min-h-[420px] font-mono text-xs leading-relaxed"
+              className="min-h-0 flex-1 resize-none font-mono text-xs leading-relaxed"
             />
-            {!parsed.ok ? (
-              <p className="text-xs text-[var(--lb-danger)]">
-                JSON 语法错误：{parsed.error}
-              </p>
-            ) : null}
-            {validation ? (
-              validation.valid ? (
-                <p className="text-xs text-[var(--lb-success)]">
-                  校验通过 · digest {validation.digest?.slice(0, 16)}…
+            <div className="shrink-0 space-y-3">
+              {!parsed.ok ? (
+                <p className="text-xs text-[var(--lb-danger)]">
+                  JSON 语法错误：{parsed.error}
                 </p>
-              ) : (
-                <div className="space-y-1 rounded-md border border-border p-3">
-                  <p className="text-xs font-medium text-[var(--lb-danger)]">
-                    {validation.errors.length} 处问题
+              ) : null}
+              {validation ? (
+                validation.valid ? (
+                  <p className="text-xs text-[var(--lb-success)]">
+                    校验通过 · digest {validation.digest?.slice(0, 16)}…
                   </p>
-                  {validation.errors.map((error, index) => (
-                    <p
-                      key={`${error.path}-${error.rule}-${index}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      <span className="font-mono text-foreground">
-                        {error.path}
-                      </span>{" "}
-                      <span className="font-mono">[{error.rule}]</span>{" "}
-                      {error.message}
+                ) : (
+                  <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-3">
+                    <p className="text-xs font-medium text-[var(--lb-danger)]">
+                      {validation.errors.length} 处问题
                     </p>
-                  ))}
-                </div>
-              )
-            ) : null}
-          </CardContent>
-        </Card>
+                    {validation.errors.map((error, index) => (
+                      <p
+                        key={`${error.path}-${error.rule}-${index}`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        <span className="font-mono text-foreground">
+                          {error.path}
+                        </span>{" "}
+                        <span className="font-mono">[{error.rule}]</span>{" "}
+                        {error.message}
+                      </p>
+                    ))}
+                  </div>
+                )
+              ) : null}
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
