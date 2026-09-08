@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Temporal 驱动的长任务运行与调度",
+    "subtitle": "AgentFlow 以 StreamTask 锁定业务快照，以 Temporal History 恢复编排；审批等待不占用 API 内存",
+    "output": "docs/visualizations/temporal-long-task-scheduling.html",
+    "viewBox": [1280, 1260],
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "dispatch",
+        "label": "任务创建与派发",
+        "focus": ["client", "api", "postgres", "temporal", "orchestrator"],
+        "note": "StreamTask 在事务内冻结 FlowVersion，提交后才由派发器幂等启动 Temporal Workflow。"
+      },
+      {
+        "id": "execution",
+        "label": "节点执行与记录",
+        "focus": ["orchestrator", "activity", "external", "postgres"],
+        "note": "Workflow 只做确定性编排；LLM、工具与数据库访问都属于 Activity 的副作用。"
+      },
+      {
+        "id": "approval",
+        "label": "审批等待与恢复",
+        "focus": ["client", "api", "postgres", "temporal", "orchestrator"],
+        "note": "审批事实先进入 PostgreSQL，再以 Signal 唤醒 Workflow；等待期间没有 API 请求或 Worker 线程被占用。"
+      },
+      {
+        "id": "recovery",
+        "label": "Worker 故障恢复",
+        "focus": ["temporal", "orchestrator", "activity", "postgres"],
+        "note": "Temporal 依据已持久化的 History 重新投递任务；外部副作用通过业务幂等键防重。"
+      }
+    ]
+  },
+  "participants": [
+    { "id": "client", "type": "frontend", "label": "客户端", "sublabel": "小程序 / Admin" },
+    { "id": "api", "type": "backend", "label": "Nest API", "sublabel": "任务、审批、SSE" },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "任务、审批、trace" },
+    { "id": "temporal", "type": "cloud", "label": "Temporal", "sublabel": "History 与 Task Queue" },
+    { "id": "orchestrator", "type": "backend", "label": "编排 Worker", "sublabel": "Workflow replay" },
+    { "id": "activity", "type": "messagebus", "label": "Activity", "sublabel": "可独立横向扩容" },
+    { "id": "external", "type": "external", "label": "LLM / 工具", "sublabel": "外部副作用" }
+  ],
+  "segments": [
+    { "from": 150, "to": 390, "label": "创建任务并启动 Flow" },
+    { "from": 410, "to": 710, "label": "执行节点与持久化事件" },
+    { "from": 730, "to": 1010, "label": "人工审批等待与恢复" },
+    { "from": 1030, "to": 1170, "label": "故障接管与收尾" }
+  ],
+  "messages": [
+    { "id": "create", "from": "client", "to": "api", "y": 185, "label": "创建聊天任务", "variant": "emphasis" },
+    { "id": "freeze", "from": "api", "to": "postgres", "y": 225, "label": "事务内冻结 FlowVersion 与 StreamTask", "variant": "default" },
+    { "id": "created", "from": "postgres", "to": "api", "y": 265, "label": "提交 taskId", "variant": "return" },
+    { "id": "start", "from": "api", "to": "temporal", "y": 315, "label": "FlowTaskDispatcher：幂等启动 Workflow", "variant": "emphasis" },
+    { "id": "workflow-task", "from": "temporal", "to": "orchestrator", "y": 355, "label": "投递 Workflow Task", "variant": "default" },
+    { "id": "schedule", "from": "orchestrator", "to": "activity", "y": 435, "label": "调度当前 Flow 节点 Activity", "variant": "emphasis" },
+    { "id": "call", "from": "activity", "to": "external", "y": 480, "label": "调用 LLM / 工具", "variant": "default" },
+    { "id": "external-result", "from": "external", "to": "activity", "y": 520, "label": "结果、错误或超时", "variant": "return" },
+    { "id": "record", "from": "activity", "to": "postgres", "y": 570, "label": "同步持久化 trace、快照与任务事件", "variant": "dashed" },
+    { "id": "activity-result", "from": "activity", "to": "temporal", "y": 620, "label": "提交 Activity 结果", "variant": "return" },
+    { "id": "next-task", "from": "temporal", "to": "orchestrator", "y": 665, "label": "History 追加后推进下一节点", "variant": "default" },
+    { "id": "approval-record", "from": "activity", "to": "postgres", "y": 765, "label": "需要审批：写审批事实与 WAITING_HUMAN", "variant": "security" },
+    { "id": "waiting", "from": "orchestrator", "to": "temporal", "y": 805, "label": "condition 等待 Signal / Timer / 取消", "variant": "security" },
+    { "id": "approve", "from": "client", "to": "api", "y": 850, "label": "批准或拒绝", "variant": "security" },
+    { "id": "resolve", "from": "api", "to": "postgres", "y": 890, "label": "事务提交审批结果", "variant": "security" },
+    { "id": "signal", "from": "api", "to": "temporal", "y": 930, "label": "发送 approval Signal", "variant": "security" },
+    { "id": "resume", "from": "temporal", "to": "orchestrator", "y": 970, "label": "持久化 Signal 后重新投递任务", "variant": "security" },
+    { "id": "continue", "from": "orchestrator", "to": "activity", "y": 1000, "label": "从审批等待点恢复", "variant": "emphasis" },
+    { "id": "recover", "from": "temporal", "to": "orchestrator", "y": 1085, "label": "Worker 重启后：重投任务并 replay History", "variant": "dashed" },
+    { "id": "finish", "from": "activity", "to": "postgres", "y": 1130, "label": "写终态、最终快照与 trace", "variant": "dashed" },
+    { "id": "replay", "from": "api", "to": "client", "y": 1160, "label": "SSE 实时推送或按 taskId 回放", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "api", "from": 180, "to": 940, "type": "backend" },
+    { "participant": "postgres", "from": 220, "to": 1140, "type": "database" },
+    { "participant": "temporal", "from": 310, "to": 1100, "type": "cloud" },
+    { "participant": "orchestrator", "from": 350, "to": 1090, "type": "backend" },
+    { "participant": "activity", "from": 430, "to": 1140, "type": "messagebus" },
+    { "participant": "external", "from": 475, "to": 530, "type": "external" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Temporal 负责什么",
+      "items": [
+        "持久化 Workflow History 与调度任务队列",
+        "将 Signal、Timer、取消与重试变成可恢复事件",
+        "Worker 可替换；replay 重建 Flow 编排状态"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "PostgreSQL 负责什么",
+      "items": [
+        "StreamTask、FlowVersion 快照与审批是业务事实",
+        "trace 与流式快照服务于审计、查询和 SSE 回放",
+        "delta 在内存合并 fullContent 后同步落库"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "重复执行边界",
+      "items": [
+        "Workflow 状态由 History 的有效追加推进",
+        "Activity 应按至少一次语义实现",
+        "外部写操作以 taskId 加节点实例等业务键幂等"
+      ]
+    }
+  ]
+}
