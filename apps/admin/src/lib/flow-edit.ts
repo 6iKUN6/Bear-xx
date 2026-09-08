@@ -211,6 +211,79 @@ export function removeNode(
 }
 
 /**
+ * 复制一个节点
+ * @param definition 当前草稿
+ * @param nodeId 被复制的节点
+ * @param currentPositions 现有节点当前实际渲染的坐标（来自 layoutPositions）
+ * @returns 返回新草稿；start/end 或节点不存在时拒绝
+ * @description config 深拷贝（structuredClone）：agent 的 toolGroups、condition 的 cases 等
+ * 嵌套结构若共享引用，改副本会联动原节点。**不复制边**——复制会撞 unique-edge-branch 护栏，
+ * 且副本通常要重新连线；**不复制 name**——两个同名节点在列表里无法区分，回退显示新 id 更清楚。
+ */
+export function duplicateNode(
+  definition: EditableDefinition,
+  nodeId: string,
+  currentPositions: Record<string, FlowNodePosition>,
+): EditResult {
+  const source = definition.nodes.find((item) => item.id === nodeId);
+  if (!source) {
+    return { ok: false, reason: "节点不存在" };
+  }
+  if (source.type === "start" || source.type === "end") {
+    return { ok: false, reason: "start 与 end 有且仅有一个，不能复制" };
+  }
+  const id = nextNodeId(definition, source.type);
+  const origin = currentPositions[nodeId] ?? { x: 0, y: 0 };
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      nodes: [
+        ...definition.nodes,
+        { id, type: source.type, config: structuredClone(source.config) },
+      ],
+      layout: {
+        nodes: {
+          ...currentPositions,
+          [id]: { x: origin.x + 40, y: origin.y + 40 },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * 断开一个节点的所有连线
+ * @param definition 当前草稿
+ * @param nodeId 目标节点
+ * @returns 返回新草稿；节点不存在时拒绝
+ * @description 节点本身保留；join 的 waitFor 引用随边一并收敛（复用 pruneJoinWaitFor）。
+ * start/end 允许断线——唯一性约束针对的是节点本身，不是它的边。
+ */
+export function disconnectNodeAll(
+  definition: EditableDefinition,
+  nodeId: string,
+): EditResult {
+  if (!definition.nodes.some((item) => item.id === nodeId)) {
+    return { ok: false, reason: "节点不存在" };
+  }
+  const edges = definition.edges.filter(
+    (edge) => edge.from !== nodeId && edge.to !== nodeId,
+  );
+  if (edges.length === definition.edges.length) {
+    return { ok: false, reason: "该节点没有连线" };
+  }
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      nodes: pruneJoinWaitFor(definition.nodes, edges),
+      edges,
+    },
+  };
+}
+
+/**
  * 剪掉 join 节点上已经失效的 waitFor 引用
  * @param nodes 当前节点集合
  * @param edges 剪枝后的边集合
