@@ -7,6 +7,7 @@ import { LlmService } from '../../../llm/llm.service';
 import type {
   LlmGenerationConfig,
   LlmMessage,
+  LlmModelRuntimeOptions,
   LlmModelPreset,
   LlmTextRequest,
   LlmVisionRequestTransform,
@@ -46,6 +47,8 @@ export interface CommonChatAgentRequest {
   ) => void | Promise<void>;
   /** K3 等不接受公网图片 URL 时使用；仅存在于当前 Worker 内存。 */
   visionTransform?: LlmVisionRequestTransform;
+  /** 当前执行环境对 LangChain 内层重试的覆盖；不写入模型预设。 */
+  modelRuntime?: LlmModelRuntimeOptions;
 }
 
 @Injectable()
@@ -164,6 +167,7 @@ export class CommonChatAgentService {
     const chatModel = this.llmService.createChatModel(
       resolvedRequest,
       request.visionTransform,
+      request.modelRuntime,
     );
     const modelContext = this.prepareModelContext(request, resolvedRequest);
 
@@ -207,6 +211,7 @@ export class CommonChatAgentService {
     const chatModel = this.llmService.createChatModel(
       resolvedRequest,
       request.visionTransform,
+      request.modelRuntime,
     );
     const modelContext = this.prepareModelContext(request, resolvedRequest);
 

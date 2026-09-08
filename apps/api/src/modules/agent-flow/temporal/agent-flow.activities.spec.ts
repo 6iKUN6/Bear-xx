@@ -259,6 +259,7 @@ describe('AgentFlowActivities', () => {
     expect(commonChatAgentService.streamEvents).toHaveBeenCalledWith(
       expect.objectContaining({
         modelPreset: 'openai:test',
+        modelRuntime: { maxRetries: 1, timeoutMs: 25000 },
         tools: [],
         threadId: 'task-1:version-1:answer',
       }),
@@ -295,6 +296,26 @@ describe('AgentFlowActivities', () => {
     expect(readBudgetIncrement()).toEqual({
       modelCalls: { increment: 1 },
       toolCalls: { increment: 0 },
+    });
+  });
+
+  it('模型请求补试后仍超时，不再由 Temporal 重跑整个 Agent 节点', async () => {
+    mockAgentNode();
+    commonChatAgentService.streamEvents.mockReturnValue(
+      failedEventStream(new Error('Request was aborted.')),
+    );
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer',
+        iteration: 0,
+      }),
+    ).rejects.toMatchObject({
+      type: 'AGENT_FLOW_LLM_TIMEOUT',
+      nonRetryable: true,
+      message: '模型响应超时，请重试',
     });
   });
 
@@ -1709,6 +1730,16 @@ async function* emptyEventStream() {
 async function* textEventStream(delta: string) {
   await Promise.resolve();
   yield { type: 'message.delta' as const, delta };
+}
+
+/**
+ * 构造在消费阶段抛错的底层 Agent 流
+ * @param error 待模拟的模型调用错误
+ * @returns 返回会在首次迭代时抛错的异步事件流
+ * @description 用于验证 LangChain 请求超时不会被 Temporal 作为整节点重试。
+ */
+async function* failedEventStream(error: Error) {
+  yield await Promise.reject(error);
 }
 
 /**

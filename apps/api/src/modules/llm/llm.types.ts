@@ -147,6 +147,14 @@ export interface LlmVisionRequestTransform {
   dataUri: string;
 }
 
+/** 单次模型实例的运行时健壮性覆盖，不进入模型预设或持久化请求。 */
+export interface LlmModelRuntimeOptions {
+  /** LangChain 在同一次业务执行内重试上游请求的次数。 */
+  maxRetries?: number;
+  /** 单次上游请求建立响应的超时毫秒数。 */
+  timeoutMs?: number;
+}
+
 export interface LlmStreamOptions {
   abortSignal?: AbortSignal;
 }

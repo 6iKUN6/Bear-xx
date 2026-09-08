@@ -58,6 +58,22 @@ describe('LlmChatModelFactory reasoning mapping', () => {
     expect(model).toBeInstanceOf(ReasoningContextChatOpenAICompletions);
   });
 
+  it('调用级运行时配置可限制 LangChain 内层重试和超时', () => {
+    const model = factory.createChatModel(
+      request({
+        platform: 'openai',
+        model: 'gpt-5.6-luna',
+        upstreamFormat: 'openai_responses',
+      }),
+      undefined,
+      { maxRetries: 1, timeoutMs: 25000 },
+    );
+
+    expect(model.toJSON()).toMatchObject({
+      kwargs: { max_retries: 1, timeout: 25000 },
+    });
+  });
+
   it('DeepSeek 关闭思考时发送 thinking.type=disabled', () => {
     const model = factory.createChatModel(
       request({

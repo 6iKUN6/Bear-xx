@@ -559,4 +559,5 @@ const FAILURE_TYPE_CATEGORY: Readonly<Record<string, TaskErrorCategory>> = {
   AGENT_FLOW_APPROVAL_KIND_MISMATCH: 'invalid',
   AGENT_FLOW_NON_RETRYABLE: 'invalid',
   AGENT_FLOW_NODE_EXECUTOR_UNAVAILABLE: 'server',
+  AGENT_FLOW_LLM_TIMEOUT: 'timeout',
 };
