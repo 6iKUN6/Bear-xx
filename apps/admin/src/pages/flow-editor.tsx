@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -6,7 +6,9 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  Redo2,
   Save,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FlowNodeType } from "@litter-bear/types/agent-flow";
@@ -24,16 +26,30 @@ import {
 import { describeApiError, versionStatusMeta } from "@/lib/flow-meta";
 import { flowAdvisories } from "@/lib/flow-advisories";
 import {
+  resolveNodeProvider,
+  type NodeProviderInfo,
+} from "@/lib/flow-node-model";
+import {
+  EMPTY_HISTORY,
+  pushHistory,
+  redoHistory,
+  undoHistory,
+  type EditorHistory,
+} from "@/lib/editor-history";
+import {
   NODE_TYPE_ICONS,
   layoutPositions,
   nodeTypeMeta,
   type FlowNodePosition,
 } from "@/lib/flow-graph";
+import { nodeTypeColors } from "@/lib/flow-node-colors";
 import {
   addNode,
   branchKeysOf,
   connect,
   disconnect,
+  disconnectNodeAll,
+  duplicateNode,
   moveNode,
   removeNode,
   renameConditionCase,
@@ -45,6 +61,10 @@ import {
 } from "@/lib/flow-edit";
 import type { AgentFlowValidation } from "@/api/types";
 import { confirm } from "@/components/confirm-dialog";
+import {
+  FLOW_EDITOR_PANEL_LIMITS,
+  useUiStore,
+} from "@/stores/ui-store";
 
 /**
  * 左栏可添加的节点类型
@@ -66,7 +86,7 @@ const ADDABLE_NODE_TYPES: FlowNodeType[] = [
  * @returns 返回左中右三栏编辑页
  * @description 左栏加节点、中间画布连线拖动、右栏改配置，保存走草稿覆盖端点。
  * 只有 DRAFT 且契约兼容的版本可编辑；其余版本进入只读模式并说明原因，而不是给一堆
- * 点了会失败的按钮。改动只存在本地直到点保存——**没有做撤销栈**，这一点写在页头。
+ * 点了会失败的按钮。改动只存在本地直到点保存，期间可用 Ctrl+Z / Ctrl+Shift+Z 撤销重做。
  */
 export function FlowEditorPage() {
   const { flowId, versionId } = useParams<{
@@ -82,9 +102,33 @@ export function FlowEditorPage() {
     null,
   );
   const [draft, setDraft] = useState<EditableDefinition | null>(null);
+  const [history, setHistory] = useState<EditorHistory>(EMPTY_HISTORY);
+  /** 连续输入合并：同名 key 在时间窗内再次提交时不新增历史条目（inspector 逐字符改名不灌满栈） */
+  const lastCoalesceRef = useRef<{ key: string; at: number } | null>(null);
   const [openPanels, setOpenPanels] = useState({ palette: true, nodes: true });
   const togglePanel = (key: "palette" | "nodes") =>
     setOpenPanels((current) => ({ ...current, [key]: !current[key] }));
+
+  // 左右栏宽度持久化在 ui-store；增量式 resize 读 getState() 拿最新值，不依赖渲染闭包
+  const panels = useUiStore((state) => state.flowEditorPanels);
+  const setFlowEditorPanels = useUiStore((state) => state.setFlowEditorPanels);
+  const resizeLeft = (deltaX: number) => {
+    const current = useUiStore.getState().flowEditorPanels;
+    const { min, max } = FLOW_EDITOR_PANEL_LIMITS.left;
+    setFlowEditorPanels({
+      ...current,
+      left: Math.min(max, Math.max(min, current.left + deltaX)),
+    });
+  };
+  const resizeRight = (deltaX: number) => {
+    const current = useUiStore.getState().flowEditorPanels;
+    const { min, max } = FLOW_EDITOR_PANEL_LIMITS.right;
+    // 右栏向左拖变宽、向右拖变窄：增量取反
+    setFlowEditorPanels({
+      ...current,
+      right: Math.min(max, Math.max(min, current.right - deltaX)),
+    });
+  };
 
   const version = useMemo(
     () => flow?.versions.find((item) => item.id === versionId) ?? null,
@@ -102,6 +146,10 @@ export function FlowEditorPage() {
     setDraft(parsed.ok ? parsed.definition : null);
     setReadError(parsed.ok ? null : parsed.reason);
     setValidation(null);
+    // 服务端回灌（含保存成功后的规范化结果）使本地历史语义失效，必须清零：
+    // 否则 undo 会拿保存前的本地草稿覆盖掉服务端的规范化版本
+    setHistory(EMPTY_HISTORY);
+    lastCoalesceRef.current = null;
   }
 
   const canEdit = Boolean(
@@ -122,6 +170,25 @@ export function FlowEditorPage() {
     [draft, selectedNodeId],
   );
 
+  /** 节点 id → 接入供应商：capabilities 异步到达后也要刷新，随 draft/capabilities 重算 */
+  const nodeProviders = useMemo(() => {
+    const map = new Map<string, NodeProviderInfo>();
+    if (!draft || !capabilities) {
+      return map;
+    }
+    for (const node of draft.nodes) {
+      const info = resolveNodeProvider(
+        node.type,
+        node.config,
+        capabilities.modelPresets,
+      );
+      if (info) {
+        map.set(node.id, info);
+      }
+    }
+    return map;
+  }, [draft, capabilities]);
+
   /** 把校验错误按节点归组：path 形如 `nodes.2.config...`，下标对应 Definition 里的节点顺序 */
   const errorsByNode = useMemo(() => {
     const grouped = new Map<
@@ -141,6 +208,12 @@ export function FlowEditorPage() {
     }
     return grouped;
   }, [validation, draft]);
+
+  /** 校验未通过的节点 id 集：画布据此给节点描 danger 边框，与左栏红点互为双重信号 */
+  const errorNodeIds = useMemo(
+    () => new Set(errorsByNode.keys()),
+    [errorsByNode],
+  );
 
   /**
    * 编辑期提示：合法但大概率不是本意的图
@@ -163,16 +236,99 @@ export function FlowEditorPage() {
     return validation.errors.filter((error) => !nodeScoped.has(error.path));
   }, [validation, errorsByNode]);
 
+  /** 连续输入合并的时间窗（毫秒）：同名 key 在窗口内再次提交不新增历史条目 */
+  const COALESCE_WINDOW_MS = 800;
+
+  /**
+   * 所有草稿改动的唯一提交入口
+   * @param next 改动后的新草稿
+   * @param coalesceKey 连续编辑合并键（如 `name:节点id`）；窗口内同键提交直接推进草稿、不压栈
+   * @description applyEdit 与 inspector 的裸 setDraft（改名/改配置/拖动落点）都走这里，
+   * 保证每个可撤销的动作都恰好留下一份编辑前快照。
+   */
+  const commitDraft = (next: EditableDefinition, coalesceKey?: string) => {
+    if (!draft) return;
+    const now = Date.now();
+    const coalescing =
+      coalesceKey !== undefined &&
+      lastCoalesceRef.current?.key === coalesceKey &&
+      now - lastCoalesceRef.current.at < COALESCE_WINDOW_MS;
+    if (!coalescing) {
+      setHistory((current) => pushHistory(current, draft));
+    }
+    lastCoalesceRef.current = coalesceKey ? { key: coalesceKey, at: now } : null;
+    setDraft(next);
+    // 图一变，上一次的校验结论就不再描述当前草稿，留着等于给出过期的绿灯
+    setValidation(null);
+  };
+
   /** 统一处理带护栏的编辑操作：被挡住时把原因原样告诉用户 */
   const applyEdit = (result: EditResult) => {
     if (!result.ok) {
       toast.error(result.reason);
       return;
     }
-    setDraft(result.definition);
-    // 图一变，上一次的校验结论就不再描述当前草稿，留着等于给出过期的绿灯
-    setValidation(null);
+    commitDraft(result.definition);
   };
+
+  /** 撤销/重做后恢复出的草稿里可能已没有当前选中节点，顺手清掉避免 inspector 悬空 */
+  const restoreDraft = (result: {
+    history: EditorHistory;
+    draft: EditableDefinition;
+  }) => {
+    lastCoalesceRef.current = null;
+    setHistory(result.history);
+    setDraft(result.draft);
+    setValidation(null);
+    if (
+      selectedNodeId &&
+      result.draft.nodes.every((node) => node.id !== selectedNodeId)
+    ) {
+      setSelectedNodeId(null);
+    }
+  };
+
+  const handleUndo = () => {
+    if (!draft) return;
+    const result = undoHistory(history, draft);
+    if (result) restoreDraft(result);
+  };
+
+  const handleRedo = () => {
+    if (!draft) return;
+    const result = redoHistory(history, draft);
+    if (result) restoreDraft(result);
+  };
+
+  // Ctrl+Z / Ctrl+Shift+Z：必须跳过表单控件焦点，否则 inspector 里打字时的文本撤销
+  // 会被劫持成整张图的撤销。历史栈只认 commitDraft 留下的快照，撤销不会丢改动。
+  useEffect(() => {
+    if (!canEdit) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() !== "z") return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      event.preventDefault();
+      if (event.shiftKey) {
+        handleRedo();
+      } else {
+        handleUndo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
 
   /**
    * 在指定落点加一个节点
@@ -195,7 +351,7 @@ export function FlowEditorPage() {
    * @param nodeId 目标节点
    * @description 确认文案里带上会连带删掉的连线数：删节点会一并清掉它的所有边（否则会留下
    * 端点不存在的悬空边），这是用户最容易没预期到的后果，比「确定删除吗」有信息量。
-   * 编辑器没有撤销栈，删错只能刷新页面放弃全部改动，所以这一步必须拦。
+   * 撤销栈已经能兜住误删，但连带影响仍值得在动手前讲清楚。
    */
   const handleDeleteNode = async (nodeId: string) => {
     if (!draft) return;
@@ -207,7 +363,7 @@ export function FlowEditorPage() {
     if (
       !(await confirm({
         title: "删除节点",
-        description: `删除节点「${nodeId}」${suffix}？此操作无法撤销。`,
+        description: `删除节点「${nodeId}」${suffix}？`,
         danger: true,
       }))
     ) {
@@ -329,24 +485,44 @@ export function FlowEditorPage() {
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {canEdit
-              ? "改动只在本地，点保存才落库；没有撤销栈，误删请刷新页面放弃改动"
+              ? "改动只在本地，点保存才落库；Ctrl+Z 撤销、Ctrl+Shift+Z 重做"
               : (readOnlyReason ?? "只读")}
           </p>
         </div>
         {canEdit ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSave}
-            disabled={!dirty || saveDraft.isPending}
-          >
-            {saveDraft.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            保存
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleUndo}
+              disabled={history.past.length === 0}
+              title="撤销 (Ctrl+Z)"
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRedo}
+              disabled={history.future.length === 0}
+              title="重做 (Ctrl+Shift+Z)"
+            >
+              <Redo2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSave}
+              disabled={!dirty || saveDraft.isPending}
+            >
+              {saveDraft.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              保存
+            </Button>
+          </>
         ) : null}
         <Button
           variant="outline"
@@ -370,8 +546,11 @@ export function FlowEditorPage() {
         </Button>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[212px_1fr_336px] gap-3">
-        <Card className="min-h-0 overflow-y-auto">
+      <div className="flex min-h-0 flex-1">
+        <Card
+          className="min-h-0 shrink-0 overflow-y-auto"
+          style={{ width: panels.left }}
+        >
           <CardContent className="space-y-3 p-3">
             {canEdit ? (
               <section>
@@ -384,6 +563,7 @@ export function FlowEditorPage() {
                   {ADDABLE_NODE_TYPES.map((type) => {
                     const meta = nodeTypeMeta(type);
                     const Icon = NODE_TYPE_ICONS[type];
+                    const colors = nodeTypeColors(type);
                     return (
                       <div
                         key={type}
@@ -395,7 +575,16 @@ export function FlowEditorPage() {
                         className="cursor-grab rounded-md border border-border px-2 py-1.5 transition-colors hover:border-primary hover:bg-muted active:cursor-grabbing"
                       >
                         <div className="flex items-center gap-1.5">
-                          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                          {/* 与画布节点卡片同一配色（nodeTypeColors），类型一眼可辨 */}
+                          <span
+                            className="grid h-5 w-5 shrink-0 place-items-center rounded-sm"
+                            style={{
+                              background: colors.soft,
+                              color: colors.color,
+                            }}
+                          >
+                            <Icon className="h-3 w-3" />
+                          </span>
                           <span className="text-sm text-foreground">
                             {meta.name}
                           </span>
@@ -439,8 +628,17 @@ export function FlowEditorPage() {
                       <span className="flex items-center gap-1.5 text-sm text-foreground">
                         {(() => {
                           const Icon = NODE_TYPE_ICONS[node.type];
+                          const colors = nodeTypeColors(node.type);
                           return Icon ? (
-                            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span
+                              className="grid h-5 w-5 shrink-0 place-items-center rounded-sm"
+                              style={{
+                                background: colors.soft,
+                                color: colors.color,
+                              }}
+                            >
+                              <Icon className="h-3 w-3" />
+                            </span>
                           ) : null;
                         })()}
                         {node.name || node.id}
@@ -468,7 +666,9 @@ export function FlowEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="min-h-0">
+        <PanelResizer onDrag={resizeLeft} label="调整左栏宽度" />
+
+        <Card className="min-h-0 min-w-[320px] flex-1">
           <CardContent className="flex h-full flex-col p-3">
             {draft ? (
               <div className="min-h-0 flex-1">
@@ -477,11 +677,12 @@ export function FlowEditorPage() {
                   selectedNodeId={selectedNodeId}
                   onSelectNode={setSelectedNodeId}
                   editable={canEdit}
-                  onMoveNode={(nodeId, position) =>
-                    setDraft((current) =>
-                      current ? moveNode(current, nodeId, position) : current,
-                    )
-                  }
+                  onMoveNode={(nodeId, position) => {
+                    // 拖动落点是离散提交（onNodeDragStop 才触发），拖中不进历史
+                    if (draft) {
+                      commitDraft(moveNode(draft, nodeId, position));
+                    }
+                  }}
                   onConnect={handleConnect}
                   onDeleteEdge={(from, to, branch) => {
                     if (draft) {
@@ -489,7 +690,21 @@ export function FlowEditorPage() {
                     }
                   }}
                   onDeleteNode={handleDeleteNode}
+                  onDuplicateNode={(nodeId) => {
+                    if (draft) {
+                      applyEdit(
+                        duplicateNode(draft, nodeId, layoutPositions(draft)),
+                      );
+                    }
+                  }}
+                  onDisconnectAll={(nodeId) => {
+                    if (draft) {
+                      applyEdit(disconnectNodeAll(draft, nodeId));
+                    }
+                  }}
                   onDropNodeType={handleAddNode}
+                  nodeProviders={nodeProviders}
+                  errorNodeIds={errorNodeIds}
                   fitViewKey={version.id}
                 />
               </div>
@@ -509,7 +724,12 @@ export function FlowEditorPage() {
           </CardContent>
         </Card>
 
-        <Card className="min-h-0 overflow-y-auto">
+        <PanelResizer onDrag={resizeRight} label="调整右栏宽度" />
+
+        <Card
+          className="min-h-0 shrink-0 overflow-y-auto"
+          style={{ width: panels.right }}
+        >
           <CardContent className="p-3">
             {graphErrors.length > 0 ? (
               <section className="mb-3 rounded-md border border-[var(--lb-danger)] bg-[var(--lb-danger-soft)] px-2 py-1.5">
@@ -569,22 +789,22 @@ export function FlowEditorPage() {
                           ),
                           modelPresets: capabilities?.modelPresets ?? [],
                         },
-                        onChangeConfig: (config) =>
-                          setDraft((current) =>
-                            current
-                              ? updateNodeConfig(
-                                  current,
-                                  selectedNode.id,
-                                  config,
-                                )
-                              : current,
-                          ),
-                        onChangeName: (name) =>
-                          setDraft((current) =>
-                            current
-                              ? setNodeName(current, selectedNode.id, name)
-                              : current,
-                          ),
+                        onChangeConfig: (config) => {
+                          if (draft) {
+                            commitDraft(
+                              updateNodeConfig(draft, selectedNode.id, config),
+                              `config:${selectedNode.id}`,
+                            );
+                          }
+                        },
+                        onChangeName: (name) => {
+                          if (draft) {
+                            commitDraft(
+                              setNodeName(draft, selectedNode.id, name),
+                              `name:${selectedNode.id}`,
+                            );
+                          }
+                        },
                         onRenameCase: (oldKey, newKey) =>
                           applyEdit(
                             renameConditionCase(
@@ -643,5 +863,55 @@ function PanelHeader({
       )}
       {title}
     </button>
+  );
+}
+
+/**
+ * 分栏拖拽手柄
+ * @param props onDrag 报告自上一帧以来的横向增量（像素）
+ * @returns 返回一条可拖的竖直分隔条
+ * @description 用 pointer capture 在手柄自身上接收移动，增量式回调（父级读最新 store 宽度，
+ * 不依赖闭包快照），所以拖出再回拖也不跳。拖动期间禁用文本选择，避免拖过头选中整页文字。
+ */
+function PanelResizer({
+  onDrag,
+  label,
+}: {
+  onDrag: (deltaX: number) => void;
+  label: string;
+}) {
+  const lastX = useRef(0);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      className="group flex w-3 shrink-0 cursor-col-resize touch-none justify-center"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        lastX.current = event.clientX;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        document.body.style.userSelect = "none";
+      }}
+      onPointerMove={(event) => {
+        if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+          return;
+        }
+        const deltaX = event.clientX - lastX.current;
+        lastX.current = event.clientX;
+        if (deltaX !== 0) {
+          onDrag(deltaX);
+        }
+      }}
+      onPointerUp={(event) => {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        document.body.style.userSelect = "";
+      }}
+      onLostPointerCapture={() => {
+        document.body.style.userSelect = "";
+      }}
+    >
+      <div className="w-px bg-border transition-colors group-hover:bg-primary/60 group-active:bg-primary" />
+    </div>
   );
 }

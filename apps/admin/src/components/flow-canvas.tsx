@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -15,7 +15,14 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRightToLine,
+  Copy,
+  Trash2,
+  Unplug,
+  type LucideIcon,
+} from "lucide-react";
 import { AnimateIcon } from "@/components/animate-ui/icons/icon";
 import { Play } from "@/components/animate-ui/icons/play";
 import { Bot } from "@/components/animate-ui/icons/bot";
@@ -24,8 +31,14 @@ import { User } from "@/components/animate-ui/icons/user";
 import { RefreshCw } from "@/components/animate-ui/icons/refresh-cw";
 import { RotateCw } from "@/components/animate-ui/icons/rotate-cw";
 import { CircleCheck } from "@/components/animate-ui/icons/circle-check";
+import { FileText } from "@/components/animate-ui/icons/file-text";
+import { GitBranch } from "@/components/animate-ui/icons/git-branch";
+import { Merge } from "@/components/animate-ui/icons/merge";
 import type { FlowNodeType } from "@litter-bear/types/agent-flow";
 import { cn } from "@/lib/utils";
+import { ModelProviderLogo } from "@/components/model-provider-logo";
+import type { NodeProviderInfo } from "@/lib/flow-node-model";
+import { nodeTypeColors } from "@/lib/flow-node-colors";
 import {
   NODE_TYPE_ICONS,
   nodeTypeMeta,
@@ -42,6 +55,14 @@ interface FlowNodeData extends Record<string, unknown> {
   nodeName?: string;
   nodeType: FlowNodeType;
   selected: boolean;
+  /** 连线模式：该节点是连线的源 */
+  connectSource?: boolean;
+  /** 连线模式：该节点是合法目标（非源、非 start——start 没有入口把手） */
+  connectTarget?: boolean;
+  /** 节点当前接入的模型供应商（仅配了模型预设的节点有） */
+  provider?: NodeProviderInfo;
+  /** 校验未通过：danger 边框，与左栏节点列表的红点互为双重信号 */
+  hasError?: boolean;
 }
 
 /**
@@ -62,30 +83,44 @@ const NODE_TYPE_ANIMATED_ICONS: Partial<
   approval: User,
   loop: RefreshCw,
   "plan-loop": RotateCw,
+  synthesize: FileText,
+  condition: GitBranch,
+  join: Merge,
 };
 
 function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
   const meta = nodeTypeMeta(data.nodeType);
   const Icon = NODE_TYPE_ICONS[data.nodeType];
   const AnimatedIcon = NODE_TYPE_ANIMATED_ICONS[data.nodeType];
+  const colors = nodeTypeColors(data.nodeType);
   return (
     <div
       className={cn(
         "relative min-w-[168px] rounded-md border bg-background px-3 py-2 transition-all duration-200",
-        data.selected
-          ? "border-primary shadow-[0_0_0_3px_var(--lb-accent-soft),0_0_16px_var(--lb-accent-soft)]"
-          : "border-border shadow-sm",
+        data.hasError
+          ? "border-[var(--lb-danger)] ring-2 ring-[var(--lb-danger-soft)]"
+          : data.selected
+            ? "border-primary shadow-[0_0_0_3px_var(--lb-accent-soft),0_0_16px_var(--lb-accent-soft)]"
+            : "border-border shadow-sm",
+        data.connectSource && "border-primary ring-2 ring-primary/40",
+        data.connectTarget &&
+          "cursor-crosshair ring-2 ring-[var(--lb-accent-soft)]",
       )}
       title={meta.desc}
     >
       {data.nodeType === "start" ? null : data.nodeType === "loop" ? (
         <>
-          <Handle id="loop-entry" type="target" position={Position.Left} />
+          <Handle
+            id="loop-entry"
+            type="target"
+            position={Position.Left}
+            className="flow-handle"
+          />
           <Handle
             id="loop-return"
             type="target"
             position={Position.Top}
-            className="!bg-[var(--lb-warning)]"
+            className="flow-handle !bg-[var(--lb-warning)]"
           />
           <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-muted-foreground">
             返回下一轮
@@ -95,28 +130,24 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
         <Handle
           type="target"
           position={Position.Left}
-          className={cn(data.selected && "!bg-primary")}
+          className={cn("flow-handle", data.selected && "!bg-primary")}
         />
       )}
       <div className="flex items-center gap-1.5">
-        {AnimatedIcon ? (
-          <AnimateIcon animate={data.selected ? "path-loop" : false} loop>
-            <AnimatedIcon
-              size={14}
-              className={cn(
-                "transition-colors",
-                data.selected ? "text-primary" : "text-muted-foreground",
-              )}
-            />
-          </AnimateIcon>
-        ) : Icon ? (
-          <Icon
-            className={cn(
-              "h-3.5 w-3.5 transition-colors",
-              data.selected ? "text-primary" : "text-muted-foreground",
-            )}
-          />
-        ) : null}
+        {/* 图标 chip：类别色常驻（soft 底 + 类别色图标），让节点类型一眼可辨。
+            选中态仍由卡片边框的 accent ring 表达，不改变 chip 的类别色。 */}
+        <span
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-sm"
+          style={{ background: colors.soft, color: colors.color }}
+        >
+          {AnimatedIcon ? (
+            <AnimateIcon animate={data.selected ? "path-loop" : false} loop>
+              <AnimatedIcon size={14} className="transition-colors" />
+            </AnimateIcon>
+          ) : Icon ? (
+            <Icon className="h-3.5 w-3.5 transition-colors" />
+          ) : null}
+        </span>
         <span className="text-sm font-medium text-foreground">
           {data.nodeName || data.nodeId}
         </span>
@@ -130,6 +161,24 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
         {meta.name}
         <span className="ml-1 font-mono opacity-70">{meta.type}</span>
       </div>
+      {/* 接入了模型预设的节点在右上角亮出厂商 logo；预设已被删除（stale）时换成警示，不能在画布上装死 */}
+      {data.provider ? (
+        data.provider.stale ? (
+          <span
+            className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-background shadow-sm"
+            title={`模型预设「${data.provider.name}」已不存在，请在右侧重新选择`}
+          >
+            <AlertTriangle className="h-3 w-3 text-[var(--lb-warning)]" />
+          </span>
+        ) : (
+          <ModelProviderLogo
+            providerKey={data.provider.providerKey}
+            name={data.provider.name}
+            size="sm"
+            className="absolute -right-1.5 -top-1.5 rounded-full shadow-sm"
+          />
+        )
+      ) : null}
       {data.nodeType === "end" ? null : data.nodeType === "loop" ? (
         <>
           <Handle
@@ -137,7 +186,7 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
             type="source"
             position={Position.Right}
             style={{ top: "38%" }}
-            className="!bg-primary"
+            className="flow-handle !bg-primary"
           />
           <span className="absolute -right-10 top-[calc(38%-8px)] text-[10px] font-medium text-primary">
             again
@@ -147,7 +196,7 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
             type="source"
             position={Position.Right}
             style={{ top: "72%" }}
-            className="!bg-[var(--lb-success)]"
+            className="flow-handle !bg-[var(--lb-success)]"
           />
           <span className="absolute -right-9 top-[calc(72%-8px)] text-[10px] font-medium text-[var(--lb-success)]">
             done
@@ -158,7 +207,7 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
           id="default"
           type="source"
           position={Position.Right}
-          className={cn(data.selected && "!bg-primary")}
+          className={cn("flow-handle", data.selected && "!bg-primary")}
         />
       )}
     </div>
@@ -170,9 +219,17 @@ const NODE_TYPES = { flowNode: FlowCanvasNode } as const;
 /** 拖入画布时携带节点类型的 dataTransfer 键。 */
 export const FLOW_NODE_DRAG_TYPE = "application/lb-flow-node";
 
-/** 右键菜单的目标；节点与边各有自己的删除语义。 */
+/** 右键菜单的目标；节点与边各有自己的动作集。 */
 type ContextTarget =
-  | { kind: "node"; nodeId: string; x: number; y: number }
+  | {
+      kind: "node";
+      nodeId: string;
+      nodeType: FlowNodeType;
+      /** 该节点当前连边数，用于置灰「断开所有连线」 */
+      edgeCount: number;
+      x: number;
+      y: number;
+    }
   | {
       kind: "edge";
       from: string;
@@ -196,8 +253,14 @@ interface FlowCanvasProps {
   onConnect?: (from: string, to: string, branch?: string) => void;
   onDeleteEdge?: (from: string, to: string, branch: string) => void;
   onDeleteNode?: (nodeId: string) => void;
+  onDuplicateNode?: (nodeId: string) => void;
+  onDisconnectAll?: (nodeId: string) => void;
   /** 从左侧面板拖入一种节点类型时的落点回调 */
   onDropNodeType?: (type: FlowNodeType, position: FlowNodePosition) => void;
+  /** 节点 id → 供应商信息；用于在节点卡片角落渲染接入厂商 logo */
+  nodeProviders?: ReadonlyMap<string, NodeProviderInfo>;
+  /** 校验未通过的节点 id 集；有错的节点用 danger 边框高亮，与左栏红点互为双重信号 */
+  errorNodeIds?: ReadonlySet<string>;
   /** 控制只读画布何时重新适配视口；同一键内编辑节点时不反复缩放 */
   fitViewKey?: string | number;
 }
@@ -226,13 +289,19 @@ function FlowCanvasInner({
   onConnect,
   onDeleteEdge,
   onDeleteNode,
+  onDuplicateNode,
+  onDisconnectAll,
   onDropNodeType,
+  nodeProviders,
+  errorNodeIds,
   fitViewKey,
 }: FlowCanvasProps) {
   const { screenToFlowPosition, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const lastFittedGraph = useRef<FlowGraph | string | number | null>(null);
   const [menu, setMenu] = useState<ContextTarget | null>(null);
+  /** 连线模式：非空时点击另一个节点即完成从该节点出发的连线（右键「连线到…」进入） */
+  const [connectSourceState, setConnectSource] = useState<string | null>(null);
 
   const parsed = useMemo(
     () => readDefinitionForCanvas(definition),
@@ -267,14 +336,43 @@ function FlowCanvasInner({
 
   // 选中态在渲染期贴上，不进 rfNodes 状态：否则改选中要重建整份节点数组，
   // 还会和拖动期间的位置状态互相覆盖
+  // 连线模式的源节点被删（撤销/菜单）时自动退出模式：渲染期派生，不用 effect
+  const connectSource =
+    connectSourceState && rfNodes.some((node) => node.id === connectSourceState)
+      ? connectSourceState
+      : null;
   const nodes = useMemo(
     () =>
       rfNodes.map((node) => ({
         ...node,
-        data: { ...node.data, selected: node.id === selectedNodeId },
+        data: {
+          ...node.data,
+          selected: node.id === selectedNodeId,
+          connectSource: node.id === connectSource,
+          connectTarget:
+            connectSource !== null &&
+            node.id !== connectSource &&
+            node.data.nodeType !== "start",
+          // 供应商信息必须挂在这里而不是 rfNodes 同步块：capabilities 异步到达时
+          // graph 身份不变、同步块不重跑，logo 会永远不出现
+          provider: nodeProviders?.get(node.id),
+          hasError: errorNodeIds?.has(node.id) ?? false,
+        },
       })),
-    [rfNodes, selectedNodeId],
+    [rfNodes, selectedNodeId, connectSource, nodeProviders, errorNodeIds],
   );
+
+  // 连线模式下 Esc 取消
+  useEffect(() => {
+    if (!connectSource) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setConnectSource(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [connectSource]);
 
   useEffect(() => {
     if (!graph || graph.nodes.length === 0 || !nodesInitialized) {
@@ -365,10 +463,20 @@ function FlowCanvasInner({
         }
         onNodeClick={(_, node) => {
           setMenu(null);
+          if (
+            connectSource &&
+            node.id !== connectSource &&
+            node.data.nodeType !== "start"
+          ) {
+            // 连线模式：点击合法目标即完成连线，分支自动挑选逻辑在页面层共享
+            onConnect?.(connectSource, node.id);
+            setConnectSource(null);
+          }
           onSelectNode?.(node.id);
         }}
         onPaneClick={() => {
           setMenu(null);
+          setConnectSource(null);
           onSelectNode?.(null);
         }}
         onNodeDragStop={(_, node) => onMoveNode?.(node.id, node.position)}
@@ -387,6 +495,11 @@ function FlowCanvasInner({
           setMenu({
             kind: "node",
             nodeId: node.id,
+            nodeType: node.data.nodeType,
+            edgeCount:
+              graph?.edges.filter(
+                (edge) => edge.source === node.id || edge.target === node.id,
+              ).length ?? 0,
             x: event.clientX,
             y: event.clientY,
           });
@@ -428,84 +541,187 @@ function FlowCanvasInner({
           onClose={() => setMenu(null)}
           onDeleteNode={onDeleteNode}
           onDeleteEdge={onDeleteEdge}
+          onDuplicateNode={onDuplicateNode}
+          onDisconnectAll={onDisconnectAll}
+          onStartConnect={(nodeId) => setConnectSource(nodeId)}
         />
+      ) : null}
+
+      {connectSource ? (
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground shadow-md">
+          <ArrowRightToLine className="h-3.5 w-3.5 text-primary" />
+          连线模式：点击目标节点完成，Esc 取消 · 源
+          <span className="font-mono text-muted-foreground">
+            {connectSource}
+          </span>
+        </div>
       ) : null}
     </div>
   );
 }
 
-/** 右键菜单的估算尺寸，用于贴边时翻转方向。 */
-const CONTEXT_MENU_SIZE = { width: 180, height: 68 } as const;
-
 /**
  * 把菜单位置收进视口
  * @param x 鼠标屏幕横坐标
  * @param y 鼠标屏幕纵坐标
+ * @param size 实测尺寸；未测量到时用估算值（首帧 hidden，同帧修正，用户看不到）
  * @returns 返回不会溢出视口的左上角坐标
- * @description 靠右/靠下时改成向左/向上展开，而不是让菜单被裁掉——被裁掉的那一半正好是
- * 删除按钮所在的位置，点不到。用估算尺寸而不是测量真实高度：菜单只有固定的一两项，
- * 为此引入测量会把简单问题复杂化；真加到多项时再换成测量。
+ * @description 靠右/靠下时改成向左/向上展开，而不是让菜单被裁掉——被裁掉的那一半正好
+ * 是动作按钮所在的位置，点不到。菜单项数量随目标类型变化（节点 4 项、边 1 项），
+ * 尺寸必须实测，不能再写死估算。
  */
 function fitMenuIntoViewport(
   x: number,
   y: number,
+  size: { width: number; height: number } | null,
 ): { left: number; top: number } {
   const margin = 8;
-  const maxLeft = window.innerWidth - CONTEXT_MENU_SIZE.width - margin;
-  const maxTop = window.innerHeight - CONTEXT_MENU_SIZE.height - margin;
+  const width = size?.width ?? 200;
+  const height = size?.height ?? 180;
+  const maxLeft = window.innerWidth - width - margin;
+  const maxTop = window.innerHeight - height - margin;
   return {
     left: Math.max(margin, Math.min(x, maxLeft)),
     top: Math.max(margin, Math.min(y, maxTop)),
   };
 }
 
+/** 菜单项：统一样式，危险动作用 danger 色，不可用时置灰。 */
+function MenuItem({
+  icon: Icon,
+  label,
+  danger = false,
+  disabled = false,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      className={cn(
+        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50",
+        danger ? "text-[var(--lb-danger)]" : "text-foreground",
+      )}
+      onClick={onClick}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
 /**
  * 画布上的右键菜单
- * @param props 目标、关闭与删除回调
+ * @param props 目标、关闭与动作回调集
  * @returns 返回浮层菜单
  * @description 用 fixed 跟随鼠标屏幕坐标：画布内部有缩放与平移，按画布内坐标定位会在缩放后错位。
- * 靠近视口边缘时自动翻转，避免删除按钮被裁到屏幕外。
+ * 靠近视口边缘时自动翻转（useLayoutEffect 同帧实测尺寸后修正），避免动作被裁到屏幕外。
  * 整屏透明遮罩负责「点别处即关闭」，避免菜单留在屏幕上。
+ * start/end 唯一不可删也不可复制；end 没有出口，不出现「连线到…」。
  */
 function ContextMenu({
   target,
   onClose,
   onDeleteNode,
   onDeleteEdge,
+  onDuplicateNode,
+  onDisconnectAll,
+  onStartConnect,
 }: {
   target: ContextTarget;
   onClose: () => void;
   onDeleteNode?: (nodeId: string) => void;
   onDeleteEdge?: (from: string, to: string, branch: string) => void;
+  onDuplicateNode?: (nodeId: string) => void;
+  onDisconnectAll?: (nodeId: string) => void;
+  onStartConnect?: (nodeId: string) => void;
 }) {
-  const position = fitMenuIntoViewport(target.x, target.y);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const rect = menuRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMeasured({ width: rect.width, height: rect.height });
+    }
+  }, [target]);
+  const position = fitMenuIntoViewport(target.x, target.y, measured);
+
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
-        className="fixed z-50 w-[180px] overflow-hidden rounded-md border border-border bg-background py-1 shadow-md"
-        style={position}
+        ref={menuRef}
+        className="fixed z-50 w-[200px] overflow-hidden rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md"
+        style={{ ...position, visibility: measured ? "visible" : "hidden" }}
       >
         <div className="truncate px-3 py-1 font-mono text-xs text-muted-foreground">
           {target.kind === "node"
             ? target.nodeId
             : `${target.from} → ${target.to}`}
         </div>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--lb-danger)] hover:bg-muted"
-          onClick={() => {
-            if (target.kind === "node") {
-              onDeleteNode?.(target.nodeId);
-            } else {
+        {target.kind === "node" ? (
+          <>
+            {target.nodeType === "end" ? null : (
+              <MenuItem
+                icon={ArrowRightToLine}
+                label="连线到…"
+                onClick={() => {
+                  onStartConnect?.(target.nodeId);
+                  onClose();
+                }}
+              />
+            )}
+            {target.nodeType === "start" || target.nodeType === "end" ? null : (
+              <MenuItem
+                icon={Copy}
+                label="复制节点"
+                onClick={() => {
+                  onDuplicateNode?.(target.nodeId);
+                  onClose();
+                }}
+              />
+            )}
+            <MenuItem
+              icon={Unplug}
+              label="断开所有连线"
+              disabled={target.edgeCount === 0}
+              onClick={() => {
+                onDisconnectAll?.(target.nodeId);
+                onClose();
+              }}
+            />
+            {target.nodeType === "start" || target.nodeType === "end" ? null : (
+              <MenuItem
+                icon={Trash2}
+                label="删除节点"
+                danger
+                onClick={() => {
+                  onDeleteNode?.(target.nodeId);
+                  onClose();
+                }}
+              />
+            )}
+          </>
+        ) : (
+          <MenuItem
+            icon={Trash2}
+            label="删除这条连线"
+            danger
+            onClick={() => {
               onDeleteEdge?.(target.from, target.to, target.branch);
-            }
-            onClose();
-          }}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          {target.kind === "node" ? "删除节点" : "删除这条连线"}
-        </button>
+              onClose();
+            }}
+          />
+        )}
       </div>
     </>
   );
