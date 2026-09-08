@@ -31,22 +31,22 @@ export default function MessageList({
     [messages],
   );
   const {
-    bottomAnchorAId,
-    bottomAnchorBId,
     containerId,
+    contentId,
     handleScroll,
     handleScrollToLower,
     handleUserScrollEnd,
     handleUserScrollMove,
     handleUserScrollStart,
     restoreAutoScroll,
-    scrollIntoView,
+    scrollTop,
     scrollWithAnimation,
     showScrollToBottom,
   } = useAutoScrollToBottom({
     enabled: messages.length > 0,
     isStreaming,
     scrollSignal,
+    messageCount: messages.length,
     resetKey: conversationId,
   });
 
@@ -56,7 +56,7 @@ export default function MessageList({
         id={containerId}
         className="box-border h-full overflow-hidden px-[0.875rem] pb-[1.25rem] pt-[1rem]"
         lowerThreshold={96}
-        scrollIntoView={scrollIntoView}
+        scrollTop={scrollTop}
         scrollY
         scrollWithAnimation={scrollWithAnimation}
         onScroll={handleScroll}
@@ -80,7 +80,7 @@ export default function MessageList({
             </Text>
           </View>
         ) : (
-          <View className="flex flex-col gap-[1.125rem]">
+          <View id={contentId} className="flex flex-col gap-[1.125rem]">
             {messages.map((msg) => (
               <ChatBubble
                 key={msg.id}
@@ -93,8 +93,6 @@ export default function MessageList({
           </View>
         )}
         <View className="h-[0.625rem]" />
-        <View id={bottomAnchorAId} className="h-0 w-full" />
-        <View id={bottomAnchorBId} className="h-0 w-full" />
       </ScrollView>
 
       {/* 回到底部 */}

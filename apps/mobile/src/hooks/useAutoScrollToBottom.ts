@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Taro from "@tarojs/taro";
 
-const BOTTOM_ELEMENT_ID = "bottomEl";
 const PROGRAMMATIC_SCROLL_LOCK_MS = 700;
-const SCROLL_INTO_VIEW_RESET_MS = 80;
+/**
+ * 首屏直达落位后开启滚动动画的延时
+ * @description 必须等首屏那次无动画命令发出后再开，否则同批渲染里开动画会把
+ * 首屏直达也带上动画，等于没关。
+ */
+const FIRST_SCROLL_ANIMATION_DELAY_MS = 80;
 /**
  * 换会话后补发滚动的时点
  * @description 内容分批布局完成，单次命令会落在半途。两次覆盖「首屏文本」与
@@ -24,10 +28,16 @@ interface ScrollEvent {
 
 interface UseAutoScrollToBottomOptions {
   enabled?: boolean;
+  /** 内容信号：消息内容、状态、trace 展开等变化时触发一次「跟随底部」检查 */
   scrollSignal: string | number;
+  /**
+   * 消息条数
+   * @description 条数变化（发出/收到新消息）时无条件贴底——这是用户明确发起的
+   * 新内容；内容信号只在用户本来就贴着底时跟随，trace 展开这类操作不会把人拽走。
+   */
+  messageCount: number;
   isStreaming?: boolean;
   containerId?: string;
-  bottomElementId?: string;
   bottomThreshold?: number;
   throttleMs?: number;
   /**
@@ -42,32 +52,30 @@ interface UseAutoScrollToBottomOptions {
  * 管理聊天列表自动滚动到底部
  * @param enabled 是否启用自动滚动
  * @param scrollSignal 触发滚动检查的外部信号，通常由消息内容、状态和事件数量拼接生成
+ * @param messageCount 消息条数，条数增长时无条件贴底
  * @param isStreaming 当前是否处于流式输出中
  * @param containerId ScrollView 容器节点 ID
- * @param bottomElementId 底部锚点基础 ID
  * @param bottomThreshold 距离底部多少像素以内视为仍在底部
  * @param throttleMs 自动滚动节流间隔
- * @returns 返回 ScrollView 需要绑定的锚点、事件处理函数、底部状态和回到底部动作
- * @description 通过 scroll-into-view 驱动小程序和 H5 滚动到底，并根据用户是否主动上滑决定是否暂停流式自动贴底。
+ * @returns 返回 ScrollView 需要绑定的 scrollTop、事件处理函数、底部状态和回到底部动作
+ * @description 用受控 scrollTop 驱动滚动：它是幂等属性，值不变时重渲染不会重新
+ * 滚动，天然免疫「页面任意重渲染把列表拽走」这类问题（scroll-into-view 不具备
+ * 这个性质：置空会被 weapp 当成无效目标复位到顶部，置值又会被重渲染反复应用）。
+ * 相邻两次命令用 ±1 交替保证值必定变化、必定重新生效。是否贴底由用户是否主动
+ * 上滑决定。
  */
 export function useAutoScrollToBottom({
   enabled = true,
   scrollSignal,
+  messageCount,
   isStreaming = false,
   containerId = "chat-message-scroll",
-  bottomElementId = BOTTOM_ELEMENT_ID,
   bottomThreshold = 96,
   throttleMs = 120,
   resetKey,
 }: UseAutoScrollToBottomOptions) {
-  // 底部放两个零高度锚点，滚动时在两者间交替，保证 scroll-into-view
-  // 每次都是有效且不同的 id；命令触发后会移除该 prop，避免后续 onScroll
-  // 引起的重渲染反复把 ScrollView 拉回底部。这里不能清成空串，weapp 会
-  // 把空串当作无效目标并可能复位到顶部。
-  const bottomAnchorAId = `${bottomElementId}-a`;
-  const bottomAnchorBId = `${bottomElementId}-b`;
-  // 当前需要滚入可视区的底部锚点。undefined 表示没有正在执行的一次性滚动命令。
-  const [scrollIntoView, setScrollIntoView] = useState<string>();
+  // 受控滚动目标。undefined 表示尚未发出任何命令，ScrollView 处于自由状态。
+  const [scrollTop, setScrollTop] = useState<number>();
   // 当前视口是否处于底部附近，用于控制“回到底部”按钮是否展示。
   const [isAtBottom, setIsAtBottom] = useState(true);
   // ScrollView 可视区域高度，Taro 的 onScroll 不直接提供该值，需要单独测量。
@@ -78,7 +86,7 @@ export function useAutoScrollToBottom({
   const lastScrollTopRef = useRef(0);
   // 是否允许新消息或流式增量触发自动滚动；用户离开底部后会关闭。
   const autoScrollEnabledRef = useRef(true);
-  // 最近一次主动触发 scroll-into-view 的时间，用于节流自动滚动命令。
+  // 最近一次主动触发滚动命令的时间，用于节流自动滚动。
   const lastScrollAtRef = useRef(0);
   // 程序触发滚动后的保护窗口，在窗口内忽略中间态 onScroll 误判。
   const programmaticScrollUntilRef = useRef(0);
@@ -90,14 +98,8 @@ export function useAutoScrollToBottom({
   const lastIsAtBottomRef = useRef(true);
   // 自动滚动节流定时器。
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // scroll-into-view 一次性命令的重置定时器。
-  const resetScrollIntoViewTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  // 在两个底部锚点之间交替，保证每次滚动命令的目标值都会变化。
-  const anchorToggleRef = useRef(false);
-  // 当前滚动命令序号，用于避免较早的重置定时器清掉较新的滚动命令。
-  const scrollCommandIdRef = useRef(0);
+  // 相邻命令的 ±1 交替位：内容高度没变时保证 scrollTop 值仍然变化。
+  const commandParityRef = useRef(false);
   // 首屏是否已经落位。首屏要求无动画直达底部，之后的流式增量才开启平滑滚动。
   const firstScrollSettledRef = useRef(false);
   // 传给 ScrollView 的 scroll-with-animation；首屏为 false。
@@ -124,38 +126,40 @@ export function useAutoScrollToBottom({
   /**
    * 触发一次滚动到底部
    * @returns 无返回值
-   * @description 通过交替设置底部锚点触发 scroll-into-view，并在短时间后移除命令，避免后续重渲染重复拉回底部。
+   * @description 测量内容容器的高度作为滚动目标（设得比最大滚动位置大，weapp 会
+   * 自行收敛到底部），并用 ±1 交替保证相邻命令的值必定不同——scrollTop 是幂等
+   * 受控属性，值不变时 weapp 不会重新滚动。
    */
   const scrollToBottom = useCallback(() => {
-    anchorToggleRef.current = !anchorToggleRef.current;
-    const target = anchorToggleRef.current ? bottomAnchorAId : bottomAnchorBId;
-    const commandId = scrollCommandIdRef.current + 1;
+    Taro.nextTick(() => {
+      Taro.createSelectorQuery()
+        .select(`#${containerId}-content`)
+        .boundingClientRect((rect) => {
+          const contentHeight =
+            rect && !Array.isArray(rect) ? rect.height : undefined;
+          if (typeof contentHeight !== "number" || contentHeight <= 0) {
+            return;
+          }
 
-    scrollCommandIdRef.current = commandId;
-    setScrollIntoView(target);
-    lastScrollAtRef.current = Date.now();
-    programmaticScrollUntilRef.current =
-      Date.now() + PROGRAMMATIC_SCROLL_LOCK_MS;
+          commandParityRef.current = !commandParityRef.current;
+          setScrollTop(contentHeight + (commandParityRef.current ? 1 : 0));
+          lastScrollAtRef.current = Date.now();
+          programmaticScrollUntilRef.current =
+            Date.now() + PROGRAMMATIC_SCROLL_LOCK_MS;
 
-    if (resetScrollIntoViewTimerRef.current) {
-      clearTimeout(resetScrollIntoViewTimerRef.current);
-    }
-
-    resetScrollIntoViewTimerRef.current = setTimeout(() => {
-      if (scrollCommandIdRef.current === commandId) {
-        setScrollIntoView(undefined);
-      }
-
-      // 首屏那次已经落位，之后再开动画。必须等到这里而不是紧跟 setScrollIntoView：
-      // 同一批渲染里打开动画，首屏这次滚动就会被带上动画，等于没关。
-      if (!firstScrollSettledRef.current) {
-        firstScrollSettledRef.current = true;
-        setScrollWithAnimation(true);
-      }
-
-      resetScrollIntoViewTimerRef.current = null;
-    }, SCROLL_INTO_VIEW_RESET_MS);
-  }, [bottomAnchorAId, bottomAnchorBId]);
+          // 首屏那次命令已经发出，之后再开动画。不能紧跟 setScrollTop：
+          // 同一批渲染里开动画，首屏这次滚动就会被带上动画。
+          if (!firstScrollSettledRef.current) {
+            firstScrollSettledRef.current = true;
+            setTimeout(
+              () => setScrollWithAnimation(true),
+              FIRST_SCROLL_ANIMATION_DELAY_MS,
+            );
+          }
+        })
+        .exec();
+    });
+  }, [containerId]);
 
   /**
    * 更新底部状态
@@ -179,7 +183,7 @@ export function useAutoScrollToBottom({
    * 调度滚动到底部
    * @param force 是否强制滚动到底部
    * @returns 无返回值
-   * @description 根据用户是否离开底部和节流时间决定是否立即触发 scroll-into-view。
+   * @description 根据用户是否离开底部和节流时间决定是否立即触发滚动命令。
    */
   const scheduleScrollToBottom = useCallback(
     (force = false) => {
@@ -228,12 +232,12 @@ export function useAutoScrollToBottom({
         return;
       }
 
-      const { scrollTop, scrollHeight } = event.detail;
-      lastScrollTopRef.current = scrollTop;
+      const { scrollTop: currentScrollTop, scrollHeight } = event.detail;
+      lastScrollTopRef.current = currentScrollTop;
       lastScrollHeightRef.current = scrollHeight;
       const distanceToBottom = Math.max(
         0,
-        scrollHeight - scrollTop - viewportHeight,
+        scrollHeight - currentScrollTop - viewportHeight,
       );
       const nextIsAtBottom = distanceToBottom <= bottomThreshold;
       const isProgrammaticScroll =
@@ -341,9 +345,7 @@ export function useAutoScrollToBottom({
     setIsAtBottom(true);
 
     // 只发一次滚动命令会停在半路：切过来的瞬间 markdown、trace 卡、图片都还没
-    // 布局完，内容高度还在长，底部锚点也就还在往下走。补发几次，每次 anchor 都
-    // 会切换，命令必定重新生效。关掉动画后这个问题更明显——原先平滑滚动的
-    // 那几百毫秒恰好掩盖了它。
+    // 布局完，内容高度还在长。补发几次，±1 交替保证命令必定重新生效。
     // 补发刻意不用 force：上面刚把 autoScrollEnabled 置回 true，正常情况照样触发；
     // 但用户如果在这几百毫秒里已经上滑去看历史，force 会把人硬拽回底部。
     const timers = CONVERSATION_SETTLE_DELAYS_MS.map((delay) =>
@@ -353,30 +355,40 @@ export function useAutoScrollToBottom({
     return () => timers.forEach(clearTimeout);
   }, [resetKey]);
 
+  // 内容信号变化（流式增量、trace 展开、图片载入）：只在用户贴着底时跟随，
+  // 不 force——用户上滑看历史时展开一条 trace 不该把人拽回底部。
   useEffect(() => {
     if (!enabled) {
       return;
     }
 
-    scheduleScrollToBottom(!isStreaming);
+    scheduleScrollToBottom(false);
   }, [enabled, isStreaming, scheduleScrollToBottom, scrollSignal]);
+
+  // 消息条数变化（发出/收到新消息）：无条件贴底，这是用户发起的新内容。
+  const prevMessageCountRef = useRef(messageCount);
+  useEffect(() => {
+    if (prevMessageCountRef.current === messageCount) {
+      return;
+    }
+    prevMessageCountRef.current = messageCount;
+
+    if (enabled) {
+      scheduleScrollToBottom(true);
+    }
+  }, [enabled, messageCount, scheduleScrollToBottom]);
 
   useEffect(() => {
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
-
-      if (resetScrollIntoViewTimerRef.current) {
-        clearTimeout(resetScrollIntoViewTimerRef.current);
-      }
     };
   }, []);
 
   return {
-    bottomAnchorAId,
-    bottomAnchorBId,
     containerId,
+    contentId: `${containerId}-content`,
     handleScroll,
     handleScrollToLower,
     handleUserScrollEnd,
@@ -384,7 +396,7 @@ export function useAutoScrollToBottom({
     handleUserScrollStart,
     isAtBottom,
     restoreAutoScroll,
-    scrollIntoView,
+    scrollTop,
     scrollWithAnimation,
     showScrollToBottom: enabled && !isAtBottom,
   };
