@@ -3,7 +3,7 @@ import { View, Text } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import AppIcon from "../AppIcon";
 import { useNavBarMetrics } from "../../hooks/useNavBarMetrics";
-import { appSolidNavClass } from "../../utils/style";
+import { appNavIconButtonClass, appSolidNavClass } from "../../utils/style";
 
 export interface NavBarProps {
   title?: ReactNode | string;
@@ -86,10 +86,7 @@ export default function NavBar({
     left !== undefined ? (
       left
     ) : showBack ? (
-      <View
-        className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
-        onClick={handleBack}
-      >
+      <View className={appNavIconButtonClass} onClick={handleBack}>
         <AppIcon name="back" className="h-[1.125rem] w-[1.125rem]" />
       </View>
     ) : null;
