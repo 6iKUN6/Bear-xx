@@ -52,6 +52,11 @@ export const appHairlineClass = "h-[0.0625rem] bg-[var(--lb-line-soft)]";
 export const appSolidNavClass =
   "app-solid-nav border-b border-[var(--lb-line-soft)] shadow-none";
 
+// 导航栏图标按钮（返回、抽屉开关等）：常态无框无底，tap 时才浮出背景作交互反馈。
+// 保留 2.5rem 触控热区，去掉边框后视觉上只是图标本身。
+export const appNavIconButtonClass =
+  "flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]";
+
 export const appTextTruncateClass =
   "overflow-hidden text-ellipsis whitespace-nowrap";
 

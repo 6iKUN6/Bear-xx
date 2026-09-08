@@ -6,6 +6,7 @@ import ChatWorkspace from "../../components/ChatWorkspace";
 import HistoryDrawer from "../../components/HistoryDrawer";
 import NewChatPanel from "../../components/NewChatPanel";
 import { useChatStore } from "../../store/chatStore";
+import { appNavIconButtonClass } from "../../utils/style";
 
 /**
  * 首页 = 对话工作台
@@ -32,7 +33,7 @@ export default function IndexPage() {
 
   const historyButton = (
     <View
-      className="flex h-[2.5rem] w-[2.5rem] items-center justify-center rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] text-[var(--lb-text-primary)] active:bg-[var(--lb-surface-hover)]"
+      className={appNavIconButtonClass}
       onClick={() => setDrawerOpen(true)}
     >
       <AppIcon name="list" className="h-[1.125rem] w-[1.125rem]" />
