@@ -5,29 +5,63 @@ import { bindWechat, loginByPhone, loginByWechat } from "../../api/user";
 import NavBar from "../../components/NavBar";
 import PageShell from "../../components/PageShell";
 import AppIcon from "../../components/AppIcon";
+import type { AppIconName } from "../../components/AppIcon";
 import { useUserStore } from "../../store/userStore";
 import {
-  appGlassCardStrongClass,
+  appGlassCardClass,
   appGradientSurfaceClass,
-  appGradientSurfaceWarmClass,
+  appHairlineClass,
   appIconTileClass,
 } from "../../utils/style";
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
-const inputWrapBaseClass =
-  "flex h-[3.25rem] items-center rounded-[var(--lb-radius-md)] border bg-[var(--lb-surface)] px-[1rem] transition-colors";
-const inputWrapNormalClass = "border-[var(--lb-line-strong)]";
-const inputWrapErrorClass =
-  "border-[var(--lb-danger)] bg-[var(--lb-danger-soft)]";
-const errorTextClass =
-  "block text-[0.75rem] leading-[1.35] text-[var(--lb-danger)]";
-const fieldHintWrapClass = "mt-[0.375rem] min-h-[1.125rem]";
 const loginButtonBaseClass =
   "flex h-[3.25rem] w-full items-center justify-center gap-[0.625rem] rounded-[var(--lb-radius-md)] border-0 transition-all";
 const loginButtonEnabledClass = `${appGradientSurfaceClass} shadow-[var(--lb-shadow-glow)]`;
 const loginButtonDisabledClass =
   "bg-[var(--lb-surface-hover)] text-[var(--lb-text-muted)] shadow-none";
+
+interface FieldRowProps {
+  /** 图标（AppIcon 闭集） */
+  icon: AppIconName;
+  /** 该字段当前是否要显示错误（决定瓷贴与文案的 danger 着色） */
+  invalid: boolean;
+  /** 错误文案；空串表示无错误 */
+  error: string;
+  children: React.ReactNode;
+}
+
+/**
+ * 表单卡里的一个字段行：软色图标瓷贴 + 输入框，下方预留错误文案位。
+ * @description 沿用 profile 页「图标瓷贴 + 分区行」语言；有错误时瓷贴转 danger 软色对，
+ * 错误文案显示在该字段正下方（min-height 预留，避免校验时布局跳动）。
+ */
+function FieldRow({ icon, invalid, error, children }: FieldRowProps) {
+  return (
+    <View className="px-[1rem]">
+      <View className="flex h-[3.5rem] items-center gap-[0.75rem]">
+        <View
+          className={`flex h-[1.875rem] w-[1.875rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-xs)] ${
+            invalid
+              ? "bg-[var(--lb-danger-soft)] text-[var(--lb-danger)]"
+              : "bg-[var(--lb-accent-soft)] text-[var(--lb-accent-ink)]"
+          }`}
+        >
+          <AppIcon name={icon} className="h-[1rem] w-[1rem]" />
+        </View>
+        {children}
+      </View>
+      <View className="min-h-[1.375rem] justify-center pb-[0.125rem]">
+        {invalid && error ? (
+          <Text className="block text-[0.75rem] leading-[1.35] text-[var(--lb-danger)]">
+            {error}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
 
 export default function LoginPage() {
   const login = useUserStore((s) => s.login);
@@ -146,46 +180,31 @@ export default function LoginPage() {
 
   return (
     <PageShell>
-      <NavBar
-        title="登录"
-        variant="ghost"
-        className="shrink-0"
-        barClassName="px-[0.5rem]"
-      />
+      <NavBar variant="ghost" showBack={false} capsule="hidden" />
 
-      <View className="relative z-[10] flex min-h-0 flex-1 items-center justify-center px-[1.5rem] pb-[1.5rem]">
-        <View
-          className={`${appGlassCardStrongClass} w-full max-w-[21.25rem] px-[1.5rem] py-[2rem]`}
-        >
-          <View className="mb-[2rem] flex justify-center">
-            <View className="relative">
-              <View
-                className={`${appIconTileClass} h-[4.75rem] w-[4.75rem] text-[2.5rem]`}
-              >
-                <Text className="leading-none">办</Text>
-              </View>
-              <View
-                className={`${appGradientSurfaceWarmClass} absolute -right-[0.25rem] -top-[0.25rem] flex h-[1.75rem] w-[1.75rem] items-center justify-center rounded-[var(--lb-radius-sm)]`}
-              >
-                <AppIcon name="sparkles" className="h-[0.75rem] w-[0.75rem]" />
-              </View>
-            </View>
+      <View className="relative z-[10] flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* 品牌 hero：左对齐、充足留白；「办」字瓷贴不叠装饰徽章，amber 只留给主行动 */}
+        <View className="px-[1.5rem] pb-[1.75rem] pt-[2.25rem]">
+          <View
+            className={`${appIconTileClass} mb-[1.25rem] h-[3.5rem] w-[3.5rem] text-[1.75rem]`}
+          >
+            <Text className="leading-none">办</Text>
           </View>
-
-          <Text className="mb-[0.625rem] block text-center text-[1.75rem] font-bold leading-[1.2] text-[var(--lb-text-primary)]">
-            办伴 Banban
+          <Text className="block text-[1.75rem] font-bold leading-[1.2] text-[var(--lb-text-primary)]">
+            办伴
           </Text>
-          <Text className="mb-[1.75rem] block text-center text-[1rem] leading-[1.5] text-[var(--lb-text-secondary)]">
-            与 AI 一起，把事办成
+          <Text className="mt-[0.5rem] block text-[0.9375rem] leading-[1.5] text-[var(--lb-text-secondary)]">
+            和 AI 一起，把事办成
           </Text>
+        </View>
 
-          <View className="mb-[0.5rem]">
-            <View
-              className={`${inputWrapBaseClass} ${
-                shouldShowPhoneError
-                  ? inputWrapErrorClass
-                  : inputWrapNormalClass
-              }`}
+        {/* 表单卡：图标瓷贴 + hairline 分区行，与 profile 同一语言 */}
+        <View className="px-[1.5rem]">
+          <View className={appGlassCardClass}>
+            <FieldRow
+              icon="user"
+              invalid={shouldShowPhoneError}
+              error={phoneError}
             >
               <Input
                 className="h-full flex-1 text-[1rem] text-[var(--lb-text-primary)]"
@@ -200,21 +219,14 @@ export default function LoginPage() {
                   setPhone(event.detail.value);
                 }}
               />
-            </View>
-            <View className={fieldHintWrapClass}>
-              {shouldShowPhoneError ? (
-                <Text className={errorTextClass}>{phoneError}</Text>
-              ) : null}
-            </View>
-          </View>
+            </FieldRow>
 
-          <View className="mb-[0.875rem]">
-            <View
-              className={`${inputWrapBaseClass} ${
-                shouldShowPasswordError
-                  ? inputWrapErrorClass
-                  : inputWrapNormalClass
-              }`}
+            <View className={appHairlineClass} />
+
+            <FieldRow
+              icon="lock"
+              invalid={shouldShowPasswordError}
+              error={passwordError}
             >
               <Input
                 className="h-full flex-1 text-[1rem] text-[var(--lb-text-primary)]"
@@ -230,14 +242,12 @@ export default function LoginPage() {
                   setPassword(event.detail.value);
                 }}
               />
-            </View>
-            <View className={fieldHintWrapClass}>
-              {shouldShowPasswordError ? (
-                <Text className={errorTextClass}>{passwordError}</Text>
-              ) : null}
-            </View>
+            </FieldRow>
           </View>
+        </View>
 
+        {/* 行动区：主按钮琥珀渐变是唯一主行动，微信登录为描边次级 */}
+        <View className="mt-[1.5rem] px-[1.5rem]">
           <Button
             className={`${loginButtonBaseClass} ${
               isFormValid ? loginButtonEnabledClass : loginButtonDisabledClass
@@ -254,7 +264,7 @@ export default function LoginPage() {
                   : "text-[var(--lb-text-muted)]"
               }`}
             >
-              {submitting ? "登录中..." : "手机号密码登录"}
+              {submitting ? "登录中..." : "登 录"}
             </Text>
           </Button>
 
@@ -276,13 +286,13 @@ export default function LoginPage() {
             loading={submitting}
             onClick={handleWechatLogin}
           >
-            已绑定微信，直接登录
+            微信一键登录
           </Button>
-
-          <Text className="mt-[1.25rem] block text-center text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]">
-            默认使用手机号作为主账号
-          </Text>
         </View>
+
+        <Text className="mt-[1.75rem] block px-[1.5rem] pb-[1.5rem] text-center text-[0.75rem] leading-[1.4] text-[var(--lb-text-muted)]">
+          默认使用手机号作为主账号
+        </Text>
       </View>
     </PageShell>
   );
