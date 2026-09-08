@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, View } from "@tarojs/components";
 import Taro from "@tarojs/taro";
 import AppIcon from "../AppIcon";
@@ -8,6 +8,8 @@ import { groupConversationsByTime } from "../../utils/conversation";
 import { appTextTruncateClass } from "../../utils/style";
 
 const DRAWER_TRANSITION_MS = 220;
+// 原生页面推入动画的时长量级：跳页类入口不播抽屉滑出，等新页面盖住抽屉后再静默卸载
+const NAVIGATION_DISMISS_MS = 400;
 
 interface HistoryDrawerProps {
   open: boolean;
@@ -41,6 +43,8 @@ export default function HistoryDrawer({
   const { isLoggedIn, userInfo } = useUserStore();
   const [mounted, setMounted] = useState(false);
   const [active, setActive] = useState(false);
+  // 跳页关闭标记：置位时不播滑出动画，抽屉静置被新页面盖住后卸载
+  const silentCloseRef = useRef(false);
 
   useEffect(() => {
     let closeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -48,6 +52,9 @@ export default function HistoryDrawer({
     if (open) {
       setMounted(true);
       Taro.nextTick(() => setActive(true));
+    } else if (silentCloseRef.current) {
+      silentCloseRef.current = false;
+      closeTimer = setTimeout(() => setMounted(false), NAVIGATION_DISMISS_MS);
     } else {
       setActive(false);
       closeTimer = setTimeout(() => setMounted(false), DRAWER_TRANSITION_MS);
@@ -70,6 +77,16 @@ export default function HistoryDrawer({
 
   const closeDrawer = () => {
     setActive(false);
+    onClose();
+  };
+
+  /**
+   * 跳页入口的关闭方式
+   * @description 不播抽屉滑出：navigateTo 的页面推入会盖住抽屉，同时播两股反向运动
+   * 会闪且乱。抽屉停在原地，推入动画结束后由上面的 silentClose 分支静默卸载。
+   */
+  const closeForNavigation = () => {
+    silentCloseRef.current = true;
     onClose();
   };
 
@@ -145,7 +162,7 @@ export default function HistoryDrawer({
             className="flex h-[2.5rem] shrink-0 items-center justify-center gap-[0.375rem] rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-strong)] px-[0.875rem] active:bg-[var(--lb-surface-hover)]"
             onClick={() => {
               onOpenAgents();
-              closeDrawer();
+              closeForNavigation();
             }}
           >
             <AppIcon name="zap" className="h-[0.875rem] w-[0.875rem] text-[var(--lb-text-secondary)]" />
@@ -220,7 +237,7 @@ export default function HistoryDrawer({
             className="flex min-w-0 flex-1 items-center gap-[0.625rem] active:opacity-70"
             onClick={() => {
               onOpenSettings();
-              closeDrawer();
+              closeForNavigation();
             }}
           >
             <View className="flex h-[2rem] w-[2rem] shrink-0 items-center justify-center rounded-full bg-[var(--lb-accent-soft)]">
@@ -241,7 +258,7 @@ export default function HistoryDrawer({
             className="flex h-[2.25rem] w-[2.25rem] shrink-0 items-center justify-center rounded-[var(--lb-radius-sm)] text-[var(--lb-text-secondary)] active:bg-[var(--lb-surface-hover)]"
             onClick={() => {
               onOpenSettings();
-              closeDrawer();
+              closeForNavigation();
             }}
           >
             <AppIcon name="settings" className="h-[1.125rem] w-[1.125rem]" />
