@@ -132,3 +132,20 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--lb-line-strong) transparent;
 }
+
+/* Flow 画布连线 handle：默认 ~10px 很难按。视觉尺寸不变，透明扩层把热区扩到 ~26px；
+   hover 节点时放大本体（改宽高而非 transform scale，避免覆盖 RF 定位用的 translate） */
+.flow-handle {
+  transition:
+    width 120ms ease,
+    height 120ms ease;
+}
+.flow-handle::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+.react-flow__node:hover .flow-handle {
+  width: 12px;
+  height: 12px;
+}
