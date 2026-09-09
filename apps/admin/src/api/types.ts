@@ -137,13 +137,46 @@ export interface TestSession {
   updatedAt: number;
 }
 
+export interface TestExecutionModelSnapshot {
+  presetId: string;
+  name: string | null;
+  model: string | null;
+  providerKey: string | null;
+}
+
+export interface TestExecutionFlowSnapshot {
+  id: string;
+  name: string;
+  versionId: string;
+  version: number;
+  digest: string;
+}
+
+export interface TestExecutionNodeModel {
+  nodeId: string;
+  nodeName: string | null;
+  nodeType: string;
+  source: "agent-default" | "explicit";
+  model: TestExecutionModelSnapshot;
+}
+
+export interface TestMessageExecution {
+  taskId: string;
+  taskStatus: string;
+  flow: TestExecutionFlowSnapshot;
+  agentDefaultModel: TestExecutionModelSnapshot | null;
+  nodeModels: TestExecutionNodeModel[];
+}
+
 export interface TestSessionMessage {
   id: string;
   role: string;
   content: string;
+  agentId: string | null;
   status: string;
   createdAt: number;
   trace: TaskTraceItem[];
+  execution: TestMessageExecution | null;
 }
 
 export interface TestSessionDetail {
