@@ -252,6 +252,8 @@ export interface FlowConditionNodeConfig {
 export interface FlowNodeBase {
   readonly id: string;
   readonly name?: string;
+  /** 面向编辑者的简短说明；不改变节点执行语义。 */
+  readonly description?: string;
 }
 
 /** Agent 节点。 */

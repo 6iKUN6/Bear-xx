@@ -297,4 +297,18 @@ describe('AgentFlowVersionService', () => {
     expect(update).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
   });
+
+  it('校验未保存 Definition 时不读取或写入数据库', () => {
+    const result = service.validateDefinition(directDefinition);
+
+    expect(result).toEqual({
+      valid: true,
+      errors: [],
+      digest: calculateFlowDefinitionDigest(directDefinition),
+    });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(runtimeValidate).toHaveBeenCalledWith(directDefinition);
+  });
 });

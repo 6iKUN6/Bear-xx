@@ -37,6 +37,8 @@ export const FLOW_DEFINITION_LIMITS = {
   conditionValueLength: 500,
   /** 节点显示名的最大字符数。 */
   nodeNameLength: 60,
+  /** 节点简短描述的最大字符数。 */
+  nodeDescriptionLength: 200,
   /** 单个 join 节点允许等待的最大分支数。 */
   joinWaitForCount: 16,
   /**
@@ -68,6 +70,11 @@ const nodeBaseShape = {
     .trim()
     .min(1)
     .max(FLOW_DEFINITION_LIMITS.nodeNameLength)
+    .optional(),
+  description: z
+    .string()
+    .trim()
+    .max(FLOW_DEFINITION_LIMITS.nodeDescriptionLength)
     .optional(),
 };
 
