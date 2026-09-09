@@ -40,6 +40,7 @@ export interface CanvasDefinition {
   nodes: ReadonlyArray<{
     id: string;
     name?: string;
+    description?: string;
     type: FlowNodeType;
     config: unknown;
   }>;
@@ -55,6 +56,7 @@ export interface FlowGraphNode {
   id: string;
   /** 显示名；缺省时调用方回退显示 id */
   name?: string;
+  description?: string;
   type: FlowNodeType;
   position: FlowNodePosition;
   config: unknown;
@@ -117,6 +119,7 @@ export function readDefinitionForCanvas(
     const candidate = item as {
       id?: unknown;
       name?: unknown;
+      description?: unknown;
       type?: unknown;
       config?: unknown;
     };
@@ -136,6 +139,9 @@ export function readDefinitionForCanvas(
       id: candidate.id,
       ...(typeof candidate.name === "string" && candidate.name
         ? { name: candidate.name }
+        : {}),
+      ...(typeof candidate.description === "string" && candidate.description
+        ? { description: candidate.description }
         : {}),
       // 上一行已确认它落在 FLOW_NODE_OUTPUTS 的键集合内，即 FlowNodeType
       type: candidate.type as FlowNodeType,
@@ -210,7 +216,11 @@ interface NodeTypeMeta {
   /** 契约中的类型名；界面上与中文名并列展示 */
   type: string;
   desc: string;
+  category: FlowNodeCategory;
 }
+
+/** 编辑器展示用的节点领域分类；仅属于 Admin 元数据，不写入 Definition。 */
+export type FlowNodeCategory = "基础" | "逻辑" | "执行" | "人机协作";
 
 /**
  * 节点类型的中文展示元数据
@@ -223,51 +233,61 @@ const NODE_TYPE_META: Record<FlowNodeType, NodeTypeMeta> = {
     name: "开始",
     type: "start",
     desc: "流程入口；输出用户本轮消息，供下游引用",
+    category: "基础",
   },
   end: {
     name: "结束",
     type: "end",
     desc: "流程唯一出口；所有路径最终都必须到达这里",
+    category: "基础",
   },
   agent: {
     name: "智能体",
     type: "agent",
     desc: "按配置的工具组与技能执行一轮对话",
+    category: "执行",
   },
   plan: {
     name: "生成计划",
     type: "plan",
     desc: "调用规划器产出可执行步骤",
+    category: "执行",
   },
   "plan-loop": {
     name: "执行计划",
     type: "plan-loop",
     desc: "逐步执行计划，循环在节点内部",
+    category: "执行",
   },
   approval: {
     name: "计划确认",
     type: "approval",
     desc: "等待人工确认或修改计划",
+    category: "人机协作",
   },
   synthesize: {
     name: "汇总回复",
     type: "synthesize",
     desc: "读取步骤观察，产出最终回复",
+    category: "执行",
   },
   condition: {
     name: "条件分支",
     type: "condition",
     desc: "按变量判定选择一条出边",
+    category: "逻辑",
   },
   join: {
     name: "汇聚分支",
     type: "join",
     desc: "等待并行分支后继续；all 等全部，any 等任一",
+    category: "逻辑",
   },
   loop: {
     name: "循环",
     type: "loop",
     desc: "按条件或轮数重复执行循环体；回边须指回本节点",
+    category: "逻辑",
   },
 };
 
@@ -283,6 +303,7 @@ export function nodeTypeMeta(type: string): NodeTypeMeta {
       name: type,
       type,
       desc: "未知节点类型，后台可能落后于后端契约",
+      category: "逻辑",
     }
   );
 }
@@ -329,6 +350,7 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
       return {
         id: node.id,
         ...(node.name ? { name: node.name } : {}),
+        ...(node.description ? { description: node.description } : {}),
         type: node.type,
         position: saved,
         config: node.config,
@@ -340,6 +362,7 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
     return {
       id: node.id,
       ...(node.name ? { name: node.name } : {}),
+      ...(node.description ? { description: node.description } : {}),
       type: node.type,
       position: { x: depth * AUTO_LAYOUT_GAP.x, y: row * AUTO_LAYOUT_GAP.y },
       config: node.config,

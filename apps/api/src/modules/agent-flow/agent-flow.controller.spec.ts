@@ -17,6 +17,7 @@ describe('AgentFlowController', () => {
     [string, unknown, string]
   >;
   let remove: jest.Mock<Promise<void>, [string]>;
+  let validateDefinition: jest.Mock<Record<string, unknown>, [unknown]>;
 
   beforeEach(async () => {
     create = jest.fn<Promise<Record<string, unknown>>, [unknown, string]>();
@@ -25,6 +26,7 @@ describe('AgentFlowController', () => {
       [string, unknown, string]
     >();
     remove = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
+    validateDefinition = jest.fn<Record<string, unknown>, [unknown]>();
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AgentFlowController],
@@ -35,7 +37,7 @@ describe('AgentFlowController', () => {
         },
         {
           provide: AgentFlowVersionService,
-          useValue: {},
+          useValue: { validateDefinition },
         },
         // 用真实注册表：模板端点的价值就在于返回能通过校验器的 Definition
         FlowTemplateRegistry,
@@ -110,6 +112,17 @@ describe('AgentFlowController', () => {
       { name: '新名称', description: '新描述' },
       'admin-1',
     );
+  });
+
+  it('校验未保存 Definition 时直接使用请求工件且不要求版本 ID', () => {
+    const definition = { schemaVersion: 7, kind: 'agent-flow' };
+    validateDefinition.mockReturnValue({ valid: false, errors: [] });
+
+    expect(controller.validateDefinition({ definition })).toEqual({
+      valid: false,
+      errors: [],
+    });
+    expect(validateDefinition).toHaveBeenCalledWith(definition);
   });
 
   it('删除端点把 flowId 交给服务层并返回成功信封', async () => {

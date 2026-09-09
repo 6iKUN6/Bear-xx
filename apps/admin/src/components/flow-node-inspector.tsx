@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import type { ModelPresetOption, ReasoningSelection } from "@/api/types";
 import {
   defaultReasoningSelection,
@@ -49,6 +49,8 @@ export interface InspectorEditing {
   onRenameCase: (oldKey: string, newKey: string) => void;
   /** 设置节点显示名；传空串即清除，界面回退显示 id */
   onChangeName: (name: string) => void;
+  /** 设置节点简短描述；传空串即清除 */
+  onChangeDescription: (description: string) => void;
   onDeleteNode: () => void;
 }
 
@@ -111,6 +113,23 @@ export function FlowNodeInspector({
             ) : (
               <p className="text-xs text-muted-foreground">
                 {node.name || "未设置"}
+              </p>
+            )}
+          </Field>
+          <Field label="简短描述" hint="帮助团队理解节点用途，最多 200 字">
+            {editing ? (
+              <Textarea
+                value={node.description ?? ""}
+                placeholder="例如：提取订单信息并交给下游节点"
+                maxLength={200}
+                className="min-h-[72px] resize-y"
+                onChange={(event) =>
+                  editing.onChangeDescription(event.target.value)
+                }
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {node.description || "未设置"}
               </p>
             )}
           </Field>

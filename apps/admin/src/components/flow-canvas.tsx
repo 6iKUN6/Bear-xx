@@ -53,6 +53,8 @@ interface FlowNodeData extends Record<string, unknown> {
   nodeId: string;
   /** 显示名；缺省时回退显示 nodeId */
   nodeName?: string;
+  /** 面向编辑者的简短说明 */
+  nodeDescription?: string;
   nodeType: FlowNodeType;
   selected: boolean;
   /** 连线模式：该节点是连线的源 */
@@ -74,7 +76,10 @@ interface FlowNodeData extends Record<string, unknown> {
  */
 /** 有 animate-ui 动态图标版本的节点类型；其余类型回退到 NODE_TYPE_ICONS 的静态 lucide 图标。 */
 const NODE_TYPE_ANIMATED_ICONS: Partial<
-  Record<FlowNodeType, React.ComponentType<{ size?: number; className?: string }>>
+  Record<
+    FlowNodeType,
+    React.ComponentType<{ size?: number; className?: string }>
+  >
 > = {
   start: Play,
   end: CircleCheck,
@@ -106,7 +111,7 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
         data.connectTarget &&
           "cursor-crosshair ring-2 ring-[var(--lb-accent-soft)]",
       )}
-      title={meta.desc}
+      title={data.nodeDescription || meta.desc}
     >
       {data.nodeType === "start" ? null : data.nodeType === "loop" ? (
         <>
@@ -327,6 +332,7 @@ function FlowCanvasInner({
         data: {
           nodeId: node.id,
           ...(node.name ? { nodeName: node.name } : {}),
+          ...(node.description ? { nodeDescription: node.description } : {}),
           nodeType: node.type,
           selected: false,
         },

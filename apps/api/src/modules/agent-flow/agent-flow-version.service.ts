@@ -202,7 +202,17 @@ export class AgentFlowVersionService {
     if (!version) {
       throw new NotFoundException('Flow 版本不存在');
     }
-    const result = validateFlowDefinition(version.definition);
+    return this.validateDefinition(version.definition);
+  }
+
+  /**
+   * 校验一份未保存的 FlowDefinition
+   * @param input 管理端当前画布中的完整 Definition
+   * @returns 返回结构与运行时能力闭集校验结果；合法时同时返回语义摘要
+   * @description 只执行纯校验，不查询版本，也不写入版本、审计或 digest，供编辑器实时检查当前草稿。
+   */
+  validateDefinition(input: unknown): AgentFlowVersionValidationResponse {
+    const result = validateFlowDefinition(input);
     if (!result.success) {
       return { valid: false, errors: result.errors };
     }

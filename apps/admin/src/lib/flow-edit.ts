@@ -23,6 +23,8 @@ export interface EditableNode {
   id: string;
   /** 面向人的显示名；缺省时界面回退显示 id */
   name?: string;
+  /** 面向编辑者的简短说明；缺省时不显示。 */
+  description?: string;
   type: FlowNodeType;
   config: Record<string, unknown>;
 }
@@ -54,6 +56,7 @@ export function toEditableDefinition(definition: object): EditResult {
     const candidate = item as {
       id?: unknown;
       name?: unknown;
+      description?: unknown;
       type?: unknown;
       config?: unknown;
     };
@@ -67,6 +70,9 @@ export function toEditableDefinition(definition: object): EditResult {
       id: candidate.id,
       ...(typeof candidate.name === "string" && candidate.name
         ? { name: candidate.name }
+        : {}),
+      ...(typeof candidate.description === "string" && candidate.description
+        ? { description: candidate.description }
         : {}),
       type: candidate.type as FlowNodeType,
       config: isRecord(candidate.config) ? { ...candidate.config } : {},
@@ -240,7 +246,11 @@ export function duplicateNode(
       ...definition,
       nodes: [
         ...definition.nodes,
-        { id, type: source.type, config: structuredClone(source.config) },
+        {
+          id,
+          type: source.type,
+          config: structuredClone(source.config),
+        },
       ],
       layout: {
         nodes: {
@@ -496,6 +506,32 @@ export function setNodeName(
       // 变成两份不同的工件，而界面上完全一样
       const cleared = { ...node };
       delete cleared.name;
+      return cleared;
+    }),
+  };
+}
+
+/**
+ * 设置一个节点的简短描述
+ * @param definition 当前草稿
+ * @param nodeId 节点标识
+ * @param description 新描述；传空串即清除
+ * @returns 返回更新描述后的新草稿
+ * @description 描述只服务于编辑者理解节点，不参与连线或变量引用；空白描述会被规范化为缺省字段。
+ */
+export function setNodeDescription(
+  definition: EditableDefinition,
+  nodeId: string,
+  description: string,
+): EditableDefinition {
+  const trimmed = description.trim();
+  return {
+    ...definition,
+    nodes: definition.nodes.map((node) => {
+      if (node.id !== nodeId) return node;
+      if (trimmed) return { ...node, description: trimmed };
+      const cleared = { ...node };
+      delete cleared.description;
       return cleared;
     }),
   };

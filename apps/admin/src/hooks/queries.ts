@@ -35,6 +35,7 @@ import {
   publishFlowVersion,
   rollbackAgentFlow,
   updateFlowDraft,
+  validateFlowDefinition,
   validateFlowVersion,
   probeModelPreset,
   probeModelProviderConnection,
@@ -393,6 +394,9 @@ export function useAgentFlowMutations(flowId?: string) {
   const validate = useMutation({
     mutationFn: (versionId: string) => validateFlowVersion(versionId),
   });
+  const validateDefinition = useMutation({
+    mutationFn: (definition: object) => validateFlowDefinition(definition),
+  });
   const publish = useMutation({
     mutationFn: (versionId: string) => publishFlowVersion(versionId),
     onSuccess: invalidate,
@@ -414,6 +418,7 @@ export function useAgentFlowMutations(flowId?: string) {
     remove,
     saveDraft,
     validate,
+    validateDefinition,
     publish,
     importDefinition,
     rollback,

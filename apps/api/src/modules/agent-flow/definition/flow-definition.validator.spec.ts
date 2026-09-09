@@ -261,6 +261,35 @@ describe('FlowDefinitionValidator', () => {
     expect(result.success).toBe(true);
   });
 
+  it('接受节点上的简短描述，并将其纳入 Definition', () => {
+    const definition = validDefinition();
+    const result = validateFlowDefinition({
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id === 'answer'
+          ? { ...node, description: '把上游观察整理成用户可读的回复' }
+          : node,
+      ),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('拒绝超过 200 字的节点描述', () => {
+    const definition = validDefinition();
+    expectValidationError(
+      validateFlowDefinition({
+        ...definition,
+        nodes: definition.nodes.map((node) =>
+          node.id === 'answer'
+            ? { ...node, description: '描'.repeat(201) }
+            : node,
+        ),
+      }),
+      (error) => error.rule === 'schema' && error.path.endsWith('.description'),
+    );
+  });
+
   it('显示名参与 digest：改名会得到不同摘要', () => {
     // layout 被排除是因为坐标是拖动的副产物；改名是刻意的编辑动作，工件确实变了
     const definition = validDefinition();

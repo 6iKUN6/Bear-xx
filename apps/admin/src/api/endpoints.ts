@@ -93,8 +93,7 @@ export const registerAdminImageAsset = (body: {
   size: number;
   mimeType: string;
   originalName: string;
-}) =>
-  request<StorageAsset>("/admin/storage/assets", { method: "POST", body });
+}) => request<StorageAsset>("/admin/storage/assets", { method: "POST", body });
 
 export const listAdminImageAssets = (query: StorageAssetQuery) =>
   request<StorageAssetPage>("/admin/storage/assets", {
@@ -287,6 +286,13 @@ export const validateFlowVersion = (versionId: string) =>
     `/admin/agent-flow-versions/${versionId}/validate`,
     { method: "POST" },
   );
+
+/** 校验当前未保存 Definition，不创建或更新 Flow 版本。 */
+export const validateFlowDefinition = (definition: object) =>
+  request<AgentFlowValidation>("/admin/agent-flows/validate-definition", {
+    method: "POST",
+    body: { definition },
+  });
 
 export const publishFlowVersion = (versionId: string) =>
   request<AgentFlowVersion>(`/admin/agent-flow-versions/${versionId}/publish`, {

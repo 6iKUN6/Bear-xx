@@ -37,6 +37,7 @@ import { ImportAgentFlowDto } from './dto/import-agent-flow.dto';
 import { RollbackAgentFlowDto } from './dto/rollback-agent-flow.dto';
 import { UpdateAgentFlowVersionDto } from './dto/update-agent-flow-version.dto';
 import { UpdateAgentFlowDto } from './dto/update-agent-flow.dto';
+import { ValidateAgentFlowDefinitionDto } from './dto/validate-agent-flow-definition.dto';
 import { UserRole } from '@prisma/client';
 
 /**
@@ -150,6 +151,19 @@ export class AgentFlowController {
     @CurrentUser('id') actorId: string,
   ) {
     return this.versionService.updateDraft(versionId, dto.definition, actorId);
+  }
+
+  /**
+   * 校验管理端当前画布中的未保存 Definition
+   * @param dto 包含当前完整 FlowDefinition 的请求
+   * @returns 返回结构、图规则与运行时能力闭集的校验结果
+   * @description 该端点不创建或更新版本，不写审计和 digest，供画布防抖自动检查当前草稿。
+   */
+  @Post('agent-flows/validate-definition')
+  @ApiOperation({ summary: '校验未保存的 FlowDefinition（管理员）' })
+  @ApiOkResponse({ type: AgentFlowValidationResponseDto })
+  validateDefinition(@Body() dto: ValidateAgentFlowDefinitionDto) {
+    return this.versionService.validateDefinition(dto.definition);
   }
 
   /**

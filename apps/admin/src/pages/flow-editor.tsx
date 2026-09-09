@@ -5,9 +5,11 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Loader2,
   Redo2,
   Save,
+  TriangleAlert,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -16,6 +18,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { FLOW_NODE_DRAG_TYPE, FlowCanvas } from "@/components/flow-canvas";
 import { FlowNodeInspector } from "@/components/flow-node-inspector";
 import {
@@ -40,6 +48,7 @@ import {
   NODE_TYPE_ICONS,
   layoutPositions,
   nodeTypeMeta,
+  type FlowNodeCategory,
   type FlowNodePosition,
 } from "@/lib/flow-graph";
 import { nodeTypeColors } from "@/lib/flow-node-colors";
@@ -54,6 +63,7 @@ import {
   removeNode,
   renameConditionCase,
   setNodeName,
+  setNodeDescription,
   toEditableDefinition,
   updateNodeConfig,
   type EditResult,
@@ -61,10 +71,7 @@ import {
 } from "@/lib/flow-edit";
 import type { AgentFlowValidation } from "@/api/types";
 import { confirm } from "@/components/confirm-dialog";
-import {
-  FLOW_EDITOR_PANEL_LIMITS,
-  useUiStore,
-} from "@/stores/ui-store";
+import { FLOW_EDITOR_PANEL_LIMITS, useUiStore } from "@/stores/ui-store";
 
 /**
  * 左栏可添加的节点类型
@@ -81,6 +88,20 @@ const ADDABLE_NODE_TYPES: FlowNodeType[] = [
   "loop",
 ];
 
+const NODE_CATEGORY_ORDER: FlowNodeCategory[] = [
+  "基础",
+  "逻辑",
+  "执行",
+  "人机协作",
+];
+
+function groupNodeTypes(types: readonly FlowNodeType[]) {
+  return NODE_CATEGORY_ORDER.map((category) => ({
+    category,
+    types: types.filter((type) => nodeTypeMeta(type).category === category),
+  })).filter((group) => group.types.length > 0);
+}
+
 /**
  * Flow 画布编辑器
  * @returns 返回左中右三栏编辑页
@@ -95,12 +116,18 @@ export function FlowEditorPage() {
   }>();
   const { data: flow, isLoading } = useAgentFlow(flowId);
   const { data: capabilities } = useAgentCapabilities();
-  const { validate, saveDraft } = useAgentFlowMutations(flowId);
+  const { validateDefinition, saveDraft } = useAgentFlowMutations(flowId);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [validation, setValidation] = useState<AgentFlowValidation | null>(
     null,
   );
+  const [validationStatus, setValidationStatus] = useState<
+    "idle" | "checking" | "complete" | "error"
+  >("idle");
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const validationRequestRef = useRef(0);
   const [draft, setDraft] = useState<EditableDefinition | null>(null);
   const [history, setHistory] = useState<EditorHistory>(EMPTY_HISTORY);
   /** 连续输入合并：同名 key 在时间窗内再次提交时不新增历史条目（inspector 逐字符改名不灌满栈） */
@@ -165,6 +192,43 @@ export function FlowEditorPage() {
     [draft, version],
   );
 
+  const validateCurrentDefinition = validateDefinition.mutateAsync;
+  useEffect(() => {
+    const requestId = validationRequestRef.current + 1;
+    validationRequestRef.current = requestId;
+    if (!draft) {
+      setValidation(null);
+      setValidationStatus("idle");
+      setValidationError(null);
+      return;
+    }
+
+    setValidation(null);
+    setValidationStatus("checking");
+    setValidationError(null);
+    const timer = window.setTimeout(() => {
+      void validateCurrentDefinition(draft)
+        .then((result) => {
+          if (validationRequestRef.current !== requestId) return;
+          setValidation(result);
+          setValidationStatus("complete");
+        })
+        .catch((error: unknown) => {
+          if (validationRequestRef.current !== requestId) return;
+          setValidation(null);
+          setValidationStatus("error");
+          setValidationError(describeApiError(error, "自动校验失败"));
+        });
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (validationRequestRef.current === requestId) {
+        validationRequestRef.current += 1;
+      }
+    };
+  }, [draft, validateCurrentDefinition]);
+
   const selectedNode = useMemo(
     () => draft?.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [draft, selectedNodeId],
@@ -225,17 +289,6 @@ export function FlowEditorPage() {
     [draft],
   );
 
-  /** 没能归到具体节点的错误（边、图级规则）单独展示，不能悄悄丢掉 */
-  const graphErrors = useMemo(() => {
-    if (!validation || validation.valid) {
-      return [];
-    }
-    const nodeScoped = new Set(
-      [...errorsByNode.values()].flat().map((error) => error.path),
-    );
-    return validation.errors.filter((error) => !nodeScoped.has(error.path));
-  }, [validation, errorsByNode]);
-
   /** 连续输入合并的时间窗（毫秒）：同名 key 在窗口内再次提交不新增历史条目 */
   const COALESCE_WINDOW_MS = 800;
 
@@ -256,7 +309,9 @@ export function FlowEditorPage() {
     if (!coalescing) {
       setHistory((current) => pushHistory(current, draft));
     }
-    lastCoalesceRef.current = coalesceKey ? { key: coalesceKey, at: now } : null;
+    lastCoalesceRef.current = coalesceKey
+      ? { key: coalesceKey, at: now }
+      : null;
     setDraft(next);
     // 图一变，上一次的校验结论就不再描述当前草稿，留着等于给出过期的绿灯
     setValidation(null);
@@ -375,7 +430,11 @@ export function FlowEditorPage() {
     }
   };
 
-  const handleConnect = (from: string, to: string, requestedBranch?: string) => {
+  const handleConnect = (
+    from: string,
+    to: string,
+    requestedBranch?: string,
+  ) => {
     if (!draft) return;
     const source = draft.nodes.find((node) => node.id === from);
     if (!source) return;
@@ -389,8 +448,8 @@ export function FlowEditorPage() {
     // 找不到再回落到 default——普通节点只有 default，扇出时它永远是"已占用"的。
     const branch = requestedBranch
       ? requestedBranch
-      : declared.find((key) => key !== "default" && !covered.has(key)) ??
-        (declared.includes("default") ? "default" : undefined);
+      : (declared.find((key) => key !== "default" && !covered.has(key)) ??
+        (declared.includes("default") ? "default" : undefined));
     if (!branch) {
       toast.error(`节点「${from}」的所有分支都已连出`);
       return;
@@ -415,25 +474,6 @@ export function FlowEditorPage() {
       toast.success("草稿已保存");
     } catch (err) {
       toast.error(describeApiError(err, "保存失败"));
-    }
-  };
-
-  const handleValidate = async () => {
-    if (!version) return;
-    if (dirty) {
-      toast.error("先保存：校验针对的是已保存的版本");
-      return;
-    }
-    try {
-      const result = await validate.mutateAsync(version.id);
-      setValidation(result);
-      if (result.valid) {
-        toast.success("校验通过");
-      } else {
-        toast.error(`校验未通过：${result.errors.length} 处问题`);
-      }
-    } catch (err) {
-      toast.error(describeApiError(err, "校验失败"));
     }
   };
 
@@ -527,22 +567,35 @@ export function FlowEditorPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={handleValidate}
-          disabled={validate.isPending || !version.schemaCompatible || dirty}
-          title={
-            dirty
-              ? "先保存：校验针对已保存的版本"
-              : version.schemaCompatible
-                ? "向服务端校验此版本"
-                : "工件不符合当前契约，服务端一定拒绝"
+          disabled={!draft}
+          onClick={() => setValidationDialogOpen(true)}
+          title="查看当前画布的自动校验结果"
+          className={
+            validationStatus === "complete" && validation?.valid
+              ? "border-[var(--lb-success)] bg-[var(--lb-success-soft)] text-[var(--lb-success)] hover:bg-[var(--lb-success-soft)]"
+              : validationStatus === "complete" && validation
+                ? "border-[var(--lb-warning)] bg-[var(--lb-warning-soft)] text-[var(--lb-warning)] hover:bg-[var(--lb-warning-soft)]"
+                : "text-muted-foreground"
           }
         >
-          {validate.isPending ? (
+          {validationStatus === "checking" ? (
             <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
+          ) : validationStatus === "complete" && validation?.valid ? (
             <CheckCircle2 className="h-4 w-4" />
+          ) : validationStatus === "complete" ? (
+            <TriangleAlert className="h-4 w-4" />
+          ) : (
+            <CircleAlert className="h-4 w-4" />
           )}
-          校验
+          {validationStatus === "checking"
+            ? "检查中"
+            : validationStatus === "complete" && validation?.valid
+              ? "合法"
+              : validationStatus === "complete" && validation
+                ? `${validation.errors.length} 处问题`
+                : validationStatus === "error"
+                  ? "检查失败"
+                  : "未检查"}
         </Button>
       </div>
 
@@ -559,45 +612,54 @@ export function FlowEditorPage() {
                   open={openPanels.palette}
                   onToggle={() => togglePanel("palette")}
                 />
-                <div className="space-y-1" hidden={!openPanels.palette}>
-                  {ADDABLE_NODE_TYPES.map((type) => {
-                    const meta = nodeTypeMeta(type);
-                    const Icon = NODE_TYPE_ICONS[type];
-                    const colors = nodeTypeColors(type);
-                    return (
-                      <div
-                        key={type}
-                        draggable
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData(FLOW_NODE_DRAG_TYPE, type);
-                          event.dataTransfer.effectAllowed = "move";
-                        }}
-                        className="cursor-grab rounded-md border border-border px-2 py-1.5 transition-colors hover:border-primary hover:bg-muted active:cursor-grabbing"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          {/* 与画布节点卡片同一配色（nodeTypeColors），类型一眼可辨 */}
-                          <span
-                            className="grid h-5 w-5 shrink-0 place-items-center rounded-sm"
-                            style={{
-                              background: colors.soft,
-                              color: colors.color,
+                <div className="space-y-3" hidden={!openPanels.palette}>
+                  {groupNodeTypes(ADDABLE_NODE_TYPES).map((group) => (
+                    <div key={group.category} className="space-y-1">
+                      <p className="px-1 text-[11px] font-medium text-muted-foreground">
+                        {group.category}类
+                      </p>
+                      {group.types.map((type) => {
+                        const meta = nodeTypeMeta(type);
+                        const Icon = NODE_TYPE_ICONS[type];
+                        const colors = nodeTypeColors(type);
+                        return (
+                          <div
+                            key={type}
+                            draggable
+                            onDragStart={(event) => {
+                              event.dataTransfer.setData(
+                                FLOW_NODE_DRAG_TYPE,
+                                type,
+                              );
+                              event.dataTransfer.effectAllowed = "move";
                             }}
+                            className="cursor-grab rounded-md border border-border px-2 py-1.5 transition-colors hover:border-primary hover:bg-muted active:cursor-grabbing"
                           >
-                            <Icon className="h-3 w-3" />
-                          </span>
-                          <span className="text-sm text-foreground">
-                            {meta.name}
-                          </span>
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {meta.type}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                          {meta.desc}
-                        </p>
-                      </div>
-                    );
-                  })}
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className="grid h-5 w-5 shrink-0 place-items-center rounded-sm"
+                                style={{
+                                  background: colors.soft,
+                                  color: colors.color,
+                                }}
+                              >
+                                <Icon className="h-3 w-3" />
+                              </span>
+                              <span className="text-sm text-foreground">
+                                {meta.name}
+                              </span>
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {meta.type}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                              {meta.desc}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
                 {openPanels.palette ? (
                   <p className="mt-1.5 text-xs text-muted-foreground">
@@ -614,51 +676,66 @@ export function FlowEditorPage() {
                 onToggle={() => togglePanel("nodes")}
               />
               <div className="space-y-0.5" hidden={!openPanels.nodes}>
-                {draft?.nodes.map((node) => {
-                  const nodeErrors = errorsByNode.get(node.id) ?? [];
+                {NODE_CATEGORY_ORDER.map((category) => {
+                  const categoryNodes = draft?.nodes.filter(
+                    (node) => nodeTypeMeta(node.type).category === category,
+                  );
+                  if (!categoryNodes?.length) return null;
                   return (
-                    <button
-                      key={node.id}
-                      type="button"
-                      onClick={() => setSelectedNodeId(node.id)}
-                      className={`flex w-full flex-col rounded px-2 py-1 text-left transition-colors hover:bg-muted ${
-                        node.id === selectedNodeId ? "bg-muted" : ""
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5 text-sm text-foreground">
-                        {(() => {
-                          const Icon = NODE_TYPE_ICONS[node.type];
-                          const colors = nodeTypeColors(node.type);
-                          return Icon ? (
-                            <span
-                              className="grid h-5 w-5 shrink-0 place-items-center rounded-sm"
-                              style={{
-                                background: colors.soft,
-                                color: colors.color,
-                              }}
-                            >
-                              <Icon className="h-3 w-3" />
+                    <div key={category} className="space-y-0.5">
+                      <p className="px-2 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">
+                        {category}类
+                      </p>
+                      {categoryNodes.map((node) => {
+                        const nodeErrors = errorsByNode.get(node.id) ?? [];
+                        return (
+                          <button
+                            key={node.id}
+                            type="button"
+                            onClick={() => setSelectedNodeId(node.id)}
+                            className={`flex w-full flex-col rounded px-2 py-1 text-left transition-colors hover:bg-muted ${
+                              node.id === selectedNodeId ? "bg-muted" : ""
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 text-sm text-foreground">
+                              {(() => {
+                                const Icon = NODE_TYPE_ICONS[node.type];
+                                const colors = nodeTypeColors(node.type);
+                                return Icon ? (
+                                  <span
+                                    className="grid h-5 w-5 shrink-0 place-items-center rounded-sm"
+                                    style={{
+                                      background: colors.soft,
+                                      color: colors.color,
+                                    }}
+                                  >
+                                    <Icon className="h-3 w-3" />
+                                  </span>
+                                ) : null;
+                              })()}
+                              {node.name || node.id}
+                              {nodeErrors.length > 0 ? (
+                                <span className="text-[var(--lb-danger)]">
+                                  •
+                                </span>
+                              ) : null}
                             </span>
-                          ) : null;
-                        })()}
-                        {node.name || node.id}
-                        {nodeErrors.length > 0 ? (
-                          <span className="text-[var(--lb-danger)]">•</span>
-                        ) : null}
-                      </span>
-                      {/* 别名、机器标识、节点类型三层都要露出来，否则会被混为一谈 */}
-                      <span className="pl-5 text-xs text-muted-foreground">
-                        {node.name ? (
-                          <span className="mr-1 font-mono opacity-70">
-                            {node.id}
-                          </span>
-                        ) : null}
-                        {nodeTypeMeta(node.type).name}
-                        <span className="ml-1 font-mono opacity-70">
-                          {nodeTypeMeta(node.type).type}
-                        </span>
-                      </span>
-                    </button>
+                            {/* 别名、机器标识、节点类型三层都要露出来，否则会被混为一谈 */}
+                            <span className="pl-5 text-xs text-muted-foreground">
+                              {node.name ? (
+                                <span className="mr-1 font-mono opacity-70">
+                                  {node.id}
+                                </span>
+                              ) : null}
+                              {nodeTypeMeta(node.type).name}
+                              <span className="ml-1 font-mono opacity-70">
+                                {nodeTypeMeta(node.type).type}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   );
                 })}
               </div>
@@ -715,7 +792,8 @@ export function FlowEditorPage() {
             )}
             {canEdit ? (
               <p className="mt-2 shrink-0 text-xs text-muted-foreground">
-                从节点出口拖到另一节点即连线；loop 的 again/done 必须从对应出口拖出，
+                从节点出口拖到另一节点即连线；loop 的 again/done
+                必须从对应出口拖出，
                 循环体回到顶部返回口。右键节点或连线可删除。
                 普通节点连出多条边即并行扇出，汇聚请用 join
                 节点并在右侧选择要等的分支。
@@ -731,21 +809,6 @@ export function FlowEditorPage() {
           style={{ width: panels.right }}
         >
           <CardContent className="p-3">
-            {graphErrors.length > 0 ? (
-              <section className="mb-3 rounded-md border border-[var(--lb-danger)] bg-[var(--lb-danger-soft)] px-2 py-1.5">
-                <h3 className="text-xs font-medium text-foreground">
-                  图级校验问题
-                </h3>
-                <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                  {graphErrors.map((error) => (
-                    <li key={`${error.path}:${error.rule}`}>
-                      <span className="font-mono">{error.rule}</span>{" "}
-                      {error.message}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
             {advisories.length > 0 ? (
               <section className="mb-3 rounded-md border border-[var(--lb-warning)] bg-[var(--lb-warning-soft)] px-2 py-1.5">
                 <h3 className="text-xs font-medium text-foreground">
@@ -805,6 +868,18 @@ export function FlowEditorPage() {
                             );
                           }
                         },
+                        onChangeDescription: (description) => {
+                          if (draft) {
+                            commitDraft(
+                              setNodeDescription(
+                                draft,
+                                selectedNode.id,
+                                description,
+                              ),
+                              `description:${selectedNode.id}`,
+                            );
+                          }
+                        },
                         onRenameCase: (oldKey, newKey) =>
                           applyEdit(
                             renameConditionCase(
@@ -829,6 +904,71 @@ export function FlowEditorPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog
+        open={validationDialogOpen}
+        onOpenChange={setValidationDialogOpen}
+      >
+        <DialogContent className="max-w-lg">
+          <div>
+            <DialogTitle>Flow 合法性检查</DialogTitle>
+            <DialogDescription className="mt-1">
+              结果对应当前画布草稿，检查不会保存或修改 Flow。
+            </DialogDescription>
+          </div>
+          {validationStatus === "checking" ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              正在检查当前画布…
+            </div>
+          ) : validationStatus === "complete" && validation?.valid ? (
+            <div className="flex items-start gap-2 py-2 text-sm text-[var(--lb-success)]">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">当前 Flow 合法</p>
+                {validation.digest ? (
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                    digest {validation.digest}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : validationStatus === "complete" && validation ? (
+            <div className="min-h-0">
+              <div className="flex items-center gap-2 text-sm font-medium text-[var(--lb-warning)]">
+                <TriangleAlert className="h-4 w-4" />
+                发现 {validation.errors.length} 处问题
+              </div>
+              <ul className="mt-3 max-h-[52vh] divide-y divide-border overflow-y-auto border-y border-border">
+                {validation.errors.map((error, index) => (
+                  <li
+                    key={`${error.path}:${error.rule}:${index}`}
+                    className="py-2.5 text-xs"
+                  >
+                    <p className="font-mono text-foreground">{error.path}</p>
+                    <p className="mt-1 text-muted-foreground">
+                      <span className="mr-1 font-mono">[{error.rule}]</span>
+                      {error.message}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : validationStatus === "error" ? (
+            <div className="flex items-start gap-2 py-2 text-sm text-muted-foreground">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium text-foreground">暂时无法完成检查</p>
+                <p className="mt-1">{validationError}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="py-4 text-sm text-muted-foreground">
+              当前没有可检查的画布内容。
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
