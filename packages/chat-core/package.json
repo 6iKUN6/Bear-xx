@@ -1,0 +1,28 @@
+{
+  "name": "@litter-bear/chat-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "聊天展示层的跨端纯逻辑：流式反馈 trace 构建、审批参数格式化、事件信封与状态类型",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@litter-bear/types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

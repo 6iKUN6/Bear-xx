@@ -1,4 +1,4 @@
-import { formatStreamFeedbackStatus } from "./streamFeedback.js";
+import { formatStreamFeedbackStatus } from "@litter-bear/chat-core";
 
 const current = {
   id: "workflow-2",

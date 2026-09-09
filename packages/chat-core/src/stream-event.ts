@@ -1,5 +1,6 @@
-// 事件类型来自前后端共享包（唯一事实源）；本文件仅保留前端消费侧的分组与结构。
+// 事件类型来自前后端共享包（唯一事实源）；本文件是前端消费侧的信封结构与分组。
 import { StreamTaskEventType } from "@litter-bear/types/protocol";
+import type { MessageRunMetrics } from "./types.js";
 
 export { StreamTaskEventType };
 export type { StreamTaskEventEnvelope } from "@litter-bear/types/protocol";

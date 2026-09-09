@@ -3,10 +3,14 @@ import {
   STREAM_TASK_EVENT_LABELS as EVENT_LABELS,
   type StreamTaskPayloadMap,
 } from "@litter-bear/types/protocol";
-import {
-  StreamTaskEventType,
-  type StreamTaskEvent,
-} from "../services/stream/stream-event.types";
+import { StreamTaskEventType, type StreamTaskEvent } from "./stream-event.js";
+import type {
+  MessageStreamEventFeedback,
+  MessageStreamEventTone,
+  MessageStreamFeedbackState,
+  MessageTraceItem,
+  MessageTraceStage,
+} from "./types.js";
 
 /**
  * 工具调用生命周期事件：start / done / error 共享同一 traceKey，
