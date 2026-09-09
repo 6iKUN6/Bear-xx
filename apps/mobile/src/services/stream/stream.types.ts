@@ -3,7 +3,7 @@ import type {
   ChatTaskMeta,
   MessageDonePayload,
   StreamTaskEvent,
-} from "./stream-event.types";
+} from "@litter-bear/chat-core";
 import type { OrderCreatedPayload } from "@litter-bear/types/protocol";
 
 export type ChatStreamInput = ChatCompletionsDto & { agentId?: string };

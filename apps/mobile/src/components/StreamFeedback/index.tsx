@@ -5,7 +5,7 @@ import {
   formatStreamFeedbackStatus,
   formatTraceRowDuration,
   type StreamTraceRow,
-} from "../../utils/streamFeedback";
+} from "@litter-bear/chat-core";
 import "./index.scss";
 
 interface StreamFeedbackProps {

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // markdown-it.d.ts 是本包自维护的最小类型声明（markdown-it 官方不带类型），
+  // 只服务本包编译；对外 API 只暴露 string，消费端不需要这些声明。
+  "include": ["src/**/*"]
+}

@@ -44,6 +44,8 @@
   "author": "",
   "dependencies": {
     "@babel/runtime": "^7.24.4",
+    "@litter-bear/chat-core": "workspace:*",
+    "@litter-bear/markdown": "workspace:*",
     "@litter-bear/theme": "workspace:*",
     "@litter-bear/types": "workspace:*",
     "@tarojs/components": "4.1.11",
@@ -61,8 +63,6 @@
     "@tarojs/runtime": "4.1.11",
     "@tarojs/shared": "4.1.11",
     "@tarojs/taro": "4.1.11",
-    "katex": "^0.17.0",
-    "markdown-it": "^14.2.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "taro-ui": "^3.3.0",
