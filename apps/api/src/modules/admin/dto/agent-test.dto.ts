@@ -35,6 +35,50 @@ export class TestSessionDto {
   @ApiProperty({ example: 1735689600000 }) updatedAt: number;
 }
 
+export class TestExecutionModelSnapshotDto {
+  @ApiProperty({ description: '任务冻结的模型预设业务标识' })
+  presetId: string;
+
+  @ApiProperty({ description: '当前模型预设显示名称', nullable: true })
+  name: string | null;
+
+  @ApiProperty({ description: '当前底层模型名', nullable: true })
+  model: string | null;
+
+  @ApiProperty({ description: '当前供应商模板标识', nullable: true })
+  providerKey: string | null;
+}
+
+export class TestExecutionFlowSnapshotDto {
+  @ApiProperty() id: string;
+  @ApiProperty() name: string;
+  @ApiProperty() versionId: string;
+  @ApiProperty() version: number;
+  @ApiProperty({ description: '任务创建时冻结的 Flow Definition 摘要' })
+  digest: string;
+}
+
+export class TestExecutionNodeModelDto {
+  @ApiProperty() nodeId: string;
+  @ApiProperty({ nullable: true }) nodeName: string | null;
+  @ApiProperty() nodeType: string;
+  @ApiProperty({ enum: ['agent-default', 'explicit'] })
+  source: 'agent-default' | 'explicit';
+  @ApiProperty({ type: TestExecutionModelSnapshotDto })
+  model: TestExecutionModelSnapshotDto;
+}
+
+export class TestMessageExecutionDto {
+  @ApiProperty() taskId: string;
+  @ApiProperty() taskStatus: string;
+  @ApiProperty({ type: TestExecutionFlowSnapshotDto })
+  flow: TestExecutionFlowSnapshotDto;
+  @ApiProperty({ type: TestExecutionModelSnapshotDto, nullable: true })
+  agentDefaultModel: TestExecutionModelSnapshotDto | null;
+  @ApiProperty({ type: TestExecutionNodeModelDto, isArray: true })
+  nodeModels: TestExecutionNodeModelDto[];
+}
+
 export class TestSessionMessageDto {
   @ApiProperty() id: string;
   @ApiProperty({ enum: ['user', 'assistant'] }) role: string;
@@ -48,6 +92,8 @@ export class TestSessionMessageDto {
   @ApiProperty({ example: 1735689600000 }) createdAt: number;
   @ApiProperty({ type: TaskTraceItemDto, isArray: true })
   trace: TaskTraceItemDto[];
+  @ApiProperty({ type: TestMessageExecutionDto, nullable: true })
+  execution: TestMessageExecutionDto | null;
 }
 
 export class TestSessionDetailDto {
