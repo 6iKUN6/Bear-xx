@@ -99,7 +99,7 @@ export function AgentFormDialog({
   const submitting = create.isPending || update.isPending;
   // 后端 ensurePublishedFlowVersion 只接受 PUBLISHED；列出草稿只会换来一个 400
   const publishedFlowVersions = (agentFlows ?? []).flatMap((flow) =>
-    flow.publishedVersion?.schemaCompatible
+    flow.publishedVersion?.schemaStatus === "current"
       ? [
           {
             versionId: flow.publishedVersion.id,

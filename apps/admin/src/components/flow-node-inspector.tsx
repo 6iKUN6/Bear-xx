@@ -798,7 +798,7 @@ function LoopConfig({
 
         <Field
           label="继续条件"
-          hint="任一条件组命中即进入下一轮；不配置时固定执行到最大轮数"
+          hint="命中任意规则时执行下一轮；未命中或达到最大轮数时退出。未配置规则将固定执行满最大轮数。"
         >
           <div className="space-y-2">
             {cases.map((branch, caseIndex) => (

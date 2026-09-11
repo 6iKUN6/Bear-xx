@@ -13,9 +13,12 @@ import type {
   AuthResponse,
   ErrorCategoryCount,
   AgentFlow,
+  CreatedAgentFlow,
   AgentFlowDetail,
   AgentFlowMetadataInput,
   AgentFlowTemplate,
+  AgentFlowVersionUpgrade,
+  FlowDefinitionInspection,
   AgentFlowValidation,
   AgentFlowVersion,
   AdminUser,
@@ -261,7 +264,7 @@ export const updateAgentFlowMetadata = (
 
 /** 创建 Flow 与其 version 1 草稿；definition 即完整 FlowDefinition */
 export const createAgentFlow = (definition: object) =>
-  request<AgentFlow>("/admin/agent-flows", {
+  request<CreatedAgentFlow>("/admin/agent-flows", {
     method: "POST",
     body: { definition },
   });
@@ -294,10 +297,24 @@ export const validateFlowDefinition = (definition: object) =>
     body: { definition },
   });
 
+/** 只读预检 Definition 版本并在可行时返回当前契约模型。 */
+export const inspectFlowDefinition = (definition: object) =>
+  request<FlowDefinitionInspection>("/admin/agent-flows/inspect-definition", {
+    method: "POST",
+    body: { definition },
+  });
+
 export const publishFlowVersion = (versionId: string) =>
   request<AgentFlowVersion>(`/admin/agent-flow-versions/${versionId}/publish`, {
     method: "POST",
   });
+
+/** 将可升级历史工件迁移为新的当前版本草稿，不改写源版本。 */
+export const upgradeFlowVersionToCurrent = (versionId: string) =>
+  request<AgentFlowVersionUpgrade>(
+    `/admin/agent-flow-versions/${versionId}/upgrade-to-current`,
+    { method: "POST" },
+  );
 
 export const exportFlowVersion = (versionId: string) =>
   request<object>(`/admin/agent-flow-versions/${versionId}/export`);

@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   Controls,
   Handle,
+  NodeResizer,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -18,6 +20,8 @@ import "@xyflow/react/dist/style.css";
 import {
   AlertTriangle,
   ArrowRightToLine,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Trash2,
   Unplug,
@@ -65,6 +69,15 @@ interface FlowNodeData extends Record<string, unknown> {
   provider?: NodeProviderInfo;
   /** 校验未通过：danger 边框，与左栏节点列表的红点互为双重信号 */
   hasError?: boolean;
+  loopSummary?: string;
+  loopWarning?: string;
+  collapsed?: boolean;
+  editable?: boolean;
+  onToggleLoop?: (loopId: string) => void;
+  onResizeLoop?: (
+    loopId: string,
+    size: { width: number; height: number },
+  ) => void;
 }
 
 /**
@@ -93,11 +106,96 @@ const NODE_TYPE_ANIMATED_ICONS: Partial<
   join: Merge,
 };
 
-function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
+function FlowCanvasNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   const meta = nodeTypeMeta(data.nodeType);
   const Icon = NODE_TYPE_ICONS[data.nodeType];
   const AnimatedIcon = NODE_TYPE_ANIMATED_ICONS[data.nodeType];
   const colors = nodeTypeColors(data.nodeType);
+  if (data.nodeType === "loop") {
+    return (
+      <div
+        className={cn(
+          "relative h-full w-full rounded-md border-2 bg-background/85 transition-colors",
+          data.hasError
+            ? "border-[var(--lb-danger)]"
+            : data.selected
+              ? "border-primary shadow-[0_0_0_3px_var(--lb-accent-soft)]"
+              : "border-border",
+        )}
+      >
+        <NodeResizer
+          minWidth={520}
+          minHeight={260}
+          isVisible={Boolean(data.editable && selected && !data.collapsed)}
+          onResizeEnd={(_, params) =>
+            data.onResizeLoop?.(data.nodeId, {
+              width: params.width,
+              height: params.height,
+            })
+          }
+        />
+        <Handle
+          id="loop-entry"
+          type="target"
+          position={Position.Left}
+          className="flow-handle"
+        />
+        <Handle
+          id="done"
+          type="source"
+          position={Position.Right}
+          className="flow-handle !bg-[var(--lb-success)]"
+        />
+        <div className="flex h-12 items-center gap-2 border-b border-border px-3">
+          <span
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-sm"
+            style={{ background: colors.soft, color: colors.color }}
+          >
+            {AnimatedIcon ? <AnimatedIcon size={14} /> : null}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-foreground">
+              {data.nodeName || data.nodeId}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {data.loopSummary}
+            </p>
+          </div>
+          {data.loopWarning ? (
+            <AlertTriangle
+              className="h-4 w-4 shrink-0 text-[var(--lb-warning)]"
+              aria-label={data.loopWarning}
+            />
+          ) : null}
+          <button
+            type="button"
+            className="nodrag nopan grid h-7 w-7 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onToggleLoop?.(data.nodeId);
+            }}
+            title={data.collapsed ? "展开 Loop" : "折叠 Loop"}
+          >
+            {data.collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+        {data.collapsed ? (
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            {data.loopWarning ?? "循环体已折叠"}
+          </div>
+        ) : data.loopWarning ? (
+          <div className="absolute bottom-2 left-3 flex items-center gap-1 text-xs text-[var(--lb-warning)]">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {data.loopWarning}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       className={cn(
@@ -113,25 +211,7 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
       )}
       title={data.nodeDescription || meta.desc}
     >
-      {data.nodeType === "start" ? null : data.nodeType === "loop" ? (
-        <>
-          <Handle
-            id="loop-entry"
-            type="target"
-            position={Position.Left}
-            className="flow-handle"
-          />
-          <Handle
-            id="loop-return"
-            type="target"
-            position={Position.Top}
-            className="flow-handle !bg-[var(--lb-warning)]"
-          />
-          <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-muted-foreground">
-            返回下一轮
-          </span>
-        </>
-      ) : (
+      {data.nodeType === "start" ? null : (
         <Handle
           type="target"
           position={Position.Left}
@@ -184,30 +264,7 @@ function FlowCanvasNode({ data }: NodeProps<Node<FlowNodeData>>) {
           />
         )
       ) : null}
-      {data.nodeType === "end" ? null : data.nodeType === "loop" ? (
-        <>
-          <Handle
-            id="again"
-            type="source"
-            position={Position.Right}
-            style={{ top: "38%" }}
-            className="flow-handle !bg-primary"
-          />
-          <span className="absolute -right-10 top-[calc(38%-8px)] text-[10px] font-medium text-primary">
-            again
-          </span>
-          <Handle
-            id="done"
-            type="source"
-            position={Position.Right}
-            style={{ top: "72%" }}
-            className="flow-handle !bg-[var(--lb-success)]"
-          />
-          <span className="absolute -right-9 top-[calc(72%-8px)] text-[10px] font-medium text-[var(--lb-success)]">
-            done
-          </span>
-        </>
-      ) : (
+      {data.nodeType === "end" ? null : (
         <Handle
           id="default"
           type="source"
@@ -255,6 +312,11 @@ interface FlowCanvasProps {
    */
   editable?: boolean;
   onMoveNode?: (nodeId: string, position: FlowNodePosition) => void;
+  onResizeLoop?: (
+    loopId: string,
+    size: { width: number; height: number },
+  ) => void;
+  onToggleLoop?: (loopId: string) => void;
   onConnect?: (from: string, to: string, branch?: string) => void;
   onDeleteEdge?: (from: string, to: string, branch: string) => void;
   onDeleteNode?: (nodeId: string) => void;
@@ -291,6 +353,8 @@ function FlowCanvasInner({
   onSelectNode,
   editable = false,
   onMoveNode,
+  onResizeLoop,
+  onToggleLoop,
   onConnect,
   onDeleteEdge,
   onDeleteNode,
@@ -307,15 +371,35 @@ function FlowCanvasInner({
   const [menu, setMenu] = useState<ContextTarget | null>(null);
   /** 连线模式：非空时点击另一个节点即完成从该节点出发的连线（右键「连线到…」进入） */
   const [connectSourceState, setConnectSource] = useState<string | null>(null);
+  const [collapsedOverrides, setCollapsedOverrides] = useState<
+    ReadonlyMap<string, boolean>
+  >(new Map());
 
   const parsed = useMemo(
     () => readDefinitionForCanvas(definition),
     [definition],
   );
   const graph = useMemo(
-    () => (parsed.ok ? toFlowGraph(parsed.definition) : null),
-    [parsed],
+    () =>
+      parsed.ok
+        ? toFlowGraph(parsed.definition, collapsedOverrides)
+        : null,
+    [parsed, collapsedOverrides],
   );
+
+  const toggleLoop = (loopId: string) => {
+    const projected = graph?.nodes.find((node) => node.id === loopId);
+    if (!projected) return;
+    if (editable && onToggleLoop) {
+      onToggleLoop(loopId);
+      return;
+    }
+    setCollapsedOverrides((current) => {
+      const next = new Map(current);
+      next.set(loopId, !(projected.collapsed ?? false));
+      return next;
+    });
+  };
 
   // React Flow 必须自己持有位置状态：完全受控又不接 onNodesChange 时，节点位置每帧都被
   // prop 钉回原处，拖动看不到任何移动——这就是「节点没随拖动移动」的原因。
@@ -329,12 +413,31 @@ function FlowCanvasInner({
         id: node.id,
         type: "flowNode",
         position: node.position,
+        ...(node.parentId ? { parentId: node.parentId } : {}),
+        ...(node.hidden ? { hidden: true } : {}),
+        ...(node.width !== undefined ? { width: node.width } : {}),
+        ...(node.height !== undefined ? { height: node.height } : {}),
+        ...(node.type === "loop"
+          ? {
+              style: {
+                width: node.width,
+                height: node.height,
+                zIndex: 0,
+              },
+            }
+          : { style: { zIndex: 1 } }),
         data: {
           nodeId: node.id,
           ...(node.name ? { nodeName: node.name } : {}),
           ...(node.description ? { nodeDescription: node.description } : {}),
           nodeType: node.type,
           selected: false,
+          loopSummary: node.loopSummary,
+          loopWarning: node.loopWarning,
+          collapsed: node.collapsed,
+          editable,
+          onToggleLoop: toggleLoop,
+          onResizeLoop,
         },
       })),
     );
@@ -485,7 +588,21 @@ function FlowCanvasInner({
           setConnectSource(null);
           onSelectNode?.(null);
         }}
-        onNodeDragStop={(_, node) => onMoveNode?.(node.id, node.position)}
+        onNodeDragStop={(_, node) => {
+          const projected = graph?.nodes.find((item) => item.id === node.id);
+          const parent = projected?.parentId
+            ? graph?.nodes.find((item) => item.id === projected.parentId)
+            : undefined;
+          onMoveNode?.(
+            node.id,
+            parent
+              ? {
+                  x: parent.position.x + node.position.x,
+                  y: parent.position.y + node.position.y,
+                }
+              : node.position,
+          );
+        }}
         onConnect={(connection) => {
           if (connection.source && connection.target) {
             onConnect?.(
@@ -611,10 +728,13 @@ function MenuItem({
       type="button"
       disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50",
-        danger ? "text-[var(--lb-danger)]" : "text-foreground",
+        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+        danger
+          ? "text-[var(--lb-danger)] hover:bg-[var(--lb-danger-soft)] focus-visible:bg-[var(--lb-danger-soft)]"
+          : "text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
       )}
       onClick={onClick}
+      role="menuitem"
     >
       <Icon className="h-3.5 w-3.5" />
       {label}
@@ -626,7 +746,8 @@ function MenuItem({
  * 画布上的右键菜单
  * @param props 目标、关闭与动作回调集
  * @returns 返回浮层菜单
- * @description 用 fixed 跟随鼠标屏幕坐标：画布内部有缩放与平移，按画布内坐标定位会在缩放后错位。
+ * @description Portal 到 body 后用 fixed 跟随鼠标屏幕坐标，避免 React Flow 的层叠上下文和
+ * 指针处理影响菜单命中；按画布内坐标定位会在缩放后错位。
  * 靠近视口边缘时自动翻转（useLayoutEffect 同帧实测尺寸后修正），避免动作被裁到屏幕外。
  * 整屏透明遮罩负责「点别处即关闭」，避免菜单留在屏幕上。
  * start/end 唯一不可删也不可复制；end 没有出口，不出现「连线到…」。
@@ -661,13 +782,16 @@ function ContextMenu({
   }, [target]);
   const position = fitMenuIntoViewport(target.x, target.y, measured);
 
-  return (
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-40" onPointerDown={onClose} />
       <div
         ref={menuRef}
         className="fixed z-50 w-[200px] overflow-hidden rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md"
         style={{ ...position, visibility: measured ? "visible" : "hidden" }}
+        role="menu"
+        onPointerDown={(event) => event.stopPropagation()}
+        onContextMenu={(event) => event.preventDefault()}
       >
         <div className="truncate px-3 py-1 font-mono text-xs text-muted-foreground">
           {target.kind === "node"
@@ -711,8 +835,8 @@ function ContextMenu({
                 label="删除节点"
                 danger
                 onClick={() => {
-                  onDeleteNode?.(target.nodeId);
                   onClose();
+                  onDeleteNode?.(target.nodeId);
                 }}
               />
             )}
@@ -729,6 +853,7 @@ function ContextMenu({
           />
         )}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

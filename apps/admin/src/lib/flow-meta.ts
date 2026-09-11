@@ -1,6 +1,6 @@
 import { ApiError } from "@/api/client";
 import type { BadgeProps } from "@/components/ui/badge";
-import type { AgentFlowVersionStatus } from "@/api/types";
+import type { AgentFlowVersionStatus, FlowSchemaStatus } from "@/api/types";
 
 interface VersionStatusMeta {
   name: string;
@@ -35,6 +35,44 @@ export function versionStatusMeta(status: string): VersionStatusMeta {
     VERSION_STATUS_META[status as AgentFlowVersionStatus] ?? {
       name: status,
       desc: "未知版本状态",
+      variant: "outline",
+    }
+  );
+}
+
+const SCHEMA_STATUS_META: Record<FlowSchemaStatus, VersionStatusMeta> = {
+  current: {
+    name: "当前契约",
+    desc: "工件使用当前 Definition 契约",
+    variant: "success",
+  },
+  upgradeable: {
+    name: "可升级",
+    desc: "历史工件存在可靠的自动升级路径",
+    variant: "warning",
+  },
+  invalid: {
+    name: "数据损坏",
+    desc: "工件不符合其声明版本的契约，无法自动修复",
+    variant: "destructive",
+  },
+  unsupported: {
+    name: "暂不支持",
+    desc: "当前服务没有该版本的迁移链",
+    variant: "outline",
+  },
+};
+
+/**
+ * Definition 契约状态展示元数据
+ * @param status 服务端返回的闭集状态
+ * @returns 返回中文名称、说明与语义徽章样式
+ */
+export function schemaStatusMeta(status: string): VersionStatusMeta {
+  return (
+    SCHEMA_STATUS_META[status as FlowSchemaStatus] ?? {
+      name: status,
+      desc: "未知 Definition 契约状态",
       variant: "outline",
     }
   );

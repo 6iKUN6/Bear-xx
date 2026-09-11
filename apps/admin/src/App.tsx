@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { ConfirmHost } from "@/components/confirm-dialog";
 import { RequireAdmin, RequireSuperAdmin } from "@/components/require-admin";
 import { AppShell } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
@@ -60,6 +61,7 @@ export function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <ConfirmHost />
     </BrowserRouter>
   );
 }
