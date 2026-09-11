@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/stores/theme-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { RANGE_OPTIONS, useUiStore } from "@/stores/ui-store";
-import { ConfirmHost } from "@/components/confirm-dialog";
 
 /** 顶部导航分组：观测 / 编排 / 系统，组间用竖分隔线。空间不足时整体换行，不再左右翻页。 */
 const NAV_GROUPS: Array<{
@@ -176,7 +175,6 @@ export function AppShell() {
       <main className="mx-auto max-w-[80rem] px-6 py-6">
         <Outlet />
       </main>
-      <ConfirmHost />
     </div>
   );
 }

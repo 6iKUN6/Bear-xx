@@ -31,7 +31,11 @@ import {
   useAgentFlow,
   useAgentFlowMutations,
 } from "@/hooks/queries";
-import { describeApiError, versionStatusMeta } from "@/lib/flow-meta";
+import {
+  describeApiError,
+  schemaStatusMeta,
+  versionStatusMeta,
+} from "@/lib/flow-meta";
 import { flowAdvisories } from "@/lib/flow-advisories";
 import {
   resolveNodeProvider,
@@ -60,10 +64,12 @@ import {
   disconnectNodeAll,
   duplicateNode,
   moveNode,
+  resizeLoop,
   removeNode,
   renameConditionCase,
   setNodeName,
   setNodeDescription,
+  toggleLoopCollapsed,
   toEditableDefinition,
   updateNodeConfig,
   type EditResult,
@@ -180,7 +186,7 @@ export function FlowEditorPage() {
   }
 
   const canEdit = Boolean(
-    version?.status === "DRAFT" && version.schemaCompatible && draft,
+    version?.status === "DRAFT" && version.schemaStatus === "current" && draft,
   );
   const dirty = useMemo(
     () =>
@@ -448,7 +454,9 @@ export function FlowEditorPage() {
     // 找不到再回落到 default——普通节点只有 default，扇出时它永远是"已占用"的。
     const branch = requestedBranch
       ? requestedBranch
-      : (declared.find((key) => key !== "default" && !covered.has(key)) ??
+      : source.type === "loop"
+        ? "done"
+        : (declared.find((key) => key !== "default" && !covered.has(key)) ??
         (declared.includes("default") ? "default" : undefined));
     if (!branch) {
       toast.error(`节点「${from}」的所有分支都已连出`);
@@ -494,8 +502,8 @@ export function FlowEditorPage() {
   }
 
   const statusMeta = versionStatusMeta(version.status);
-  const readOnlyReason = !version.schemaCompatible
-    ? "该版本不符合当前 Definition 契约"
+  const readOnlyReason = version.schemaStatus !== "current"
+    ? schemaStatusMeta(version.schemaStatus).desc
     : version.status !== "DRAFT"
       ? "只有草稿版本可编辑"
       : readError;
@@ -517,8 +525,10 @@ export function FlowEditorPage() {
             <Badge variant={statusMeta.variant} title={statusMeta.desc}>
               {statusMeta.name}
             </Badge>
-            {version.schemaCompatible ? null : (
-              <Badge variant="warning">契约不兼容</Badge>
+            {version.schemaStatus === "current" ? null : (
+              <Badge variant={schemaStatusMeta(version.schemaStatus).variant}>
+                {schemaStatusMeta(version.schemaStatus).name}
+              </Badge>
             )}
             {dirty ? <Badge variant="warning">未保存</Badge> : null}
             {canEdit ? null : <Badge variant="outline">只读</Badge>}
@@ -757,10 +767,27 @@ export function FlowEditorPage() {
                   onMoveNode={(nodeId, position) => {
                     // 拖动落点是离散提交（onNodeDragStop 才触发），拖中不进历史
                     if (draft) {
-                      commitDraft(moveNode(draft, nodeId, position));
+                      applyEdit(
+                        moveNode(
+                          draft,
+                          nodeId,
+                          position,
+                          layoutPositions(draft),
+                        ),
+                      );
                     }
                   }}
                   onConnect={handleConnect}
+                  onToggleLoop={(loopId) => {
+                    if (draft) {
+                      commitDraft(toggleLoopCollapsed(draft, loopId));
+                    }
+                  }}
+                  onResizeLoop={(loopId, size) => {
+                    if (draft) {
+                      commitDraft(resizeLoop(draft, loopId, size));
+                    }
+                  }}
                   onDeleteEdge={(from, to, branch) => {
                     if (draft) {
                       applyEdit(disconnect(draft, from, to, branch));
@@ -792,9 +819,8 @@ export function FlowEditorPage() {
             )}
             {canEdit ? (
               <p className="mt-2 shrink-0 text-xs text-muted-foreground">
-                从节点出口拖到另一节点即连线；loop 的 again/done
-                必须从对应出口拖出，
-                循环体回到顶部返回口。右键节点或连线可删除。
+                从节点出口拖到同层节点即连线；Loop 的循环入口与回流边由编辑器维护并隐藏，
+                容器外只连接 Loop 入口和 done 出口。拖动普通节点进出展开容器可改变归属。
                 普通节点连出多条边即并行扇出，汇聚请用 join
                 节点并在右侧选择要等的分支。
               </p>

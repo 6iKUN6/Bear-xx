@@ -5,7 +5,12 @@ import {
   type FlowNode,
   type FlowNodeType,
 } from "@litter-bear/types/agent-flow";
-import type { FlowNodePosition } from "@/lib/flow-graph";
+import {
+  LOOP_CONTAINER_LAYOUT,
+  isLoopTechnicalEdge,
+  type FlowNodeLayout,
+  type FlowNodePosition,
+} from "./flow-graph.ts";
 
 /**
  * 可编辑的 Definition 草稿
@@ -16,7 +21,7 @@ export interface EditableDefinition {
   [key: string]: unknown;
   nodes: EditableNode[];
   edges: EditableEdge[];
-  layout?: { nodes: Record<string, FlowNodePosition> };
+  layout?: { nodes: Record<string, FlowNodeLayout> };
 }
 
 export interface EditableNode {
@@ -25,6 +30,8 @@ export interface EditableNode {
   name?: string;
   /** 面向编辑者的简短说明；缺省时不显示。 */
   description?: string;
+  /** 所属 Loop 容器；存在时 layout 坐 持有相对容器坐标。 */
+  loopId?: string;
   type: FlowNodeType;
   config: Record<string, unknown>;
 }
@@ -57,6 +64,7 @@ export function toEditableDefinition(definition: object): EditResult {
       id?: unknown;
       name?: unknown;
       description?: unknown;
+      loopId?: unknown;
       type?: unknown;
       config?: unknown;
     };
@@ -73,6 +81,9 @@ export function toEditableDefinition(definition: object): EditResult {
         : {}),
       ...(typeof candidate.description === "string" && candidate.description
         ? { description: candidate.description }
+        : {}),
+      ...(typeof candidate.loopId === "string"
+        ? { loopId: candidate.loopId }
         : {}),
       type: candidate.type as FlowNodeType,
       config: isRecord(candidate.config) ? { ...candidate.config } : {},
@@ -153,7 +164,7 @@ export function addNode(
   definition: EditableDefinition,
   type: FlowNodeType,
   position: FlowNodePosition,
-  currentPositions: Record<string, FlowNodePosition>,
+  currentPositions: Record<string, FlowNodeLayout>,
 ): EditResult {
   if (type === "start" && definition.nodes.some((n) => n.type === "start")) {
     return { ok: false, reason: "start 节点有且仅有一个" };
@@ -162,16 +173,36 @@ export function addNode(
     return { ok: false, reason: "end 节点有且仅有一个" };
   }
   const id = nextNodeId(definition, type);
+  const loopId = canBelongToLoop(type)
+    ? findLoopAtPosition(definition, position, currentPositions)
+    : undefined;
+  const storedPosition = loopId
+    ? toRelativePosition(position, currentPositions[loopId])
+    : position;
+  const layout: FlowNodeLayout =
+    type === "loop"
+      ? {
+          ...position,
+          width: LOOP_CONTAINER_LAYOUT.width,
+          height: LOOP_CONTAINER_LAYOUT.height,
+          collapsed: false,
+        }
+      : storedPosition;
   return {
     ok: true,
-    definition: {
+    definition: rebuildLoopTechnicalEdges({
       ...definition,
       nodes: [
         ...definition.nodes,
-        { id, type, config: DEFAULT_CONFIG[type]() },
+        {
+          id,
+          type,
+          ...(loopId ? { loopId } : {}),
+          config: DEFAULT_CONFIG[type](),
+        },
       ],
-      layout: { nodes: { ...currentPositions, [id]: position } },
-    },
+      layout: { nodes: { ...currentPositions, [id]: layout } },
+    }),
   };
 }
 
@@ -197,6 +228,12 @@ export function removeNode(
   if (node.type === "end") {
     return { ok: false, reason: "end 是流程唯一出口，不能删除" };
   }
+  if (
+    node.type === "loop" &&
+    definition.nodes.some((item) => item.loopId === nodeId)
+  ) {
+    return { ok: false, reason: "Loop 内仍有节点，请先将它们移出容器" };
+  }
   const layout = { ...(definition.layout?.nodes ?? {}) };
   delete layout[nodeId];
   const edges = definition.edges.filter(
@@ -204,7 +241,7 @@ export function removeNode(
   );
   return {
     ok: true,
-    definition: {
+    definition: rebuildLoopTechnicalEdges({
       ...definition,
       nodes: pruneJoinWaitFor(
         definition.nodes.filter((item) => item.id !== nodeId),
@@ -212,7 +249,7 @@ export function removeNode(
       ),
       edges,
       layout: { nodes: layout },
-    },
+    }),
   };
 }
 
@@ -229,7 +266,7 @@ export function removeNode(
 export function duplicateNode(
   definition: EditableDefinition,
   nodeId: string,
-  currentPositions: Record<string, FlowNodePosition>,
+  currentPositions: Record<string, FlowNodeLayout>,
 ): EditResult {
   const source = definition.nodes.find((item) => item.id === nodeId);
   if (!source) {
@@ -242,13 +279,14 @@ export function duplicateNode(
   const origin = currentPositions[nodeId] ?? { x: 0, y: 0 };
   return {
     ok: true,
-    definition: {
+    definition: rebuildLoopTechnicalEdges({
       ...definition,
       nodes: [
         ...definition.nodes,
         {
           id,
           type: source.type,
+          ...(source.loopId ? { loopId: source.loopId } : {}),
           config: structuredClone(source.config),
         },
       ],
@@ -258,7 +296,7 @@ export function duplicateNode(
           [id]: { x: origin.x + 40, y: origin.y + 40 },
         },
       },
-    },
+    }),
   };
 }
 
@@ -285,11 +323,11 @@ export function disconnectNodeAll(
   }
   return {
     ok: true,
-    definition: {
+    definition: rebuildLoopTechnicalEdges({
       ...definition,
       nodes: pruneJoinWaitFor(definition.nodes, edges),
       edges,
-    },
+    }),
   };
 }
 
@@ -364,6 +402,10 @@ export function connect(
           : "节点不能直接连回自己",
     };
   }
+  const target = definition.nodes.find((node) => node.id === to);
+  if (!target) return { ok: false, reason: "端点节点不存在" };
+  const boundaryError = connectionBoundaryError(source, target, branch);
+  if (boundaryError) return { ok: false, reason: boundaryError };
   const declared = branchKeysOf(source);
   if (!declared.includes(branch)) {
     return {
@@ -389,7 +431,7 @@ export function connect(
   }
   return {
     ok: true,
-    definition: {
+    definition: rebuildLoopTechnicalEdges({
       ...definition,
       edges: [
         ...definition.edges,
@@ -399,7 +441,7 @@ export function connect(
           ...(branch === FLOW_DEFAULT_BRANCH ? {} : { when: branch }),
         },
       ],
-    },
+    }),
   };
 }
 
@@ -427,11 +469,11 @@ export function disconnect(
   );
   return {
     ok: true,
-    definition: {
+    definition: rebuildLoopTechnicalEdges({
       ...definition,
       nodes: pruneJoinWaitFor(definition.nodes, edges),
       edges,
-    },
+    }),
   };
 }
 
@@ -447,11 +489,100 @@ export function moveNode(
   definition: EditableDefinition,
   nodeId: string,
   position: FlowNodePosition,
+  currentPositions: Record<string, FlowNodeLayout> = {
+    ...(definition.layout?.nodes ?? {}),
+  },
+): EditResult {
+  const node = definition.nodes.find((item) => item.id === nodeId);
+  if (!node) return { ok: false, reason: "节点不存在" };
+  const nextLoopId = canBelongToLoop(node.type)
+    ? findLoopAtPosition(definition, position, currentPositions, nodeId)
+    : undefined;
+  if (node.loopId !== nextLoopId) {
+    const reason = reassignmentBoundaryError(definition, nodeId, nextLoopId);
+    if (reason) return { ok: false, reason };
+  }
+  const previousWithoutTechnical = removeLoopTechnicalEdges(definition);
+  const storedPosition = nextLoopId
+    ? toRelativePosition(position, currentPositions[nextLoopId])
+    : position;
+  const nodes = previousWithoutTechnical.nodes.map((item) => {
+    if (item.id !== nodeId) return item;
+    const updated = { ...item };
+    delete updated.loopId;
+    return nextLoopId ? { ...updated, loopId: nextLoopId } : updated;
+  });
+  return {
+    ok: true,
+    definition: rebuildLoopTechnicalEdges({
+      ...previousWithoutTechnical,
+      nodes,
+      layout: {
+        nodes: {
+          ...currentPositions,
+          [nodeId]: {
+            ...currentPositions[nodeId],
+            ...storedPosition,
+          },
+        },
+      },
+    }),
+  };
+}
+
+/**
+ * 更新 Loop 容器尺寸
+ * @param definition 当前草稿
+ * @param loopId Loop 节点标识
+ * @param size React Flow 交互产生的宽高
+ * @returns 节点存在且为 Loop 时返回新草稿，否则返回原草稿
+ */
+export function resizeLoop(
+  definition: EditableDefinition,
+  loopId: string,
+  size: { width: number; height: number },
 ): EditableDefinition {
+  const node = definition.nodes.find((item) => item.id === loopId);
+  if (node?.type !== "loop") return definition;
+  const current = definition.layout?.nodes[loopId] ?? { x: 0, y: 0 };
   return {
     ...definition,
     layout: {
-      nodes: { ...(definition.layout?.nodes ?? {}), [nodeId]: position },
+      nodes: {
+        ...(definition.layout?.nodes ?? {}),
+        [loopId]: {
+          ...current,
+          width: Math.max(LOOP_CONTAINER_LAYOUT.width, size.width),
+          height: Math.max(LOOP_CONTAINER_LAYOUT.height, size.height),
+        },
+      },
+    },
+  };
+}
+
+/**
+ * 切换 Loop 折叠状态
+ * @param definition 当前草稿
+ * @param loopId Loop 节点标识
+ * @returns 返回只修改 layout.collapsed 的新草稿
+ */
+export function toggleLoopCollapsed(
+  definition: EditableDefinition,
+  loopId: string,
+): EditableDefinition {
+  const current = definition.layout?.nodes[loopId] ?? {
+    x: 0,
+    y: 0,
+    width: LOOP_CONTAINER_LAYOUT.width,
+    height: LOOP_CONTAINER_LAYOUT.height,
+  };
+  return {
+    ...definition,
+    layout: {
+      nodes: {
+        ...(definition.layout?.nodes ?? {}),
+        [loopId]: { ...current, collapsed: !(current.collapsed ?? false) },
+      },
     },
   };
 }
@@ -615,6 +746,142 @@ export function branchKeysOf(node: EditableNode): string[] {
     .map((item) => (isRecord(item) ? item.key : undefined))
     .filter((key): key is string => typeof key === "string");
   return [...keys, FLOW_CONDITION_ELSE_BRANCH];
+}
+
+/** 判断节点类型是否允许成为 Loop 的直接成员。 */
+function canBelongToLoop(type: FlowNodeType): boolean {
+  return type !== "start" && type !== "end" && type !== "loop";
+}
+
+/** 根据节点中心点查找命中的已展开 Loop 容器。 */
+function findLoopAtPosition(
+  definition: EditableDefinition,
+  position: FlowNodePosition,
+  layouts: Record<string, FlowNodeLayout>,
+  movingNodeId?: string,
+): string | undefined {
+  for (const node of definition.nodes) {
+    if (node.type !== "loop" || node.id === movingNodeId) continue;
+    const layout = layouts[node.id];
+    if (!layout || layout.collapsed) continue;
+    const width = layout.width ?? LOOP_CONTAINER_LAYOUT.width;
+    const height = layout.height ?? LOOP_CONTAINER_LAYOUT.height;
+    if (
+      position.x >= layout.x &&
+      position.x <= layout.x + width &&
+      position.y >= layout.y &&
+      position.y <= layout.y + height
+    ) {
+      return node.id;
+    }
+  }
+  return undefined;
+}
+
+/** 把画布绝对坐标转换为 Loop 内相对坐标。 */
+function toRelativePosition(
+  absolute: FlowNodePosition,
+  loopLayout: FlowNodeLayout | undefined,
+): FlowNodePosition {
+  return loopLayout
+    ? { x: absolute.x - loopLayout.x, y: absolute.y - loopLayout.y }
+    : absolute;
+}
+
+/** 返回业务连线是否跨越 Loop 容器边界。 */
+function connectionBoundaryError(
+  source: EditableNode,
+  target: EditableNode,
+  branch: string,
+): string | null {
+  if (source.type === "loop") {
+    if (branch !== "done") {
+      return "Loop 的循环入口由编辑器维护；业务下游请从 done 出口连接";
+    }
+    if (target.loopId) return "Loop 的 done 出口只能连接容器外节点";
+    return null;
+  }
+  if (target.type === "loop") {
+    if (source.loopId) return "Loop 内节点不能直接连接容器入口";
+    return null;
+  }
+  if (source.loopId !== target.loopId) {
+    return source.loopId
+      ? `节点「${source.id}」只能连接同一 Loop 内的节点`
+      : `容器外节点不能绕过 Loop 入口连接内部节点「${target.id}」`;
+  }
+  return null;
+}
+
+/** 归属改变时，已有业务边必须在新层级仍然合法，否则拒绝操作且不改边。 */
+function reassignmentBoundaryError(
+  definition: EditableDefinition,
+  nodeId: string,
+  nextLoopId: string | undefined,
+): string | null {
+  const reassignedNodes = definition.nodes.map((node) =>
+    node.id === nodeId ? { ...node, loopId: nextLoopId } : node,
+  );
+  const projected: EditableDefinition = { ...definition, nodes: reassignedNodes };
+  for (const edge of removeLoopTechnicalEdges(definition).edges) {
+    if (edge.from !== nodeId && edge.to !== nodeId) continue;
+    const source = projected.nodes.find((node) => node.id === edge.from);
+    const target = projected.nodes.find((node) => node.id === edge.to);
+    if (!source || !target) continue;
+    const reason = connectionBoundaryError(
+      source,
+      target,
+      edge.when ?? FLOW_DEFAULT_BRANCH,
+    );
+    if (reason) {
+      return `不能改变节点归属：连线「${edge.from} → ${edge.to}」将跨越 Loop 边界`;
+    }
+  }
+  return null;
+}
+
+/** 删除所有可以由显式 loopId 与内部业务拓扑重新推导的技术边。 */
+function removeLoopTechnicalEdges(
+  definition: EditableDefinition,
+): EditableDefinition {
+  return {
+    ...definition,
+    edges: definition.edges.filter(
+      (edge) => !isLoopTechnicalEdge(definition, edge),
+    ),
+  };
+}
+
+/**
+ * 按每个 Loop 的唯一入口与唯一回流节点重建技术边
+ * @param definition 编辑后的草稿
+ * @returns 唯一可推导时包含 again 和回边；多义时不猜测且移除旧技术边
+ */
+export function rebuildLoopTechnicalEdges(
+  definition: EditableDefinition,
+): EditableDefinition {
+  const clean = removeLoopTechnicalEdges(definition);
+  const technical: EditableEdge[] = [];
+  for (const loop of clean.nodes.filter((node) => node.type === "loop")) {
+    const members = clean.nodes.filter((node) => node.loopId === loop.id);
+    const memberIds = new Set(members.map((node) => node.id));
+    const internal = clean.edges.filter(
+      (edge) => memberIds.has(edge.from) && memberIds.has(edge.to),
+    );
+    const entries = members.filter(
+      (node) => !internal.some((edge) => edge.to === node.id),
+    );
+    const exits = members.filter(
+      (node) => !internal.some((edge) => edge.from === node.id),
+    );
+    if (entries.length === 1 && exits.length === 1) {
+      technical.push(
+        { from: loop.id, to: entries[0]!.id, when: "again" },
+        { from: exits[0]!.id, to: loop.id },
+      );
+    }
+  }
+  return { ...clean, edges: [...clean.edges, ...technical] };
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   deleteAgentFlow,
   getAgentFlow,
   importFlowDefinition,
+  inspectFlowDefinition,
   listAgentFlowTemplates,
   listAgentFlows,
   listModelPresets,
@@ -35,6 +36,7 @@ import {
   publishFlowVersion,
   rollbackAgentFlow,
   updateFlowDraft,
+  upgradeFlowVersionToCurrent,
   validateFlowDefinition,
   validateFlowVersion,
   probeModelPreset,
@@ -397,8 +399,15 @@ export function useAgentFlowMutations(flowId?: string) {
   const validateDefinition = useMutation({
     mutationFn: (definition: object) => validateFlowDefinition(definition),
   });
+  const inspectDefinition = useMutation({
+    mutationFn: (definition: object) => inspectFlowDefinition(definition),
+  });
   const publish = useMutation({
     mutationFn: (versionId: string) => publishFlowVersion(versionId),
+    onSuccess: invalidate,
+  });
+  const upgradeToCurrent = useMutation({
+    mutationFn: (versionId: string) => upgradeFlowVersionToCurrent(versionId),
     onSuccess: invalidate,
   });
   const importDefinition = useMutation({
@@ -419,7 +428,9 @@ export function useAgentFlowMutations(flowId?: string) {
     saveDraft,
     validate,
     validateDefinition,
+    inspectDefinition,
     publish,
+    upgradeToCurrent,
     importDefinition,
     rollback,
   };

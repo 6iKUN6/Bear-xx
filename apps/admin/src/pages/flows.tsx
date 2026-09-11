@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -22,12 +22,14 @@ import { describeApiError, versionStatusMeta } from "@/lib/flow-meta";
 import { formatTime } from "@/lib/format";
 import { confirm } from "@/components/confirm-dialog";
 import { cn } from "@/lib/utils";
-import type { AgentFlow, AgentFlowTemplate } from "@/api/types";
+import type { AgentFlow } from "@/api/types";
+import type { FlowCreateIntent } from "@/lib/flow-create";
 
 export function FlowsPage() {
+  const navigate = useNavigate();
   const { data, isLoading } = useAgentFlows();
   const { data: templates } = useAgentFlowTemplates();
-  const { create, remove } = useAgentFlowMutations();
+  const { create, remove, inspectDefinition } = useAgentFlowMutations();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingFlow, setEditingFlow] = useState<AgentFlow | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -39,18 +41,26 @@ export function FlowsPage() {
 
   const rows = data ?? [];
 
+  /**
+   * 以模板或导入 JSON 创建 Flow
+   * @param definition 已覆盖顶层名称和描述的完整 Definition
+   * @param intent 创建后留在列表或直接进入新草稿画布
+   * @returns 创建和可选跳转完成后的 Promise
+   * @description 后端在同一事务返回逻辑 Flow 与首个草稿，跳转不再额外查询或猜测版本。
+   */
   const handleCreate = async (
-    template: AgentFlowTemplate,
-    metadata: { name: string; description: string },
-  ) => {
+    definition: object,
+    intent: FlowCreateIntent,
+  ): Promise<void> => {
     try {
-      await create.mutateAsync({
-        ...template.definition,
-        name: metadata.name,
-        description: metadata.description,
-      });
-      toast.success(`已创建「${metadata.name}」草稿`);
+      const created = await create.mutateAsync(definition);
+      toast.success(`已创建「${created.name}」草稿`);
       setCreateOpen(false);
+      if (intent === "create-and-edit") {
+        navigate(
+          `/flows/${created.id}/versions/${created.draftVersion.id}/edit`,
+        );
+      }
     } catch (err) {
       // 失败时保持弹窗打开：关掉会让用户丢掉刚才的选择，还得重新选一遍
       toast.error(describeApiError(err, "创建失败"));
@@ -138,13 +148,16 @@ export function FlowsPage() {
 
   return (
     <>
-      <FlowCreateDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        templates={templates ?? []}
-        creating={create.isPending}
-        onCreate={handleCreate}
-      />
+      {createOpen ? (
+        <FlowCreateDialog
+          open
+          onOpenChange={setCreateOpen}
+          templates={templates ?? []}
+          creating={create.isPending}
+          onInspect={(definition) => inspectDefinition.mutateAsync(definition)}
+          onCreate={handleCreate}
+        />
+      ) : null}
       <FlowMetadataSheet
         flow={editingFlow}
         open={Boolean(editingFlow)}
@@ -209,12 +222,16 @@ export function FlowsPage() {
         <EntityCardGrid>
           {rows.map((flow) => {
             const published = flow.publishedVersion;
-            const status = published ? versionStatusMeta(published.status) : null;
+            const status = published
+              ? versionStatusMeta(published.status)
+              : null;
             const removing = removingIds.has(flow.id);
             return (
               <EntityCard
                 key={flow.id}
-                className={cn(selected.has(flow.id) && "border-primary ring-1 ring-primary")}
+                className={cn(
+                  selected.has(flow.id) && "border-primary ring-1 ring-primary",
+                )}
               >
                 <div className="flex items-start gap-2.5">
                   <input
@@ -261,7 +278,9 @@ export function FlowsPage() {
 
                 <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="font-mono">
-                    {published?.digest ? `${published.digest.slice(0, 12)}…` : "—"}
+                    {published?.digest
+                      ? `${published.digest.slice(0, 12)}…`
+                      : "—"}
                   </span>
                   <span className="ml-auto">{formatTime(flow.updatedAt)}</span>
                 </div>

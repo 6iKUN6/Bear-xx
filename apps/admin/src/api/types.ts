@@ -454,6 +454,11 @@ export interface ModelPresetProbeResult {
 /* ── AgentFlow 控制面 ────────────────────────────────────── */
 
 export type AgentFlowVersionStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type FlowSchemaStatus =
+  | "current"
+  | "upgradeable"
+  | "invalid"
+  | "unsupported";
 
 /** 校验错误；`path` 形如 `nodes.0.config.modelPreset`，用于在编辑器里定位 */
 export interface FlowDefinitionValidationError {
@@ -469,12 +474,10 @@ export interface AgentFlowVersion {
   status: AgentFlowVersionStatus;
   /** FlowDefinition JSON 工件；前端不解析其结构合法性，原样编辑与回传 */
   definition: FlowDefinition;
-  /**
-   * 该工件是否仍符合当前后端 Definition 契约
-   * @description 契约升版后的存量工件会是 false。此时**不能**保存、校验或发布——服务端一定拒绝，
-   * 让按钮可点等于让用户白点一次再收到 400。要改只能新建草稿。
-   */
-  schemaCompatible: boolean;
+  /** 该工件是当前版本、可升级、已损坏或尚不支持。 */
+  schemaStatus: FlowSchemaStatus;
+  /** 可升级时的目标版本。 */
+  schemaTargetVersion: number | null;
   /** 不兼容时的逐条原因；兼容时后端不下发此字段 */
   schemaErrors?: FlowDefinitionValidationError[];
   /** 布局无关摘要；草稿为 null，发布后固化 */
@@ -495,6 +498,11 @@ export interface AgentFlow {
   updatedAt: number;
   publishedVersion?: AgentFlowVersion | null;
   draftVersion?: AgentFlowVersion;
+}
+
+/** 创建接口返回的新 Flow；首个草稿与逻辑 Flow 在同一事务中生成。 */
+export interface CreatedAgentFlow extends AgentFlow {
+  draftVersion: AgentFlowVersion;
 }
 
 export interface AgentFlowDetail extends AgentFlow {
@@ -519,6 +527,27 @@ export interface AgentFlowValidation {
   valid: boolean;
   errors: FlowDefinitionValidationError[];
   digest?: string;
+}
+
+export interface FlowDefinitionUpgradeReport {
+  fromVersion: number;
+  toVersion: number;
+  loopAssignments: Array<{ nodeId: string; loopId: string }>;
+  relativeLayoutNodeIds: string[];
+}
+
+export interface AgentFlowVersionUpgrade {
+  version: AgentFlowVersion;
+  report: FlowDefinitionUpgradeReport;
+}
+
+export interface FlowDefinitionInspection {
+  status: FlowSchemaStatus;
+  sourceVersion: number | null;
+  targetVersion: number | null;
+  errors: FlowDefinitionValidationError[];
+  definition?: FlowDefinition;
+  report?: FlowDefinitionUpgradeReport;
 }
 
 export interface AgentInput {

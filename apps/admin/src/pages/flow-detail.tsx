@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
   ScanSearch,
   Rocket,
   Save,
+  Sparkles,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,27 +41,44 @@ import {
   describeApiError,
   formatDefinition,
   parseDefinition,
+  schemaStatusMeta,
   versionStatusMeta,
 } from "@/lib/flow-meta";
 import { formatTime } from "@/lib/format";
 import { exportFlowVersion } from "@/api/endpoints";
 import { confirm } from "@/components/confirm-dialog";
-import type { AgentFlowValidation, AgentFlowVersion } from "@/api/types";
+import type {
+  AgentFlowValidation,
+  AgentFlowVersion,
+  AgentFlowVersionUpgrade,
+} from "@/api/types";
 
 export function FlowDetailPage() {
+  const navigate = useNavigate();
   const { flowId } = useParams<{ flowId: string }>();
   const { data: flow, isLoading } = useAgentFlow(flowId);
-  const { saveDraft, validate, publish, importDefinition, rollback } =
-    useAgentFlowMutations(flowId);
+  const {
+    saveDraft,
+    validate,
+    publish,
+    importDefinition,
+    rollback,
+    upgradeToCurrent,
+  } = useAgentFlowMutations(flowId);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [validation, setValidation] = useState<AgentFlowValidation | null>(null);
+  const [validation, setValidation] = useState<AgentFlowValidation | null>(
+    null,
+  );
   const [metadataOpen, setMetadataOpen] = useState(false);
-  const [previewVersion, setPreviewVersion] =
-    useState<AgentFlowVersion | null>(null);
+  const [previewVersion, setPreviewVersion] = useState<AgentFlowVersion | null>(
+    null,
+  );
   // Definition JSON 收进弹窗：页面主体留给版本表，编辑时经按钮打开
   const [jsonOpen, setJsonOpen] = useState(false);
+  const [upgradeResult, setUpgradeResult] =
+    useState<AgentFlowVersionUpgrade | null>(null);
 
   const versions = flow?.versions ?? [];
   // 默认落在草稿上——那是唯一可编辑的版本
@@ -87,8 +105,8 @@ export function FlowDetailPage() {
   }
 
   // 契约不兼容的存量版本：服务端一定拒绝保存/校验/发布，可点即等于让用户白点一次收 400
-  const incompatible = Boolean(selected && !selected.schemaCompatible);
-  const isDraft = selected?.status === "DRAFT" && !incompatible;
+  const isDraft =
+    selected?.status === "DRAFT" && selected.schemaStatus === "current";
   const dirty = Boolean(
     selected && text !== formatDefinition(selected.definition),
   );
@@ -202,6 +220,17 @@ export function FlowDetailPage() {
     }
   };
 
+  /** 将合法旧工件生成当前版本草稿；源版本与发布指针保持不变。 */
+  const handleUpgrade = async (version: AgentFlowVersion) => {
+    try {
+      const result = await upgradeToCurrent.mutateAsync(version.id);
+      setUpgradeResult(result);
+      setSelectedId(result.version.id);
+    } catch (err) {
+      toast.error(describeApiError(err, "升级草稿创建失败"));
+    }
+  };
+
   if (isLoading) {
     return <Skeleton className="h-96 w-full" />;
   }
@@ -226,14 +255,70 @@ export function FlowDetailPage() {
         onClose={() => setMetadataOpen(false)}
       />
       <Dialog
+        open={Boolean(upgradeResult)}
+        onOpenChange={(open) => !open && setUpgradeResult(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogTitle>升级草稿已创建</DialogTitle>
+          <DialogDescription>
+            源版本保持不变，新草稿需要校验并由管理员主动发布。
+          </DialogDescription>
+          {upgradeResult ? (
+            <div className="space-y-3 text-sm">
+              <p className="text-foreground">
+                Definition v{upgradeResult.report.fromVersion} → v
+                {upgradeResult.report.toVersion}
+              </p>
+              <div>
+                <p className="font-medium text-foreground">Loop 归属</p>
+                {upgradeResult.report.loopAssignments.length > 0 ? (
+                  <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                    {upgradeResult.report.loopAssignments.map((item) => (
+                      <li key={item.nodeId}>
+                        <span className="font-mono">{item.nodeId}</span> →{" "}
+                        <span className="font-mono">{item.loopId}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    没有需要补齐归属的节点
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {upgradeResult.report.relativeLayoutNodeIds.length > 0
+                  ? `${upgradeResult.report.relativeLayoutNodeIds.join("、")} 的坐标已转换为容器相对坐标`
+                  : "没有坐标需要转换"}
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setUpgradeResult(null)}
+                >
+                  留在详情
+                </Button>
+                <Button
+                  onClick={() =>
+                    navigate(
+                      `/flows/${flowId}/versions/${upgradeResult.version.id}/edit`,
+                    )
+                  }
+                >
+                  编辑新草稿
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <Dialog
         open={Boolean(previewVersion)}
         onOpenChange={(open) => !open && setPreviewVersion(null)}
       >
         <DialogContent className="flex h-[82vh] w-[92vw] max-w-[92vw] flex-col">
           <div className="shrink-0">
-            <DialogTitle>
-              v{previewVersion?.version} 结构预览
-            </DialogTitle>
+            <DialogTitle>v{previewVersion?.version} 结构预览</DialogTitle>
             <DialogDescription>
               {previewVersion
                 ? versionStatusMeta(previewVersion.status).name
@@ -287,11 +372,7 @@ export function FlowDetailPage() {
             {isDraft ? null : <Badge variant="outline">只读</Badge>}
             {dirty ? <Badge variant="warning">未保存</Badge> : null}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setJsonOpen(true)}
-          >
+          <Button variant="outline" size="sm" onClick={() => setJsonOpen(true)}>
             <FileJson className="h-4 w-4" />
             {isDraft ? "编辑 JSON" : "查看 JSON"}
           </Button>
@@ -343,7 +424,20 @@ export function FlowDetailPage() {
                 发布
               </Button>
             </>
-          ) : (
+          ) : selected.schemaStatus === "upgradeable" ? (
+            <Button
+              size="sm"
+              onClick={() => handleUpgrade(selected)}
+              disabled={upgradeToCurrent.isPending}
+            >
+              {upgradeToCurrent.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              升级为 v{selected.schemaTargetVersion} 草稿
+            </Button>
+          ) : selected.schemaStatus === "current" ? (
             <Button
               size="sm"
               onClick={handleFork}
@@ -357,7 +451,7 @@ export function FlowDetailPage() {
               )}
               另存为草稿
             </Button>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -381,9 +475,11 @@ export function FlowDetailPage() {
                 const meta = versionStatusMeta(version.status);
                 const active = selected?.id === version.id;
                 const canRollback =
-                  version.status === "ARCHIVED" ||
-                  (version.status === "PUBLISHED" &&
-                    flow.publishedVersionId !== version.id);
+                  (version.schemaStatus === "current" ||
+                    version.schemaStatus === "upgradeable") &&
+                  (version.status === "ARCHIVED" ||
+                    (version.status === "PUBLISHED" &&
+                      flow.publishedVersionId !== version.id));
                 return (
                   <TableRow
                     key={version.id}
@@ -402,18 +498,22 @@ export function FlowDetailPage() {
                       <Badge variant={meta.variant} title={meta.desc}>
                         {meta.name}
                       </Badge>
-                      {version.schemaCompatible ? null : (
+                      {version.schemaStatus === "current" ? null : (
                         <Badge
-                          variant="warning"
-                          title="工件不符合当前 Definition 契约，无法编辑或发布"
+                          variant={
+                            schemaStatusMeta(version.schemaStatus).variant
+                          }
+                          title={schemaStatusMeta(version.schemaStatus).desc}
                         >
-                          契约不兼容
+                          {schemaStatusMeta(version.schemaStatus).name}
                         </Badge>
                       )}
                     </TableCell>
                     <TableCell>
                       <span className="font-mono text-xs text-muted-foreground">
-                        {version.digest ? `${version.digest.slice(0, 12)}…` : "—"}
+                        {version.digest
+                          ? `${version.digest.slice(0, 12)}…`
+                          : "—"}
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
@@ -423,7 +523,7 @@ export function FlowDetailPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       {version.status === "DRAFT" &&
-                      version.schemaCompatible ? (
+                      version.schemaStatus === "current" ? (
                         <Button variant="ghost" size="sm" asChild>
                           <Link
                             to={`/flows/${flow.id}/versions/${version.id}/edit`}
@@ -442,6 +542,22 @@ export function FlowDetailPage() {
                           预览结构
                         </Button>
                       )}
+                      {version.schemaStatus === "upgradeable" ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleUpgrade(version)}
+                          disabled={upgradeToCurrent.isPending}
+                          title={`生成 v${version.schemaTargetVersion ?? "当前"} 草稿，不修改源版本`}
+                        >
+                          {upgradeToCurrent.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4" />
+                          )}
+                          升级为草稿
+                        </Button>
+                      ) : null}
                       {canRollback ? (
                         <Button
                           variant="ghost"

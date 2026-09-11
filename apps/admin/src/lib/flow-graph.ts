@@ -30,6 +30,13 @@ export interface FlowNodePosition {
   y: number;
 }
 
+/** 画布持久化布局；容器尺寸与折叠状态只对 loop 生效。 */
+export interface FlowNodeLayout extends FlowNodePosition {
+  width?: number;
+  height?: number;
+  collapsed?: boolean;
+}
+
 /**
  * 画布投影真正需要的最小结构
  * @description 刻意不声明成 `FlowDefinition`：草稿可能还没通过服务端校验，把它断言成合法
@@ -41,11 +48,12 @@ export interface CanvasDefinition {
     id: string;
     name?: string;
     description?: string;
+    loopId?: string;
     type: FlowNodeType;
     config: unknown;
   }>;
   edges: ReadonlyArray<{ from: string; to: string; when?: string }>;
-  layout?: { nodes?: Readonly<Record<string, FlowNodePosition>> };
+  layout?: { nodes?: Readonly<Record<string, FlowNodeLayout>> };
 }
 
 /**
@@ -60,6 +68,14 @@ export interface FlowGraphNode {
   type: FlowNodeType;
   position: FlowNodePosition;
   config: unknown;
+  loopId?: string;
+  parentId?: string;
+  width?: number;
+  height?: number;
+  collapsed?: boolean;
+  hidden?: boolean;
+  loopSummary?: string;
+  loopWarning?: string;
 }
 
 /** 画布用的边视图；label 是展示用的分支键中文名。 */
@@ -112,6 +128,8 @@ export function readDefinitionForCanvas(
   const nodes: Array<{
     id: string;
     name?: string;
+    description?: string;
+    loopId?: string;
     type: FlowNodeType;
     config: unknown;
   }> = [];
@@ -120,6 +138,7 @@ export function readDefinitionForCanvas(
       id?: unknown;
       name?: unknown;
       description?: unknown;
+      loopId?: unknown;
       type?: unknown;
       config?: unknown;
     };
@@ -142,6 +161,9 @@ export function readDefinitionForCanvas(
         : {}),
       ...(typeof candidate.description === "string" && candidate.description
         ? { description: candidate.description }
+        : {}),
+      ...(typeof candidate.loopId === "string"
+        ? { loopId: candidate.loopId }
         : {}),
       // 上一行已确认它落在 FLOW_NODE_OUTPUTS 的键集合内，即 FlowNodeType
       type: candidate.type as FlowNodeType,
@@ -182,11 +204,29 @@ function readLayout(value: unknown): Pick<CanvasDefinition, "layout"> {
   if (typeof nodes !== "object" || nodes === null) {
     return {};
   }
-  const positions: Record<string, FlowNodePosition> = {};
+  const positions: Record<string, FlowNodeLayout> = {};
   for (const [nodeId, position] of Object.entries(nodes)) {
-    const candidate = position as { x?: unknown; y?: unknown };
+    const candidate = position as {
+      x?: unknown;
+      y?: unknown;
+      width?: unknown;
+      height?: unknown;
+      collapsed?: unknown;
+    };
     if (typeof candidate.x === "number" && typeof candidate.y === "number") {
-      positions[nodeId] = { x: candidate.x, y: candidate.y };
+      positions[nodeId] = {
+        x: candidate.x,
+        y: candidate.y,
+        ...(typeof candidate.width === "number"
+          ? { width: candidate.width }
+          : {}),
+        ...(typeof candidate.height === "number"
+          ? { height: candidate.height }
+          : {}),
+        ...(typeof candidate.collapsed === "boolean"
+          ? { collapsed: candidate.collapsed }
+          : {}),
+      };
     }
   }
   return { layout: { nodes: positions } };
@@ -331,6 +371,18 @@ export function branchLabel(branch: string): string {
 /** 画布节点的默认横纵间距，仅在 Definition 没有 layout 时使用。 */
 const AUTO_LAYOUT_GAP = { x: 280, y: 140 } as const;
 
+/** Loop 容器在没有持久化布局时使用的稳定几何值。 */
+export const LOOP_CONTAINER_LAYOUT = {
+  width: 520,
+  height: 260,
+  collapsedWidth: 220,
+  collapsedHeight: 96,
+  padding: 24,
+  headerHeight: 48,
+  childGapX: 220,
+  childGapY: 112,
+} as const;
+
 /**
  * 把 FlowDefinition 投影为画布视图
  * @param definition 已由服务端校验过的 Definition
@@ -339,40 +391,91 @@ const AUTO_LAYOUT_GAP = { x: 280, y: 140 } as const;
  * 但节点类型、分支键这些**闭集**从共享契约读（`flowNodeBranchKeys` 等），不在这里重写一份。
  * layout 缺失时按拓扑层次自动排布，保证老工件和刚导入的 JSON 也能看。
  */
-export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
+export function toFlowGraph(
+  definition: CanvasDefinition,
+  collapsedOverrides: ReadonlyMap<string, boolean> = new Map(),
+): FlowGraph {
   const layout = definition.layout?.nodes ?? {};
   const depths = computeDepths(definition);
   const rowCursor = new Map<number, number>();
+  const childCursor = new Map<string, number>();
+  const collapsedLoops = new Set(
+    definition.nodes
+      .filter((node) => node.type === "loop")
+      .filter(
+        (node) =>
+          collapsedOverrides.get(node.id) ?? layout[node.id]?.collapsed ?? false,
+      )
+      .map((node) => node.id),
+  );
 
-  const nodes = definition.nodes.map((node) => {
-    const saved = layout[node.id];
-    if (saved) {
+  // React Flow 要求父节点出现在子节点之前，否则 parentId 投影会失效。
+  const nodes = [...definition.nodes]
+    .sort(
+      (left, right) =>
+        Number(Boolean(left.loopId)) - Number(Boolean(right.loopId)),
+    )
+    .map((node) => {
+      const saved = layout[node.id];
+      const childIndex = node.loopId
+        ? (childCursor.get(node.loopId) ?? 0)
+        : null;
+      if (node.loopId) childCursor.set(node.loopId, (childIndex ?? 0) + 1);
+      const depth = depths.get(node.id) ?? 0;
+      const row = rowCursor.get(depth) ?? 0;
+      if (!node.loopId) rowCursor.set(depth, row + 1);
+      const position = saved
+        ? { x: saved.x, y: saved.y }
+        : node.loopId
+          ? {
+              x:
+                LOOP_CONTAINER_LAYOUT.padding +
+                ((childIndex ?? 0) % 2) * LOOP_CONTAINER_LAYOUT.childGapX,
+              y:
+                LOOP_CONTAINER_LAYOUT.headerHeight +
+                LOOP_CONTAINER_LAYOUT.padding +
+                Math.floor((childIndex ?? 0) / 2) *
+                  LOOP_CONTAINER_LAYOUT.childGapY,
+            }
+          : { x: depth * AUTO_LAYOUT_GAP.x, y: row * AUTO_LAYOUT_GAP.y };
+      const collapsed =
+        node.type === "loop"
+          ? (collapsedOverrides.get(node.id) ?? saved?.collapsed ?? false)
+          : undefined;
+      const loopState =
+        node.type === "loop" ? summarizeLoop(definition, node.id) : undefined;
       return {
         id: node.id,
         ...(node.name ? { name: node.name } : {}),
         ...(node.description ? { description: node.description } : {}),
         type: node.type,
-        position: saved,
+        position,
         config: node.config,
+        ...(node.loopId ? { loopId: node.loopId, parentId: node.loopId } : {}),
+        ...(node.type === "loop"
+          ? {
+              width: collapsed
+                ? LOOP_CONTAINER_LAYOUT.collapsedWidth
+                : (saved?.width ?? LOOP_CONTAINER_LAYOUT.width),
+              height: collapsed
+                ? LOOP_CONTAINER_LAYOUT.collapsedHeight
+                : (saved?.height ?? LOOP_CONTAINER_LAYOUT.height),
+              collapsed,
+              loopSummary: loopState?.summary,
+              ...(loopState?.warning
+                ? { loopWarning: loopState.warning }
+                : {}),
+            }
+          : {}),
+        ...(node.loopId && collapsedLoops.has(node.loopId)
+          ? { hidden: true }
+          : {}),
       };
-    }
-    const depth = depths.get(node.id) ?? 0;
-    const row = rowCursor.get(depth) ?? 0;
-    rowCursor.set(depth, row + 1);
-    return {
-      id: node.id,
-      ...(node.name ? { name: node.name } : {}),
-      ...(node.description ? { description: node.description } : {}),
-      type: node.type,
-      position: { x: depth * AUTO_LAYOUT_GAP.x, y: row * AUTO_LAYOUT_GAP.y },
-      config: node.config,
-    };
-  });
+    });
 
   // join 的入边额外标出「等 / 不等」：连进来但没被 waitFor 选中的分支照常执行，却不会被
   // 等待——这个差别在画布上原本完全看不见，是会静默配错的地方。
   const joinWaitFor = new Map<string, ReadonlySet<string>>();
-  const loopRegions = flowLoopRegions(definition.nodes, definition.edges);
   for (const node of definition.nodes) {
     if (node.type !== "join") {
       continue;
@@ -388,36 +491,29 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
     );
   }
 
-  const edges = definition.edges.map((edge) => {
+  const edges = definition.edges.flatMap((edge) => {
     const branch = edge.when ?? FLOW_DEFAULT_BRANCH;
     const waited = joinWaitFor.get(edge.to);
     const source = definition.nodes.find((node) => node.id === edge.from);
     const target = definition.nodes.find((node) => node.id === edge.to);
-    const loopRegion =
-      target?.type === "loop" ? loopRegions.get(target.id) : undefined;
-    const isLoopBackEdge = Boolean(
-      loopRegion?.backEdges.some(
-        (candidate) =>
-          candidate.from === edge.from &&
-          candidate.to === edge.to &&
-          (candidate.when ?? FLOW_DEFAULT_BRANCH) === branch,
-      ),
+    const hiddenByCollapse = Boolean(
+      (source?.loopId && collapsedLoops.has(source.loopId)) ||
+        (target?.loopId && collapsedLoops.has(target.loopId)),
     );
-    return {
+    if (isLoopTechnicalEdge(definition, edge) || hiddenByCollapse) return [];
+    return [{
       id: edgeId(edge),
       source: edge.from,
       target: edge.to,
       branch,
       ...(source?.type === "loop" ? { sourceHandle: branch } : {}),
-      ...(target?.type === "loop"
-        ? { targetHandle: isLoopBackEdge ? "loop-return" : "loop-entry" }
-        : {}),
+      ...(target?.type === "loop" ? { targetHandle: "loop-entry" } : {}),
       label: waited
         ? waited.has(edge.from)
           ? "等待"
           : "不等待"
         : branchLabel(branch),
-    };
+    }];
   });
 
   return { nodes, edges };
@@ -433,12 +529,76 @@ export function toFlowGraph(definition: CanvasDefinition): FlowGraph {
  */
 export function layoutPositions(
   definition: CanvasDefinition,
-): Record<string, FlowNodePosition> {
-  const positions: Record<string, FlowNodePosition> = {};
+): Record<string, FlowNodeLayout> {
+  const positions: Record<string, FlowNodeLayout> = {};
   for (const node of toFlowGraph(definition).nodes) {
-    positions[node.id] = node.position;
+    positions[node.id] = {
+      ...node.position,
+      ...(node.width !== undefined ? { width: node.width } : {}),
+      ...(node.height !== undefined ? { height: node.height } : {}),
+      ...(node.collapsed !== undefined ? { collapsed: node.collapsed } : {}),
+    };
   }
   return positions;
+}
+
+/**
+ * 判断边是否为编辑器自动维护、画布不直接展示的 Loop 技术边
+ * @param definition 当前画布 Definition
+ * @param edge 待判断的边
+ * @returns again 入体边或体内节点回流边返回 true
+ */
+export function isLoopTechnicalEdge(
+  definition: CanvasDefinition,
+  edge: { from: string; to: string; when?: string },
+): boolean {
+  const source = definition.nodes.find((node) => node.id === edge.from);
+  const target = definition.nodes.find((node) => node.id === edge.to);
+  return (
+    (source?.type === "loop" &&
+      edge.when === "again" &&
+      target?.loopId === source.id) ||
+    (target?.type === "loop" && source?.loopId === target.id)
+  );
+}
+
+/** 生成 Loop 摘要，并指出空容器或入口/回流多义状态。 */
+function summarizeLoop(
+  definition: CanvasDefinition,
+  loopId: string,
+): { summary: string; warning?: string } {
+  const loop = definition.nodes.find((node) => node.id === loopId);
+  const members = definition.nodes.filter((node) => node.loopId === loopId);
+  const config = loop?.config as
+    | { maxIterations?: unknown; continueWhen?: unknown }
+    | undefined;
+  const iterations =
+    typeof config?.maxIterations === "number" ? config.maxIterations : "?";
+  const conditionCount = Array.isArray(config?.continueWhen)
+    ? config.continueWhen.length
+    : 0;
+  const summary = conditionCount
+    ? `最多 ${iterations} 轮 · ${conditionCount} 条继续规则 · ${members.length} 个节点`
+    : `固定执行 ${iterations} 轮 · ${members.length} 个节点`;
+  if (members.length === 0) return { summary, warning: "循环体为空" };
+
+  const memberIds = new Set(members.map((node) => node.id));
+  const business = definition.edges.filter(
+    (edge) => memberIds.has(edge.from) && memberIds.has(edge.to),
+  );
+  const entries = members.filter(
+    (node) => !business.some((edge) => edge.to === node.id),
+  );
+  const exits = members.filter(
+    (node) => !business.some((edge) => edge.from === node.id),
+  );
+  if (entries.length !== 1) {
+    return { summary, warning: `需要唯一入口，当前为 ${entries.length} 个` };
+  }
+  if (exits.length !== 1) {
+    return { summary, warning: `需要唯一回流节点，当前为 ${exits.length} 个` };
+  }
+  return { summary };
 }
 
 /**
