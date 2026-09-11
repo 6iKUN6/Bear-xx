@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 10,
+  "kind": "agent-flow",
+  "name": "Loop 容器多轮计划测试",
+  "description": "固定执行三轮计划生成与复核，用于验证 Loop 容器、轮次隔离和 Temporal 多轮调度。",
+  "policy": {
+    "maxSteps": 4,
+    "maxModelCalls": 8,
+    "maxToolCalls": 0,
+    "maxDurationSeconds": 600
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "name": "开始",
+      "type": "start",
+      "config": {}
+    },
+    {
+      "id": "quality_loop",
+      "name": "质量循环",
+      "description": "固定执行三轮计划生成与复核。",
+      "type": "loop",
+      "config": {
+        "maxIterations": 3,
+        "continueWhen": []
+      }
+    },
+    {
+      "id": "draft_plan",
+      "name": "生成计划",
+      "description": "根据用户目标生成本轮候选计划。",
+      "type": "plan",
+      "loopId": "quality_loop",
+      "config": {
+        "modelPreset": "agent-default",
+        "maxSteps": 4
+      }
+    },
+    {
+      "id": "review_plan",
+      "name": "复核计划",
+      "description": "重新规划一次，用于验证同一循环体内的第二次模型调用。",
+      "type": "plan",
+      "loopId": "quality_loop",
+      "config": {
+        "modelPreset": "agent-default",
+        "maxSteps": 4
+      }
+    },
+    {
+      "id": "answer",
+      "name": "汇总回答",
+      "type": "synthesize",
+      "config": {
+        "modelPreset": "agent-default"
+      }
+    },
+    {
+      "id": "end",
+      "name": "结束",
+      "type": "end",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "quality_loop"
+    },
+    {
+      "from": "quality_loop",
+      "to": "draft_plan",
+      "when": "again"
+    },
+    {
+      "from": "draft_plan",
+      "to": "review_plan"
+    },
+    {
+      "from": "review_plan",
+      "to": "quality_loop"
+    },
+    {
+      "from": "quality_loop",
+      "to": "answer",
+      "when": "done"
+    },
+    {
+      "from": "answer",
+      "to": "end"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "start": {
+        "x": 80,
+        "y": 220
+      },
+      "quality_loop": {
+        "x": 320,
+        "y": 100,
+        "width": 640,
+        "height": 320,
+        "collapsed": false
+      },
+      "draft_plan": {
+        "x": 80,
+        "y": 100
+      },
+      "review_plan": {
+        "x": 360,
+        "y": 100
+      },
+      "answer": {
+        "x": 1040,
+        "y": 220
+      },
+      "end": {
+        "x": 1320,
+        "y": 220
+      }
+    }
+  }
+}

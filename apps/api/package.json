@@ -46,6 +46,7 @@
     "db:studio": "prisma studio",
     "db:seed": "prisma db seed",
     "admin:bootstrap-super": "node ./scripts/bootstrap-super-admin.cjs",
+    "flow:import": "node ./scripts/import-agent-flow.cjs",
     "db:push": "prisma db push"
   },
   "dependencies": {
