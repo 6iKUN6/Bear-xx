@@ -1,6 +1,8 @@
 # 图上的循环
 
-**状态**：设计待评审，尚未开始实施。对应 issue #9。
+**状态**：运行时循环已实施。本文保留实施前的问题分析与落地步骤；其中代码行号和“当前”
+描述应按历史上下文理解。主画布 Loop 容器、显式 `loopId` 与 v9 → v10 升级见
+`docs/superpowers/specs/2026-09-10-agent-flow-loop-container-design.md`。
 
 本文只回答「图上怎么表达循环」。V2 的并行 / 变量 / 条件模型见 `agent-flow-v2-model.md`（§4.6 记录了「不做环」这个决定被推翻的过程），运行时分层见 `agent-flow-architecture.md`。
 

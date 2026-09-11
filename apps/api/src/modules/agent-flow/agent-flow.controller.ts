@@ -30,6 +30,8 @@ import {
   AgentFlowTemplateResponseDto,
   AgentFlowValidationResponseDto,
   AgentFlowVersionResponseDto,
+  AgentFlowVersionUpgradeResponseDto,
+  AgentFlowDefinitionInspectionResponseDto,
 } from './dto/agent-flow-response.dto';
 import { EmptyResultDto } from '../../common/dto/empty-result.dto';
 import { FlowTemplateRegistry } from './runtime/flow-template.registry';
@@ -167,6 +169,18 @@ export class AgentFlowController {
   }
 
   /**
+   * 预检待导入 Definition 的版本状态与升级结果
+   * @param dto 包含尚未写入的 Definition JSON
+   * @returns 返回 current、upgradeable、invalid 或 unsupported 状态
+   */
+  @Post('agent-flows/inspect-definition')
+  @ApiOperation({ summary: '预检并规范化 FlowDefinition（管理员）' })
+  @ApiOkResponse({ type: AgentFlowDefinitionInspectionResponseDto })
+  inspectDefinition(@Body() dto: ValidateAgentFlowDefinitionDto) {
+    return this.versionService.inspectDefinition(dto.definition);
+  }
+
+  /**
    * 校验指定版本
    * @param versionId 待校验的 FlowVersion ID
    * @returns 返回结构校验错误或布局无关 digest
@@ -194,6 +208,23 @@ export class AgentFlowController {
     @CurrentUser('id') actorId: string,
   ) {
     return this.versionService.publish(versionId, actorId);
+  }
+
+  /**
+   * 将可升级的历史版本物化为当前版本草稿
+   * @param versionId 历史 FlowVersion ID
+   * @param actorId 当前管理员用户 ID
+   * @returns 返回新草稿和迁移摘要
+   * @description 不改写源工件、发布指针或 Agent 绑定；已有草稿时明确拒绝。
+   */
+  @Post('agent-flow-versions/:versionId/upgrade-to-current')
+  @ApiOperation({ summary: '升级历史 FlowDefinition 为当前草稿（管理员）' })
+  @ApiOkResponse({ type: AgentFlowVersionUpgradeResponseDto })
+  upgradeToCurrentDraft(
+    @Param('versionId') versionId: string,
+    @CurrentUser('id') actorId: string,
+  ) {
+    return this.versionService.upgradeToCurrentDraft(versionId, actorId);
   }
 
   /**

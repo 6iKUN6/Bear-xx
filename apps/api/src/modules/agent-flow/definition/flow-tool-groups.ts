@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import type { FlowDefinition } from '@litter-bear/types/agent-flow';
-import { validateFlowDefinition } from './flow-definition.validator';
+import { normalizeFlowDefinition } from './flow-definition.versioning';
 
 /**
  * 汇总一张 Flow 图上声明的全部工具组
@@ -54,6 +54,6 @@ export function resolveBoundFlowToolGroups(
   if (!boundDefinition) {
     return [];
   }
-  const parsed = validateFlowDefinition(boundDefinition);
+  const parsed = normalizeFlowDefinition(boundDefinition);
   return parsed.success ? [...collectFlowToolGroups(parsed.definition)] : [];
 }

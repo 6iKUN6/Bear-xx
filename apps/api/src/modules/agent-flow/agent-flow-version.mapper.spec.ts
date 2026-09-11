@@ -54,15 +54,16 @@ function versionRow(definition: unknown): AgentFlowVersion {
 }
 
 describe('toAgentFlowVersionResponse', () => {
-  it('合法工件标记为兼容且不带错误明细', () => {
+  it('合法当前工件标记为 current 且不带错误明细', () => {
     const response = toAgentFlowVersionResponse(versionRow(validDefinition));
 
-    expect(response.schemaCompatible).toBe(true);
+    expect(response.schemaStatus).toBe('current');
+    expect(response.schemaTargetVersion).toBe(AGENT_FLOW_SCHEMA_VERSION);
     expect(response.schemaErrors).toBeUndefined();
     expect(response.definition).toEqual(validDefinition);
   });
 
-  it('旧 schemaVersion 的存量工件不再让读取失败，而是标记不兼容', () => {
+  it('无迁移链的旧 schemaVersion 标记为 unsupported', () => {
     // 回归用：原先这里调 requireValidDefinition 收敛 Json 类型，契约升到 2 之后
     // 一条 schemaVersion=1 的旧数据就让整个 Flow 列表返回 400，管理员连别的 Flow
     // 都看不到、删不掉；而且 GET 返回 400 语义本身就是错的。
@@ -70,19 +71,23 @@ describe('toAgentFlowVersionResponse', () => {
 
     const response = toAgentFlowVersionResponse(versionRow(legacy));
 
-    expect(response.schemaCompatible).toBe(false);
+    expect(response.schemaStatus).toBe('unsupported');
+    expect(response.schemaTargetVersion).toBeNull();
     expect(response.schemaErrors).toEqual([
-      expect.objectContaining({ path: 'schemaVersion', rule: 'schema' }),
+      expect.objectContaining({
+        path: 'schemaVersion',
+        rule: 'unsupported-version',
+      }),
     ]);
     // 原文照返：管理端要能看到、导出、重建它，不能被抹成空对象
     expect(response.definition).toEqual(legacy);
   });
 
-  it('损坏成数组或标量时返回空对象并标记不兼容', () => {
+  it('损坏成数组或标量时返回空对象并标记 invalid', () => {
     for (const broken of [[1, 2], 'not-an-object', null]) {
       const response = toAgentFlowVersionResponse(versionRow(broken));
 
-      expect(response.schemaCompatible).toBe(false);
+      expect(response.schemaStatus).toBe('invalid');
       expect(response.definition).toEqual({});
     }
   });

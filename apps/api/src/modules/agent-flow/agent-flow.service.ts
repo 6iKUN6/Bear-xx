@@ -13,11 +13,13 @@ import type { FlowDefinition } from '@litter-bear/types/agent-flow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BUILTIN_DIRECT_FLOW_ID } from './builtin-flow.service';
 import {
-  validateFlowDefinition,
+  validateFlowDraftDefinition,
   type FlowDefinitionValidationError,
 } from './definition/flow-definition.validator';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
 import { toAgentFlowVersionResponse } from './agent-flow-version.mapper';
+import type { FlowSchemaStatus } from './definition/flow-definition.versioning';
+import { normalizeFlowDefinition } from './definition/flow-definition.versioning';
 
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
 
@@ -31,11 +33,13 @@ export interface AgentFlowVersionResponse {
    * 该版本的 Definition 工件原文
    * @description 类型是 `object` 而不是 `FlowDefinition`：存量版本可能是旧 schemaVersion 或
    * 其他不再符合当前契约的工件，读取时把它断言成合法 Definition 是在撒谎。是否可用由
-   * `schemaCompatible` 单独表达，管理端据此决定能不能编辑、校验、发布。
+   * `schemaStatus` 单独表达，管理端据此决定能否编辑、升级、校验或发布。
    */
   definition: object;
-  /** 该工件是否仍符合当前 Definition 契约 */
-  schemaCompatible: boolean;
+  /** 工件相对当前 Definition 契约的状态。 */
+  schemaStatus: FlowSchemaStatus;
+  /** 可升级时的目标版本；没有可靠升级链时为 null。 */
+  schemaTargetVersion: number | null;
   /** 不兼容时的逐条原因；兼容时不带此字段 */
   schemaErrors?: FlowDefinitionValidationError[];
   digest: string | null;
@@ -83,10 +87,11 @@ export class AgentFlowService {
    * @param input 外部提交的 FlowDefinition JSON
    * @param actorId 发起操作的管理员用户ID
    * @returns 返回新建 Flow 及其 version 1 DRAFT
-   * @description 先执行纯结构校验，再在同一可串行化事务中创建 Flow、版本和最小审计记录；草稿不计算发布 digest。
+   * @description 先执行草稿结构校验，再在同一可串行化事务中创建 Flow、版本和最小审计记录；
+   * 允许拓扑暂未闭合，但会拒绝无法继续安全编辑的结构，草稿不计算发布 digest。
    */
   async create(input: unknown, actorId: string): Promise<AgentFlowResponse> {
-    const definition = this.requireValidDefinition(input);
+    const definition = this.requireValidDraftDefinition(input);
     return this.runSerializableTransaction(async (transaction) => {
       const flow = await transaction.agentFlow.create({
         data: {
@@ -224,7 +229,8 @@ export class AgentFlowService {
    * @param input 外部导入的未知 FlowDefinition JSON
    * @param actorId 发起导入的管理员用户ID
    * @returns 返回新建的 DRAFT 版本
-   * @description 导入永远递增创建新版本，不覆盖同 digest 的历史草稿或已发布工件；版本号分配、名称同步和审计在同一事务内完成。
+   * @description 导入永远递增创建新草稿，不覆盖同 digest 的历史工件；允许拓扑暂未闭合，
+   * 但会拒绝无法继续安全编辑的结构。版本号分配、名称同步和审计在同一事务内完成。
    */
   async importDefinition(
     flowId: string,
@@ -232,7 +238,7 @@ export class AgentFlowService {
     actorId: string,
   ): Promise<AgentFlowVersionResponse> {
     assertNotBuiltinFlow(flowId);
-    const definition = this.requireValidDefinition(input);
+    const definition = this.requireValidDraftDefinition(input);
     return this.runSerializableTransaction(async (transaction) => {
       const flow = await transaction.agentFlow.findUnique({
         where: { id: flowId },
@@ -309,7 +315,10 @@ export class AgentFlowService {
       ) {
         throw new BadRequestException('只有已发布或已归档版本可以回滚');
       }
-      this.requireRollbackTargetStillRunnable(targetVersion.definition);
+      this.requireRollbackTargetStillRunnable(
+        targetVersion.definition,
+        targetVersion.digest,
+      );
 
       const now = new Date();
       await transaction.agentFlowVersion.updateMany({
@@ -401,18 +410,25 @@ export class AgentFlowService {
   /**
    * 校验回滚目标在当前能力闭集下仍可运行
    * @param definition 目标历史版本的 Definition JSON
+   * @param digest 目标历史版本发布时冻结的摘要
    * @returns 无返回值
    * @description 历史版本发布时引用的模型、工具组或技能可能已经下线。回滚只切指针不校验的话，
    * 这个版本会成为线上发布版本，然后在每个终端用户的任务创建期编译失败——失败落在用户身上，
    * 而不是执行回滚的管理员。这里用与 publish 相同的发布期校验，把错误还给操作者。
    */
-  private requireRollbackTargetStillRunnable(definition: unknown): void {
-    const parsed = validateFlowDefinition(definition);
+  private requireRollbackTargetStillRunnable(
+    definition: unknown,
+    digest: string | null,
+  ): void {
+    const parsed = normalizeFlowDefinition(definition);
     if (!parsed.success) {
       throw new BadRequestException({
         message: '回滚目标版本的 FlowDefinition 已不合法',
-        errors: parsed.errors,
+        errors: parsed.inspection.errors,
       });
+    }
+    if (!digest || parsed.sourceDigest !== digest) {
+      throw new BadRequestException('回滚目标版本摘要与 Definition 不一致');
     }
     const runtimeResult = this.runtimeValidator.validate(parsed.definition);
     if (!runtimeResult.valid) {
@@ -424,16 +440,17 @@ export class AgentFlowService {
   }
 
   /**
-   * 校验待保存的 FlowDefinition
+   * 校验待创建或导入的 FlowDefinition 草稿
    * @param input 外部提交的未知 JSON
-   * @returns 返回结构合法的 FlowDefinition
-   * @description 将纯领域校验结果转换为 HTTP 可展示的 BadRequestException，不访问能力注册表或其他运行时依赖。
+   * @returns 返回结构安全、可继续编辑的 FlowDefinition
+   * @description 允许空 Loop、断边和多入口等拓扑中间态；字段、引用与 Loop 归属损坏仍会
+   * 转换为可展示的 BadRequestException。完整图与运行时能力只在校验和发布入口强制检查。
    */
-  private requireValidDefinition(input: unknown): FlowDefinition {
-    const result = validateFlowDefinition(input);
+  private requireValidDraftDefinition(input: unknown): FlowDefinition {
+    const result = validateFlowDraftDefinition(input);
     if (!result.success) {
       throw new BadRequestException({
-        message: 'FlowDefinition 校验失败',
+        message: 'FlowDefinition 草稿结构无效',
         errors: result.errors,
       });
     }

@@ -30,6 +30,20 @@ export type FlowDefinitionValidationResult =
   | { success: true; definition: FlowDefinition }
   | { success: false; errors: FlowDefinitionValidationError[] };
 
+/** 草稿保存时仍必须拒绝的结构错误；其余图错误作为可继续编辑的发布警告。 */
+const DRAFT_BLOCKING_RULES = new Set([
+  'unique-node-id',
+  'edge-node-exists',
+  'edge-when',
+  'duplicate-edge',
+  'condition-value-forbidden',
+  'condition-value-required',
+  'ref-target',
+  'ref-field',
+  'ref-type-match',
+  'loop-owner',
+]);
+
 /**
  * 解析并校验外部输入的 FlowDefinition JSON
  * @param input 管理端导入或草稿编辑提交的未知 JSON
@@ -37,6 +51,24 @@ export type FlowDefinitionValidationResult =
  * @description 先用 Zod 拒绝未知字段、错误类型和超限数据，再验证图的入口、边、可达终点与环约束；不访问数据库或能力注册表。
  */
 export function validateFlowDefinition(
+  input: unknown,
+): FlowDefinitionValidationResult {
+  const parsed = parseFlowDefinitionStructure(input);
+  if (!parsed.success) return parsed;
+  const definition = parsed.definition;
+  const errors = validateGraphStructure(definition);
+  return errors.length === 0
+    ? { success: true, definition }
+    : { success: false, errors };
+}
+
+/**
+ * 只解析当前版本 Definition 的字段结构
+ * @param input 外部提交或数据库读取的未知 JSON
+ * @returns 返回结构成立的当前 Definition，或逐字段错误
+ * @description 不判断拓扑是否已经闭合，供草稿保存态和版本状态投影复用。
+ */
+export function parseFlowDefinitionStructure(
   input: unknown,
 ): FlowDefinitionValidationResult {
   const parsed = FlowDefinitionSchema.safeParse(input);
@@ -50,12 +82,25 @@ export function validateFlowDefinition(
       })),
     };
   }
+  return { success: true, definition: parsed.data };
+}
 
-  const definition = parsed.data as FlowDefinition;
-  const errors = validateGraphStructure(definition);
-  return errors.length === 0
-    ? { success: true, definition }
-    : { success: false, errors };
+/**
+ * 校验当前版本草稿是否可安全保存
+ * @param input 管理端编辑中的完整 Definition
+ * @returns 结构损坏时失败；拓扑尚未闭合时仍返回可保存 Definition
+ * @description 空 Loop、多入口和断边是正常编辑中间态，发布校验仍会拒绝；标识冲突、悬空端点、
+ * 非法引用和错误 Loop 归属会破坏后续编辑，因此保存阶段直接拒绝。
+ */
+export function validateFlowDraftDefinition(
+  input: unknown,
+): FlowDefinitionValidationResult {
+  const parsed = parseFlowDefinitionStructure(input);
+  if (!parsed.success) return parsed;
+  const errors = validateGraphStructure(parsed.definition).filter((error) =>
+    DRAFT_BLOCKING_RULES.has(error.rule),
+  );
+  return errors.length === 0 ? parsed : { success: false, errors };
 }
 
 /**
@@ -64,8 +109,9 @@ export function validateFlowDefinition(
  * @returns 返回全部发现的图结构错误
  * @description 结构检查独立于 JSON schema，保证导入者能一次看到重复节点、非法边、入口、终点与环等全部问题。
  */
-function validateGraphStructure(
+export function validateGraphStructure(
   definition: FlowDefinition,
+  options: { validateLoopOwnership?: boolean } = {},
 ): FlowDefinitionValidationError[] {
   const errors: FlowDefinitionValidationError[] = [];
   const nodesById = new Map<string, FlowNode>();
@@ -120,6 +166,9 @@ function validateGraphStructure(
   validateEndNode(definition.nodes, definition.edges, errors);
   const loopRegions = flowLoopRegions(definition.nodes, validEdges);
   validateLoopRegions(definition.nodes, validEdges, loopRegions, errors);
+  if (options.validateLoopOwnership !== false) {
+    validateLoopOwnership(definition.nodes, loopRegions, errors);
+  }
   const loopBackEdges = new Set<FlowEdge>(
     [...loopRegions.values()].flatMap((region) => [...region.backEdges]),
   );
@@ -765,6 +814,78 @@ function validateLoopRegions(
           message: `loop 节点「${node.id}」的循环体不能使用 join(any)；慢分支未结束时进入下一轮会造成多轮并发`,
         });
       }
+    }
+  });
+}
+
+/**
+ * 校验节点声明的 Loop 归属与技术边推导区域一致
+ * @param nodes Definition 内的全部节点
+ * @param regions 从 again 与回边计算出的循环区域
+ * @param errors 用于累积校验错误的数组
+ * @returns 无返回值
+ * @description loopId 让编辑器无需在半成品拓扑中猜归属，技术边仍是运行时事实。两者必须
+ * 完全一致；否则折叠容器展示的循环体与 Workflow 实际重复执行的节点会分叉。
+ */
+function validateLoopOwnership(
+  nodes: readonly FlowNode[],
+  regions: ReadonlyMap<string, FlowLoopRegion>,
+  errors: FlowDefinitionValidationError[],
+): void {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const inferredOwners = new Map<string, string[]>();
+  for (const region of regions.values()) {
+    for (const memberId of region.body) {
+      inferredOwners.set(memberId, [
+        ...(inferredOwners.get(memberId) ?? []),
+        region.loopId,
+      ]);
+    }
+  }
+
+  nodes.forEach((node, index) => {
+    const path = `nodes.${index}.loopId`;
+    if (
+      node.loopId !== undefined &&
+      (node.type === 'start' || node.type === 'end')
+    ) {
+      errors.push({
+        path,
+        rule: 'loop-owner',
+        message: `节点「${node.id}」不能放入 Loop 容器`,
+      });
+      return;
+    }
+    if (node.loopId !== undefined && node.type === 'loop') {
+      errors.push({
+        path,
+        rule: 'loop-owner',
+        message: `loop 节点「${node.id}」不能属于另一个 Loop`,
+      });
+      return;
+    }
+    if (node.loopId !== undefined) {
+      const owner = nodesById.get(node.loopId);
+      if (!owner || owner.type !== 'loop') {
+        errors.push({
+          path,
+          rule: 'loop-owner',
+          message: `节点「${node.id}」引用的 Loop「${node.loopId}」不存在`,
+        });
+        return;
+      }
+    }
+
+    const owners = inferredOwners.get(node.id) ?? [];
+    const inferredOwner = owners.length === 1 ? owners[0] : undefined;
+    if (owners.length > 1 || node.loopId !== inferredOwner) {
+      errors.push({
+        path,
+        rule: 'loop-membership',
+        message: node.loopId
+          ? `节点「${node.id}」声明属于 Loop「${node.loopId}」，但技术边推导出的循环区域不一致`
+          : `节点「${node.id}」位于 Loop「${inferredOwner ?? owners.join('、')}」的循环区域内，必须声明 loopId`,
+      });
     }
   });
 }

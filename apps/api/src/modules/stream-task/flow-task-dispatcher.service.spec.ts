@@ -1,8 +1,12 @@
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
+import { calculateFlowDefinitionDigest } from '../agent-flow/definition/flow-definition.digest';
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 
 describe('FlowTaskDispatcherService', () => {
+  const directDigest = calculateFlowDefinitionDigest(
+    createFlowDefinitionPreset('direct'),
+  );
   function agentModelConfig(presetId: string | null) {
     return {
       defaultModelPreset: presetId ? { presetId } : null,
@@ -55,7 +59,7 @@ describe('FlowTaskDispatcherService', () => {
     const builtinFlow = {
       findDirectVersion: jest.fn().mockResolvedValue({
         id: 'builtin-version-1',
-        digest: 'b'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       }),
@@ -90,7 +94,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig('openai:gpt-5.6-sol'),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -117,7 +121,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig('deepseek:chat'),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -138,7 +142,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -151,7 +155,7 @@ describe('FlowTaskDispatcherService', () => {
 
     expect(snapshot).toEqual({
       flowVersionId: 'flow-version-1',
-      flowDigest: 'a'.repeat(64),
+      flowDigest: directDigest,
       // 入口现在是声明式的 start 节点，不再是「第一个没有入边的业务节点」
       currentStep: 'start',
       agentId: 'agent-1',
@@ -169,7 +173,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig(null),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -214,7 +218,7 @@ describe('FlowTaskDispatcherService', () => {
       ],
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -249,7 +253,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig('model-default'),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -283,7 +287,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig(null),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: calculateFlowDefinitionDigest(explicit),
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: explicit,
       },
@@ -421,7 +425,7 @@ describe('FlowTaskDispatcherService', () => {
     expect(builtinFlow.findDirectVersion).toHaveBeenCalled();
     expect(snapshot).toEqual({
       flowVersionId: 'builtin-version-1',
-      flowDigest: 'b'.repeat(64),
+      flowDigest: directDigest,
       currentStep: 'start',
       agentId: 'agent-1',
       resolvedAgentModelPresetId: 'openai:gpt-5.5',
@@ -436,7 +440,7 @@ describe('FlowTaskDispatcherService', () => {
       ...agentModelConfig('openai:gpt-5.5'),
       defaultFlowVersion: {
         id: 'flow-version-1',
-        digest: 'a'.repeat(64),
+        digest: directDigest,
         status: AgentFlowVersionStatus.PUBLISHED,
         definition: createFlowDefinitionPreset('direct'),
       },
@@ -452,6 +456,27 @@ describe('FlowTaskDispatcherService', () => {
 
     expect(builtinFlow.findDirectVersion).not.toHaveBeenCalled();
     expect(snapshot?.flowVersionId).toBe('flow-version-1');
+  });
+
+  it('任务创建前拒绝 Definition 与已发布摘要不一致的工件', async () => {
+    const { service, prisma, runtimeValidator } = createService();
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ...agentModelConfig('openai:gpt-5.5'),
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: 'a'.repeat(64),
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
+    });
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+      }),
+    ).rejects.toThrow('摘要与 Definition 不一致');
+    expect(runtimeValidator.validate).not.toHaveBeenCalled();
   });
 
   it('内置 Flow 未初始化时显式失败，不静默回落旧链路', async () => {

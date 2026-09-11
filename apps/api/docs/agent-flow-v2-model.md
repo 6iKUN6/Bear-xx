@@ -6,6 +6,10 @@
 > 范围：`packages/types/src/agent-flow` 的 Definition 契约、`apps/api` 的 validator / compiler / Temporal 执行器与持久化。不含 admin 画布实现细节。
 > 关联：`agent-flow-architecture.md`（V1 架构）、`agent-flow-iterations.md`、`hitl.md`。
 
+> 版本说明：本文记录 V2 演进阶段，文中的 `schemaVersion: 2` 与迁移策略不是当前契约。
+> 当前版本为 v10；合法 v9 通过只读 schema 规范化，详见
+> `docs/superpowers/specs/2026-09-10-agent-flow-loop-container-design.md`。
+
 ## 0. 为什么需要 V2
 
 产品目标是让管理员在画布上自由编排 flow（Dify 形态），其中**并行扇出是明确需求**。
@@ -285,6 +289,9 @@ while (inFlight.size > 0) {
 ## 5. 迁移 —— **已落地**
 
 `schemaVersion: 1 → 2`，**不做双运行时**：V1 工件由 Zod 的 `z.literal` 直接拒绝，有用例守住。
+
+> 这是 V2 当时的迁移决定。当前版本链已为历史 v9 增加只读解析和 v9 → v10 单向迁移；
+> 运行时仍只有一套当前 compiler / Workflow / Activity，不等于维护双运行时。
 
 理由：按根 `AGENTS.md`「不写长期兼容旧接口的代码」，而版本化工件的兼容成本会同时渗进 validator、compiler 和 workflow 三处。
 

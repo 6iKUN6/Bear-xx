@@ -14,8 +14,10 @@ export class AgentFlowVersionResponseDto {
   @ApiProperty({ enum: AgentFlowVersionStatus }) status: AgentFlowVersionStatus;
   @ApiProperty({ type: 'object', additionalProperties: true })
   definition: object;
-  /** 该工件是否仍符合当前 Definition 契约；false 时不能编辑、校验或发布 */
-  @ApiProperty() schemaCompatible: boolean;
+  /** 工件相对当前 Definition 契约的状态。 */
+  @ApiProperty({ enum: ['current', 'upgradeable', 'invalid', 'unsupported'] })
+  schemaStatus: string;
+  @ApiProperty({ nullable: true }) schemaTargetVersion: number | null;
   @ApiPropertyOptional({
     type: () => FlowDefinitionValidationErrorDto,
     isArray: true,
@@ -27,6 +29,40 @@ export class AgentFlowVersionResponseDto {
   @ApiProperty() updatedAt: number;
   @ApiProperty({ nullable: true }) publishedAt: number | null;
   @ApiProperty({ nullable: true }) archivedAt: number | null;
+}
+
+export class FlowLoopAssignmentDto {
+  @ApiProperty() nodeId: string;
+  @ApiProperty() loopId: string;
+}
+
+export class AgentFlowVersionUpgradeReportDto {
+  @ApiProperty() fromVersion: number;
+  @ApiProperty() toVersion: number;
+  @ApiProperty({ type: FlowLoopAssignmentDto, isArray: true })
+  loopAssignments: FlowLoopAssignmentDto[];
+  @ApiProperty({ type: String, isArray: true })
+  relativeLayoutNodeIds: string[];
+}
+
+export class AgentFlowVersionUpgradeResponseDto {
+  @ApiProperty({ type: AgentFlowVersionResponseDto })
+  version: AgentFlowVersionResponseDto;
+  @ApiProperty({ type: AgentFlowVersionUpgradeReportDto })
+  report: AgentFlowVersionUpgradeReportDto;
+}
+
+export class AgentFlowDefinitionInspectionResponseDto {
+  @ApiProperty({ enum: ['current', 'upgradeable', 'invalid', 'unsupported'] })
+  status: string;
+  @ApiProperty({ nullable: true }) sourceVersion: number | null;
+  @ApiProperty({ nullable: true }) targetVersion: number | null;
+  @ApiProperty({ type: FlowDefinitionValidationErrorDto, isArray: true })
+  errors: FlowDefinitionValidationErrorDto[];
+  @ApiPropertyOptional({ type: 'object', additionalProperties: true })
+  definition?: object;
+  @ApiPropertyOptional({ type: AgentFlowVersionUpgradeReportDto })
+  report?: AgentFlowVersionUpgradeReportDto;
 }
 
 export class AgentFlowResponseDto {

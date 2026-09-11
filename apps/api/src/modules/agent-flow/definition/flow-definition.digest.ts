@@ -1,16 +1,16 @@
 import { createHash } from 'node:crypto';
-import type { FlowDefinition } from '@litter-bear/types/agent-flow';
-
 /**
  * 计算忽略画布布局后的 FlowDefinition 语义摘要
- * @param definition 已通过结构校验的 FlowDefinition
+ * @param definition 已按其声明版本通过结构校验的 FlowDefinition 工件
  * @returns 返回 SHA-256 十六进制摘要
- * @description 对对象键按字典序规范化而保留数组顺序，保证同一 Flow 不因字段书写顺序或画布坐标变化产生不同版本摘要。
+ * @description 同时接受当前与历史只读 schema 的解析结果。对对象键按字典序规范化而保留数组
+ * 顺序，保证同一 Flow 不因字段书写顺序或画布坐标变化产生不同版本摘要；历史工件必须在迁移前
+ * 调用，不能拿规范化后的当前版本对象冒充源版本摘要。
  */
-export function calculateFlowDefinitionDigest(
-  definition: FlowDefinition,
-): string {
-  const { layout: _layout, ...semanticDefinition } = definition;
+export function calculateFlowDefinitionDigest(definition: object): string {
+  const semanticDefinition = Object.fromEntries(
+    Object.entries(definition).filter(([key]) => key !== 'layout'),
+  );
   return createHash('sha256')
     .update(canonicalizeJson(semanticDefinition))
     .digest('hex');

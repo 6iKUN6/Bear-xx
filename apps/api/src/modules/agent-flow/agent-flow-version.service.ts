@@ -10,8 +10,15 @@ import { BUILTIN_DIRECT_FLOW_ID } from './builtin-flow.service';
 import type { AgentFlowVersionResponse } from './agent-flow.service';
 import {
   calculateFlowDefinitionDigest,
+  validateFlowDraftDefinition,
   validateFlowDefinition,
 } from './definition/flow-definition.validator';
+import {
+  inspectFlowDefinition,
+  normalizeFlowDefinition,
+  type FlowDefinitionInspection,
+  type FlowDefinitionUpgradeReport,
+} from './definition/flow-definition.versioning';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
 import { toAgentFlowVersionResponse } from './agent-flow-version.mapper';
 
@@ -22,6 +29,12 @@ export interface AgentFlowVersionValidationResponse {
   valid: boolean;
   errors: Array<{ path: string; rule: string; message: string }>;
   digest?: string;
+}
+
+/** 历史版本升级为当前草稿的返回结构。 */
+export interface AgentFlowVersionUpgradeResponse {
+  version: AgentFlowVersionResponse;
+  report: FlowDefinitionUpgradeReport;
 }
 
 /**
@@ -48,7 +61,7 @@ export class AgentFlowVersionService {
     input: unknown,
     actorId: string,
   ): Promise<AgentFlowVersionResponse> {
-    const definition = this.requireValidDefinition(input);
+    const definition = this.requireValidDraftDefinition(input);
     return this.runSerializableTransaction(async (transaction) => {
       const version = await transaction.agentFlowVersion.findUnique({
         where: { id: versionId },
@@ -176,15 +189,14 @@ export class AgentFlowVersionService {
    * @returns 返回不含持久化元数据的 FlowDefinition 副本
    * @description 导出边界只暴露可移植的 JSON 工件，不携带版本 ID、digest、审计、任务或用户信息。
    */
-  async exportDefinition(versionId: string): Promise<FlowDefinition> {
+  async exportDefinition(versionId: string): Promise<object> {
     const version = await this.prisma.agentFlowVersion.findUnique({
       where: { id: versionId },
     });
     if (!version) {
       throw new NotFoundException('Flow 版本不存在');
     }
-    const definition = this.requireValidDefinition(version.definition);
-    return JSON.parse(JSON.stringify(definition)) as FlowDefinition;
+    return toDefinitionObject(version.definition);
   }
 
   /**
@@ -202,7 +214,97 @@ export class AgentFlowVersionService {
     if (!version) {
       throw new NotFoundException('Flow 版本不存在');
     }
-    return this.validateDefinition(version.definition);
+    const normalized = normalizeFlowDefinition(version.definition);
+    if (!normalized.success) {
+      return { valid: false, errors: [...normalized.inspection.errors] };
+    }
+    return this.validateDefinition(normalized.definition);
+  }
+
+  /**
+   * 将一个可升级历史版本物化为新的当前版本草稿
+   * @param versionId 作为升级来源的历史版本 ID
+   * @param actorId 执行升级的管理员用户 ID
+   * @returns 返回新草稿和确定性迁移摘要
+   * @description 源工件、发布指针和 Agent 绑定保持不变；同一 Flow 已有草稿时拒绝覆盖。
+   */
+  async upgradeToCurrentDraft(
+    versionId: string,
+    actorId: string,
+  ): Promise<AgentFlowVersionUpgradeResponse> {
+    return this.runSerializableTransaction(async (transaction) => {
+      const source = await transaction.agentFlowVersion.findUnique({
+        where: { id: versionId },
+      });
+      if (!source) throw new NotFoundException('Flow 版本不存在');
+      if (source.flowId === BUILTIN_DIRECT_FLOW_ID) {
+        throw new BadRequestException('内置 Flow 由系统维护，不能生成升级草稿');
+      }
+      const normalized = normalizeFlowDefinition(source.definition);
+      const inspection = normalized.inspection;
+      if (
+        !normalized.success ||
+        inspection.status !== 'upgradeable' ||
+        !inspection.report
+      ) {
+        throw new BadRequestException({
+          message: '该 Flow 版本不存在可靠的自动升级路径',
+          errors: inspection.errors,
+        });
+      }
+      if (!source.digest || normalized.sourceDigest !== source.digest) {
+        throw new BadRequestException(
+          '升级源版本摘要与 Definition 不一致，历史工件可能已被修改',
+        );
+      }
+      const existingDraft = await transaction.agentFlowVersion.findFirst({
+        where: {
+          flowId: source.flowId,
+          status: AgentFlowVersionStatus.DRAFT,
+        },
+        select: { id: true, version: true },
+      });
+      if (existingDraft) {
+        throw new BadRequestException(
+          `该 Flow 已有 v${existingDraft.version} 草稿，请先处理现有草稿`,
+        );
+      }
+      const latest = await transaction.agentFlowVersion.findFirst({
+        where: { flowId: source.flowId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      const draft = await transaction.agentFlowVersion.create({
+        data: {
+          flowId: source.flowId,
+          version: (latest?.version ?? 0) + 1,
+          status: AgentFlowVersionStatus.DRAFT,
+          definition: this.toInputJsonValue(normalized.definition),
+          digest: null,
+          schemaVersion: normalized.definition.schemaVersion,
+          createdById: actorId,
+        },
+      });
+      await transaction.agentFlowAuditLog.create({
+        data: {
+          flowId: source.flowId,
+          versionId: draft.id,
+          action: 'UPGRADED',
+          actorId,
+          digest: null,
+          upgradeContext: {
+            sourceVersionId: source.id,
+            targetVersionId: draft.id,
+            fromSchemaVersion: inspection.report.fromVersion,
+            toSchemaVersion: inspection.report.toVersion,
+          },
+        },
+      });
+      return {
+        version: toAgentFlowVersionResponse(draft),
+        report: inspection.report,
+      };
+    });
   }
 
   /**
@@ -228,6 +330,16 @@ export class AgentFlowVersionService {
   }
 
   /**
+   * 预检外部 Definition 并在可行时返回当前版本内存模型
+   * @param input 管理端尚未写入数据库的 JSON 工件
+   * @returns 返回版本状态、错误、规范化 Definition 与可选升级摘要
+   * @description 只执行确定性解析和迁移，不创建 Flow 或草稿，供导入前确认升级结果。
+   */
+  inspectDefinition(input: unknown): FlowDefinitionInspection {
+    return inspectFlowDefinition(input);
+  }
+
+  /**
    * 校验待写入的 FlowDefinition
    * @param input 外部提交的未知 JSON
    * @returns 返回结构合法的 FlowDefinition
@@ -238,6 +350,23 @@ export class AgentFlowVersionService {
     if (!result.success) {
       throw new BadRequestException({
         message: 'FlowDefinition 校验失败',
+        errors: result.errors,
+      });
+    }
+    return result.definition;
+  }
+
+  /**
+   * 校验待保存的当前版本草稿
+   * @param input 管理端提交的未知 Definition
+   * @returns 返回字段与关键引用结构有效的当前 Definition
+   * @description 允许空 Loop、断边和多入口等编辑中间态；完整发布校验仍由 requireValidDefinition 执行。
+   */
+  private requireValidDraftDefinition(input: unknown): FlowDefinition {
+    const result = validateFlowDraftDefinition(input);
+    if (!result.success) {
+      throw new BadRequestException({
+        message: 'FlowDefinition 草稿结构无效',
         errors: result.errors,
       });
     }
@@ -301,4 +430,17 @@ export class AgentFlowVersionService {
   private toInputJsonValue(definition: FlowDefinition): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(definition)) as Prisma.InputJsonValue;
   }
+}
+
+/**
+ * 将 Prisma JSON 原样收敛为可导出的对象
+ * @param value 数据库存储的 Definition JSON
+ * @returns 返回独立对象副本
+ * @description 导出必须保留历史工件原文，不能把内存规范化后的 v10 冒充 v9 原件。
+ */
+function toDefinitionObject(value: Prisma.JsonValue): object {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BadRequestException('FlowVersion 中的 Definition 不是对象');
+  }
+  return JSON.parse(JSON.stringify(value)) as object;
 }

@@ -7,12 +7,12 @@ import type { ReasoningSelection } from "../model-reasoning.js";
  * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点；6 引入受控 loop 节点；
  * 7 引入每张图唯一且强制显式连接的 end 节点；8 让 plan 与模型审批显式声明模型，
  * 从而让 Flow 内全部模型调用都服从同一套模型归属规则；9 为每个真实模型调用节点增加
- * 供应商无关的思考选择。
+ * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局。
  * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 9 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 10 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -254,6 +254,12 @@ export interface FlowNodeBase {
   readonly name?: string;
   /** 面向编辑者的简短说明；不改变节点执行语义。 */
   readonly description?: string;
+  /**
+   * 所属 Loop 容器的节点标识
+   * @description 缺省表示主画布节点。它是执行语义的一部分，必须与 again/回边推导出的
+   * 循环区域一致；start、end 与 loop 节点不能声明该字段，第一版不支持嵌套循环。
+   */
+  readonly loopId?: string;
 }
 
 /** Agent 节点。 */
@@ -549,6 +555,12 @@ function walkFlowGraph(
 export interface FlowNodeLayout {
   readonly x: number;
   readonly y: number;
+  /** Loop 容器宽度；普通节点忽略。 */
+  readonly width?: number;
+  /** Loop 容器高度；普通节点忽略。 */
+  readonly height?: number;
+  /** Loop 是否折叠；仅属于编辑器布局，不参与运行或 digest。 */
+  readonly collapsed?: boolean;
 }
 
 /** Flow 编辑器画布状态。 */

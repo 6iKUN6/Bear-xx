@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StreamTaskType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
+import { normalizeFlowDefinition } from '../agent-flow/definition/flow-definition.versioning';
 import type {
   TestExecutionModelSnapshotDto,
   TestExecutionNodeModelDto,
@@ -267,7 +267,7 @@ export class AgentTestSessionService {
   private readModelNodeDeclarations(
     definition: Prisma.JsonValue,
   ): ModelNodeDeclaration[] {
-    const parsed = validateFlowDefinition(definition);
+    const parsed = normalizeFlowDefinition(definition);
     if (!parsed.success) return [];
 
     const declarations: ModelNodeDeclaration[] = [];
