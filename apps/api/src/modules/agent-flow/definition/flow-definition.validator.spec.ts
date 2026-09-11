@@ -2,6 +2,7 @@ import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
 import {
   calculateFlowDefinitionDigest,
   createFlowDefinitionPreset,
+  validateFlowDraftDefinition,
   validateFlowDefinition,
 } from './flow-definition.validator';
 
@@ -670,6 +671,79 @@ describe('FlowDefinitionValidator', () => {
     }
   });
 
+  it('空 Loop 可保存为草稿但不能通过发布校验', () => {
+    const definition = loopDefinition();
+    const incomplete = {
+      ...definition,
+      nodes: definition.nodes.filter((node) => node.id !== 'body'),
+      edges: definition.edges.filter(
+        (edge) => edge.from !== 'body' && edge.to !== 'body',
+      ),
+    };
+
+    expect(validateFlowDraftDefinition(incomplete).success).toBe(true);
+    expect(validateFlowDefinition(incomplete).success).toBe(false);
+  });
+
+  it('草稿仍拒绝悬空边和错误的 Loop 归属', () => {
+    const definition = loopDefinition();
+    const danglingEdge = {
+      ...definition,
+      edges: [...definition.edges, { from: 'start', to: 'missing' }],
+    };
+    const invalidOwner = {
+      ...definition,
+      nodes: definition.nodes.map((node) =>
+        node.id === 'body' ? { ...node, loopId: 'missing_loop' } : node,
+      ),
+    };
+
+    expectValidationError(
+      validateFlowDraftDefinition(danglingEdge),
+      (error) => error.rule === 'edge-node-exists',
+    );
+    expectValidationError(
+      validateFlowDraftDefinition(invalidOwner),
+      (error) => error.rule === 'loop-owner',
+    );
+  });
+
+  it('Loop 布局不改变 digest，而 loopId 改变执行摘要', () => {
+    const result = validateFlowDefinition(loopDefinition());
+    if (!result.success) throw new Error('Loop Definition 应校验通过');
+    const withLayout = {
+      ...result.definition,
+      layout: {
+        nodes: {
+          lp: {
+            x: 100,
+            y: 120,
+            width: 640,
+            height: 300,
+            collapsed: true,
+          },
+          body: { x: 24, y: 72 },
+        },
+      },
+    };
+    const withoutOwnership = {
+      ...result.definition,
+      nodes: result.definition.nodes.map((node) => {
+        if (node.id !== 'body') return node;
+        const updated = { ...node };
+        delete updated.loopId;
+        return updated;
+      }),
+    };
+
+    expect(calculateFlowDefinitionDigest(withLayout)).toBe(
+      calculateFlowDefinitionDigest(result.definition),
+    );
+    expect(calculateFlowDefinitionDigest(withoutOwnership)).not.toBe(
+      calculateFlowDefinitionDigest(result.definition),
+    );
+  });
+
   it('loop continueWhen 可以引用每轮必定完成的体内节点输出', () => {
     const definition = loopDefinition();
     const result = validateFlowDefinition({
@@ -1018,7 +1092,7 @@ function loopDefinition() {
         type: 'loop',
         config: { maxIterations: 3, continueWhen: [] },
       },
-      { id: 'body', type: 'agent', config: agentNodeConfig() },
+      { id: 'body', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
       { id: 'answer', type: 'synthesize', config: {} },
       { id: 'end', type: 'end', config: {} },
     ],
@@ -1089,6 +1163,7 @@ function loopWithApprovalDefinition() {
       {
         id: 'review',
         type: 'approval',
+        loopId: 'lp',
         config: {
           kind: 'plan-review',
           policy: 'always',
@@ -1126,12 +1201,13 @@ function loopWithJoinDefinition(policy: 'all' | 'any') {
         type: 'loop',
         config: { maxIterations: 3, continueWhen: [] },
       },
-      { id: 'entry', type: 'agent', config: agentNodeConfig() },
-      { id: 'left', type: 'agent', config: agentNodeConfig() },
-      { id: 'right', type: 'agent', config: agentNodeConfig() },
+      { id: 'entry', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
+      { id: 'left', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
+      { id: 'right', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
       {
         id: 'merge',
         type: 'join',
+        loopId: 'lp',
         config: { waitFor: ['left', 'right'], policy },
       },
       { id: 'answer', type: 'synthesize', config: {} },
@@ -1184,6 +1260,7 @@ function loopWithOptionalRefDefinition() {
       {
         id: 'choose',
         type: 'condition',
+        loopId: 'lp',
         config: {
           cases: [
             {
@@ -1199,9 +1276,24 @@ function loopWithOptionalRefDefinition() {
           ],
         },
       },
-      { id: 'measured', type: 'agent', config: agentNodeConfig() },
-      { id: 'skipped', type: 'agent', config: agentNodeConfig() },
-      { id: 'return', type: 'agent', config: agentNodeConfig() },
+      {
+        id: 'measured',
+        type: 'agent',
+        loopId: 'lp',
+        config: agentNodeConfig(),
+      },
+      {
+        id: 'skipped',
+        type: 'agent',
+        loopId: 'lp',
+        config: agentNodeConfig(),
+      },
+      {
+        id: 'return',
+        type: 'agent',
+        loopId: 'lp',
+        config: agentNodeConfig(),
+      },
       { id: 'answer', type: 'synthesize', config: {} },
       { id: 'end', type: 'end', config: {} },
     ],

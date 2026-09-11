@@ -6,6 +6,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentFlowService } from './agent-flow.service';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
+import { calculateFlowDefinitionDigest } from './definition/flow-definition.digest';
 
 type CreateArgs = { data: Record<string, unknown> };
 
@@ -67,6 +68,7 @@ const directDefinition: FlowDefinition = {
     { from: 'answer', to: 'end' },
   ],
 };
+const directDefinitionDigest = calculateFlowDefinitionDigest(directDefinition);
 
 describe('AgentFlowService', () => {
   // 回滚要走与 publish 相同的发布期能力校验；默认放行，单独用例再让它失败
@@ -96,6 +98,7 @@ describe('AgentFlowService', () => {
   let transaction: jest.Mock<Promise<unknown>, [TransactionCallback, unknown]>;
 
   beforeEach(async () => {
+    runtimeValidator.validate.mockClear();
     runtimeValidator.validate.mockReturnValue({ valid: true, errors: [] });
     createFlow = jest.fn<Promise<Record<string, unknown>>, [CreateArgs]>();
     createVersion = jest.fn<Promise<Record<string, unknown>>, [CreateArgs]>();
@@ -192,7 +195,7 @@ describe('AgentFlowService', () => {
     const flows = await service.list();
 
     expect(flows).toHaveLength(1);
-    expect(flows[0].publishedVersion?.schemaCompatible).toBe(false);
+    expect(flows[0].publishedVersion?.schemaStatus).toBe('unsupported');
     expect(flows[0].publishedVersion?.schemaErrors?.[0]?.path).toBe(
       'schemaVersion',
     );
@@ -259,6 +262,39 @@ describe('AgentFlowService', () => {
     });
   });
 
+  it('创建时允许保存拓扑未完成但结构安全的草稿', async () => {
+    const incompleteDraft = { ...directDefinition, edges: [] };
+    createFlow.mockResolvedValue({
+      id: 'flow-incomplete',
+      name: incompleteDraft.name,
+      description: incompleteDraft.description,
+      publishedVersionId: null,
+      createdAt: new Date('2026-09-11T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-11T00:00:00.000Z'),
+    });
+    createVersion.mockResolvedValue({
+      id: 'version-incomplete',
+      flowId: 'flow-incomplete',
+      version: 1,
+      status: 'DRAFT',
+      definition: incompleteDraft,
+      digest: null,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+      createdAt: new Date('2026-09-11T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-11T00:00:00.000Z'),
+      publishedAt: null,
+      archivedAt: null,
+    });
+    createAudit.mockResolvedValue({ id: 'audit-incomplete' });
+
+    await expect(
+      service.create(incompleteDraft, 'admin-1'),
+    ).resolves.toMatchObject({
+      id: 'flow-incomplete',
+      draftVersion: { id: 'version-incomplete', status: 'DRAFT' },
+    });
+  });
+
   it('导入时创建递增的新草稿，不覆盖已有版本', async () => {
     findFlow.mockResolvedValue({ id: 'flow-1' });
     findLatestVersion.mockResolvedValue({ version: 2 });
@@ -312,6 +348,35 @@ describe('AgentFlowService', () => {
     expect(result).toMatchObject({
       id: 'version-3',
       version: 3,
+      status: 'DRAFT',
+    });
+  });
+
+  it('导入时允许保存拓扑未完成但结构安全的草稿', async () => {
+    const incompleteDraft = { ...directDefinition, edges: [] };
+    findFlow.mockResolvedValue({ id: 'flow-1' });
+    findLatestVersion.mockResolvedValue({ version: 3 });
+    createVersion.mockResolvedValue({
+      id: 'version-4',
+      flowId: 'flow-1',
+      version: 4,
+      status: 'DRAFT',
+      definition: incompleteDraft,
+      digest: null,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+      createdAt: new Date('2026-09-11T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-11T00:00:00.000Z'),
+      publishedAt: null,
+      archivedAt: null,
+    });
+    updateFlow.mockResolvedValue({ id: 'flow-1' });
+    createAudit.mockResolvedValue({ id: 'audit-incomplete' });
+
+    await expect(
+      service.importDefinition('flow-1', incompleteDraft, 'admin-1'),
+    ).resolves.toMatchObject({
+      id: 'version-4',
+      version: 4,
       status: 'DRAFT',
     });
   });
@@ -381,7 +446,7 @@ describe('AgentFlowService', () => {
       id: 'version-1',
       flowId: 'flow-1',
       status: 'ARCHIVED',
-      digest: 'historical-digest',
+      digest: directDefinitionDigest,
       definition: directDefinition,
       version: 1,
       schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
@@ -395,7 +460,7 @@ describe('AgentFlowService', () => {
       id: 'version-1',
       flowId: 'flow-1',
       status: 'PUBLISHED',
-      digest: 'historical-digest',
+      digest: directDefinitionDigest,
       definition: directDefinition,
       version: 1,
       schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
@@ -441,7 +506,7 @@ describe('AgentFlowService', () => {
         versionId: 'version-1',
         action: 'ROLLED_BACK',
         actorId: 'admin-1',
-        digest: 'historical-digest',
+        digest: directDefinitionDigest,
       },
     });
   });
@@ -455,7 +520,7 @@ describe('AgentFlowService', () => {
       id: 'version-1',
       flowId: 'flow-1',
       status: 'ARCHIVED',
-      digest: 'historical-digest',
+      digest: directDefinitionDigest,
       definition: directDefinition,
       version: 1,
       schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
@@ -485,6 +550,29 @@ describe('AgentFlowService', () => {
     expect(updateFlow).not.toHaveBeenCalled();
     expect(createAudit).not.toHaveBeenCalled();
   });
+
+  it('回滚目标摘要与 Definition 不一致时拒绝切换发布指针', async () => {
+    findFlow.mockResolvedValue({
+      id: 'flow-1',
+      publishedVersionId: 'version-3',
+    });
+    findVersion.mockResolvedValue({
+      id: 'version-1',
+      flowId: 'flow-1',
+      status: 'ARCHIVED',
+      digest: 'a'.repeat(64),
+      definition: directDefinition,
+    });
+
+    await expect(
+      service.rollback('flow-1', 'version-1', 'admin-1'),
+    ).rejects.toThrow('摘要与 Definition 不一致');
+    expect(runtimeValidator.validate).not.toHaveBeenCalled();
+    expect(updateVersions).not.toHaveBeenCalled();
+    expect(updateVersion).not.toHaveBeenCalled();
+    expect(updateFlow).not.toHaveBeenCalled();
+  });
+
   it('删除干净的 Flow 时先摘掉发布指针再删版本', async () => {
     findFlow.mockResolvedValue({
       id: 'flow-1',

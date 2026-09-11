@@ -4,7 +4,7 @@ import {
   type FlowDefinition,
 } from '@litter-bear/types/agent-flow';
 import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
-import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
+import { normalizeFlowDefinition } from '../agent-flow/definition/flow-definition.versioning';
 import { TemporalClientService } from '../agent-flow/temporal/temporal-client.service';
 import { BuiltinFlowService } from '../agent-flow/builtin-flow.service';
 import { FlowRuntimeValidator } from '../agent-flow/runtime/flow-runtime-validator.service';
@@ -148,9 +148,17 @@ export class FlowTaskDispatcherService {
       throw new BadRequestException(`${source} FlowVersion 未发布或缺少摘要`);
     }
 
-    const parsed = validateFlowDefinition(flowVersion.definition);
+    const parsed = normalizeFlowDefinition(flowVersion.definition);
     if (!parsed.success) {
-      throw new BadRequestException(`${source} FlowVersion 定义无效`);
+      throw new BadRequestException({
+        message: `${source} FlowVersion 无法升级或定义无效`,
+        errors: parsed.inspection.errors,
+      });
+    }
+    if (parsed.sourceDigest !== flowVersion.digest) {
+      throw new BadRequestException(
+        `${source} FlowVersion 摘要与 Definition 不一致`,
+      );
     }
     const entryNodeIds = new Set(
       parsed.definition.edges.map((edge) => edge.to),

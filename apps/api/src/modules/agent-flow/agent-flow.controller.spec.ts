@@ -18,6 +18,11 @@ describe('AgentFlowController', () => {
   >;
   let remove: jest.Mock<Promise<void>, [string]>;
   let validateDefinition: jest.Mock<Record<string, unknown>, [unknown]>;
+  let upgradeToCurrentDraft: jest.Mock<
+    Promise<Record<string, unknown>>,
+    [string, string]
+  >;
+  let inspectDefinition: jest.Mock<Record<string, unknown>, [unknown]>;
 
   beforeEach(async () => {
     create = jest.fn<Promise<Record<string, unknown>>, [unknown, string]>();
@@ -27,6 +32,11 @@ describe('AgentFlowController', () => {
     >();
     remove = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
     validateDefinition = jest.fn<Record<string, unknown>, [unknown]>();
+    upgradeToCurrentDraft = jest.fn<
+      Promise<Record<string, unknown>>,
+      [string, string]
+    >();
+    inspectDefinition = jest.fn<Record<string, unknown>, [unknown]>();
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AgentFlowController],
@@ -37,7 +47,11 @@ describe('AgentFlowController', () => {
         },
         {
           provide: AgentFlowVersionService,
-          useValue: { validateDefinition },
+          useValue: {
+            validateDefinition,
+            inspectDefinition,
+            upgradeToCurrentDraft,
+          },
         },
         // 用真实注册表：模板端点的价值就在于返回能通过校验器的 Definition
         FlowTemplateRegistry,
@@ -130,5 +144,33 @@ describe('AgentFlowController', () => {
       success: true,
     });
     expect(remove).toHaveBeenCalledWith('flow-1');
+  });
+
+  it('升级端点把源版本和管理员交给版本服务', async () => {
+    upgradeToCurrentDraft.mockResolvedValue({
+      version: { id: 'draft-10' },
+      report: { fromVersion: 9, toVersion: 10 },
+    });
+
+    await expect(
+      controller.upgradeToCurrentDraft('version-9', 'admin-1'),
+    ).resolves.toMatchObject({ version: { id: 'draft-10' } });
+    expect(upgradeToCurrentDraft).toHaveBeenCalledWith('version-9', 'admin-1');
+  });
+
+  it('预检端点只读取请求工件并返回版本状态', () => {
+    const definition = { schemaVersion: 9, kind: 'agent-flow' };
+    inspectDefinition.mockReturnValue({
+      status: 'upgradeable',
+      sourceVersion: 9,
+      targetVersion: 10,
+      errors: [],
+    });
+
+    expect(controller.inspectDefinition({ definition })).toMatchObject({
+      status: 'upgradeable',
+      targetVersion: 10,
+    });
+    expect(inspectDefinition).toHaveBeenCalledWith(definition);
   });
 });

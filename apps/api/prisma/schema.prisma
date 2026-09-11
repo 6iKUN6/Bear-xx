@@ -210,13 +210,14 @@ model AgentFlowVersion {
 
 /// Flow 控制面操作的最小审计记录，不复制 Definition 或其他敏感内容。
 model AgentFlowAuditLog {
-  id        String               @id @default(cuid())
-  flowId    String               @map("flow_id")
-  versionId String?              @map("version_id")
-  action    AgentFlowAuditAction
-  actorId   String?              @map("actor_id")
-  digest    String?
-  createdAt DateTime             @default(now()) @map("created_at")
+  id             String               @id @default(cuid())
+  flowId         String               @map("flow_id")
+  versionId      String?              @map("version_id")
+  action         AgentFlowAuditAction
+  actorId        String?              @map("actor_id")
+  digest         String?
+  upgradeContext Json?                @map("upgrade_context")
+  createdAt      DateTime             @default(now()) @map("created_at")
 
   flow    AgentFlow         @relation("AgentFlowAuditLogs", fields: [flowId], references: [id], onDelete: Cascade)
   version AgentFlowVersion? @relation("AgentFlowVersionAuditLogs", fields: [versionId], references: [id], onDelete: SetNull)
@@ -825,6 +826,7 @@ enum AgentFlowAuditAction {
   METADATA_UPDATED
   DRAFT_UPDATED
   IMPORTED
+  UPGRADED
   VALIDATED
   PUBLISHED
   ROLLED_BACK

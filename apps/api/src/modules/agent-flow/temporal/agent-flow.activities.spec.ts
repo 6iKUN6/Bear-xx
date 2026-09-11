@@ -14,6 +14,10 @@ import { LlmService } from '../../llm/llm.service';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
 import { AgentFlowActivities } from './agent-flow.activities';
+import { calculateFlowDefinitionDigest } from '../definition/flow-definition.digest';
+
+const DEFAULT_FLOW_DIGEST = calculateFlowDefinitionDigest(flowDefinition());
+let activeWorkflowDigest = DEFAULT_FLOW_DIGEST;
 
 describe('AgentFlowActivities', () => {
   let activities: AgentFlowActivities;
@@ -78,6 +82,7 @@ describe('AgentFlowActivities', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    activeWorkflowDigest = DEFAULT_FLOW_DIGEST;
     prisma.$transaction.mockImplementation(
       (operation: (transaction: typeof prisma) => unknown) => operation(prisma),
     );
@@ -125,10 +130,10 @@ describe('AgentFlowActivities', () => {
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
       flowVersionId: 'version-1',
-      flowDigest: 'a'.repeat(64),
+      flowDigest: DEFAULT_FLOW_DIGEST,
       flowVersion: {
         id: 'version-1',
-        digest: 'a'.repeat(64),
+        digest: DEFAULT_FLOW_DIGEST,
         definition: flowDefinition(),
       },
     });
@@ -167,19 +172,40 @@ describe('AgentFlowActivities', () => {
     );
   });
 
-  it('循环快照冻结排序后的体内节点清单', async () => {
+  it('拒绝 Definition 原文与冻结 digest 不一致的运行快照', async () => {
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
       flowVersionId: 'version-1',
-      flowDigest: 'a'.repeat(64),
+      flowDigest: DEFAULT_FLOW_DIGEST,
       flowVersion: {
         id: 'version-1',
-        digest: 'a'.repeat(64),
-        definition: loopFlowDefinition(conditionalLoopCases()),
+        digest: DEFAULT_FLOW_DIGEST,
+        definition: { ...flowDefinition(), name: '被异常改写的工件' },
       },
     });
 
-    await expect(activities.loadRunSnapshot(workflowInput())).resolves.toEqual(
+    await expect(activities.loadRunSnapshot(workflowInput())).rejects.toThrow(
+      'FlowVersion 摘要与 Definition 不一致',
+    );
+  });
+
+  it('循环快照冻结排序后的体内节点清单', async () => {
+    const definition = loopFlowDefinition(conditionalLoopCases());
+    const digest = calculateFlowDefinitionDigest(definition);
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      flowVersionId: 'version-1',
+      flowDigest: digest,
+      flowVersion: {
+        id: 'version-1',
+        digest,
+        definition,
+      },
+    });
+
+    await expect(
+      activities.loadRunSnapshot(workflowInput(digest)),
+    ).resolves.toEqual(
       expect.objectContaining({
         entryNodeKey: 'start',
         nodes: expect.arrayContaining([
@@ -189,6 +215,32 @@ describe('AgentFlowActivities', () => {
             next: { again: ['body'], done: ['answer'] },
             loop: { body: ['body'] },
           },
+        ]),
+      }),
+    );
+  });
+
+  it('合法 v9 工件规范化后由当前编译器生成运行快照', async () => {
+    const definition = { ...flowDefinition(), schemaVersion: 9 };
+    const digest = calculateFlowDefinitionDigest(definition);
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      flowVersionId: 'version-1',
+      flowDigest: digest,
+      flowVersion: {
+        id: 'version-1',
+        digest,
+        definition,
+      },
+    });
+
+    await expect(
+      activities.loadRunSnapshot(workflowInput(digest)),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        entryNodeKey: 'start',
+        nodes: expect.arrayContaining([
+          { key: 'start', type: 'start', next: { default: ['plan'] } },
         ]),
       }),
     );
@@ -207,11 +259,11 @@ describe('AgentFlowActivities', () => {
       requestPayload: {},
       resolvedAgentModelPresetId: 'openai:test',
       flowVersionId: 'version-1',
-      flowDigest: 'a'.repeat(64),
+      flowDigest: DEFAULT_FLOW_DIGEST,
       flowVersion: {
         id: 'version-1',
         flowId: 'flow-1',
-        digest: 'a'.repeat(64),
+        digest: DEFAULT_FLOW_DIGEST,
         definition: flowDefinition(),
       },
     });
@@ -1145,6 +1197,8 @@ describe('AgentFlowActivities', () => {
    * flowNodeBranchKeys 从 Definition 读出，手写编译节点绕不过去。
    */
   function mockConditionNode(): void {
+    const definition = conditionFlowDefinition();
+    activeWorkflowDigest = calculateFlowDefinitionDigest(definition);
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
       userId: 'user-1',
@@ -1160,12 +1214,12 @@ describe('AgentFlowActivities', () => {
       requestPayload: { content: '帮我查一下' },
       resolvedAgentModelPresetId: 'openai:test',
       flowVersionId: 'version-1',
-      flowDigest: 'a'.repeat(64),
+      flowDigest: activeWorkflowDigest,
       flowVersion: {
         id: 'version-1',
         flowId: 'flow-1',
-        digest: 'a'.repeat(64),
-        definition: conditionFlowDefinition(),
+        digest: activeWorkflowDigest,
+        definition,
       },
     });
     prisma.agent.findUnique.mockResolvedValue({
@@ -1179,7 +1233,7 @@ describe('AgentFlowActivities', () => {
             key: 'classify',
             type: 'condition',
             next: { case_1: 'answer', else: 'brief' },
-            cases: conditionFlowDefinition().nodes[2].config.cases,
+            cases: definition.nodes[2].config.cases,
           },
         ],
       },
@@ -1638,6 +1692,8 @@ describe('AgentFlowActivities', () => {
     status?: string;
     definition?: object;
   }): void {
+    const definition = input.definition ?? flowDefinition();
+    activeWorkflowDigest = calculateFlowDefinitionDigest(definition);
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
       userId: 'user-1',
@@ -1653,12 +1709,12 @@ describe('AgentFlowActivities', () => {
       requestPayload: {},
       resolvedAgentModelPresetId: 'openai:test',
       flowVersionId: 'version-1',
-      flowDigest: 'a'.repeat(64),
+      flowDigest: activeWorkflowDigest,
       flowVersion: {
         id: 'version-1',
         flowId: 'flow-1',
-        digest: 'a'.repeat(64),
-        definition: input.definition ?? flowDefinition(),
+        digest: activeWorkflowDigest,
+        definition,
       },
     });
     prisma.agent.findUnique.mockResolvedValue({
@@ -1788,11 +1844,13 @@ async function* approvalEventStream(
  * @returns 返回不含对话正文或用户凭据的工作流输入
  * @description Activity 仅凭这些冻结标识读取任务与版本，避免敏感数据进入 Temporal History。
  */
-function workflowInput(): AgentFlowWorkflowInput {
+function workflowInput(
+  flowDigest = activeWorkflowDigest,
+): AgentFlowWorkflowInput {
   return {
     streamTaskId: 'task-1',
     flowVersionId: 'version-1',
-    flowDigest: 'a'.repeat(64),
+    flowDigest,
     activityTaskQueue: 'agent-flow-activity',
   };
 }
@@ -1898,7 +1956,12 @@ function loopFlowDefinition(
         type: 'loop' as const,
         config: { maxIterations: 3, continueWhen },
       },
-      { id: 'body', type: 'plan' as const, config: { maxSteps: 5 } },
+      {
+        id: 'body',
+        type: 'plan' as const,
+        loopId: 'lp',
+        config: { maxSteps: 5 },
+      },
       { id: 'answer', type: 'synthesize' as const, config: {} },
       { id: 'end', type: 'end' as const, config: {} },
     ],

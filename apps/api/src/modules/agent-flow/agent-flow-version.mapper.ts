@@ -1,5 +1,5 @@
 import { Prisma, type AgentFlowVersion } from '@prisma/client';
-import { validateFlowDefinition } from './definition/flow-definition.validator';
+import { inspectFlowDefinition } from './definition/flow-definition.versioning';
 import type { AgentFlowVersionResponse } from './agent-flow.service';
 
 /**
@@ -18,15 +18,18 @@ import type { AgentFlowVersionResponse } from './agent-flow.service';
 export function toAgentFlowVersionResponse(
   version: AgentFlowVersion,
 ): AgentFlowVersionResponse {
-  const parsed = validateFlowDefinition(version.definition);
+  const inspection = inspectFlowDefinition(version.definition);
   return {
     id: version.id,
     flowId: version.flowId,
     version: version.version,
     status: version.status,
     definition: toDefinitionObject(version.definition),
-    schemaCompatible: parsed.success,
-    ...(parsed.success ? {} : { schemaErrors: parsed.errors }),
+    schemaStatus: inspection.status,
+    schemaTargetVersion: inspection.targetVersion,
+    ...(inspection.errors.length === 0
+      ? {}
+      : { schemaErrors: [...inspection.errors] }),
     digest: version.digest,
     schemaVersion: version.schemaVersion,
     createdAt: version.createdAt.getTime(),
@@ -40,7 +43,7 @@ export function toAgentFlowVersionResponse(
  * 把存储的 Definition JSON 收敛为可返回的对象
  * @param value Prisma 读到的 Json 值
  * @returns 是对象时原样返回，否则返回空对象
- * @description 只保证响应类型成立，不判断内容是否合法——合法性由 schemaCompatible 表达。
+ * @description 只保证响应类型成立，不判断内容是否合法——合法性由 schemaStatus 表达。
  * 数组或标量落在这一列意味着数据已损坏；返回空对象让管理端显示「不兼容」，而不是让整个请求失败。
  */
 function toDefinitionObject(value: Prisma.JsonValue): object {

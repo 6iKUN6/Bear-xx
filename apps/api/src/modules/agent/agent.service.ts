@@ -19,7 +19,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
-import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
+import { normalizeFlowDefinition } from '../agent-flow/definition/flow-definition.versioning';
 import { AgentDefinitionService } from './agent-definition.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
@@ -600,10 +600,10 @@ export class AgentService {
     if (!boundDefinition) {
       return createFlowDefinitionPreset('direct');
     }
-    const parsed = validateFlowDefinition(boundDefinition);
+    const parsed = normalizeFlowDefinition(boundDefinition);
     if (!parsed.success) {
       throw new BadRequestException(
-        `智能体绑定的 Flow 版本不兼容当前契约：${parsed.errors[0]?.message ?? 'Definition 无效'}`,
+        `智能体绑定的 Flow 版本无法升级或定义无效：${parsed.inspection.errors[0]?.message ?? 'Definition 无效'}`,
       );
     }
     return parsed.definition;
@@ -750,6 +750,6 @@ function resolveAgentToolGroups(
   if (!boundDefinition) {
     return [...collectFlowToolGroups(createFlowDefinitionPreset('direct'))];
   }
-  const parsed = validateFlowDefinition(boundDefinition);
+  const parsed = normalizeFlowDefinition(boundDefinition);
   return parsed.success ? [...collectFlowToolGroups(parsed.definition)] : [];
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AgentFlowVersionStatus, StreamTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { validateFlowDefinition } from '../agent-flow/definition/flow-definition.validator';
+import { normalizeFlowDefinition } from '../agent-flow/definition/flow-definition.versioning';
 import type { ModelPresetReferencesResponseDto } from './dto/model-preset.dto';
 
 /** 模型预设引用集合，以 presetId 为键。 */
@@ -123,7 +123,7 @@ export class ModelPresetReferenceService {
     }
 
     for (const version of versions) {
-      const parsed = validateFlowDefinition(version.definition);
+      const parsed = normalizeFlowDefinition(version.definition);
       if (!parsed.success) continue;
       const referencedPresetIds = new Set<string>();
       for (const node of parsed.definition.nodes) {

@@ -29,6 +29,8 @@ export const FLOW_DEFINITION_LIMITS = {
   maxToolIterations: 16,
   /** 画布节点坐标轴允许的绝对值上限。 */
   layoutCoordinate: 100_000,
+  /** Loop 容器宽高允许的上限，避免异常布局撑爆画布。 */
+  loopContainerSize: 100_000,
   /** 单个 condition 节点允许声明的最大 case 数。 */
   conditionCaseCount: 16,
   /** 单个 case 内允许声明的最大判定条件数。 */
@@ -76,6 +78,7 @@ const nodeBaseShape = {
     .trim()
     .max(FLOW_DEFINITION_LIMITS.nodeDescriptionLength)
     .optional(),
+  loopId: nodeIdSchema.optional(),
 };
 
 // 算子清单只从 FLOW_CONDITION_OPERATORS 派生：另写一份 z.enum 字面量就会有第二个源，
@@ -344,6 +347,19 @@ export const FlowDefinitionSchema = z
                   .finite()
                   .min(-FLOW_DEFINITION_LIMITS.layoutCoordinate)
                   .max(FLOW_DEFINITION_LIMITS.layoutCoordinate),
+                width: z
+                  .number()
+                  .finite()
+                  .positive()
+                  .max(FLOW_DEFINITION_LIMITS.loopContainerSize)
+                  .optional(),
+                height: z
+                  .number()
+                  .finite()
+                  .positive()
+                  .max(FLOW_DEFINITION_LIMITS.loopContainerSize)
+                  .optional(),
+                collapsed: z.boolean().optional(),
               })
               .strict(),
           )
@@ -360,3 +376,38 @@ export const FlowDefinitionSchema = z
       .optional(),
   })
   .strict();
+
+/**
+ * schemaVersion 9 的只读解析 Schema
+ * @description v9 与 v10 的节点配置闭集相同，但 v9 尚未声明 loopId 和容器布局字段。
+ * 复用当前字段限制后显式拒绝 v10 新字段，避免维护第二份容易漂移的节点配置 Schema。
+ * 该 Schema 只用于识别和迁移历史工件，任何写入入口仍只接受当前版本。
+ */
+export const FlowDefinitionV9Schema = FlowDefinitionSchema.extend({
+  schemaVersion: z.literal(9),
+}).superRefine((definition, context) => {
+  definition.nodes.forEach((node, index) => {
+    if (node.loopId !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nodes', index, 'loopId'],
+        message: 'schemaVersion 9 不支持 loopId',
+      });
+    }
+  });
+  for (const [nodeId, layout] of Object.entries(
+    definition.layout?.nodes ?? {},
+  )) {
+    if (
+      layout.width !== undefined ||
+      layout.height !== undefined ||
+      layout.collapsed !== undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['layout', 'nodes', nodeId],
+        message: 'schemaVersion 9 不支持 Loop 容器布局字段',
+      });
+    }
+  }
+});

@@ -165,6 +165,11 @@ Temporal FlowRuntime: QUEUED -> RUNNING -> WAITING_HUMAN -> RUNNING -> COMPLETED
 
 ### 5.1 规范
 
+> 本节示例保留 V1 架构形成时的工件形状，用于解释设计来源，不是当前可写契约。当前契约为
+> `schemaVersion: 10`，类型源见 `packages/types/src/agent-flow/definition.ts`；Loop 容器与
+> v9 到 v10 的读取/升级规则见
+> `docs/superpowers/specs/2026-09-10-agent-flow-loop-container-design.md`。
+
 FlowDefinition 是可导入导出的标准 JSON，不能使用画布库的私有序列化格式。画布坐标、缩放、折叠状态放在可选 `layout` 字段，运行时和摘要计算忽略该字段。
 
 ```json
@@ -237,7 +242,8 @@ FlowDefinition 是可导入导出的标准 JSON，不能使用画布库的私有
 
 发布前必须同时通过结构校验和运行时校验：
 
-- `schemaVersion` 必须等于已支持版本，未知版本拒绝导入。
+- 新建和更新只接受当前 `schemaVersion: 10`；合法 v9 可先经只读 schema 解析并确定性升级为
+  v10，v1-v8 与未来版本标记为 `unsupported`，不猜测兼容。
 - 节点 id 在单个 Definition 内唯一，且仅允许 `[a-z][a-z0-9_-]{0,63}`。
 - 必须存在唯一入口和至少一个可达终点；除 `plan-loop` 的内部循环外，图不得有环。
 - 每条 edge 的端点必须存在，`when` 必须属于源节点声明的结果枚举。
@@ -247,7 +253,9 @@ FlowDefinition 是可导入导出的标准 JSON，不能使用画布库的私有
 - 提示词长度、描述长度和 layout 大小受上限约束；导入 JSON 总大小受请求体上限约束。
 - `layout` 不参与语义 digest；移除 `layout` 后以稳定键排序、标准 JSON 序列化，再计算 `digest`。
 
-导入永远创建新的 DRAFT 版本。即使 digest 相同，也不复用或覆盖已有版本；管理员可明确选择将该草稿发布。
+创建与导入永远写入新的 DRAFT 版本。草稿必须符合当前版本字段、引用和归属等安全结构约束，
+但允许空 Loop、断边、多入口等尚未闭合的拓扑中间态；完整图与运行时能力只在校验和发布时
+强制检查。即使 digest 相同，导入也不复用或覆盖已有版本；管理员可明确选择将草稿发布。
 
 ## 6. 预设 Flow
 

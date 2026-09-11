@@ -68,7 +68,7 @@ import { ChatContextService } from '../../memory/chat-context.service';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
-import { validateFlowDefinition } from '../definition/flow-definition.validator';
+import { normalizeFlowDefinition } from '../definition/flow-definition.versioning';
 import { FlowCompiler } from '../runtime/flow-compiler.service';
 import type {
   CompiledAgentFlowNode,
@@ -259,11 +259,17 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       );
     }
 
-    const parsed = validateFlowDefinition(task.flowVersion.definition);
+    const parsed = normalizeFlowDefinition(task.flowVersion.definition);
     if (!parsed.success) {
       throw createNonRetryableActivityFailure(
         'FlowVersion 中的 Definition 已损坏',
         'AGENT_FLOW_INVALID_SNAPSHOT',
+      );
+    }
+    if (parsed.sourceDigest !== input.flowDigest) {
+      throw createNonRetryableActivityFailure(
+        'FlowVersion 摘要与 Definition 不一致',
+        'AGENT_FLOW_TASK_SNAPSHOT_MISMATCH',
       );
     }
     return toRunSnapshot(parsed.definition);
@@ -664,11 +670,17 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         'AGENT_FLOW_TASK_SNAPSHOT_MISMATCH',
       );
     }
-    const parsed = validateFlowDefinition(task.flowVersion.definition);
+    const parsed = normalizeFlowDefinition(task.flowVersion.definition);
     if (!parsed.success) {
       throw createNonRetryableActivityFailure(
         'FlowVersion 中的 Definition 已损坏',
         'AGENT_FLOW_INVALID_SNAPSHOT',
+      );
+    }
+    if (parsed.sourceDigest !== input.workflow.flowDigest) {
+      throw createNonRetryableActivityFailure(
+        'FlowVersion 摘要与 Definition 不一致',
+        'AGENT_FLOW_TASK_SNAPSHOT_MISMATCH',
       );
     }
     // Admin 与 Activity Worker 是独立进程；只刷新 API 进程内缓存会让 Flow 长期看不到

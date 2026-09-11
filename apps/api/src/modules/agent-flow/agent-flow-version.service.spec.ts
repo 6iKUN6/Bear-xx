@@ -43,6 +43,8 @@ describe('AgentFlowVersionService', () => {
   let findUnique: jest.Mock<Promise<Record<string, unknown> | null>, [unknown]>;
   let update: jest.Mock<Promise<Record<string, unknown>>, [unknown]>;
   let updateMany: jest.Mock<Promise<{ count: number }>, [unknown]>;
+  let findFirst: jest.Mock<Promise<Record<string, unknown> | null>, [unknown]>;
+  let createVersion: jest.Mock<Promise<Record<string, unknown>>, [unknown]>;
   let findFlow: jest.Mock<Promise<Record<string, unknown> | null>, [unknown]>;
   let updateFlow: jest.Mock<Promise<Record<string, unknown>>, [unknown]>;
   let createAudit: jest.Mock<Promise<Record<string, unknown>>, [unknown]>;
@@ -56,6 +58,8 @@ describe('AgentFlowVersionService', () => {
     findUnique = jest.fn<Promise<Record<string, unknown> | null>, [unknown]>();
     update = jest.fn<Promise<Record<string, unknown>>, [unknown]>();
     updateMany = jest.fn<Promise<{ count: number }>, [unknown]>();
+    findFirst = jest.fn<Promise<Record<string, unknown> | null>, [unknown]>();
+    createVersion = jest.fn<Promise<Record<string, unknown>>, [unknown]>();
     findFlow = jest.fn<Promise<Record<string, unknown> | null>, [unknown]>();
     updateFlow = jest.fn<Promise<Record<string, unknown>>, [unknown]>();
     createAudit = jest.fn<Promise<Record<string, unknown>>, [unknown]>();
@@ -65,7 +69,13 @@ describe('AgentFlowVersionService', () => {
       [(client: Record<string, unknown>) => Promise<unknown>, unknown]
     >((callback: (client: Record<string, unknown>) => Promise<unknown>) =>
       callback({
-        agentFlowVersion: { findUnique, update, updateMany },
+        agentFlowVersion: {
+          findUnique,
+          findFirst,
+          create: createVersion,
+          update,
+          updateMany,
+        },
         agentFlow: { findUnique: findFlow, update: updateFlow },
         agentFlowAuditLog: { create: createAudit },
       }),
@@ -157,6 +167,46 @@ describe('AgentFlowVersionService', () => {
         digest: null,
       },
     });
+  });
+
+  it('允许保存拓扑未完成但结构安全的现有草稿', async () => {
+    const incompleteDraft = { ...directDefinition, edges: [] };
+    const currentVersion = {
+      id: 'version-1',
+      flowId: 'flow-1',
+      status: 'DRAFT',
+      version: 1,
+      digest: null,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+      createdAt: new Date('2026-09-11T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-11T00:00:00.000Z'),
+      publishedAt: null,
+      archivedAt: null,
+    };
+    findUnique.mockResolvedValue(currentVersion);
+    update.mockResolvedValue({
+      ...currentVersion,
+      definition: incompleteDraft,
+    });
+    updateFlow.mockResolvedValue({ id: 'flow-1' });
+    createAudit.mockResolvedValue({ id: 'audit-incomplete' });
+
+    await expect(
+      service.updateDraft('version-1', incompleteDraft, 'admin-1'),
+    ).resolves.toMatchObject({
+      id: 'version-1',
+      status: 'DRAFT',
+      definition: incompleteDraft,
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'version-1' },
+      data: {
+        definition: incompleteDraft,
+        schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+        digest: null,
+      },
+    });
+    expect(runtimeValidate).not.toHaveBeenCalled();
   });
 
   it('发布草稿时归档旧发布版本、锁定 digest 并切换当前发布版本', async () => {
@@ -310,5 +360,106 @@ describe('AgentFlowVersionService', () => {
     expect(update).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
     expect(runtimeValidate).toHaveBeenCalledWith(directDefinition);
+  });
+
+  it('把合法 v9 物化为新的 v10 草稿且不冒用源 digest', async () => {
+    const legacy = { ...directDefinition, schemaVersion: 9 };
+    const source = {
+      id: 'version-9',
+      flowId: 'flow-1',
+      version: 2,
+      status: 'PUBLISHED',
+      definition: legacy,
+      digest: calculateFlowDefinitionDigest(legacy),
+      schemaVersion: 9,
+      createdAt: new Date('2026-09-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+      publishedAt: new Date('2026-09-01T00:00:00.000Z'),
+      archivedAt: null,
+    };
+    const draft = {
+      ...source,
+      id: 'version-10',
+      version: 3,
+      status: 'DRAFT',
+      definition: directDefinition,
+      digest: null,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+      createdAt: new Date('2026-09-10T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-10T00:00:00.000Z'),
+      publishedAt: null,
+    };
+    findUnique.mockResolvedValue(source);
+    findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ version: 2 });
+    createVersion.mockResolvedValue(draft);
+    createAudit.mockResolvedValue({ id: 'audit-upgrade' });
+
+    const result = await service.upgradeToCurrentDraft('version-9', 'admin-1');
+
+    expect(result.version).toMatchObject({
+      id: 'version-10',
+      version: 3,
+      schemaStatus: 'current',
+    });
+    expect(result.report).toMatchObject({ fromVersion: 9, toVersion: 10 });
+    expect(createVersion).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        flowId: 'flow-1',
+        version: 3,
+        status: 'DRAFT',
+        digest: null,
+        schemaVersion: 10,
+      }),
+    });
+    expect(createAudit).toHaveBeenCalledWith({
+      data: {
+        flowId: 'flow-1',
+        versionId: 'version-10',
+        action: 'UPGRADED',
+        actorId: 'admin-1',
+        digest: null,
+        upgradeContext: {
+          sourceVersionId: 'version-9',
+          targetVersionId: 'version-10',
+          fromSchemaVersion: 9,
+          toSchemaVersion: 10,
+        },
+      },
+    });
+  });
+
+  it('已有草稿时拒绝覆盖并保留历史工件', async () => {
+    findUnique.mockResolvedValue({
+      id: 'version-9',
+      flowId: 'flow-1',
+      definition: { ...directDefinition, schemaVersion: 9 },
+      digest: calculateFlowDefinitionDigest({
+        ...directDefinition,
+        schemaVersion: 9,
+      }),
+    });
+    findFirst.mockResolvedValue({ id: 'draft-1', version: 3 });
+
+    await expect(
+      service.upgradeToCurrentDraft('version-9', 'admin-1'),
+    ).rejects.toThrow('该 Flow 已有 v3 草稿');
+    expect(createVersion).not.toHaveBeenCalled();
+    expect(createAudit).not.toHaveBeenCalled();
+  });
+
+  it('升级源摘要与 v9 原工件不一致时拒绝创建草稿', async () => {
+    findUnique.mockResolvedValue({
+      id: 'version-9',
+      flowId: 'flow-1',
+      definition: { ...directDefinition, schemaVersion: 9 },
+      digest: 'a'.repeat(64),
+    });
+
+    await expect(
+      service.upgradeToCurrentDraft('version-9', 'admin-1'),
+    ).rejects.toThrow('升级源版本摘要与 Definition 不一致');
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(createVersion).not.toHaveBeenCalled();
+    expect(createAudit).not.toHaveBeenCalled();
   });
 });
