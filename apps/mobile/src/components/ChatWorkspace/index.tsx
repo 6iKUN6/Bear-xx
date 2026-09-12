@@ -18,7 +18,7 @@ import { useChatStore } from "../../store/chatStore";
 import { useAgentStore } from "../../store/agentStore";
 import { findAgent, resolveAgentName } from "../../utils/agent";
 import { useChatStream } from "../../hooks/useChatStream";
-import { toMessageStreamFeedback } from "../../utils/streamFeedback";
+import { toMessageStreamFeedback } from "@litter-bear/chat-core";
 import { streamTaskService } from "../../services/stream";
 import { ApiRequestError } from "../../api/request";
 import {

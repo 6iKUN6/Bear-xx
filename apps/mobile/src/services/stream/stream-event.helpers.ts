@@ -9,7 +9,7 @@ import {
   type MessageDonePayload,
   type StreamTaskEvent,
   type StreamTaskEventPayload,
-} from "./stream-event.types";
+} from "@litter-bear/chat-core";
 import type { OrderCreatedPayload } from "@litter-bear/types/protocol";
 import type { StreamTaskLifecycle } from "./stream.types";
 

@@ -1,75 +1,22 @@
-type MessageRole = "user" | "assistant";
-type MessageStatus = "sending" | "streaming" | "done" | "error";
-type MessageStreamEventTone = "info" | "success" | "warning" | "error";
-type MessageStreamEventDisplay = "panel" | "text";
-type MessageTraceStage =
-  "context" | "model" | "tool" | "approval" | "output" | "error" | "workflow";
-
-interface MessageStreamEventFeedback {
-  id: string;
-  type: string;
-  title: string;
-  detail?: string;
-  tone: MessageStreamEventTone;
-  display: MessageStreamEventDisplay;
-  stage?: MessageTraceStage;
-  toolName?: string;
-  /** 工具完成后由服务端提供的安全摘要，不包含工具入参。 */
-  toolSummary?: string;
-  /** 该步耗时（毫秒）；flow 节点完成 / 历史 trace 时下发 */
-  durationMs?: number | null;
-  inputSummary?: Record<string, unknown> | null;
-  outputSummary?: Record<string, unknown> | null;
-  updatedAt: number;
-}
-
-interface MessageStreamFeedbackState {
-  current?: MessageStreamEventFeedback;
-  events: MessageStreamEventFeedback[];
-  expanded: boolean;
-}
-
-interface MessageTokenUsageMetrics {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  cachedInputTokens?: number;
-  reasoningTokens?: number;
-  estimated?: boolean;
-}
-
-interface MessageCacheHitMetrics {
-  memorySummaryHit?: boolean;
-  providerPromptCacheHit?: boolean;
-  contextCacheHit?: boolean;
-  cachedInputTokens?: number;
-}
-
-interface MessageRunMetrics {
-  tokenUsage?: MessageTokenUsageMetrics;
-  cache?: MessageCacheHitMetrics;
-  durationMs?: number;
-  messageCount?: number;
-  summaryMessageCount?: number;
-  recentMessageCount?: number;
-  contentLength?: number;
-}
-
-interface MessageTraceItem {
-  id: string;
-  type: string;
-  status: string;
-  title: string;
-  summary?: string | null;
-  durationMs?: number | null;
-  depth: number;
-  sequence: number;
-  metrics?: MessageRunMetrics | null;
-  toolName?: string | null;
-  parentId?: string | null;
-  inputSummary?: Record<string, unknown> | null;
-  outputSummary?: Record<string, unknown> | null;
-}
+// 聊天域全局类型。流式反馈/轨迹/指标等跨端类型已迁移到 @litter-bear/chat-core，
+// 这里用同名别名保持移动端既有引用（store、组件均为无 import 的全局引用）。
+type MessageRole = import("@litter-bear/chat-core").MessageRole;
+type MessageStatus = import("@litter-bear/chat-core").MessageStatus;
+type MessageStreamEventTone =
+  import("@litter-bear/chat-core").MessageStreamEventTone;
+type MessageStreamEventDisplay =
+  import("@litter-bear/chat-core").MessageStreamEventDisplay;
+type MessageTraceStage = import("@litter-bear/chat-core").MessageTraceStage;
+type MessageStreamEventFeedback =
+  import("@litter-bear/chat-core").MessageStreamEventFeedback;
+type MessageStreamFeedbackState =
+  import("@litter-bear/chat-core").MessageStreamFeedbackState;
+type MessageTokenUsageMetrics =
+  import("@litter-bear/chat-core").MessageTokenUsageMetrics;
+type MessageCacheHitMetrics =
+  import("@litter-bear/chat-core").MessageCacheHitMetrics;
+type MessageRunMetrics = import("@litter-bear/chat-core").MessageRunMetrics;
+type MessageTraceItem = import("@litter-bear/chat-core").MessageTraceItem;
 
 interface Message {
   id: string;

@@ -11,7 +11,7 @@ import { createBoundStore } from "./createBoundStore";
 import {
   buildStreamFeedbackFromTrace,
   mergeStreamFeedbackEvent,
-} from "../utils/streamFeedback";
+} from "@litter-bear/chat-core";
 
 /** 本地草稿会话 id 前缀（服务端不存在此记录） */
 const DRAFT_CONVERSATION_PREFIX = "draft_";

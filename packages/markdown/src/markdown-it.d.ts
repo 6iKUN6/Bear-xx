@@ -1,3 +1,5 @@
+// markdown-it 官方不随包发行类型（@types/markdown-it 未引入），这里维护
+// 本包用到的最小声明。katex 自带类型（types/katex.d.ts），无需声明。
 declare module "markdown-it" {
   export interface MarkdownItOptions {
     html?: boolean;
@@ -106,14 +108,4 @@ declare module "markdown-it" {
     render: MarkdownItInstance["render"];
     use: MarkdownItInstance["use"];
   }
-}
-
-declare module "katex" {
-  export interface KatexOptions {
-    displayMode?: boolean;
-    throwOnError?: boolean;
-    output?: "html" | "mathml" | "htmlAndMathml";
-  }
-
-  export function renderToString(tex: string, options?: KatexOptions): string;
 }

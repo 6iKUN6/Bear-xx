@@ -1,4 +1,5 @@
 import { View } from "@tarojs/components";
+import { readStreamTail } from "@litter-bear/markdown";
 import MarkdownContent from "../MarkdownContent";
 import "./index.scss";
 
@@ -33,13 +34,4 @@ export default function StreamingMarkdownContent({
       )}
     </View>
   );
-}
-
-function readStreamTail(content: string, tailLength: number) {
-  const trimmed = content.replace(/\s+$/, "");
-  if (!trimmed) {
-    return "";
-  }
-
-  return trimmed.slice(Math.max(0, trimmed.length - tailLength));
 }

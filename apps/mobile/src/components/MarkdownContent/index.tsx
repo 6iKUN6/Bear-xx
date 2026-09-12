@@ -1,11 +1,6 @@
 import { useMemo } from "react";
 import { RichText, Text, View } from "@tarojs/components";
-import MarkdownIt, {
-  type MarkdownItInstance,
-  type MarkdownItStateBlock,
-  type MarkdownItStateInline,
-} from "markdown-it";
-import { renderToString } from "katex";
+import { renderMarkdown } from "@litter-bear/markdown";
 
 interface MarkdownContentProps {
   content: string;
@@ -13,36 +8,17 @@ interface MarkdownContentProps {
   emptyText?: string;
 }
 
-const markdown = createMarkdownRenderer();
-const paragraphStyle = "margin:0 0 8px;line-height:1.72;";
-const headingStyle =
-  "margin:12px 0 8px;font-weight:700;line-height:1.35;color:inherit;";
-const listStyle = "margin:6px 0 8px 18px;padding:0;line-height:1.65;";
-const listItemStyle = "margin:3px 0;";
-const blockquoteStyle =
-  "margin:8px 0;padding:8px 10px;border:1px solid var(--lb-line-soft);border-radius:var(--lb-radius-md);background:var(--lb-surface-muted);color:var(--lb-text-secondary);";
-const hrStyle = "height:1px;margin:12px 0;background:var(--lb-line-soft);";
-const inlineCodeStyle =
-  "padding:1px 5px;border-radius:var(--lb-radius-xs);background:var(--lb-surface-hover);font-family:Menlo,Consolas,monospace;font-size:0.88em;color:var(--lb-accent-ink);";
-const codeBlockStyle =
-  "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:8px;background:#29231f;color:#faf8f6;font-family:Menlo,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;";
-const mathBlockStyle =
-  "display:block;box-sizing:border-box;margin:8px 0;padding:10px 12px;border-radius:var(--lb-radius-md);background:var(--lb-surface-muted);color:var(--lb-accent-ink);text-align:center;overflow-wrap:anywhere;";
-const mathInlineStyle = "color:var(--lb-accent-ink);";
-// 图片：markdown-it 默认输出的 <img> 不带任何属性，而生图产物宽 2048px，
-// 会溢出气泡并被 ChatBubble 的 overflow-hidden 右侧裁掉。约束到容器宽度并按
-// 原比例缩放即可完整显示。注意 rich-text 节点只认内联样式，外部 CSS 到不了这里。
-const imageStyle =
-  "display:block;box-sizing:border-box;max-width:100%;height:auto;margin:8px 0;border-radius:var(--lb-radius-md);";
-
+/**
+ * 小程序端 Markdown 薄壳
+ * @description 解析与渲染规则在 @litter-bear/markdown（与桌面端共享），
+ * 这里只负责把产出的内联样式 HTML 交给 RichText。
+ */
 export default function MarkdownContent({
   content,
   className = "",
   emptyText,
 }: MarkdownContentProps) {
-  const html = useMemo(() => {
-    return markdown.render(content || "");
-  }, [content]);
+  const html = useMemo(() => renderMarkdown(content), [content]);
 
   if (!content && emptyText) {
     return (
@@ -59,169 +35,4 @@ export default function MarkdownContent({
       <RichText nodes={html} userSelect />
     </View>
   );
-}
-
-function createMarkdownRenderer() {
-  const md: MarkdownIt = new MarkdownIt({
-    html: false,
-    breaks: true,
-    linkify: true,
-    typographer: true,
-    langPrefix: "language-",
-    highlight(str, lang) {
-      const escaped = md.utils.escapeHtml(str);
-      const codeLang = lang ? `data-lang="${md.utils.escapeHtml(lang)}"` : "";
-      return `<code ${codeLang} style="${codeBlockStyle}">${escaped}</code>`;
-    },
-  });
-
-  md.renderer.rules.paragraph_open = () => `<p style="${paragraphStyle}">`;
-  md.renderer.rules.heading_open = (tokens, idx) =>
-    `<${tokens[idx].tag} style="${headingStyle}">`;
-  md.renderer.rules.bullet_list_open = () => `<ul style="${listStyle}">`;
-  md.renderer.rules.ordered_list_open = () => `<ol style="${listStyle}">`;
-  md.renderer.rules.list_item_open = () => `<li style="${listItemStyle}">`;
-  md.renderer.rules.blockquote_open = () =>
-    `<blockquote style="${blockquoteStyle}">`;
-  md.renderer.rules.hr = () => `<div style="${hrStyle}"></div>`;
-  md.renderer.rules.code_inline = (tokens, idx) =>
-    `<code style="${inlineCodeStyle}">${md.utils.escapeHtml(tokens[idx].content)}</code>`;
-  md.renderer.rules.image = (tokens, idx) => {
-    const token = tokens[idx];
-    const src = token.attrGet("src") ?? "";
-    if (!src) {
-      return "";
-    }
-    // alt 存在 token.content（markdown-it 对 image token 的约定）
-    const alt = md.utils.escapeHtml(token.content || "图片");
-    return `<img src="${md.utils.escapeHtml(src)}" alt="${alt}" style="${imageStyle}" />`;
-  };
-  md.renderer.rules.code_block = (tokens, idx) =>
-    `<code style="${codeBlockStyle}">${md.utils.escapeHtml(tokens[idx].content)}</code>`;
-  md.renderer.rules.fence = (tokens, idx) => {
-    const token = tokens[idx];
-    const lang = token.info.trim().split(/\s+/)[0] || "code";
-
-    if (lang.toLowerCase() === "math") {
-      return renderMath(token.content, true);
-    }
-
-    const escaped = md.utils.escapeHtml(token.content);
-    return `<code style="${codeBlockStyle}">${escaped}</code>`;
-  };
-
-  md.use(mathPlugin);
-  return md;
-}
-
-function mathPlugin(md: MarkdownItInstance) {
-  md.block.ruler.before("fence", "math_block", mathBlockRule, {
-    alt: ["paragraph", "reference", "blockquote", "list"],
-  });
-  md.inline.ruler.before("escape", "math_inline", mathInlineRule);
-
-  md.renderer.rules.math_inline = (tokens, idx) =>
-    renderMath(tokens[idx].content, false);
-  md.renderer.rules.math_block = (tokens, idx) =>
-    renderMath(tokens[idx].content, true);
-}
-
-function mathBlockRule(
-  state: MarkdownItStateBlock,
-  startLine: number,
-  endLine: number,
-  silent = false,
-) {
-  const start = state.bMarks[startLine] + state.tShift[startLine];
-  const max = state.eMarks[startLine];
-  const marker = state.src.slice(start, start + 2);
-
-  if (marker !== "$$") {
-    return false;
-  }
-
-  let nextLine = startLine;
-  let found = false;
-  let content = state.src.slice(start + 2, max);
-
-  if (content.trim().endsWith("$$") && content.trim().length > 2) {
-    content = content.trim().slice(0, -2);
-    found = true;
-  }
-
-  while (!found) {
-    nextLine++;
-    if (nextLine >= endLine) {
-      return false;
-    }
-
-    const lineStart = state.bMarks[nextLine] + state.tShift[nextLine];
-    const lineEnd = state.eMarks[nextLine];
-    const line = state.src.slice(lineStart, lineEnd);
-    const closeIndex = line.indexOf("$$");
-
-    if (closeIndex >= 0) {
-      content += `\n${line.slice(0, closeIndex)}`;
-      found = true;
-      break;
-    }
-
-    content += `\n${line}`;
-  }
-
-  if (silent) {
-    return true;
-  }
-
-  const token = state.push("math_block", "math", 0);
-  token.block = true;
-  token.content = content.trim();
-  token.map = [startLine, nextLine + 1];
-  state.line = nextLine + 1;
-  return true;
-}
-
-function mathInlineRule(state: MarkdownItStateInline, silent = false) {
-  if (state.src[state.pos] !== "$") {
-    return false;
-  }
-
-  if (state.src[state.pos + 1] === "$") {
-    return false;
-  }
-
-  let close = state.pos + 1;
-  while ((close = state.src.indexOf("$", close)) >= 0) {
-    if (state.src[close - 1] !== "\\") {
-      break;
-    }
-    close++;
-  }
-
-  if (close < 0 || close === state.pos + 1) {
-    return false;
-  }
-
-  if (!silent) {
-    const token = state.push("math_inline", "math", 0);
-    token.content = state.src.slice(state.pos + 1, close);
-  }
-
-  state.pos = close + 1;
-  return true;
-}
-
-function renderMath(tex: string, displayMode: boolean) {
-  try {
-    return renderToString(tex, {
-      displayMode,
-      throwOnError: false,
-      output: "mathml",
-    });
-  } catch {
-    const escaped = markdown.utils.escapeHtml(tex);
-    return displayMode
-      ? `<div style="${mathBlockStyle}">${escaped}</div>`
-      : `<span style="${mathInlineStyle}">${escaped}</span>`;
-  }
 }

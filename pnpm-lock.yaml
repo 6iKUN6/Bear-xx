@@ -325,6 +325,12 @@ importers:
       '@babel/runtime':
         specifier: ^7.24.4
         version: 7.29.7
+      '@litter-bear/chat-core':
+        specifier: workspace:*
+        version: link:../../packages/chat-core
+      '@litter-bear/markdown':
+        specifier: workspace:*
+        version: link:../../packages/markdown
       '@litter-bear/theme':
         specifier: workspace:*
         version: link:../../packages/theme
@@ -376,12 +382,6 @@ importers:
       '@tarojs/taro':
         specifier: 4.1.11
         version: 4.1.11(@tarojs/components@4.1.11(@tarojs/helper@4.1.11)(@types/react@18.3.31)(postcss@8.5.19)(rollup@3.30.0)(webpack@5.109.2(@swc/core@1.3.96)(lightningcss@1.32.0)(postcss@8.5.19)))(@tarojs/helper@4.1.11)(@tarojs/shared@4.1.11)(@types/react@18.3.31)(postcss@8.5.19)(rollup@3.30.0)(webpack@5.109.2(@swc/core@1.3.96)(lightningcss@1.32.0)(postcss@8.5.19))
-      katex:
-        specifier: ^0.17.0
-        version: 0.17.0
-      markdown-it:
-        specifier: ^14.2.0
-        version: 14.3.0
       react:
         specifier: ^18.0.0
         version: 18.3.1
@@ -484,6 +484,29 @@ importers:
         version: 4.12.0(tailwindcss@4.3.2)
 
   packages/assets: {}
+
+  packages/chat-core:
+    dependencies:
+      '@litter-bear/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  packages/markdown:
+    dependencies:
+      katex:
+        specifier: ^0.17.0
+        version: 0.17.0
+      markdown-it:
+        specifier: ^14.2.0
+        version: 14.3.0
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   packages/theme:
     devDependencies:
