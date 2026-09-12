@@ -79,7 +79,12 @@ test("内部业务拓扑唯一时重建 again 与回流边，多义时不保留�
   if (!second.ok) return;
   assert.deepEqual(second.definition.edges, []);
 
-  const connected = connect(second.definition, "agent", "synthesize", "default");
+  const connected = connect(
+    second.definition,
+    "agent",
+    "synthesize",
+    "default",
+  );
   assert.equal(connected.ok, true);
   if (!connected.ok) return;
   assert.deepEqual(connected.definition.edges, [
@@ -129,7 +134,10 @@ test("无连线节点可拖入再拖出 Loop，并保持视觉绝对位置", () 
   assert.equal(movedOut.ok, true);
   if (!movedOut.ok) return;
   assert.equal(movedOut.definition.nodes.at(-1)?.loopId, undefined);
-  assert.deepEqual(movedOut.definition.layout?.nodes.worker, { x: 760, y: 210 });
+  assert.deepEqual(movedOut.definition.layout?.nodes.worker, {
+    x: 760,
+    y: 210,
+  });
 });
 
 test("已有连线会因改归属而跨边界时拒绝拖入", () => {
@@ -162,7 +170,7 @@ function loopDraft(overrides?: {
       {
         id: "quality_loop",
         type: "loop",
-        config: { maxIterations: 3, continueWhen: [] },
+        config: { maxIterations: 3, breakWhen: [] },
       },
       ...(overrides?.nodes ?? []),
     ],

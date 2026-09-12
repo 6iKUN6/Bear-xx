@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 11,
+  "kind": "agent-flow",
+  "name": "结构化评估循环测试",
+  "description": "使用 structured-output 提取字段，再由 evaluate 判断是否通过，测试 Loop breakWhen。",
+  "policy": {
+    "maxSteps": 4,
+    "maxModelCalls": 6,
+    "maxToolCalls": 0,
+    "maxDurationSeconds": 300
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "name": "开始",
+      "type": "start",
+      "config": {}
+    },
+    {
+      "id": "quality_loop",
+      "name": "质量循环",
+      "description": "最多执行两轮结构化提取和模型评估；评估通过后提前结束。",
+      "type": "loop",
+      "config": {
+        "maxIterations": 2,
+        "breakWhen": [
+          {
+            "key": "passed",
+            "logic": "and",
+            "conditions": [
+              {
+                "ref": {
+                  "$ref": ["judge", "passed"]
+                },
+                "operator": "isTrue"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "extract",
+      "name": "提取结构化结果",
+      "description": "从用户输入中提取主题、评分和接受状态。",
+      "type": "structured-output",
+      "loopId": "quality_loop",
+      "config": {
+        "inputRefs": [
+          {
+            "$ref": ["start", "text"]
+          }
+        ],
+        "instruction": "从输入中提取主题、评分和是否接受。评分必须是 0 到 100 的数字。",
+        "fields": [
+          {
+            "name": "topic",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "score",
+            "type": "number",
+            "required": true
+          },
+          {
+            "name": "accepted",
+            "type": "boolean",
+            "required": true
+          }
+        ],
+        "modelPreset": "agent-default"
+      }
+    },
+    {
+      "id": "judge",
+      "name": "模型评估",
+      "description": "根据结构化字段判断本轮结果是否满足要求。",
+      "type": "evaluate",
+      "loopId": "quality_loop",
+      "config": {
+        "inputRefs": [
+          {
+            "$ref": ["extract", "topic"]
+          },
+          {
+            "$ref": ["extract", "score"]
+          },
+          {
+            "$ref": ["extract", "accepted"]
+          }
+        ],
+        "criteria": "如果主题明确、score 不低于 80 且 accepted 为 true，则 passed 为 true；否则为 false。score 表示整体质量，reason 说明判断依据。",
+        "modelPreset": "agent-default"
+      }
+    },
+    {
+      "id": "answer",
+      "name": "汇总回答",
+      "type": "synthesize",
+      "config": {
+        "modelPreset": "agent-default"
+      }
+    },
+    {
+      "id": "end",
+      "name": "结束",
+      "type": "end",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "quality_loop"
+    },
+    {
+      "from": "quality_loop",
+      "to": "extract",
+      "when": "again"
+    },
+    {
+      "from": "extract",
+      "to": "judge"
+    },
+    {
+      "from": "judge",
+      "to": "quality_loop"
+    },
+    {
+      "from": "quality_loop",
+      "to": "answer",
+      "when": "done"
+    },
+    {
+      "from": "answer",
+      "to": "end"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "start": {
+        "x": 80,
+        "y": 220
+      },
+      "quality_loop": {
+        "x": 320,
+        "y": 80,
+        "width": 680,
+        "height": 360,
+        "collapsed": false
+      },
+      "extract": {
+        "x": 80,
+        "y": 120
+      },
+      "judge": {
+        "x": 360,
+        "y": 120
+      },
+      "answer": {
+        "x": 1080,
+        "y": 220
+      },
+      "end": {
+        "x": 1360,
+        "y": 220
+      }
+    }
+  }
+}

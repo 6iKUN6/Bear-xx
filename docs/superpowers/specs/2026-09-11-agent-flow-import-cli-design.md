@@ -37,7 +37,8 @@ Nest 应用上下文。通过依赖注入获取 `PrismaService`、`AgentFlowServ
 
 1. 读取并解析 JSON。
 2. 如提供 `--model-preset`，只改写支持模型配置的节点：`agent`、`plan`、
-   `plan-loop.executor`、`approval(policy=model)` 和 `synthesize`。
+   `plan-loop.executor`、`approval(policy=model)`、`synthesize`、`structured-output`
+   和 `evaluate`。
 3. 解析操作者：显式值按用户 ID 或用户名查询且必须为管理员；缺省依次选择最早创建的
    `SUPER_ADMIN`、`ADMIN`。没有管理员时失败。
 4. 不带 `--publish` 时调用 `AgentFlowService.create()`，按草稿结构校验创建 Flow、v1 草稿和

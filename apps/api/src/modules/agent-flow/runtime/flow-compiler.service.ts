@@ -165,6 +165,41 @@ export class FlowCompiler {
             context,
           ),
         };
+      case 'structured-output':
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'structured-output',
+          inputRefs: node.config.inputRefs,
+          instruction: node.config.instruction,
+          fields: node.config.fields,
+          modelPreset: this.resolveModelPreset(
+            node.config.modelPreset,
+            context,
+          ),
+          reasoning: this.resolveReasoning(
+            node.config.modelPreset,
+            node.config.reasoning,
+            context,
+          ),
+        };
+      case 'evaluate':
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'evaluate',
+          inputRefs: node.config.inputRefs,
+          criteria: node.config.criteria,
+          modelPreset: this.resolveModelPreset(
+            node.config.modelPreset,
+            context,
+          ),
+          reasoning: this.resolveReasoning(
+            node.config.modelPreset,
+            node.config.reasoning,
+            context,
+          ),
+        };
       case 'join':
         return {
           key: node.id,
@@ -186,7 +221,7 @@ export class FlowCompiler {
           ...alias(node),
           type: 'loop',
           maxIterations: node.config.maxIterations,
-          continueWhen: node.config.continueWhen,
+          breakWhen: node.config.breakWhen,
         };
     }
   }

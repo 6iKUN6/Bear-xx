@@ -55,6 +55,12 @@ test('模型覆盖会物化全部模型节点且不修改输入对象', () => {
         config: { policy: 'model', modelPreset: 'old' },
       },
       { id: 'answer', type: 'synthesize', config: { modelPreset: 'old' } },
+      {
+        id: 'extract',
+        type: 'structured-output',
+        config: { modelPreset: 'old' },
+      },
+      { id: 'judge', type: 'evaluate', config: { modelPreset: 'old' } },
       { id: 'end', type: 'end', config: {} },
     ],
   };
@@ -64,13 +70,13 @@ test('模型覆盖会物化全部模型节点且不修改输入对象', () => {
   });
 
   assert.equal(input.nodes[0].config.modelPreset, 'old');
-  for (const node of materialized.nodes.slice(0, 5)) {
+  for (const node of materialized.nodes.slice(0, 7)) {
     const config =
       node.type === 'plan-loop' ? node.config.executor : node.config;
     assert.equal(config.modelPreset, 'google:gemini-test');
     assert.deepEqual(config.reasoning, { effort: 'high' });
   }
-  assert.deepEqual(materialized.nodes[5], input.nodes[5]);
+  assert.deepEqual(materialized.nodes[7], input.nodes[7]);
 });
 
 test('发布预检失败时不会创建 Flow', async () => {
@@ -102,7 +108,7 @@ test('发布预检失败时不会创建 Flow', async () => {
   assert.equal(createCalls, 0);
 });
 
-test('Loop fixture 符合当前完整 Definition 契约', () => {
+test('结构化评估 Loop fixture 符合当前完整 Definition 契约', () => {
   const apiRoot = path.resolve(__dirname, '..');
   process.env.TS_NODE_PROJECT = path.join(apiRoot, 'tsconfig.json');
   require('ts-node/register');
@@ -110,7 +116,7 @@ test('Loop fixture 符合当前完整 Definition 契约', () => {
   const {
     validateFlowDefinition,
   } = require('../src/modules/agent-flow/definition/flow-definition.validator');
-  const fixture = require('./fixtures/loop-container-v10.json');
+  const fixture = require('./fixtures/structured-evaluation-loop-v11.json');
 
   const result = validateFlowDefinition(fixture);
   assert.equal(

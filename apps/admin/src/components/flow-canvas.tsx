@@ -71,6 +71,7 @@ interface FlowNodeData extends Record<string, unknown> {
   hasError?: boolean;
   loopSummary?: string;
   loopWarning?: string;
+  nodeSummary?: string;
   collapsed?: boolean;
   editable?: boolean;
   onToggleLoop?: (loopId: string) => void;
@@ -246,6 +247,11 @@ function FlowCanvasNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
         {meta.name}
         <span className="ml-1 font-mono opacity-70">{meta.type}</span>
       </div>
+      {data.nodeSummary ? (
+        <div className="mt-1 truncate text-[11px] text-muted-foreground">
+          {data.nodeSummary}
+        </div>
+      ) : null}
       {/* 接入了模型预设的节点在右上角亮出厂商 logo；预设已被删除（stale）时换成警示，不能在画布上装死 */}
       {data.provider ? (
         data.provider.stale ? (
@@ -381,9 +387,7 @@ function FlowCanvasInner({
   );
   const graph = useMemo(
     () =>
-      parsed.ok
-        ? toFlowGraph(parsed.definition, collapsedOverrides)
-        : null,
+      parsed.ok ? toFlowGraph(parsed.definition, collapsedOverrides) : null,
     [parsed, collapsedOverrides],
   );
 

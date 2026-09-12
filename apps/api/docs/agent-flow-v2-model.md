@@ -74,7 +74,7 @@ while (nodeKey) {
 
 ### 2.1 节点输出由代码声明，不给用户配 —— **已落地**
 
-唯一事实源是 `packages/types` 的 `FLOW_NODE_OUTPUTS`；运行时随节点完成写入
+唯一事实源是 `packages/types` 的 `FLOW_NODE_OUTPUTS` 与 `flowNodeOutputTypes`；运行时随节点完成写入
 `AgentFlowNodeExecution.outputs`（与幂等记录同一行、同一事务），下游经 `$ref` 读取。
 
 | 节点 | 输出 |
@@ -82,6 +82,8 @@ while (nodeKey) {
 | `agent` | `text: string` |
 | `plan` | `steps: array`、`stepCount: number` |
 | `plan-loop` | `text: string`、`observations: array` |
+| `structured-output` | 按字段声明展开的扁平输出 |
+| `evaluate` | `passed: boolean`、`score: number`、`reason: string` |
 | `approval` | `approved: boolean`、`comment: string` |
 | `synthesize` | `text: string` |
 | `condition` | 无输出，只产分支 |

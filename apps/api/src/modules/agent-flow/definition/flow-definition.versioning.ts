@@ -5,7 +5,10 @@ import {
   type FlowNode,
   type FlowNodeLayout,
 } from '@litter-bear/types/agent-flow';
-import { FlowDefinitionV9Schema } from './flow-definition.schema';
+import {
+  FlowDefinitionV9Schema,
+  FlowDefinitionV10Schema,
+} from './flow-definition.schema';
 import { calculateFlowDefinitionDigest } from './flow-definition.digest';
 import {
   parseFlowDefinitionStructure,
@@ -18,7 +21,7 @@ import {
 export type FlowSchemaStatus =
   'current' | 'upgradeable' | 'invalid' | 'unsupported';
 
-/** v9 到 v10 迁移产生的可审计摘要。 */
+/** 历史 Definition 升级产生的可审计摘要。 */
 export interface FlowDefinitionUpgradeReport {
   readonly fromVersion: number;
   readonly toVersion: number;
@@ -52,9 +55,9 @@ const LOOP_LAYOUT = {
 /**
  * 识别并在可能时规范化任意版本的 Flow Definition
  * @param input 数据库工件或外部导入的未知 JSON
- * @returns 返回版本状态；current/upgradeable 同时带当前 v10 Definition
- * @description 当前版本只做结构识别，完整图错误由发布校验负责；v9 必须先按 v9 语义完整
- * 合法，且迁移结果也完整合法，才标记为 upgradeable。v1-v8 与未来版本不猜测升级。
+ * @returns 返回版本状态；current/upgradeable 同时带当前 v11 Definition
+ * @description 当前版本只做结构识别，完整图错误由发布校验负责；v9/v10 必须先按历史语义
+ * 完整合法，且迁移结果也完整合法，才标记为 upgradeable。v1-v8 与未来版本不猜测升级。
  */
 export function inspectFlowDefinition(
   input: unknown,
@@ -78,6 +81,51 @@ export function inspectFlowDefinition(
         };
   }
 
+  if (sourceVersion === 10) {
+    if (hasNonEmptyLegacyContinueWhen(input)) {
+      return legacyLoopMigrationRequired(sourceVersion);
+    }
+    const legacy = FlowDefinitionV10Schema.safeParse(input);
+    if (!legacy.success) {
+      return {
+        status: 'invalid',
+        sourceVersion,
+        targetVersion: null,
+        errors: legacy.error.issues.map((issue) => ({
+          path: issue.path.map(String).join('.') || '$',
+          rule: 'schema',
+          message: `字段格式不合法：${issue.message}`,
+        })),
+      };
+    }
+    const normalized = {
+      ...legacy.data,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    };
+    const validated = validateFlowDefinition(normalized);
+    if (!validated.success) {
+      return {
+        status: 'invalid',
+        sourceVersion,
+        targetVersion: null,
+        errors: validated.errors,
+      };
+    }
+    return {
+      status: 'upgradeable',
+      sourceVersion,
+      targetVersion: AGENT_FLOW_SCHEMA_VERSION,
+      errors: [],
+      definition: validated.definition,
+      report: {
+        fromVersion: 10,
+        toVersion: AGENT_FLOW_SCHEMA_VERSION,
+        loopAssignments: [],
+        relativeLayoutNodeIds: [],
+      },
+    };
+  }
+
   if (sourceVersion !== 9) {
     return {
       status: sourceVersion === null ? 'invalid' : 'unsupported',
@@ -90,10 +138,14 @@ export function inspectFlowDefinition(
           message:
             sourceVersion === null
               ? 'FlowDefinition 缺少整数 schemaVersion'
-              : `暂不支持 schemaVersion ${sourceVersion}，当前只支持 v9 到 v10 的升级`,
+              : `暂不支持 schemaVersion ${sourceVersion}，当前只支持 v9/v10 到 v11 的升级`,
         },
       ],
     };
+  }
+
+  if (hasNonEmptyLegacyContinueWhen(input)) {
+    return legacyLoopMigrationRequired(sourceVersion);
   }
 
   const legacy = FlowDefinitionV9Schema.safeParse(input);
@@ -202,8 +254,8 @@ export function normalizeFlowDefinition(input: unknown):
  * @param input 数据库中的原始 Definition 工件
  * @param inspection 已成功产出当前内存模型的版本检查结果
  * @returns 返回迁移前的源工件摘要
- * @description 当前版本使用已解析对象；v9 重新使用只读 schema 解析后计算，绝不对迁移后的
- * v10 内存对象计算历史摘要。调用方只在 inspection.definition 存在时进入，因此失败表示内部
+ * @description 当前版本使用已解析对象；v9/v10 使用数据库中的原始工件计算，绝不对迁移后的
+ * v11 内存对象计算历史摘要。调用方只在 inspection.definition 存在时进入，因此失败表示内部
  * 版本分支与检查器发生漂移，应直接抛错而不能返回默认摘要。
  */
 function calculateInspectedSourceDigest(
@@ -213,17 +265,75 @@ function calculateInspectedSourceDigest(
   if (inspection.sourceVersion === AGENT_FLOW_SCHEMA_VERSION) {
     return calculateFlowDefinitionDigest(inspection.definition!);
   }
-  if (inspection.sourceVersion === 9) {
-    const legacy = FlowDefinitionV9Schema.safeParse(input);
-    if (legacy.success) return calculateFlowDefinitionDigest(legacy.data);
+  if (inspection.sourceVersion === 9 || inspection.sourceVersion === 10) {
+    // 迁移 schema 会把 continueWhen 解析投影为 breakWhen；摘要必须基于数据库中原始工件，
+    // 否则任务快照校验会把字段规范化误判为 Definition 被篡改。
+    if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+      return calculateFlowDefinitionDigest(input);
+    }
   }
   throw new Error('Flow Definition 源版本摘要计算分支缺失');
 }
 
 /**
+ * 检查历史工件是否包含不能直接改名迁移的 Loop 条件
+ * @param input 数据库工件或导入 JSON
+ * @returns 任一 Loop 的 continueWhen 为非空数组时返回 true
+ * @description 只读原始字段，必须在 legacy schema 把字段投影为 breakWhen 之前执行。
+ */
+function hasNonEmptyLegacyContinueWhen(input: unknown): boolean {
+  if (!isRecord(input)) {
+    return false;
+  }
+  const nodes = input.nodes;
+  if (!Array.isArray(nodes)) return false;
+  return nodes.some((rawNode) => {
+    if (!isRecord(rawNode) || rawNode.type !== 'loop') return false;
+    const config = rawNode.config;
+    if (!isRecord(config)) return false;
+    const continueWhen = config.continueWhen;
+    return Array.isArray(continueWhen) && continueWhen.length > 0;
+  });
+}
+
+/**
+ * 判断未知值是否为普通记录
+ * @param value 待收窄的未知值
+ * @returns 非空、非数组对象时返回 true
+ * @description 用于只读历史 JSON 字段，不修改对象或接受兼容字段。
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 构造历史 Loop 条件需要人工迁移的版本检查结果
+ * @param version 原工件 schemaVersion
+ * @returns 返回带稳定规则名和人工处理说明的 invalid 结果
+ * @description 非空 continueWhen 不能通过字段改名或逐条取反证明等价，因此不产出升级 Definition。
+ */
+function legacyLoopMigrationRequired(
+  version: number,
+): FlowDefinitionInspection {
+  return {
+    status: 'invalid',
+    sourceVersion: version,
+    targetVersion: null,
+    errors: [
+      {
+        path: 'nodes',
+        rule: 'loop-condition-migration',
+        message:
+          '旧版 continueWhen 非空，无法在现有条件闭集内证明与 breakWhen 等价，请人工编辑后创建 v11 草稿',
+      },
+    ],
+  };
+}
+
+/**
  * 将合法 v9 图确定性迁移为 v10 容器契约
  * @param definition 已按 v9 规则验证、但版本号临时投影为当前值的 Definition
- * @returns 返回 v10 Definition 与节点归属、坐标变化摘要
+ * @returns 返回当前 v11 Definition 与节点归属、坐标变化摘要
  * @description 只依据工件自身拓扑与布局计算，不读取时间、数据库、窗口或随机数。
  */
 function migrateV9ToV10(definition: FlowDefinition): {

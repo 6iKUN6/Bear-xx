@@ -4,6 +4,7 @@ import type {
   FlowRef,
   FlowDefinition,
   FlowPlanLoopStopPolicy,
+  FlowStructuredField,
 } from '@litter-bear/types/agent-flow';
 import type { ReasoningSelection } from '@litter-bear/types';
 
@@ -100,6 +101,25 @@ export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
   reasoning?: ReasoningSelection;
 }
 
+/** 编译后的结构化输出节点。 */
+export interface CompiledStructuredOutputFlowNode extends CompiledFlowNodeBase {
+  type: 'structured-output';
+  inputRefs: readonly FlowRef[];
+  instruction: string;
+  fields: readonly FlowStructuredField[];
+  modelPreset: string;
+  reasoning?: ReasoningSelection;
+}
+
+/** 编译后的评估节点。 */
+export interface CompiledEvaluateFlowNode extends CompiledFlowNodeBase {
+  type: 'evaluate';
+  inputRefs: readonly FlowRef[];
+  criteria: string;
+  modelPreset: string;
+  reasoning?: ReasoningSelection;
+}
+
 /** 编译后的起始节点。 */
 export interface CompiledStartFlowNode extends CompiledFlowNodeBase {
   type: 'start';
@@ -130,8 +150,8 @@ export interface CompiledConditionFlowNode extends CompiledFlowNodeBase {
 export interface CompiledLoopFlowNode extends CompiledFlowNodeBase {
   type: 'loop';
   maxIterations: number;
-  /** 继续循环的判定；空数组即「只按 maxIterations 跑满」 */
-  continueWhen: readonly FlowConditionCase[];
+  /** 退出循环的判定；空数组即「只按 maxIterations 跑满」 */
+  breakWhen: readonly FlowConditionCase[];
 }
 
 /** 编译后的节点闭集。 */
@@ -145,7 +165,9 @@ export type CompiledFlowNode =
   | CompiledSynthesizeFlowNode
   | CompiledConditionFlowNode
   | CompiledJoinFlowNode
-  | CompiledLoopFlowNode;
+  | CompiledLoopFlowNode
+  | CompiledStructuredOutputFlowNode
+  | CompiledEvaluateFlowNode;
 
 /** 已冻结且可被节点执行器消费的 Flow 计划。 */
 export interface CompiledFlowPlan {

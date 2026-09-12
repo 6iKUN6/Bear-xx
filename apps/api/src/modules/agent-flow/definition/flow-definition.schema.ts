@@ -163,6 +163,86 @@ const approvalNodeConfigSchema = z
     }
   });
 
+const structuredFieldNameSchema = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
+const structuredFieldSchema = z
+  .object({
+    name: structuredFieldNameSchema,
+    type: z.enum(['string', 'number', 'boolean', 'enum']),
+    required: z.boolean(),
+    values: z.array(z.string().trim().min(1).max(100)).max(32).optional(),
+  })
+  .strict()
+  .superRefine((field, context) => {
+    if (field.type === 'enum') {
+      if (!field.values || field.values.length === 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['values'],
+          message: 'enum 字段至少需要一个枚举值',
+        });
+      } else if (new Set(field.values).size !== field.values.length) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['values'],
+          message: 'enum 枚举值不能重复',
+        });
+      }
+    } else if (field.values !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['values'],
+        message: '只有 enum 字段可以配置枚举值',
+      });
+    }
+  });
+
+const modelNodeInputRefsSchema = z.array(flowRefSchema).max(8);
+const structuredOutputNodeConfigSchema = z
+  .object({
+    inputRefs: modelNodeInputRefsSchema,
+    instruction: z.string().trim().max(2_000),
+    fields: z.array(structuredFieldSchema).max(16),
+    modelPreset: nonEmptyKeySchema.optional(),
+    reasoning: reasoningSelectionSchema.optional(),
+  })
+  .strict()
+  .superRefine((config, context) => {
+    const names = config.fields.map((field) => field.name);
+    if (new Set(names).size !== names.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fields'],
+        message: '结构化输出字段名不能重复',
+      });
+    }
+    const refs = config.inputRefs.map((ref) => ref.$ref.join('.'));
+    if (new Set(refs).size !== refs.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['inputRefs'],
+        message: '输入引用不能重复',
+      });
+    }
+  });
+const evaluateNodeConfigSchema = z
+  .object({
+    inputRefs: modelNodeInputRefsSchema,
+    criteria: z.string().trim().max(2_000),
+    modelPreset: nonEmptyKeySchema.optional(),
+    reasoning: reasoningSelectionSchema.optional(),
+  })
+  .strict()
+  .superRefine((config, context) => {
+    const refs = config.inputRefs.map((ref) => ref.$ref.join('.'));
+    if (new Set(refs).size !== refs.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['inputRefs'],
+        message: '输入引用不能重复',
+      });
+    }
+  });
+
 const flowNodeSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -264,7 +344,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
             .min(1)
             .max(FLOW_DEFINITION_LIMITS.loopIterations),
           // 允许为空：等价于「只按 maxIterations 跑满」的固定轮数循环
-          continueWhen: z
+          breakWhen: z
             .array(conditionCaseSchema)
             .max(FLOW_DEFINITION_LIMITS.conditionCaseCount),
         })
@@ -283,6 +363,20 @@ const flowNodeSchema = z.discriminatedUnion('type', [
             .max(FLOW_DEFINITION_LIMITS.conditionCaseCount),
         })
         .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
+      type: z.literal('structured-output'),
+      config: structuredOutputNodeConfigSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
+      type: z.literal('evaluate'),
+      config: evaluateNodeConfigSchema,
     })
     .strict(),
 ]);
@@ -378,36 +472,82 @@ export const FlowDefinitionSchema = z
   .strict();
 
 /**
+ * 把历史 Loop 条件字段投影为当前字段名
+ * @param input 待识别的历史 Definition 候选值
+ * @returns 返回不修改原对象的规范化候选值
+ * @description 只用于历史 schema 解析；是否允许迁移由版本检查器在规范化之前判定，不能把
+ * 非空 continueWhen 仅改名后当成等价的 breakWhen。
+ */
+function normalizeLegacyLoopCondition(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return input;
+  }
+  const root = input as Record<string, unknown>;
+  if (!Array.isArray(root.nodes)) return input;
+  const nodes = root.nodes as unknown[];
+  return {
+    ...root,
+    nodes: nodes.map((rawNode: unknown) => {
+      if (typeof rawNode !== 'object' || rawNode === null) return rawNode;
+      const node = rawNode as Record<string, unknown>;
+      if (
+        node.type !== 'loop' ||
+        typeof node.config !== 'object' ||
+        node.config === null
+      ) {
+        return rawNode;
+      }
+      const config = node.config as Record<string, unknown>;
+      if (config.breakWhen !== undefined || config.continueWhen === undefined) {
+        return rawNode;
+      }
+      const { continueWhen, ...rest } = config;
+      return { ...node, config: { ...rest, breakWhen: continueWhen } };
+    }),
+  };
+}
+
+/**
  * schemaVersion 9 的只读解析 Schema
- * @description v9 与 v10 的节点配置闭集相同，但 v9 尚未声明 loopId 和容器布局字段。
- * 复用当前字段限制后显式拒绝 v10 新字段，避免维护第二份容易漂移的节点配置 Schema。
+ * @description v9 与 v10 使用相同的历史节点闭集，但 v9 尚未声明 loopId 和容器布局字段。
+ * 复用当前字段限制识别历史工件后显式拒绝 v10 新字段；当前 v11 新增节点仍会被历史工件
+ * 的真实 schemaVersion 与升级校验共同约束。
  * 该 Schema 只用于识别和迁移历史工件，任何写入入口仍只接受当前版本。
  */
-export const FlowDefinitionV9Schema = FlowDefinitionSchema.extend({
-  schemaVersion: z.literal(9),
-}).superRefine((definition, context) => {
-  definition.nodes.forEach((node, index) => {
-    if (node.loopId !== undefined) {
-      context.addIssue({
-        code: 'custom',
-        path: ['nodes', index, 'loopId'],
-        message: 'schemaVersion 9 不支持 loopId',
-      });
+export const FlowDefinitionV9Schema = z
+  .preprocess(
+    normalizeLegacyLoopCondition,
+    FlowDefinitionSchema.extend({ schemaVersion: z.literal(9) }),
+  )
+  .superRefine((definition, context) => {
+    definition.nodes.forEach((node, index) => {
+      if (node.loopId !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['nodes', index, 'loopId'],
+          message: 'schemaVersion 9 不支持 loopId',
+        });
+      }
+    });
+    for (const [nodeId, layout] of Object.entries(
+      definition.layout?.nodes ?? {},
+    )) {
+      if (
+        layout.width !== undefined ||
+        layout.height !== undefined ||
+        layout.collapsed !== undefined
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['layout', 'nodes', nodeId],
+          message: 'schemaVersion 9 不支持 Loop 容器布局字段',
+        });
+      }
     }
   });
-  for (const [nodeId, layout] of Object.entries(
-    definition.layout?.nodes ?? {},
-  )) {
-    if (
-      layout.width !== undefined ||
-      layout.height !== undefined ||
-      layout.collapsed !== undefined
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['layout', 'nodes', nodeId],
-        message: 'schemaVersion 9 不支持 Loop 容器布局字段',
-      });
-    }
-  }
-});
+
+/** schemaVersion 10 的只读解析 Schema；将历史 continueWhen 规范化为 breakWhen。 */
+export const FlowDefinitionV10Schema = z.preprocess(
+  normalizeLegacyLoopCondition,
+  FlowDefinitionSchema.extend({ schemaVersion: z.literal(10) }),
+);

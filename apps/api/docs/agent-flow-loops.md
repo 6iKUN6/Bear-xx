@@ -107,7 +107,7 @@ interface FlowLoopNodeConfig {
    * @description 复用 condition 节点的 cases 形状，不新造一套判定语法。
    * 命中即走 `again` 分支，否则走 `done`。
    */
-  readonly continueWhen: readonly FlowConditionCase[];
+  readonly breakWhen: readonly FlowConditionCase[];
 }
 ```
 
@@ -207,7 +207,7 @@ start → loop ──again──→ generate(agent) → evaluate(agent)
           └──done──→ answer(synthesize)
 ```
 
-`loop.continueWhen` 判定 `evaluate` 的输出是否表示「不合格」。
+`loop.breakWhen` 判定 `evaluate` 的输出是否表示「已满足退出条件」。
 
 ## 3. 实施顺序
 
@@ -246,7 +246,7 @@ start → loop ──again──→ generate(agent) → evaluate(agent)
 
 **第 7 步 · 画布**
 - 允许画回边；`flow-edit.ts` 的 `connect` 现在拒绝任何成环的连线
-- loop 节点的 inspector（`maxIterations` + `continueWhen`）
+- loop 节点的 inspector（`maxIterations` + `breakWhen`）
 - 内置循环模板
 
 ## 4. 第一版明确不做

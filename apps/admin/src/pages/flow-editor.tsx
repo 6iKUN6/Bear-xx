@@ -92,6 +92,8 @@ const ADDABLE_NODE_TYPES: FlowNodeType[] = [
   "condition",
   "join",
   "loop",
+  "structured-output",
+  "evaluate",
 ];
 
 const NODE_CATEGORY_ORDER: FlowNodeCategory[] = [
@@ -457,7 +459,7 @@ export function FlowEditorPage() {
       : source.type === "loop"
         ? "done"
         : (declared.find((key) => key !== "default" && !covered.has(key)) ??
-        (declared.includes("default") ? "default" : undefined));
+          (declared.includes("default") ? "default" : undefined));
     if (!branch) {
       toast.error(`节点「${from}」的所有分支都已连出`);
       return;
@@ -502,11 +504,12 @@ export function FlowEditorPage() {
   }
 
   const statusMeta = versionStatusMeta(version.status);
-  const readOnlyReason = version.schemaStatus !== "current"
-    ? schemaStatusMeta(version.schemaStatus).desc
-    : version.status !== "DRAFT"
-      ? "只有草稿版本可编辑"
-      : readError;
+  const readOnlyReason =
+    version.schemaStatus !== "current"
+      ? schemaStatusMeta(version.schemaStatus).desc
+      : version.status !== "DRAFT"
+        ? "只有草稿版本可编辑"
+        : readError;
 
   return (
     <div className="flex h-screen flex-col gap-3 bg-background p-3">
@@ -819,8 +822,9 @@ export function FlowEditorPage() {
             )}
             {canEdit ? (
               <p className="mt-2 shrink-0 text-xs text-muted-foreground">
-                从节点出口拖到同层节点即连线；Loop 的循环入口与回流边由编辑器维护并隐藏，
-                容器外只连接 Loop 入口和 done 出口。拖动普通节点进出展开容器可改变归属。
+                从节点出口拖到同层节点即连线；Loop
+                的循环入口与回流边由编辑器维护并隐藏，容器外只连接 Loop 入口和
+                done 出口。拖动普通节点进出展开容器可改变归属。
                 普通节点连出多条边即并行扇出，汇聚请用 join
                 节点并在右侧选择要等的分支。
               </p>

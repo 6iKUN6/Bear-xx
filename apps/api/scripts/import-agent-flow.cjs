@@ -117,6 +117,8 @@ function materializeModelPreset(input, model) {
       node.type === 'agent' ||
       node.type === 'plan' ||
       node.type === 'synthesize' ||
+      node.type === 'structured-output' ||
+      node.type === 'evaluate' ||
       (node.type === 'approval' && node.config.policy === 'model')
     ) {
       config = node.config;

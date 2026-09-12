@@ -2,7 +2,7 @@ import {
   FLOW_CONDITION_OPERATORS,
   FLOW_DEFAULT_BRANCH,
   FLOW_LOOP_AGAIN_BRANCH,
-  FLOW_NODE_OUTPUTS,
+  flowNodeOutputTypes,
   flowLoopBoundarySources,
   flowLoopRegions,
   flowMustCompleteBefore,
@@ -162,6 +162,7 @@ export function validateGraphStructure(
 
   validateDuplicateBranches(validEdges, errors);
   validateBranchCoverage(definition.nodes, validEdges, errors);
+  validateStructuredNodeConfigs(definition.nodes, errors);
   validateStartNode(definition.nodes, validEdges, errors);
   validateEndNode(definition.nodes, definition.edges, errors);
   const loopRegions = flowLoopRegions(definition.nodes, validEdges);
@@ -196,6 +197,60 @@ export function validateGraphStructure(
   }
   validateVariableReferences(definition.nodes, dominators, loopRegions, errors);
   return errors;
+}
+
+/**
+ * 校验模型结构化节点的发布必填项
+ * @param nodes Flow 中的全部节点
+ * @param errors 用于收集发布错误的数组
+ * @returns 无返回值
+ * @description Schema 层允许空配置以支持草稿逐步编辑；完整校验在这里收紧，避免不完整节点进入运行时。
+ */
+function validateStructuredNodeConfigs(
+  nodes: readonly FlowNode[],
+  errors: FlowDefinitionValidationError[],
+): void {
+  nodes.forEach((node, index) => {
+    if (node.type === 'structured-output') {
+      if (node.config.inputRefs.length === 0) {
+        errors.push({
+          path: `nodes.${index}.config.inputRefs`,
+          rule: 'structured-input-required',
+          message: '结构化输出节点至少需要一个输入引用',
+        });
+      }
+      if (!node.config.instruction.trim()) {
+        errors.push({
+          path: `nodes.${index}.config.instruction`,
+          rule: 'structured-instruction-required',
+          message: '结构化输出节点必须填写提取要求',
+        });
+      }
+      if (node.config.fields.length === 0) {
+        errors.push({
+          path: `nodes.${index}.config.fields`,
+          rule: 'structured-fields-required',
+          message: '结构化输出节点至少需要一个输出字段',
+        });
+      }
+    }
+    if (node.type === 'evaluate') {
+      if (node.config.inputRefs.length === 0) {
+        errors.push({
+          path: `nodes.${index}.config.inputRefs`,
+          rule: 'evaluate-input-required',
+          message: '评估节点至少需要一个输入引用',
+        });
+      }
+      if (!node.config.criteria.trim()) {
+        errors.push({
+          path: `nodes.${index}.config.criteria`,
+          rule: 'evaluate-criteria-required',
+          message: '评估节点必须填写评估标准',
+        });
+      }
+    }
+  });
 }
 
 /**
@@ -302,14 +357,14 @@ function validateVariableReferences(
       node.type === 'condition'
         ? node.config.cases
         : node.type === 'loop'
-          ? node.config.continueWhen
+          ? node.config.breakWhen
           : undefined;
     if (!cases) {
       return;
     }
     cases.forEach((branch, caseIndex) => {
       branch.conditions.forEach((predicate, predicateIndex) => {
-        const collection = node.type === 'loop' ? 'continueWhen' : 'cases';
+        const collection = node.type === 'loop' ? 'breakWhen' : 'cases';
         const path = `nodes.${nodeIndex}.config.${collection}.${caseIndex}.conditions.${predicateIndex}`;
         const valueType = checkRef(
           predicate.ref,
@@ -420,6 +475,20 @@ function validateConfigRefs(
       loopRegions,
       errors,
     );
+    return;
+  }
+  if (node.type === 'structured-output' || node.type === 'evaluate') {
+    node.config.inputRefs.forEach((ref, refIndex) => {
+      checkRef(
+        ref,
+        node,
+        `nodes.${nodeIndex}.config.inputRefs.${refIndex}`,
+        nodesById,
+        dominators,
+        loopRegions,
+        errors,
+      );
+    });
   }
 }
 
@@ -549,7 +618,7 @@ function resolveRefValueType(
   nodesById: ReadonlyMap<string, FlowNode>,
 ): FlowValueType | undefined {
   const source = nodesById.get(sourceId);
-  return source ? FLOW_NODE_OUTPUTS[source.type][field] : undefined;
+  return source ? flowNodeOutputTypes(source)[field] : undefined;
 }
 
 /**

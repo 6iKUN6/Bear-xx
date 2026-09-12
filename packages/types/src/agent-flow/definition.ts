@@ -7,12 +7,12 @@ import type { ReasoningSelection } from "../model-reasoning.js";
  * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点；6 引入受控 loop 节点；
  * 7 引入每张图唯一且强制显式连接的 end 节点；8 让 plan 与模型审批显式声明模型，
  * 从而让 Flow 内全部模型调用都服从同一套模型归属规则；9 为每个真实模型调用节点增加
- * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局。
+ * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局；11 增加受限结构化输出与评估节点，并将 Loop 条件改为 breakWhen。
  * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 10 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 11 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -25,7 +25,9 @@ export type FlowNodeType =
   | "synthesize"
   | "condition"
   | "join"
-  | "loop";
+  | "loop"
+  | "structured-output"
+  | "evaluate";
 
 /**
  * 变量可以承载的值类型闭集；不做泛型与嵌套类型参数
@@ -79,6 +81,9 @@ export const FLOW_NODE_OUTPUTS: Readonly<
   // loop 只声明轮次：循环体内节点的输出由它们自己声明，下游经 $ref 取到的是**最近一轮**
   // 的值（见 agent-flow-loops.md §2.3）。iteration 从 1 开始，方便直接展示给用户。
   loop: { iteration: "number" },
+  // structured-output 的字段由 flowNodeOutputTypes 按节点配置展开。
+  "structured-output": {},
+  evaluate: { passed: "boolean", score: "number", reason: "string" },
 };
 
 /** Flow 的运行预算策略。 */
@@ -310,13 +315,53 @@ export interface FlowSynthesizeNode extends FlowNodeBase {
   readonly config: FlowSynthesizeNodeConfig;
 }
 
+/** 结构化输出字段支持的声明类型。 */
+export type FlowStructuredFieldType = "string" | "number" | "boolean" | "enum";
+
+/** 结构化输出节点的字段声明。 */
+export interface FlowStructuredField {
+  readonly name: string;
+  readonly type: FlowStructuredFieldType;
+  readonly required: boolean;
+  readonly values?: readonly string[];
+}
+
+/** 结构化输出节点配置。 */
+export interface FlowStructuredOutputNodeConfig {
+  readonly inputRefs: readonly FlowRef[];
+  readonly instruction: string;
+  readonly fields: readonly FlowStructuredField[];
+  readonly modelPreset?: string;
+  readonly reasoning?: ReasoningSelection;
+}
+
+/** 结构化输出节点。 */
+export interface FlowStructuredOutputNode extends FlowNodeBase {
+  readonly type: "structured-output";
+  readonly config: FlowStructuredOutputNodeConfig;
+}
+
+/** 评估节点配置。 */
+export interface FlowEvaluateNodeConfig {
+  readonly inputRefs: readonly FlowRef[];
+  readonly criteria: string;
+  readonly modelPreset?: string;
+  readonly reasoning?: ReasoningSelection;
+}
+
+/** 评估节点。 */
+export interface FlowEvaluateNode extends FlowNodeBase {
+  readonly type: "evaluate";
+  readonly config: FlowEvaluateNodeConfig;
+}
+
 /**
  * 循环节点配置
  * @description 循环的**唯一入口与出口**：回边必须指回它，否则轮次归属不明、校验期也算不出
  * 循环体范围。详见 `apps/api/docs/agent-flow-loops.md`。
  *
- * `continueWhen` 复用 condition 的 case 形状而不另造一套判定语法：命中任一 case 即走
- * `again` 分支，否则走 `done`。
+ * `breakWhen` 复用 condition 的 case 形状而不另造一套判定语法：命中任一 case 即走
+ * `done` 分支，否则走 `again`。
  */
 export interface FlowLoopNodeConfig {
   /**
@@ -327,10 +372,10 @@ export interface FlowLoopNodeConfig {
    */
   readonly maxIterations: number;
   /**
-   * 继续循环的判定
+   * 退出循环的判定
    * @description 空数组表示「只按 maxIterations 跑满」，是合法配置（等价于固定轮数循环）。
    */
-  readonly continueWhen: readonly FlowConditionCase[];
+  readonly breakWhen: readonly FlowConditionCase[];
 }
 
 /** 循环节点；图上环的唯一合法形态。 */
@@ -374,7 +419,41 @@ export type FlowNode =
   | FlowSynthesizeNode
   | FlowConditionNode
   | FlowJoinNode
-  | FlowLoopNode;
+  | FlowLoopNode
+  | FlowStructuredOutputNode
+  | FlowEvaluateNode;
+
+/**
+ * 列出节点实际声明的输出字段
+ * @param node 包含节点类型和可选配置的节点投影
+ * @returns 返回字段名到 FlowValueType 的映射
+ * @description 固定节点直接读取 FLOW_NODE_OUTPUTS；structured-output 根据字段声明动态展开，供
+ * validator、compiler 和 Admin 变量选择器共享同一份输出事实。
+ */
+export function flowNodeOutputTypes(node: {
+  readonly type: FlowNodeType;
+  readonly config?: unknown;
+}): Readonly<Record<string, FlowValueType>> {
+  if (node.type !== "structured-output") {
+    return FLOW_NODE_OUTPUTS[node.type];
+  }
+  if (!node.config || typeof node.config !== "object") return {};
+  const fields = Reflect.get(node.config, "fields");
+  if (!Array.isArray(fields)) return {};
+  const outputs: Record<string, FlowValueType> = {};
+  for (const field of fields) {
+    if (!field || typeof field !== "object") continue;
+    const name = Reflect.get(field, "name");
+    const type = Reflect.get(field, "type");
+    if (typeof name !== "string") continue;
+    if (type === "string" || type === "number" || type === "boolean") {
+      outputs[name] = type;
+    } else if (type === "enum") {
+      outputs[name] = "string";
+    }
+  }
+  return outputs;
+}
 
 /**
  * 边上的分支键
@@ -389,10 +468,10 @@ export const FLOW_DEFAULT_BRANCH = "default" as const;
 /** Condition 节点未命中任何 case 时走的隐含分支。 */
 export const FLOW_CONDITION_ELSE_BRANCH = "else" as const;
 
-/** Loop 节点判定「继续下一轮」时走的分支，指向循环体入口。 */
+/** Loop 节点未命中退出条件、判定继续下一轮时走的分支，指向循环体入口。 */
 export const FLOW_LOOP_AGAIN_BRANCH = "again" as const;
 
-/** Loop 节点判定「结束循环」时走的分支。 */
+/** Loop 节点命中退出条件或达到上限时走的分支。 */
 export const FLOW_LOOP_DONE_BRANCH = "done" as const;
 
 /**
@@ -448,7 +527,7 @@ export interface FlowLoopRegion {
  * @param region 待分析 loop 的循环区域
  * @param mustComplete 单轮展开图中每个节点的必完成集合
  * @returns 返回在唯一回边源节点执行前必定完成的循环体节点标识
- * @description loop 的 continueWhen 在回边之后执行，不能直接套用“支配 loop”判据；loop
+ * @description loop 的 breakWhen 在回边之后执行，不能直接套用“支配 loop”判据；loop
  * 本轮先于循环体执行。正确判据是来源必须在唯一回边源执行前必定完成。非法图没有唯一回边时
  * 返回空集合，避免编辑器向用户提供后端注定拒绝的变量。
  */

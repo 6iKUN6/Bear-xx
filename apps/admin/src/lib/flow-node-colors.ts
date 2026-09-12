@@ -39,6 +39,8 @@ export const NODE_TYPE_COLORS: Record<FlowNodeType, NodeTypeColor> = {
   condition: INFO,
   join: INFO,
   loop: INFO,
+  "structured-output": ACCENT,
+  evaluate: INFO,
   approval: { color: "var(--lb-warning)", soft: "var(--lb-warning-soft)" },
 };
 

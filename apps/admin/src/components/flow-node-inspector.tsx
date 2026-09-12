@@ -4,7 +4,7 @@ import {
   type FlowConditionOperator,
   type FlowValueType,
 } from "@litter-bear/types/agent-flow";
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -78,7 +78,7 @@ export function FlowNodeInspector({
   editing,
 }: FlowNodeInspectorProps) {
   const meta = nodeTypeMeta(node.type);
-  const outputs = nodeOutputEntries(node.type);
+  const outputs = nodeOutputEntries(node.type, node.config);
   const branches = branchKeysOf(node);
 
   return (
@@ -456,12 +456,378 @@ function NodeConfig({
     return <LoopConfig node={node} definition={definition} editing={editing} />;
   }
 
+  if (node.type === "structured-output") {
+    return (
+      <StructuredOutputConfig
+        node={node}
+        definition={definition}
+        editing={editing}
+      />
+    );
+  }
+
+  if (node.type === "evaluate") {
+    return (
+      <EvaluateConfig node={node} definition={definition} editing={editing} />
+    );
+  }
+
   return (
     <InspectorSection title="配置">
       <pre className="overflow-auto rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
         {JSON.stringify(node.config, null, 2)}
       </pre>
     </InspectorSection>
+  );
+}
+
+function StructuredOutputConfig({
+  node,
+  definition,
+  editing,
+}: {
+  node: EditableNode;
+  definition: CanvasDefinition;
+  editing?: InspectorEditing;
+}) {
+  const config = node.config as Record<string, unknown>;
+  const fields = readStructuredFields(config.fields);
+  const write = (next: Record<string, unknown>) =>
+    editing?.onChangeConfig({ ...config, ...next });
+  return (
+    <InspectorSection title="结构化输出">
+      <div className="space-y-3">
+        <Field label="提取要求">
+          <Textarea
+            disabled={!editing}
+            value={
+              typeof config.instruction === "string" ? config.instruction : ""
+            }
+            onChange={(event) =>
+              editing?.onChangeConfig({
+                ...config,
+                instruction: event.target.value,
+              })
+            }
+          />
+        </Field>
+        <InputRefsField
+          nodeId={node.id}
+          definition={definition}
+          value={config.inputRefs}
+          editing={editing}
+          onChange={(inputRefs) => write({ inputRefs })}
+        />
+        <Field label="输出字段" hint="字段类型和名称会在发布时严格校验">
+          {fields.map((field, index) => (
+            <div
+              className="mb-2 flex items-center gap-1"
+              key={`${field.name}-${index}`}
+            >
+              <Input
+                className="h-8 min-w-0 flex-1"
+                disabled={!editing}
+                value={field.name}
+                onChange={(event) =>
+                  write({
+                    fields: fields.map((item, itemIndex) =>
+                      itemIndex === index
+                        ? { ...item, name: event.target.value }
+                        : item,
+                    ),
+                  })
+                }
+              />
+              <Select
+                disabled={!editing}
+                value={field.type}
+                onValueChange={(type) =>
+                  write({
+                    fields: fields.map((item, itemIndex) =>
+                      itemIndex === index
+                        ? {
+                            ...item,
+                            type,
+                            ...(type === "enum"
+                              ? { values: item.values ?? ["value"] }
+                              : { values: undefined }),
+                          }
+                        : item,
+                    ),
+                  })
+                }
+              >
+                <SelectTrigger className="h-8 w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="string">string</SelectItem>
+                  <SelectItem value="number">number</SelectItem>
+                  <SelectItem value="boolean">boolean</SelectItem>
+                  <SelectItem value="enum">enum</SelectItem>
+                </SelectContent>
+              </Select>
+              {field.type === "enum" ? (
+                <Input
+                  className="h-8 w-32"
+                  disabled={!editing}
+                  value={(field.values ?? []).join(", ")}
+                  placeholder="枚举值"
+                  onChange={(event) =>
+                    write({
+                      fields: fields.map((item, itemIndex) =>
+                        itemIndex === index
+                          ? {
+                              ...item,
+                              values: event.target.value
+                                .split(",")
+                                .map((value) => value.trim())
+                                .filter(Boolean),
+                            }
+                          : item,
+                      ),
+                    })
+                  }
+                />
+              ) : null}
+              <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  disabled={!editing}
+                  checked={field.required}
+                  onChange={(event) =>
+                    write({
+                      fields: fields.map((item, itemIndex) =>
+                        itemIndex === index
+                          ? { ...item, required: event.target.checked }
+                          : item,
+                      ),
+                    })
+                  }
+                />
+                必填
+              </label>
+              {editing ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label={`删除字段 ${field.name || index + 1}`}
+                  title="删除字段"
+                  onClick={() =>
+                    write({
+                      fields: fields.filter(
+                        (_, itemIndex) => itemIndex !== index,
+                      ),
+                    })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              ) : null}
+            </div>
+          ))}
+          {editing ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={fields.length >= 16}
+              onClick={() =>
+                write({
+                  fields: [
+                    ...fields,
+                    {
+                      name: `field_${fields.length + 1}`,
+                      type: "string",
+                      required: true,
+                    },
+                  ],
+                })
+              }
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              添加字段
+            </Button>
+          ) : null}
+        </Field>
+        <ModelPresetField
+          config={config}
+          editing={editing}
+          onChange={(next) => editing?.onChangeConfig(next)}
+        />
+      </div>
+    </InspectorSection>
+  );
+}
+
+function EvaluateConfig({
+  node,
+  definition,
+  editing,
+}: {
+  node: EditableNode;
+  definition: CanvasDefinition;
+  editing?: InspectorEditing;
+}) {
+  const config = node.config as Record<string, unknown>;
+  const write = (next: Record<string, unknown>) =>
+    editing?.onChangeConfig({ ...config, ...next });
+  return (
+    <InspectorSection title="模型评估">
+      <div className="space-y-3">
+        <Field label="评估标准">
+          <Textarea
+            disabled={!editing}
+            value={typeof config.criteria === "string" ? config.criteria : ""}
+            onChange={(event) =>
+              editing?.onChangeConfig({
+                ...config,
+                criteria: event.target.value,
+              })
+            }
+          />
+        </Field>
+        <InputRefsField
+          nodeId={node.id}
+          definition={definition}
+          value={config.inputRefs}
+          editing={editing}
+          onChange={(inputRefs) => write({ inputRefs })}
+        />
+        <p className="text-xs text-muted-foreground">
+          固定输出：passed、score、reason
+        </p>
+        <ModelPresetField
+          config={config}
+          editing={editing}
+          onChange={(next) => editing?.onChangeConfig(next)}
+        />
+      </div>
+    </InspectorSection>
+  );
+}
+
+/**
+ * 结构化模型节点共用的有序输入引用编辑器
+ * @param props 当前节点、引用值、整份草稿与编辑回调
+ * @returns 返回最多八条可新增、删除和上下移动的引用行
+ * @description 引用顺序会直接决定模型输入块顺序，因此排序是契约行为，不只是画布展示顺序。
+ * 新增时选择当前尚未使用的第一个合法上游输出，避免默认制造重复引用。
+ */
+function InputRefsField({
+  nodeId,
+  definition,
+  value,
+  editing,
+  onChange,
+}: {
+  nodeId: string;
+  definition: CanvasDefinition;
+  value: unknown;
+  editing?: InspectorEditing;
+  onChange: (refs: Array<{ $ref: [string, string] }>) => void;
+}) {
+  const refs = readFlowRefs(value);
+  const used = new Set(refs.map((ref) => ref.$ref.join(".")));
+  const nextOption = variableOptions(nodeId, definition).find(
+    (option) => !used.has(option.ref.join(".")),
+  );
+  const replace = (index: number, ref: { $ref: [string, string] } | null) => {
+    if (!ref) return;
+    onChange(refs.map((item, itemIndex) => (itemIndex === index ? ref : item)));
+  };
+  const move = (index: number, offset: -1 | 1) => {
+    const target = index + offset;
+    if (target < 0 || target >= refs.length) return;
+    const next = [...refs];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  return (
+    <Field label="输入引用" hint="按顺序处理，至少一条、最多八条">
+      <div className="space-y-2">
+        {refs.length === 0 ? (
+          <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+            暂无输入引用
+          </p>
+        ) : null}
+        {refs.map((ref, index) => {
+          const value = ref.$ref.join(".");
+          return (
+            <div className="flex items-start gap-1" key={`${value}-${index}`}>
+              <div className="min-w-0 flex-1">
+                <RefField
+                  label={`输入 ${index + 1}`}
+                  nodeId={nodeId}
+                  definition={definition}
+                  value={value}
+                  editing={editing}
+                  onChange={(next) => replace(index, next)}
+                />
+              </div>
+              {editing ? (
+                <div className="mt-5 flex shrink-0 items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    disabled={index === 0}
+                    aria-label={`上移输入 ${index + 1}`}
+                    title="上移"
+                    onClick={() => move(index, -1)}
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    disabled={index === refs.length - 1}
+                    aria-label={`下移输入 ${index + 1}`}
+                    title="下移"
+                    onClick={() => move(index, 1)}
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-[var(--lb-danger)]"
+                    aria-label={`删除输入 ${index + 1}`}
+                    title="删除输入"
+                    onClick={() =>
+                      onChange(
+                        refs.filter((_, itemIndex) => itemIndex !== index),
+                      )
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        {editing ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refs.length >= 8 || !nextOption}
+            onClick={() =>
+              nextOption &&
+              onChange([
+                ...refs,
+                { $ref: [nextOption.sourceId, nextOption.field] },
+              ])
+            }
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            添加输入
+          </Button>
+        ) : null}
+      </div>
+    </Field>
   );
 }
 
@@ -754,9 +1120,9 @@ function ExecutorFields({
 /**
  * Loop 节点的轮次与继续条件配置
  * @param props 当前 loop 节点、整份草稿与编辑能力
- * @returns 返回最大轮数输入和按组编辑的 continueWhen 条件
- * @description continueWhen 复用 condition 的判定结构，但组键不对应图上分支；任一组命中
- * 就走 again，全不命中或达到最大轮数时走 done。变量选项包含每轮回到 loop 前必定完成的
+ * @returns 返回最大轮数输入和按组编辑的 breakWhen 条件
+ * @description breakWhen 复用 condition 的判定结构，但组键不对应图上分支；任一组命中
+ * 就走 done，全不命中或达到最大轮数时走 again。变量选项包含每轮回到 loop 前必定完成的
  * 体内输出，与后端 loop 边界引用校验使用共享图分析。
  */
 function LoopConfig({
@@ -769,11 +1135,11 @@ function LoopConfig({
   editing?: InspectorEditing;
 }) {
   const options = variableOptions(node.id, definition);
-  const cases = readConditionCaseArray(node.config.continueWhen);
+  const cases = readConditionCaseArray(node.config.breakWhen);
   const writeCases = (next: ConditionCase[]) => {
     editing?.onChangeConfig({
       ...node.config,
-      continueWhen: serializeConditionCases(next),
+      breakWhen: serializeConditionCases(next),
     });
   };
 
@@ -797,8 +1163,8 @@ function LoopConfig({
         </Field>
 
         <Field
-          label="继续条件"
-          hint="命中任意规则时执行下一轮；未命中或达到最大轮数时退出。未配置规则将固定执行满最大轮数。"
+          label="退出条件"
+          hint="命中任意规则时退出；未命中且未达到最大轮数时继续。未配置规则将固定执行满最大轮数。"
         >
           <div className="space-y-2">
             {cases.map((branch, caseIndex) => (
@@ -1262,10 +1628,10 @@ function RefField({
   onChange,
 }: {
   label: string;
-  hint: string;
+  hint?: string;
   nodeId: string;
   definition: CanvasDefinition;
-  field: string;
+  field?: string;
   value: string | null;
   editing?: InspectorEditing;
   optional?: boolean;
@@ -1340,6 +1706,60 @@ function readRef(value: unknown): string | null {
     typeof ref[1] === "string"
     ? `${ref[0]}.${ref[1]}`
     : null;
+}
+
+/**
+ * 从未知配置值读取合法引用列表
+ * @param value 结构化节点的 inputRefs 候选值
+ * @returns 返回可直接写回共享契约的引用元组数组
+ * @description 草稿可能来自旧缓存或手工 JSON；损坏项不进入编辑状态，避免字符串拆分重建引用。
+ */
+function readFlowRefs(value: unknown): Array<{ $ref: [string, string] }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const ref = asRecord(item)?.$ref;
+    return Array.isArray(ref) &&
+      typeof ref[0] === "string" &&
+      typeof ref[1] === "string"
+      ? [{ $ref: [ref[0], ref[1]] }]
+      : [];
+  });
+}
+
+function readStructuredFields(value: unknown): Array<{
+  name: string;
+  type: "string" | "number" | "boolean" | "enum";
+  required: boolean;
+  values?: string[];
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const candidate = asRecord(item);
+    const name = candidate?.name;
+    const type = candidate?.type;
+    if (
+      !candidate ||
+      typeof name !== "string" ||
+      (type !== "string" &&
+        type !== "number" &&
+        type !== "boolean" &&
+        type !== "enum")
+    ) {
+      return [];
+    }
+    return [
+      {
+        name,
+        type,
+        required: candidate.required !== false,
+        values: Array.isArray(candidate.values)
+          ? candidate.values.filter(
+              (item): item is string => typeof item === "string",
+            )
+          : undefined,
+      },
+    ];
+  });
 }
 
 /** 面板内的一个分组。 */
@@ -1428,7 +1848,7 @@ function defaultPredicate(option: FlowVariableOption): ConditionPredicate {
 /**
  * 把面板内条件组序列化回共享契约形状
  * @param cases 已收窄的条件组
- * @returns 返回可写入 condition.cases 或 loop.continueWhen 的普通对象数组
+ * @returns 返回可写入 condition.cases 或 loop.breakWhen 的普通对象数组
  * @description 两种节点复用完全相同的判定契约，集中序列化避免引用元组或比较值在两处漂移。
  */
 function serializeConditionCases(cases: ConditionCase[]) {
@@ -1484,7 +1904,7 @@ function readConditionCases(node: EditableNode): ConditionCase[] {
 
 /**
  * 从未知配置值读取 condition case 数组
- * @param value condition.cases 或 loop.continueWhen 的未知草稿值
+ * @param value condition.cases 或 loop.breakWhen 的未知草稿值
  * @returns 返回逐项收窄后的条件组；形状损坏的条目跳过
  * @description 草稿可能尚未通过服务端校验，两种节点的条件编辑器共用这一防御性读取路径。
  */

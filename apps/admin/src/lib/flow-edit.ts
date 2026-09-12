@@ -132,9 +132,11 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
   synthesize: () => ({}),
   // waitFor 留空：新节点还没有入边，等谁只能由用户在 inspector 里选
   join: () => ({ waitFor: [], policy: "all" }),
-  // continueWhen 留空即「只按 maxIterations 跑满」，是合法配置；要按条件退出再去
+  // breakWhen 留空即「只按 maxIterations 跑满」，是合法配置；要按条件退出再去
   // inspector 里加判定
-  loop: () => ({ maxIterations: 3, continueWhen: [] }),
+  loop: () => ({ maxIterations: 3, breakWhen: [] }),
+  "structured-output": () => ({ inputRefs: [], instruction: "", fields: [] }),
+  evaluate: () => ({ inputRefs: [], criteria: "" }),
   condition: () => ({
     cases: [
       {
@@ -822,7 +824,10 @@ function reassignmentBoundaryError(
   const reassignedNodes = definition.nodes.map((node) =>
     node.id === nodeId ? { ...node, loopId: nextLoopId } : node,
   );
-  const projected: EditableDefinition = { ...definition, nodes: reassignedNodes };
+  const projected: EditableDefinition = {
+    ...definition,
+    nodes: reassignedNodes,
+  };
   for (const edge of removeLoopTechnicalEdges(definition).edges) {
     if (edge.from !== nodeId && edge.to !== nodeId) continue;
     const source = projected.nodes.find((node) => node.id === edge.from);

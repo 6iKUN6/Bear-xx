@@ -128,14 +128,14 @@ AgentFlowSignalOutbox
 
 运行期状态按「并发下会不会被吞掉」分成三处存放，不再共用一个 JSON blob：
 
-| 事实 | 存放位置 | 为什么在这里 |
-| --- | --- | --- |
-| 节点终局结果（幂等依据） | `AgentFlowNodeExecution`，唯一键 `(taskId, nodeExecutionId)` | 幂等由数据库唯一约束保证，不依赖读写时序 |
-| 预算用量 | `StreamTask.flowModelCalls` / `flowToolCalls` | 走 Prisma 原子 `increment`；整块回写会让并发节点互相吞掉计数，等于无限预算 |
-| `flow.run.started` 是否已发 | `StreamTask.flowRunStartedAt` | 以 `IS NULL` 条件更新原子声明，只有命中 1 行的节点发事件 |
-| 待审批事实 | `AgentFlowApproval`（`status=PENDING`） | 唯一事实源；快照只能容纳一个等待中的节点，并行下必然失真 |
-| 节点声明输出（供下游 `$ref` 引用） | `AgentFlowNodeExecution.outputs`，与幂等记录同一行同一事务 | 一行一节点，读取不需要合并 JSON，也不存在并发覆盖。闭集由 `FLOW_NODE_OUTPUTS` 声明 |
-| 计划步骤、PlanLoop 步骤索引与观察摘要 | `StreamTask.executionState.agentFlow` | 仍是整块读改写。它是跨节点数据（plan 节点写，approval / plan-loop / synthesize 读），**并行落地前必须由变量模型完全接管**，见 `agent-flow-v2-model.md` |
+| 事实                                  | 存放位置                                                     | 为什么在这里                                                                                                                                           |
+| ------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 节点终局结果（幂等依据）              | `AgentFlowNodeExecution`，唯一键 `(taskId, nodeExecutionId)` | 幂等由数据库唯一约束保证，不依赖读写时序                                                                                                               |
+| 预算用量                              | `StreamTask.flowModelCalls` / `flowToolCalls`                | 走 Prisma 原子 `increment`；整块回写会让并发节点互相吞掉计数，等于无限预算                                                                             |
+| `flow.run.started` 是否已发           | `StreamTask.flowRunStartedAt`                                | 以 `IS NULL` 条件更新原子声明，只有命中 1 行的节点发事件                                                                                               |
+| 待审批事实                            | `AgentFlowApproval`（`status=PENDING`）                      | 唯一事实源；快照只能容纳一个等待中的节点，并行下必然失真                                                                                               |
+| 节点声明输出（供下游 `$ref` 引用）    | `AgentFlowNodeExecution.outputs`，与幂等记录同一行同一事务   | 一行一节点，读取不需要合并 JSON，也不存在并发覆盖。固定闭集由 `FLOW_NODE_OUTPUTS` 声明，结构化输出字段由 `flowNodeOutputTypes` 展开                    |
+| 计划步骤、PlanLoop 步骤索引与观察摘要 | `StreamTask.executionState.agentFlow`                        | 仍是整块读改写。它是跨节点数据（plan 节点写，approval / plan-loop / synthesize 读），**并行落地前必须由变量模型完全接管**，见 `agent-flow-v2-model.md` |
 
 以上都不保存完整 FlowDefinition、完整对话、审批决定正文或工具原始响应；遗留策略任务继续保留既有策略快照。
 
@@ -166,8 +166,8 @@ Temporal FlowRuntime: QUEUED -> RUNNING -> WAITING_HUMAN -> RUNNING -> COMPLETED
 ### 5.1 规范
 
 > 本节示例保留 V1 架构形成时的工件形状，用于解释设计来源，不是当前可写契约。当前契约为
-> `schemaVersion: 10`，类型源见 `packages/types/src/agent-flow/definition.ts`；Loop 容器与
-> v9 到 v10 的读取/升级规则见
+> `schemaVersion: 11`，类型源见 `packages/types/src/agent-flow/definition.ts`；Loop 容器与
+> v9/v10 到 v11 的读取/升级规则见
 > `docs/superpowers/specs/2026-09-10-agent-flow-loop-container-design.md`。
 
 FlowDefinition 是可导入导出的标准 JSON，不能使用画布库的私有序列化格式。画布坐标、缩放、折叠状态放在可选 `layout` 字段，运行时和摘要计算忽略该字段。
