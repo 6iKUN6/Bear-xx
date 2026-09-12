@@ -92,6 +92,45 @@ describe('FlowDefinitionVersioning', () => {
       'invalid',
     );
   });
+
+  it('v10 空 continueWhen 可确定升级为 v11 breakWhen', () => {
+    const legacy = loopV10([]);
+    const inspected = inspectFlowDefinition(legacy);
+    expect(inspected.status).toBe('upgradeable');
+    expect(inspected.definition?.schemaVersion).toBe(11);
+    expect(inspected.definition?.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'quality_loop',
+          config: { maxIterations: 3, breakWhen: [] },
+        }),
+      ]),
+    );
+  });
+
+  it('v10 非空 continueWhen 不猜测取反，明确要求人工处理', () => {
+    const inspected = inspectFlowDefinition(
+      loopV10([
+        {
+          key: 'retry',
+          logic: 'and',
+          conditions: [
+            {
+              ref: { $ref: ['generate', 'text'] },
+              operator: 'startsWith',
+              value: '继续',
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(inspected.status).toBe('invalid');
+    expect(inspected.sourceVersion).toBe(10);
+    expect(inspected.errors).toEqual([
+      expect.objectContaining({ rule: 'loop-condition-migration' }),
+    ]);
+  });
 });
 
 /** 构造无 Loop 的合法 v9 工件。 */
@@ -179,5 +218,48 @@ function loopV9() {
         end: { x: 1120, y: 180 },
       },
     },
+  };
+}
+
+/**
+ * 构造带历史 continueWhen 语义的合法 v10 工件
+ * @param continueWhen 历史 Loop 的继续条件数组
+ * @returns 返回带显式循环体归属的 v10 Definition
+ * @description 用于分别验证空条件可迁移、非空条件明确拒绝。
+ */
+function loopV10(continueWhen: unknown[]) {
+  return {
+    schemaVersion: 10,
+    kind: 'agent-flow',
+    name: '历史质量循环',
+    policy: {
+      maxSteps: 8,
+      maxModelCalls: 12,
+      maxToolCalls: 0,
+      maxDurationSeconds: 600,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'quality_loop',
+        type: 'loop',
+        config: { maxIterations: 3, continueWhen },
+      },
+      {
+        id: 'generate',
+        type: 'agent',
+        loopId: 'quality_loop',
+        config: { toolGroups: [], skills: [], maxToolIterations: 1 },
+      },
+      { id: 'answer', type: 'synthesize', config: {} },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'quality_loop' },
+      { from: 'quality_loop', to: 'generate', when: 'again' },
+      { from: 'generate', to: 'quality_loop' },
+      { from: 'quality_loop', to: 'answer', when: 'done' },
+      { from: 'answer', to: 'end' },
+    ],
   };
 }

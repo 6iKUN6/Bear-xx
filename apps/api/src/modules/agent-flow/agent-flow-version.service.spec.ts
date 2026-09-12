@@ -379,7 +379,7 @@ describe('AgentFlowVersionService', () => {
     };
     const draft = {
       ...source,
-      id: 'version-10',
+      id: 'version-11',
       version: 3,
       status: 'DRAFT',
       definition: directDefinition,
@@ -397,32 +397,32 @@ describe('AgentFlowVersionService', () => {
     const result = await service.upgradeToCurrentDraft('version-9', 'admin-1');
 
     expect(result.version).toMatchObject({
-      id: 'version-10',
+      id: 'version-11',
       version: 3,
       schemaStatus: 'current',
     });
-    expect(result.report).toMatchObject({ fromVersion: 9, toVersion: 10 });
+    expect(result.report).toMatchObject({ fromVersion: 9, toVersion: 11 });
     expect(createVersion).toHaveBeenCalledWith({
       data: expect.objectContaining({
         flowId: 'flow-1',
         version: 3,
         status: 'DRAFT',
         digest: null,
-        schemaVersion: 10,
+        schemaVersion: 11,
       }),
     });
     expect(createAudit).toHaveBeenCalledWith({
       data: {
         flowId: 'flow-1',
-        versionId: 'version-10',
+        versionId: 'version-11',
         action: 'UPGRADED',
         actorId: 'admin-1',
         digest: null,
         upgradeContext: {
           sourceVersionId: 'version-9',
-          targetVersionId: 'version-10',
+          targetVersionId: 'version-11',
           fromSchemaVersion: 9,
-          toSchemaVersion: 10,
+          toSchemaVersion: 11,
         },
       },
     });

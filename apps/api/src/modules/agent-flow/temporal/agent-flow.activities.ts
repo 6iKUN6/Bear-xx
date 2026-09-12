@@ -76,6 +76,8 @@ import type {
   CompiledFlowNode,
   CompiledFlowPlan,
   CompiledLoopFlowNode,
+  CompiledStructuredOutputFlowNode,
+  CompiledEvaluateFlowNode,
 } from '../runtime/flow-runtime.types';
 import type {
   AgentFlowActivityApi,
@@ -104,6 +106,41 @@ const planReviewGateSchema = z.object({
   needsReview: z.boolean(),
   reason: z.string(),
 });
+
+const evaluateSchema = z
+  .object({
+    passed: z.boolean(),
+    score: z.number().int().min(0).max(100),
+    reason: z.string(),
+  })
+  .strict();
+
+/**
+ * 根据节点字段声明创建严格结构化输出 Schema
+ * @param fields 节点配置中的扁平字段声明
+ * @returns 返回拒绝额外字段的 Zod 对象 Schema
+ * @description 字段声明已经过 Definition Schema 校验；这里再次将它收敛为模型调用使用的
+ * 严格 schema，保证原生结构化和提示词降级两条路径输出形状一致。
+ */
+function createStructuredOutputSchema(
+  fields: CompiledStructuredOutputFlowNode['fields'],
+): z.ZodObject<z.ZodRawShape> {
+  const shape: Record<string, z.ZodType> = {};
+  for (const field of fields) {
+    let schema: z.ZodType<unknown>;
+    if (field.type === 'string') schema = z.string();
+    else if (field.type === 'number') schema = z.number().finite();
+    else if (field.type === 'boolean') schema = z.boolean();
+    else {
+      const values = field.values ?? [];
+      schema = z.string().refine((value) => values.includes(value), {
+        message: `必须是枚举值：${values.join('、')}`,
+      });
+    }
+    shape[field.name] = field.required ? schema : schema.optional();
+  }
+  return z.object(shape).strict();
+}
 
 /**
  * 把不可信字符串收窄为协议错误类别
@@ -869,6 +906,12 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         resumeDecision,
       );
     }
+    if (context.node.type === 'structured-output') {
+      return this.executeStructuredOutputNode(context, input, context.node);
+    }
+    if (context.node.type === 'evaluate') {
+      return this.executeEvaluateNode(context, input, context.node);
+    }
     if (context.node.type === 'plan') {
       return this.executePlanNode(context, input, context.node);
     }
@@ -1372,7 +1415,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * @param node 已编译的循环配置
    * @returns 返回 again 或 done 分支，并把面向下一轮的轮次声明为节点输出
    * @description 第一次到达 loop 时 iteration 为 0，此时尚无循环体输出，必定进入第 1 轮。
-   * 后续到达先执行 continueWhen；达到 maxIterations 时无条件退出。轮次由 Workflow 持有，
+   * 后续到达先执行 breakWhen；达到 maxIterations 时无条件退出。轮次由 Workflow 持有，
    * Activity 不查库推算，避免 Temporal 重试同一轮时改变幂等键并重复执行外部副作用。
    */
   private async executeLoopNode(
@@ -1388,17 +1431,18 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       );
     }
 
+    let shouldBreak = false;
     let shouldContinue = iteration === 0;
     if (
       iteration > 0 &&
       iteration < node.maxIterations &&
-      node.continueWhen.length === 0
+      node.breakWhen.length === 0
     ) {
       shouldContinue = true;
     } else if (
       iteration > 0 &&
       iteration < node.maxIterations &&
-      node.continueWhen.length > 0
+      node.breakWhen.length > 0
     ) {
       const upstream = await this.loadUpstreamOutputs(context.task.id);
       const resolve = (ref: readonly [string, string]): unknown => {
@@ -1412,9 +1456,10 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         }
         return outputs[field];
       };
-      shouldContinue = node.continueWhen.some((branch) =>
+      shouldBreak = node.breakWhen.some((branch) =>
         evaluateConditionCase(branch, resolve),
       );
+      shouldContinue = !shouldBreak;
     }
 
     const outcome = shouldContinue
@@ -1474,6 +1519,151 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       outputs.set(row.nodeKey, row.outputs);
     }
     return outputs;
+  }
+
+  /**
+   * 执行结构化输出节点
+   * @param context 当前节点执行上下文
+   * @param input Temporal 下传的稳定节点执行标识
+   * @param node 已编译的结构化输出节点
+   * @returns 返回结构化字段输出或明确失败
+   * @description 输入只来自显式引用，模型结果必须通过动态严格 Schema；失败不伪造字段，也不
+   * 将失败转成 Loop 的继续条件。
+   */
+  private async executeStructuredOutputNode(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    node: CompiledStructuredOutputFlowNode,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    const budget = this.createBudgetTracker(context);
+    if (budget.modelCallExhausted()) {
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
+    }
+    const messages = await this.buildStructuredNodeMessages(
+      context,
+      node.inputRefs,
+      node.instruction,
+    );
+    const schema = createStructuredOutputSchema(node.fields);
+    let parsed: Record<string, unknown> | null;
+    try {
+      parsed = await this.llmService.generateStructured(messages, schema, {
+        schemaName: 'agent_flow_structured_output',
+        request: {
+          model: { modelId: node.modelPreset },
+          reasoning: node.reasoning,
+        },
+      });
+    } finally {
+      budget.countModelCall();
+      await budget.flush();
+    }
+    if (!parsed) {
+      throw createNonRetryableActivityFailure(
+        `结构化输出节点「${node.key}」未产出符合契约的结果`,
+        'AGENT_FLOW_STRUCTURED_OUTPUT_INVALID',
+      );
+    }
+    return this.completeNode(context, input, 'default', '结构化输出完成', {
+      outputs: parsed,
+    });
+  }
+
+  /**
+   * 执行评估节点
+   * @param context 当前节点执行上下文
+   * @param input Temporal 下传的稳定节点执行标识
+   * @param node 已编译的评估节点
+   * @returns 返回固定评估结果或明确失败
+   * @description 评估结果只用于后续引用和 Loop breakWhen，reason 保留在节点输出与 trace 中。
+   */
+  private async executeEvaluateNode(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    node: CompiledEvaluateFlowNode,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    const budget = this.createBudgetTracker(context);
+    if (budget.modelCallExhausted()) {
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
+    }
+    const messages = await this.buildStructuredNodeMessages(
+      context,
+      node.inputRefs,
+      node.criteria,
+    );
+    let parsed: { passed: boolean; score: number; reason: string } | null;
+    try {
+      parsed = await this.llmService.generateStructured(
+        messages,
+        evaluateSchema,
+        {
+          schemaName: 'agent_flow_evaluate',
+          request: {
+            model: { modelId: node.modelPreset },
+            reasoning: node.reasoning,
+          },
+        },
+      );
+    } finally {
+      budget.countModelCall();
+      await budget.flush();
+    }
+    if (!parsed) {
+      throw createNonRetryableActivityFailure(
+        `评估节点「${node.key}」未产出符合契约的结果`,
+        'AGENT_FLOW_EVALUATE_INVALID',
+      );
+    }
+    return this.completeNode(context, input, 'default', '评估完成', {
+      outputs: parsed,
+    });
+  }
+
+  /**
+   * 构造结构化节点的模型输入
+   * @param context 当前节点执行上下文
+   * @param refs 节点配置中的输入引用
+   * @param instruction 当前节点的提取要求或评估标准
+   * @returns 返回带来源标签的模型消息列表
+   * @description 引用缺失或字段缺失是快照/运行时上下文错误，直接失败，不使用空值兜底。
+   */
+  private async buildStructuredNodeMessages(
+    context: AgentFlowExecutionContext,
+    refs: readonly FlowRef[],
+    instruction: string,
+  ): Promise<LlmMessage[]> {
+    const upstream = await this.loadUpstreamOutputs(context.task.id);
+    const blocks = refs.map((ref) => {
+      const [sourceId, field] = ref.$ref;
+      const outputs = upstream.get(sourceId);
+      if (!outputs || !Object.hasOwn(outputs, field)) {
+        throw createNonRetryableActivityFailure(
+          `结构化节点引用「${sourceId}.${field}」没有已落库的输出`,
+          'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
+        );
+      }
+      const value = outputs[field];
+      const serialized =
+        typeof value === 'string' ? value : JSON.stringify(value);
+      if (serialized === undefined) {
+        throw createNonRetryableActivityFailure(
+          `结构化节点引用「${sourceId}.${field}」的输出无法序列化`,
+          'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
+        );
+      }
+      return `来源 ${sourceId}.${field}:\n${serialized}`;
+    });
+    return [
+      {
+        role: 'system',
+        content:
+          '你是 AgentFlow 的结构化节点。严格按照用户要求输出 JSON，不要输出 Markdown、解释或额外字段。',
+      },
+      {
+        role: 'user',
+        content: `${instruction.trim()}\n\n输入内容：\n${blocks.join('\n\n')}`,
+      },
+    ];
   }
 
   /**
@@ -3250,6 +3440,10 @@ function getNodeTypeTitle(type: FlowNodeType): string {
       return '汇聚并行分支';
     case 'loop':
       return '判定是否继续循环';
+    case 'structured-output':
+      return '提取结构化结果';
+    case 'evaluate':
+      return '评估结果质量';
   }
 }
 

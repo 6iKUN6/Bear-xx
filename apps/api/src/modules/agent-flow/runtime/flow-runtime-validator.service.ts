@@ -129,6 +129,28 @@ export class FlowRuntimeValidator {
         toolGroups,
         errors,
       );
+      return;
+    }
+    if (node.type === 'structured-output') {
+      this.validateModelPreset(
+        node.config.modelPreset,
+        node.config.reasoning,
+        `nodes.${nodeIndex}.config.modelPreset`,
+        context,
+        availableModels,
+        errors,
+      );
+      return;
+    }
+    if (node.type === 'evaluate') {
+      this.validateModelPreset(
+        node.config.modelPreset,
+        node.config.reasoning,
+        `nodes.${nodeIndex}.config.modelPreset`,
+        context,
+        availableModels,
+        errors,
+      );
     }
   }
 

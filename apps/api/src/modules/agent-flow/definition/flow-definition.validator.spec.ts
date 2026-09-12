@@ -7,6 +7,68 @@ import {
 } from './flow-definition.validator';
 
 describe('FlowDefinitionValidator', () => {
+  it('接受 v11 structured-output 与 evaluate，并暴露动态/固定输出类型', () => {
+    const definition = {
+      ...validDefinition(),
+      nodes: [
+        { id: 'start', type: 'start' as const, config: {} },
+        {
+          id: 'extract',
+          type: 'structured-output' as const,
+          config: {
+            inputRefs: [{ $ref: ['start', 'text'] as [string, string] }],
+            instruction: '提取结果',
+            fields: [
+              { name: 'score', type: 'number' as const, required: true },
+              {
+                name: 'label',
+                type: 'enum' as const,
+                values: ['pass'],
+                required: true,
+              },
+            ],
+          },
+        },
+        {
+          id: 'evaluate',
+          type: 'evaluate' as const,
+          config: {
+            inputRefs: [{ $ref: ['extract', 'score'] as [string, string] }],
+            criteria: '判断是否通过',
+          },
+        },
+        { id: 'end', type: 'end' as const, config: {} },
+      ],
+      edges: [
+        { from: 'start', to: 'extract' },
+        { from: 'extract', to: 'evaluate' },
+        { from: 'evaluate', to: 'end' },
+      ],
+    };
+    expect(validateFlowDefinition(definition).success).toBe(true);
+  });
+
+  it('允许结构化节点保存空草稿，但发布校验拒绝不完整配置', () => {
+    const definition = {
+      ...validDefinition(),
+      nodes: [
+        { id: 'start', type: 'start' as const, config: {} },
+        {
+          id: 'extract',
+          type: 'structured-output' as const,
+          config: { inputRefs: [], instruction: '', fields: [] },
+        },
+        { id: 'end', type: 'end' as const, config: {} },
+      ],
+      edges: [
+        { from: 'start', to: 'extract' },
+        { from: 'extract', to: 'end' },
+      ],
+    };
+    expect(validateFlowDraftDefinition(definition).success).toBe(true);
+    expect(validateFlowDefinition(definition).success).toBe(false);
+  });
+
   it('忽略 layout 与对象字段顺序，生成稳定的语义摘要', () => {
     const first = validDefinition();
     const second = {
@@ -744,7 +806,7 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
-  it('loop continueWhen 可以引用每轮必定完成的体内节点输出', () => {
+  it('loop breakWhen 可以引用每轮必定完成的体内节点输出', () => {
     const definition = loopDefinition();
     const result = validateFlowDefinition({
       ...definition,
@@ -754,7 +816,7 @@ describe('FlowDefinitionValidator', () => {
               ...node,
               config: {
                 maxIterations: 3,
-                continueWhen: [
+                breakWhen: [
                   {
                     key: 'retry',
                     logic: 'and',
@@ -923,7 +985,7 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
-  it('loop continueWhen 不能引用并非每轮必定执行的体内分支', () => {
+  it('loop breakWhen 不能引用并非每轮必定执行的体内分支', () => {
     expectValidationError(
       validateFlowDefinition(loopWithOptionalRefDefinition()),
       (error) => error.rule === 'ref-dominates',
@@ -940,7 +1002,7 @@ describe('FlowDefinitionValidator', () => {
           {
             id: 'lp',
             type: 'loop',
-            config: { maxIterations: 999, continueWhen: [] },
+            config: { maxIterations: 999, breakWhen: [] },
           },
         ],
         edges: [...definition.edges, { from: 'answer', to: 'lp' }],
@@ -1090,7 +1152,7 @@ function loopDefinition() {
       {
         id: 'lp',
         type: 'loop',
-        config: { maxIterations: 3, continueWhen: [] },
+        config: { maxIterations: 3, breakWhen: [] },
       },
       { id: 'body', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
       { id: 'answer', type: 'synthesize', config: {} },
@@ -1120,12 +1182,12 @@ function nestedLoopDefinition() {
       {
         id: 'outer',
         type: 'loop',
-        config: { maxIterations: 3, continueWhen: [] },
+        config: { maxIterations: 3, breakWhen: [] },
       },
       {
         id: 'inner',
         type: 'loop',
-        config: { maxIterations: 2, continueWhen: [] },
+        config: { maxIterations: 2, breakWhen: [] },
       },
       { id: 'body', type: 'agent', config: agentNodeConfig() },
       { id: 'answer', type: 'synthesize', config: {} },
@@ -1158,7 +1220,7 @@ function loopWithApprovalDefinition() {
       {
         id: 'lp',
         type: 'loop',
-        config: { maxIterations: 3, continueWhen: [] },
+        config: { maxIterations: 3, breakWhen: [] },
       },
       {
         id: 'review',
@@ -1199,7 +1261,7 @@ function loopWithJoinDefinition(policy: 'all' | 'any') {
       {
         id: 'lp',
         type: 'loop',
-        config: { maxIterations: 3, continueWhen: [] },
+        config: { maxIterations: 3, breakWhen: [] },
       },
       { id: 'entry', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
       { id: 'left', type: 'agent', loopId: 'lp', config: agentNodeConfig() },
@@ -1228,7 +1290,7 @@ function loopWithJoinDefinition(policy: 'all' | 'any') {
 }
 
 /**
- * 构造 continueWhen 引用可选分支输出的循环
+ * 构造 breakWhen 引用可选分支输出的循环
  * @returns 返回 measured 与 skipped 互斥、随后汇合再回到 loop 的 Definition
  * @description measured 不是每轮必定完成；即使它属于循环体，loop 边界也不能读取其输出。
  */
@@ -1243,7 +1305,7 @@ function loopWithOptionalRefDefinition() {
         type: 'loop',
         config: {
           maxIterations: 3,
-          continueWhen: [
+          breakWhen: [
             {
               key: 'retry',
               logic: 'and',

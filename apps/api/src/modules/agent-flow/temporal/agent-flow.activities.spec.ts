@@ -392,6 +392,159 @@ describe('AgentFlowActivities', () => {
     expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
   });
 
+  it('structured-output 按显式输入调用结构化模型并落库声明字段', async () => {
+    mockStructuredNode('structured-output');
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'start',
+        nodeExecutionId: 'task-1:version-1:start#0',
+        outputs: { text: '订单号 A-100，金额 42' },
+      },
+    ]);
+    llmService.generateStructured.mockResolvedValue({
+      order_id: 'A-100',
+      amount: 42,
+      confirmed: true,
+    });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'extract',
+        nodeExecutionId: 'task-1:version-1:extract#0',
+        iteration: 0,
+      }),
+    ).resolves.toEqual({
+      kind: 'completed',
+      outcome: 'default',
+      summary: '结构化输出完成',
+    });
+    expect(llmService.generateStructured).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          content: expect.stringContaining('来源 start.text'),
+        }),
+      ]),
+      expect.anything(),
+      expect.objectContaining({ schemaName: 'agent_flow_structured_output' }),
+    );
+    const structuredSchema = readSafeParseSchema(readStructuredCallArgument(1));
+    expect(
+      structuredSchema.safeParse({
+        order_id: 'A-100',
+        amount: 42,
+        confirmed: true,
+        extra: '拒绝',
+      }).success,
+    ).toBe(false);
+    expect(readCompletedOutputs()).toEqual({
+      order_id: 'A-100',
+      amount: 42,
+      confirmed: true,
+    });
+    expect(readBudgetIncrement()).toEqual({
+      modelCalls: { increment: 1 },
+      toolCalls: { increment: 0 },
+    });
+  });
+
+  it.each([
+    { passed: true, score: 100, reason: '达到要求' },
+    { passed: false, score: 0, reason: '仍需修改' },
+  ])(
+    'evaluate 保存固定输出（passed=$passed, score=$score）',
+    async (evaluation) => {
+      mockStructuredNode('evaluate');
+      prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+        {
+          nodeKey: 'start',
+          nodeExecutionId: 'task-1:version-1:start#0',
+          outputs: { text: '待评估内容' },
+        },
+      ]);
+      llmService.generateStructured.mockResolvedValue(evaluation);
+
+      await expect(
+        activities.executeNode({
+          workflow: workflowInput(),
+          nodeKey: 'judge',
+          nodeExecutionId: 'task-1:version-1:judge#0',
+          iteration: 0,
+        }),
+      ).resolves.toEqual({
+        kind: 'completed',
+        outcome: 'default',
+        summary: '评估完成',
+      });
+      expect(readCompletedOutputs()).toEqual(evaluation);
+      expect(llmService.generateStructured).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ schemaName: 'agent_flow_evaluate' }),
+      );
+      const evaluateSchema = readSafeParseSchema(readStructuredCallArgument(1));
+      expect(
+        evaluateSchema.safeParse({
+          ...evaluation,
+          extra: '拒绝',
+        }).success,
+      ).toBe(false);
+      expect(
+        evaluateSchema.safeParse({ ...evaluation, score: 101 }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    ['结构化输出', 'structured-output', 'AGENT_FLOW_STRUCTURED_OUTPUT_INVALID'],
+    ['评估', 'evaluate', 'AGENT_FLOW_EVALUATE_INVALID'],
+  ])(
+    '%s 节点收到 null 时明确失败且不伪造输出',
+    async (_label, type, errorType) => {
+      mockStructuredNode(type as 'structured-output' | 'evaluate');
+      prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+        {
+          nodeKey: 'start',
+          nodeExecutionId: 'task-1:version-1:start#0',
+          outputs: { text: '输入' },
+        },
+      ]);
+      llmService.generateStructured.mockResolvedValue(null);
+
+      await expect(
+        activities.executeNode({
+          workflow: workflowInput(),
+          nodeKey: type === 'evaluate' ? 'judge' : 'extract',
+          nodeExecutionId: `task-1:version-1:${type}#0`,
+          iteration: 0,
+        }),
+      ).rejects.toMatchObject({ type: errorType });
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+      expect(readBudgetIncrement()).toEqual({
+        modelCalls: { increment: 1 },
+        toolCalls: { increment: 0 },
+      });
+    },
+  );
+
+  it('结构化节点达到模型预算时不发起调用', async () => {
+    mockStructuredNode('evaluate', { modelCalls: 2, toolCalls: 0 });
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'judge',
+        nodeExecutionId: 'task-1:version-1:judge#0',
+        iteration: 0,
+      }),
+    ).resolves.toEqual({
+      kind: 'stopped',
+      status: 'error',
+      errorCategory: 'budget_exceeded',
+    });
+    expect(llmService.generateStructured).not.toHaveBeenCalled();
+  });
+
   it('突破工具调用预算时中断流并以 flow.node.failed 收敛', async () => {
     mockAgentNode();
     // flowDefinition 的 maxToolCalls 为 0：第一次工具请求即超额
@@ -1124,7 +1277,7 @@ describe('AgentFlowActivities', () => {
     expect(readCompletedOutputs()).toEqual({ iteration: 3 });
   });
 
-  it('loop 未配置 continueWhen 时固定执行到最大轮数', async () => {
+  it('loop 未配置 breakWhen 时固定执行到最大轮数', async () => {
     mockLoopNode([]);
 
     await expect(
@@ -1242,22 +1395,22 @@ describe('AgentFlowActivities', () => {
 
   /**
    * 装配一个可执行的 loop 节点上下文
-   * @param continueWhen 循环继续条件；空数组表示固定轮数
+   * @param breakWhen 循环继续条件；空数组表示固定轮数
    * @returns 无返回值
    * @description Definition 使用 plan 作为循环体，以便用稳定的 stepCount 数字输出验证条件，
    * 编译结果只保留 Activity 执行 loop 所需的配置。
    */
   function mockLoopNode(
-    continueWhen: ReturnType<typeof conditionalLoopCases>,
+    breakWhen: ReturnType<typeof conditionalLoopCases>,
   ): void {
     mockExecutionContext({
       node: {
         key: 'lp',
         type: 'loop',
         maxIterations: 3,
-        continueWhen,
+        breakWhen,
       },
-      definition: loopFlowDefinition(continueWhen),
+      definition: loopFlowDefinition(breakWhen),
     });
   }
 
@@ -1624,6 +1777,58 @@ describe('AgentFlowActivities', () => {
   }
 
   /**
+   * 装配结构化输出或评估节点的最小冻结上下文
+   * @param type 要执行的结构化节点类型
+   * @param budgetUsage 可选的历史模型与工具调用用量
+   * @returns 无返回值
+   * @description Definition 包含真实的节点和显式 start.text 引用，避免 Activity 测试只验证手写编译节点而绕过快照校验。
+   */
+  function mockStructuredNode(
+    type: 'structured-output' | 'evaluate',
+    budgetUsage?: { modelCalls: number; toolCalls: number },
+  ): void {
+    const definition = structuredNodeFlowDefinition(type);
+    mockExecutionContext({
+      node:
+        type === 'structured-output'
+          ? {
+              key: 'extract',
+              type,
+              inputRefs: [{ $ref: ['start', 'text'] }],
+              instruction: '提取订单字段',
+              fields: [
+                { name: 'order_id', type: 'string', required: true },
+                { name: 'amount', type: 'number', required: true },
+                { name: 'confirmed', type: 'boolean', required: true },
+              ],
+              modelPreset: 'openai:test',
+            }
+          : {
+              key: 'judge',
+              type,
+              inputRefs: [{ $ref: ['start', 'text'] }],
+              criteria: '判断内容是否满足要求',
+              modelPreset: 'openai:test',
+            },
+      definition,
+      ...(budgetUsage ? { budgetUsage } : {}),
+    });
+  }
+
+  /**
+   * 读取结构化模型调用的指定参数
+   * @param index generateStructured 的参数下标
+   * @returns 返回第一笔调用对应位置的未知值
+   * @description 先把 Jest mock 调用记录收窄为 unknown 元组，避免测试依赖其 any 类型。
+   */
+  function readStructuredCallArgument(index: number): unknown {
+    const calls = llmService.generateStructured.mock.calls as unknown as Array<
+      [unknown, unknown, unknown]
+    >;
+    return calls[0]?.[index];
+  }
+
+  /**
    * 读取节点完成时回写任务的正文
    * @returns 返回本次完成写入的 fullContent；未写入时为 undefined
    * @description 「有没有写」和「写了什么」是两件事：中间节点必须完全不出现这个字段，
@@ -1777,6 +1982,28 @@ async function* emptyEventStream() {
   yield* [];
 }
 
+interface SafeParseSchema {
+  safeParse(value: unknown): { success: boolean };
+}
+
+/**
+ * 将模型调用参数收窄为可验证的 Schema 接口
+ * @param value generateStructured 收到的 schema 参数
+ * @returns 返回只暴露 safeParse 的最小测试接口
+ * @description 参数形状异常时立即失败，避免可选链把“没传 schema”误判为校验通过。
+ */
+function readSafeParseSchema(value: unknown): SafeParseSchema {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('safeParse' in value) ||
+    typeof value.safeParse !== 'function'
+  ) {
+    throw new Error('结构化节点未传入可解析的输出 Schema');
+  }
+  return value as SafeParseSchema;
+}
+
 /**
  * 构造只输出一段文本的底层 Agent 流
  * @param delta 当前计划步骤生成的内部观察文本
@@ -1922,8 +2149,8 @@ function conditionalLoopCases() {
       conditions: [
         {
           ref: { $ref: ['body', 'stepCount'] as [string, string] },
-          operator: 'gt' as const,
-          value: 3,
+          operator: 'lt' as const,
+          value: 4,
         },
       ],
     },
@@ -1932,12 +2159,12 @@ function conditionalLoopCases() {
 
 /**
  * 构造 plan 节点作为循环体的合法 FlowDefinition
- * @param continueWhen loop 节点的继续条件
+ * @param breakWhen loop 节点的继续条件
  * @returns 返回 start -> loop -> body -> loop / done -> answer 的完整图
  * @description loop 首次进入不读 body，后续轮次读取 body 最近一次声明的 stepCount。
  */
 function loopFlowDefinition(
-  continueWhen: ReturnType<typeof conditionalLoopCases>,
+  breakWhen: ReturnType<typeof conditionalLoopCases>,
 ) {
   return {
     schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
@@ -1954,7 +2181,7 @@ function loopFlowDefinition(
       {
         id: 'lp',
         type: 'loop' as const,
-        config: { maxIterations: 3, continueWhen },
+        config: { maxIterations: 3, breakWhen },
       },
       {
         id: 'body',
@@ -2021,6 +2248,55 @@ function flowDefinition() {
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'answer', when: 'approved' as const },
       { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造结构化节点 Activity 测试使用的最小合法图
+ * @param type 要放入图中的结构化节点类型
+ * @returns 返回 start 到结构化节点再到 end 的当前版本 Definition
+ * @description 两种节点共享显式 start.text 输入，但分别携带动态字段或固定评估标准。
+ */
+function structuredNodeFlowDefinition(type: 'structured-output' | 'evaluate') {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow' as const,
+    name: '结构化节点测试图',
+    policy: {
+      maxSteps: 1,
+      maxModelCalls: 2,
+      maxToolCalls: 0,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
+      {
+        id: type === 'evaluate' ? 'judge' : 'extract',
+        type,
+        config:
+          type === 'evaluate'
+            ? {
+                inputRefs: [{ $ref: ['start', 'text'] as [string, string] }],
+                criteria: '判断内容是否满足要求',
+                modelPreset: 'openai:test',
+              }
+            : {
+                inputRefs: [{ $ref: ['start', 'text'] as [string, string] }],
+                instruction: '提取订单字段',
+                fields: [
+                  { name: 'order_id', type: 'string', required: true },
+                  { name: 'amount', type: 'number', required: true },
+                  { name: 'confirmed', type: 'boolean', required: true },
+                ],
+                modelPreset: 'openai:test',
+              },
+      },
+      { id: 'end', type: 'end' as const, config: {} },
+    ],
+    edges: [
+      { from: 'start', to: type === 'evaluate' ? 'judge' : 'extract' },
+      { from: type === 'evaluate' ? 'judge' : 'extract', to: 'end' },
     ],
   };
 }

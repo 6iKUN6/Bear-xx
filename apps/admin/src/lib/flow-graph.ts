@@ -8,6 +8,8 @@ import {
   Repeat,
   Merge,
   RefreshCw,
+  Braces,
+  Gauge,
   UserCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -15,6 +17,7 @@ import {
   FLOW_CONDITION_ELSE_BRANCH,
   FLOW_DEFAULT_BRANCH,
   FLOW_NODE_OUTPUTS,
+  flowNodeOutputTypes,
   flowLoopBoundarySources,
   flowLoopRegions,
   flowMustCompleteBefore,
@@ -74,6 +77,8 @@ export interface FlowGraphNode {
   height?: number;
   collapsed?: boolean;
   hidden?: boolean;
+  /** 结构化节点的紧凑配置摘要；普通节点不设置。 */
+  nodeSummary?: string;
   loopSummary?: string;
   loopWarning?: string;
 }
@@ -248,6 +253,8 @@ export const NODE_TYPE_ICONS: Record<FlowNodeType, LucideIcon> = {
   condition: GitBranch,
   join: Merge,
   loop: RefreshCw,
+  "structured-output": Braces,
+  evaluate: Gauge,
 };
 
 /** 节点类型的展示元数据；`type` 是契约里的英文类型名，与节点标识是两回事。 */
@@ -329,6 +336,18 @@ const NODE_TYPE_META: Record<FlowNodeType, NodeTypeMeta> = {
     desc: "按条件或轮数重复执行循环体；回边须指回本节点",
     category: "逻辑",
   },
+  "structured-output": {
+    name: "结构化输出",
+    type: "structured-output",
+    desc: "按字段声明提取结构化结果",
+    category: "执行",
+  },
+  evaluate: {
+    name: "评估",
+    type: "evaluate",
+    desc: "按标准评估输入结果",
+    category: "逻辑",
+  },
 };
 
 /**
@@ -404,7 +423,9 @@ export function toFlowGraph(
       .filter((node) => node.type === "loop")
       .filter(
         (node) =>
-          collapsedOverrides.get(node.id) ?? layout[node.id]?.collapsed ?? false,
+          collapsedOverrides.get(node.id) ??
+          layout[node.id]?.collapsed ??
+          false,
       )
       .map((node) => node.id),
   );
@@ -444,6 +465,7 @@ export function toFlowGraph(
           : undefined;
       const loopState =
         node.type === "loop" ? summarizeLoop(definition, node.id) : undefined;
+      const summary = nodeSummary(node);
       return {
         id: node.id,
         ...(node.name ? { name: node.name } : {}),
@@ -451,6 +473,7 @@ export function toFlowGraph(
         type: node.type,
         position,
         config: node.config,
+        ...(summary ? { nodeSummary: summary } : {}),
         ...(node.loopId ? { loopId: node.loopId, parentId: node.loopId } : {}),
         ...(node.type === "loop"
           ? {
@@ -462,9 +485,7 @@ export function toFlowGraph(
                 : (saved?.height ?? LOOP_CONTAINER_LAYOUT.height),
               collapsed,
               loopSummary: loopState?.summary,
-              ...(loopState?.warning
-                ? { loopWarning: loopState.warning }
-                : {}),
+              ...(loopState?.warning ? { loopWarning: loopState.warning } : {}),
             }
           : {}),
         ...(node.loopId && collapsedLoops.has(node.loopId)
@@ -498,25 +519,52 @@ export function toFlowGraph(
     const target = definition.nodes.find((node) => node.id === edge.to);
     const hiddenByCollapse = Boolean(
       (source?.loopId && collapsedLoops.has(source.loopId)) ||
-        (target?.loopId && collapsedLoops.has(target.loopId)),
+      (target?.loopId && collapsedLoops.has(target.loopId)),
     );
     if (isLoopTechnicalEdge(definition, edge) || hiddenByCollapse) return [];
-    return [{
-      id: edgeId(edge),
-      source: edge.from,
-      target: edge.to,
-      branch,
-      ...(source?.type === "loop" ? { sourceHandle: branch } : {}),
-      ...(target?.type === "loop" ? { targetHandle: "loop-entry" } : {}),
-      label: waited
-        ? waited.has(edge.from)
-          ? "等待"
-          : "不等待"
-        : branchLabel(branch),
-    }];
+    return [
+      {
+        id: edgeId(edge),
+        source: edge.from,
+        target: edge.to,
+        branch,
+        ...(source?.type === "loop" ? { sourceHandle: branch } : {}),
+        ...(target?.type === "loop" ? { targetHandle: "loop-entry" } : {}),
+        label: waited
+          ? waited.has(edge.from)
+            ? "等待"
+            : "不等待"
+          : branchLabel(branch),
+      },
+    ];
   });
 
   return { nodes, edges };
+}
+
+/**
+ * 生成节点卡片的紧凑配置摘要
+ * @param node 画布定义中的节点
+ * @returns 结构化节点返回摘要，其他节点返回 undefined
+ * @description 画布只显示可扫描的短信息，不把 instruction、criteria 或完整字段 JSON 展开到卡片。
+ */
+function nodeSummary(
+  node: CanvasDefinition["nodes"][number],
+): string | undefined {
+  if (node.type === "evaluate") {
+    return "模型评估";
+  }
+  if (node.type !== "structured-output") {
+    return undefined;
+  }
+  const config =
+    typeof node.config === "object" &&
+    node.config !== null &&
+    !Array.isArray(node.config)
+      ? (node.config as { fields?: unknown })
+      : undefined;
+  const fieldCount = Array.isArray(config?.fields) ? config.fields.length : 0;
+  return `结构化输出 · ${fieldCount} 个字段`;
 }
 
 /**
@@ -570,12 +618,11 @@ function summarizeLoop(
   const loop = definition.nodes.find((node) => node.id === loopId);
   const members = definition.nodes.filter((node) => node.loopId === loopId);
   const config = loop?.config as
-    | { maxIterations?: unknown; continueWhen?: unknown }
-    | undefined;
+    { maxIterations?: unknown; breakWhen?: unknown } | undefined;
   const iterations =
     typeof config?.maxIterations === "number" ? config.maxIterations : "?";
-  const conditionCount = Array.isArray(config?.continueWhen)
-    ? config.continueWhen.length
+  const conditionCount = Array.isArray(config?.breakWhen)
+    ? config.breakWhen.length
     : 0;
   const summary = conditionCount
     ? `最多 ${iterations} 轮 · ${conditionCount} 条继续规则 · ${members.length} 个节点`
@@ -684,13 +731,16 @@ export function missingBranches(
 /**
  * 列出一个节点声明的输出字段
  * @param type 节点类型
+ * @param config 节点配置；structured-output 用它动态解析字段
  * @returns 返回字段名到值类型的条目
- * @description 直接读共享契约的 FLOW_NODE_OUTPUTS，变量选择器和后端类型检查因此用同一份事实。
+ * @description 通过共享 flowNodeOutputTypes 读取固定或动态输出，变量选择器和后端类型检查
+ * 因此用同一份事实。
  */
 export function nodeOutputEntries(
   type: FlowNodeType,
+  config?: unknown,
 ): Array<{ field: string; valueType: string }> {
-  return Object.entries(FLOW_NODE_OUTPUTS[type] ?? {}).map(
+  return Object.entries(flowNodeOutputTypes({ type, config })).map(
     ([field, valueType]) => ({ field, valueType }),
   );
 }
@@ -743,7 +793,10 @@ export function variableOptions(
     ) {
       continue;
     }
-    for (const { field, valueType } of nodeOutputEntries(node.type)) {
+    for (const { field, valueType } of nodeOutputEntries(
+      node.type,
+      node.config,
+    )) {
       if (onlyField && field !== onlyField) {
         continue;
       }
