@@ -1,0 +1,47 @@
+# Sola 桌面端打包配置（electron-builder）
+# 产物只打 dist/（renderer 已被 electron-vite 内联打包，主/preload 仅用 electron 与 node 内置），
+# 不打 node_modules——所有运行时依赖都在构建期被 vite 收敛进 dist，包内无需再解析 workspace 依赖。
+appId: com.sola.desktop
+productName: Sola
+copyright: Copyright © 2026
+
+# pnpm workspace 下 electron-builder 默认会把 dependencies 对应的 node_modules 收进 asar，
+# 但本应用主/preload 仅用 electron 与 node 内置、renderer 已被 electron-vite 全部内联打包，
+# node_modules 是纯死重，显式排除（只发 dist 产物 + package.json）。
+files:
+  - dist/**
+  - package.json
+  - "!**/*.map"
+  - "!node_modules/**"
+
+directories:
+  output: release
+  buildResources: resources
+
+asar: true
+
+# electron-builder 下载 Electron 发行版走自己的下载器（不吃 ELECTRON_MIRROR），
+# 显式指向 npmmirror，避免 GitHub 直连超时。
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.png
+  # 本地构建不签名（本机有 Apple Development 证书但时间戳服务在内网不可达）；
+  # 正式发布要走签名/公证时，删掉这行并配置 CSC 环境变量。
+  identity: null
+  # Apple Silicon + Intel 双架构（arch 挂在每个 target 上，不能直接放 mac 下）
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+dmg:
+  icon: resources/icon.png
+  window:
+    width: 540
+    height: 380
+
+# Windows / Linux 暂不打包（v1 只发 macOS）；需要时补 win.icon(icon.ico) 与 nsis 配置

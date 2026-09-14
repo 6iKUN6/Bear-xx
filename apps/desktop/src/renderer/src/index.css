@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  background: var(--lb-page-background);
+  color: var(--lb-text-primary);
+  overflow: hidden;
+}
+
+code,
+pre,
+.mono {
+  font-family: Menlo, Consolas, "Courier New", monospace;
+}
+
+/* accent 面（按钮/瓷贴）：必须用 background 简写而非 Tailwind 的 bg-[var()]——
+   purple 主题的 --lb-accent-surface 是渐变值，background-color 下会失效导致按钮透明 */
+.lb-accent-surface {
+  background: var(--lb-accent-surface);
+}
+
+@keyframes lb-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
