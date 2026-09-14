@@ -1,0 +1,40 @@
+{
+  "name": "@litter-bear/desktop",
+  "productName": "Sola",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sola 桌面端（Electron 壳 + React 19）：对话工作台，消费 C 端 /chat SSE",
+  "author": "Sola",
+  "main": "./dist/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "package": "pnpm run build && electron-builder",
+    "package:dir": "pnpm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "@litter-bear/chat-core": "workspace:*",
+    "@litter-bear/markdown": "workspace:*",
+    "@litter-bear/theme": "workspace:*",
+    "@litter-bear/types": "workspace:*",
+    "lucide-react": "^0.469.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.3.6"
+  }
+}

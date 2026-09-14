@@ -9,6 +9,7 @@ onlyBuiltDependencies:
   - "@prisma/client"
   - "@prisma/engines"
   - esbuild
+  - electron
   - "@tarojs/binding"
   - "@swc/core"
   - unrs-resolver
