@@ -31,7 +31,7 @@ import type {
   VoiceCompletionsFormDataDto,
   WechatLoginDto,
 } from "./generated/models";
-import { BaseApiClient, type StreamHandlers, type StreamRequestHandle } from "./request";
+import { BaseApiClient } from "./request";
 
 export type VoiceCompletionsDto = Omit<VoiceCompletionsFormDataDto, "audio">;
 
@@ -100,20 +100,6 @@ export class Api extends BaseApiClient {
 
   imageGenerations(body: ImageGenerationDto): Promise<unknown> {
     return chatControllerImageGenerations(body) as Promise<unknown>;
-  }
-
-  sendMessage(
-    body: ChatCompletionsDto,
-    handlers: StreamHandlers<unknown> = {},
-  ): StreamRequestHandle {
-    return this.stream<unknown, ChatCompletionsDto>(
-      {
-        url: "/api/chat/message",
-        method: "POST",
-        data: body,
-      },
-      handlers,
-    );
   }
 
   voiceCompletions(args: {
