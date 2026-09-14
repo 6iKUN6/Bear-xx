@@ -13,5 +13,3 @@ export const STORAGE_KEYS = {
 const apiBaseUrl = __API_BASE_URL__ || "";
 
 export const API_BASE_URL = apiBaseUrl.replace(/\/+$/, "");
-
-export const USE_MOCK = false; // mock 开关
