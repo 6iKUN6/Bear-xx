@@ -10,6 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "test": "node --experimental-strip-types --test tests/*.test.*",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "package": "pnpm run build && electron-builder",
     "package:dir": "pnpm run build && electron-builder --dir"

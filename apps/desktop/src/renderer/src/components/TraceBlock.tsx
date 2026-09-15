@@ -24,7 +24,12 @@ interface TraceBlockProps {
  * 默认收起为一行摘要，点击展开完整轨迹。不透出策略名 / 节点 key 等内部术语。
  * 行构建与文案在 @litter-bear/chat-core，与小程序端共用。
  */
-export function TraceBlock({ feedback, metrics, streaming = false, onToggle }: TraceBlockProps) {
+export function TraceBlock({
+  feedback,
+  metrics,
+  streaming = false,
+  onToggle,
+}: TraceBlockProps) {
   const current = feedback?.current;
   const events = feedback?.events ?? [];
   const expanded = feedback?.expanded ?? false;
@@ -82,7 +87,9 @@ export function TraceBlock({ feedback, metrics, streaming = false, onToggle }: T
             <TraceRowView key={row.key} row={row} />
           ))}
           {summary && (
-            <div className="pt-1 text-[11px] text-[var(--lb-text-muted)]">{summary}</div>
+            <div className="pt-1 text-[11px] text-[var(--lb-text-muted)]">
+              {summary}
+            </div>
           )}
         </div>
       )}
@@ -102,7 +109,9 @@ function TraceRowView({ row }: { row: StreamTraceRow }) {
         type="button"
         onClick={() => toggleable && setOpen((v) => !v)}
         className={`flex w-full items-baseline gap-2 rounded px-1 py-1 text-left text-[12px] ${
-          toggleable ? "transition-colors hover:bg-[var(--lb-surface-hover)]" : "cursor-default"
+          toggleable
+            ? "transition-colors hover:bg-[var(--lb-surface-hover)]"
+            : "cursor-default"
         }`}
       >
         <span
@@ -116,14 +125,18 @@ function TraceRowView({ row }: { row: StreamTraceRow }) {
         >
           {glyph(row.status)}
         </span>
-        <span className="shrink-0 font-mono text-[var(--lb-text-primary)]">{row.name}</span>
+        <span className="shrink-0 font-mono text-[var(--lb-text-primary)]">
+          {row.name}
+        </span>
         {row.summary && (
           <span className="min-w-0 flex-1 truncate text-[var(--lb-text-secondary)]">
             {row.summary}
           </span>
         )}
         {duration && (
-          <span className="shrink-0 tabular-nums text-[var(--lb-text-muted)]">{duration}</span>
+          <span className="shrink-0 tabular-nums text-[var(--lb-text-muted)]">
+            {duration}
+          </span>
         )}
         {toggleable && (
           <ChevronRight

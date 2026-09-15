@@ -1,6 +1,6 @@
 node_modules
 dist
-release
+apps/desktop/release
 .env
 .env.*
 !.env.example

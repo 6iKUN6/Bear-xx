@@ -10,6 +10,7 @@ import {
 } from "@litter-bear/chat-core";
 import {
   STREAM_TASK_EVENT_LABELS,
+  TASK_ERROR_CATEGORY_LABELS,
   StreamTaskEventType,
   type ApprovalDecision,
   type ApprovalRequiredPayload,
@@ -18,9 +19,15 @@ import {
   type MessageDeltaPayload,
   type MessageDonePayload,
   type StreamTaskEventEnvelope,
+  type TaskErrorPayload,
 } from "@litter-bear/types/protocol";
-import { getConversations } from "@/api/endpoints";
-import { streamApproval, streamChatMessage } from "@/api/stream";
+import { cancelStreamTask, getConversations } from "@/api/endpoints";
+import {
+  streamApproval,
+  streamChatMessage,
+  type ChatStreamHandlers,
+  type StreamHandle,
+} from "@/api/stream";
 import type { Conversation, ConversationMessage } from "@/api/types";
 import type { ReasoningSelection } from "@litter-bear/types";
 
@@ -32,6 +39,10 @@ export interface SendOptions {
   selectedModelPresetId?: string;
   /** 本轮思考设置（仅 direct Agent 可用） */
   reasoning?: ReasoningSelection;
+  /** 创作助手显式指定会话，不改变普通对话的选中项。 */
+  conversationId?: string | null;
+  onConversationId?: (id: string) => void;
+  onComplete?: (message: ConversationMessage) => void;
 }
 
 /**
@@ -47,11 +58,18 @@ interface ChatState {
   /** 会话列表加载失败文案；null = 正常 */
   loadError: string | null;
   sending: boolean;
+  activeMessageId: string | null;
+  taskId: string | null;
+  canceling: boolean;
+  taskError: string | null;
+  drafts: Record<string, string>;
+  setDraft: (key: string, value: string) => void;
+  cancel: () => Promise<void>;
   /** 审批提交中（禁用审批卡交互，避免重复提交） */
   approvalSubmitting: boolean;
   loadConversations: () => Promise<void>;
   setActive: (id: string | null) => void;
-  send: (content: string, options?: SendOptions) => void;
+  send: (content: string, options?: SendOptions) => string | null;
   /** 展开 / 收起某条消息的执行轨迹 */
   toggleStreamFeedback: (messageId: string) => void;
   /** 提交人工审批决定（HITL），审批端点续跑同一任务 */
@@ -72,10 +90,17 @@ function localId(prefix: string) {
  */
 interface ActiveStreamContext {
   assistantMessageId: string;
+  conversationId: string;
+  options: SendOptions;
+  handle?: StreamHandle;
+  terminal: boolean;
+  seen: Set<string>;
   taskId?: string;
   lastEventId?: string;
 }
 let activeStream: ActiveStreamContext | null = null;
+let sessionEpoch = 0;
+let loadSequence = 0;
 
 function patchMessage(
   conversations: Conversation[],
@@ -84,7 +109,10 @@ function patchMessage(
 ): Conversation[] {
   return conversations.map((c) =>
     c.messages.some((m) => m.id === messageId)
-      ? { ...c, messages: c.messages.map((m) => (m.id === messageId ? patch(m) : m)) }
+      ? {
+          ...c,
+          messages: c.messages.map((m) => (m.id === messageId ? patch(m) : m)),
+        }
       : c,
   );
 }
@@ -145,7 +173,9 @@ function applyFeedbackEvent(
 }
 
 /** 历史回显：助手消息有 trace 但还没有 streamFeedback 时，从 trace 构建折叠轨迹 */
-function withHistoryFeedback(message: ConversationMessage): ConversationMessage {
+function withHistoryFeedback(
+  message: ConversationMessage,
+): ConversationMessage {
   if (
     message.role !== "assistant" ||
     message.streamFeedback ||
@@ -157,45 +187,223 @@ function withHistoryFeedback(message: ConversationMessage): ConversationMessage 
   return streamFeedback ? { ...message, streamFeedback } : message;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  conversations: [],
-  activeId: null,
-  loading: false,
-  loadError: null,
-  sending: false,
-  approvalSubmitting: false,
-
-  async loadConversations() {
-    set({ loading: true, loadError: null });
-    try {
-      const remote = await getConversations();
-      const conversations = [...remote]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map((c) => ({ ...c, messages: c.messages.map(withHistoryFeedback) }));
-      set((state) => ({
-        conversations,
-        loading: false,
-        // 当前会话被删或从未选择时，落到空状态，不自动选中
-        activeId:
-          state.activeId && conversations.some((c) => c.id === state.activeId)
-            ? state.activeId
-            : null,
-      }));
-    } catch (error) {
-      set({
-        loading: false,
-        loadError: error instanceof Error ? error.message : "会话加载失败",
-      });
-    }
-  },
-
-  setActive(id) {
-    set({ activeId: id });
-  },
-
-  toggleStreamFeedback(messageId) {
+export const useChatStore = create<ChatState>((set, get) => {
+  const findMessage = (id: string) =>
+    get()
+      .conversations.flatMap((c) => c.messages)
+      .find((m) => m.id === id);
+  function patch(
+    id: string,
+    update: (message: ConversationMessage) => ConversationMessage,
+  ) {
     set((state) => ({
-      conversations: patchMessage(state.conversations, messageId, (m) =>
+      conversations: patchMessage(state.conversations, id, update),
+    }));
+  }
+  function finish(context: ActiveStreamContext) {
+    if (activeStream !== context) return;
+    const message = findMessage(context.assistantMessageId);
+    activeStream = null;
+    set({
+      sending: false,
+      approvalSubmitting: false,
+      activeMessageId: null,
+      taskId: null,
+      canceling: false,
+    });
+    if (message) context.options.onComplete?.(message);
+  }
+  // 普通对话、创作助手与审批续跑共用同一事件处理，保持工具/审批行为一致。
+  function handlers(context: ActiveStreamContext): ChatStreamHandlers {
+    const id = context.assistantMessageId;
+    return {
+      onEvent(event, frameId) {
+        if (activeStream !== context) return;
+        if (frameId) {
+          if (context.seen.has(frameId)) return;
+          context.seen.add(frameId);
+          context.lastEventId = frameId;
+        }
+        if (event.taskId) {
+          context.taskId = event.taskId;
+          set({ taskId: event.taskId });
+        }
+        const remoteId = event.conversationId;
+        if (remoteId && remoteId !== context.conversationId) {
+          const previousId = context.conversationId;
+          context.conversationId = remoteId;
+          set((state) => ({
+            conversations: state.conversations.map((c) =>
+              c.id === previousId ? { ...c, id: remoteId } : c,
+            ),
+            activeId: state.activeId === previousId ? remoteId : state.activeId,
+            drafts: {
+              ...state.drafts,
+              [remoteId]: state.drafts[previousId] ?? "",
+            },
+          }));
+          context.options.onConversationId?.(remoteId);
+        }
+        const feedback = toMessageStreamFeedback(toStreamTaskEvent(event));
+        if (feedback)
+          patch(id, (message) => applyFeedbackEvent(message, feedback));
+        switch (event.type) {
+          case StreamTaskEventType.MessageDelta: {
+            const delta = (event.payload as MessageDeltaPayload | undefined)
+              ?.delta;
+            if (delta) patch(id, (m) => ({ ...m, content: m.content + delta }));
+            break;
+          }
+          case StreamTaskEventType.ConversationTitleUpdated: {
+            const payload = event.payload as
+              ConversationTitleUpdatedPayload | undefined;
+            if (!payload) break;
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === payload.conversationId
+                  ? { ...c, title: payload.title }
+                  : c,
+              ),
+            }));
+            break;
+          }
+          case StreamTaskEventType.ApprovalRequired:
+            patch(id, (m) => ({
+              ...m,
+              pendingApproval: event.payload as
+                ApprovalRequiredPayload | undefined,
+            }));
+            set({ approvalSubmitting: false });
+            break;
+          case StreamTaskEventType.ApprovalResolved: {
+            const payload = event.payload as
+              ApprovalResolvedPayload | undefined;
+            if (!payload) break;
+            patch(id, (m) => ({
+              ...m,
+              pendingApproval: undefined,
+              resolvedApproval: m.pendingApproval
+                ? { decision: payload.decision, payload: m.pendingApproval }
+                : m.resolvedApproval,
+            }));
+            break;
+          }
+          case StreamTaskEventType.MessageDone: {
+            context.terminal = true;
+            const payload = event.payload as MessageDonePayload | undefined;
+            patch(id, (m) => ({
+              ...m,
+              status: "done",
+              content: payload?.content ?? m.content,
+              metrics:
+                (payload?.metrics as MessageRunMetrics | undefined) ??
+                m.metrics,
+            }));
+            break;
+          }
+          case StreamTaskEventType.TaskCompleted:
+            context.terminal = true;
+            patch(id, (m) => ({
+              ...m,
+              status: m.status === "error" ? "error" : "done",
+            }));
+            break;
+          case StreamTaskEventType.TaskCanceled:
+            context.terminal = true;
+            patch(id, (m) => ({
+              ...m,
+              status: "done",
+              canceled: true,
+              pendingApproval: undefined,
+            }));
+            break;
+          case StreamTaskEventType.TaskError: {
+            context.terminal = true;
+            const payload = event.payload as TaskErrorPayload | undefined;
+            patch(id, (m) => ({
+              ...m,
+              status: "error",
+              pendingApproval: undefined,
+              errorMessage: payload
+                ? TASK_ERROR_CATEGORY_LABELS[payload.category]
+                : STREAM_TASK_EVENT_LABELS[StreamTaskEventType.TaskError],
+            }));
+            break;
+          }
+        }
+      },
+      onError(error) {
+        if (activeStream !== context) return;
+        patch(id, (m) => ({
+          ...m,
+          status: "error",
+          pendingApproval: undefined,
+          errorMessage: error.message,
+        }));
+        finish(context);
+      },
+      onDone() {
+        if (activeStream !== context) return;
+        if (findMessage(id)?.pendingApproval) return;
+        if (!context.terminal)
+          patch(id, (m) => ({
+            ...m,
+            status: "error",
+            errorMessage: "连接已结束，但未收到完成确认，请检查会话后重试。",
+          }));
+        finish(context);
+      },
+    };
+  }
+  return {
+    conversations: [],
+    activeId: null,
+    loading: false,
+    loadError: null,
+    sending: false,
+    activeMessageId: null,
+    taskId: null,
+    canceling: false,
+    taskError: null,
+    approvalSubmitting: false,
+    drafts: {},
+    setDraft(key, value) {
+      set({ drafts: { ...get().drafts, [key]: value } });
+    },
+    async loadConversations() {
+      const epoch = sessionEpoch;
+      const sequence = ++loadSequence;
+      set({ loading: true, loadError: null });
+      try {
+        const remote = await getConversations();
+        if (epoch !== sessionEpoch || sequence !== loadSequence) return;
+        // 刷新目录时保留本机尚在进行的消息与局部错误，不覆盖活动流。
+        const local = get().conversations.filter((c) =>
+          c.messages.some((m) => m.id.startsWith("local-")),
+        );
+        const conversations = [
+          ...local,
+          ...remote.filter((c) => !local.some((item) => item.id === c.id)),
+        ]
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map((c) => ({
+            ...c,
+            messages: c.messages.map(withHistoryFeedback),
+          }));
+        set({ conversations, loading: false });
+      } catch (error) {
+        if (epoch !== sessionEpoch || sequence !== loadSequence) return;
+        set({
+          loading: false,
+          loadError: error instanceof Error ? error.message : "会话加载失败",
+        });
+      }
+    },
+    setActive(id) {
+      set({ activeId: id });
+    },
+    toggleStreamFeedback(id) {
+      patch(id, (m) =>
         m.streamFeedback
           ? {
               ...m,
@@ -205,366 +413,155 @@ export const useChatStore = create<ChatState>((set, get) => ({
               },
             }
           : m,
-      ),
-    }));
-  },
-
-  send(content, options) {
-    const text = content.trim();
-    if (!text || get().sending) {
-      return;
-    }
-
-    const userMessage: ConversationMessage = {
-      id: localId("u"),
-      role: "user",
-      content: text,
-      status: "done",
-      createdAt: Date.now(),
-    };
-    const assistantMessage: ConversationMessage = {
-      id: localId("a"),
-      role: "assistant",
-      content: "",
-      status: "streaming",
-      createdAt: Date.now(),
-    };
-
-    // 乐观上屏：无当前会话时先立本地占位会话，等流里带回真实 conversationId 再换
-    const draftConvId = get().activeId ?? localId("c");
-    set((state) => {
-      const conversations = [...state.conversations];
-      let conv = conversations.find((c) => c.id === state.activeId);
-      if (!conv) {
-        conv = {
-          id: draftConvId,
+      );
+    },
+    send(content, options = {}) {
+      const text = content.trim();
+      if (!text || get().sending) return null;
+      if (text.length > 20000) {
+        set({ taskError: "单条消息不能超过 20,000 字符。" });
+        return null;
+      }
+      const explicitConversation = options.conversationId !== undefined;
+      const conversationId = explicitConversation
+        ? options.conversationId
+        : get().activeId;
+      const draftId = conversationId ?? localId("c");
+      const userMessage: ConversationMessage = {
+        id: localId("u"),
+        role: "user",
+        content: text,
+        status: "done",
+        createdAt: Date.now(),
+      };
+      const assistantMessage: ConversationMessage = {
+        id: localId("a"),
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        createdAt: Date.now(),
+      };
+      set((state) => {
+        const existing = state.conversations.find((c) => c.id === draftId);
+        const conversation: Conversation = existing ?? {
+          id: draftId,
           title: text.slice(0, 18),
           messages: [],
           createdAt: Date.now(),
           updatedAt: Date.now(),
         };
-        conversations.unshift(conv);
-      }
-      conv.messages = [...conv.messages, userMessage, assistantMessage];
-      conv.updatedAt = Date.now();
-      return { conversations, activeId: draftConvId, sending: true };
-    });
-
-    activeStream = { assistantMessageId: assistantMessage.id };
-
-    const handleEvent = (
-      event: StreamTaskEventEnvelope,
-      frameId?: string,
-    ) => {
-      if (activeStream) {
-        if (event.taskId) {
-          activeStream.taskId = event.taskId;
-        }
-        if (frameId) {
-          activeStream.lastEventId = frameId;
-        }
-      }
-
-      // 流里的真实 conversationId 到位后，把本地占位会话换成服务端会话
-      if (event.conversationId) {
-        set((state) => {
-          if (!state.conversations.some((c) => c.id === draftConvId)) {
-            return state;
-          }
-          if (event.conversationId === draftConvId) {
-            return state;
-          }
-          return {
-            conversations: state.conversations.map((c) =>
-              c.id === draftConvId ? { ...c, id: event.conversationId! } : c,
-            ),
-            activeId:
-              state.activeId === draftConvId ? event.conversationId! : state.activeId,
-          };
+        return {
+          conversations: [
+            {
+              ...conversation,
+              updatedAt: Date.now(),
+              messages: [
+                ...conversation.messages,
+                userMessage,
+                assistantMessage,
+              ],
+            },
+            ...state.conversations.filter((c) => c.id !== draftId),
+          ],
+          activeId: explicitConversation ? state.activeId : draftId,
+          sending: true,
+          activeMessageId: assistantMessage.id,
+          taskId: null,
+          taskError: null,
+        };
+      });
+      const context: ActiveStreamContext = {
+        assistantMessageId: assistantMessage.id,
+        conversationId: draftId,
+        options,
+        terminal: false,
+        seen: new Set(),
+      };
+      activeStream = context;
+      options.onConversationId?.(draftId);
+      context.handle = streamChatMessage(
+        {
+          conversationId: conversationId?.startsWith("local-")
+            ? undefined
+            : (conversationId ?? undefined),
+          content: text,
+          agentId: options.agentId ?? undefined,
+          selectedModelPresetId: options.selectedModelPresetId,
+          reasoning: options.reasoning,
+        },
+        handlers(context),
+      );
+      return assistantMessage.id;
+    },
+    submitApproval(messageId, decision) {
+      const context = activeStream;
+      const message = findMessage(messageId);
+      if (
+        !context?.taskId ||
+        context.assistantMessageId !== messageId ||
+        get().approvalSubmitting ||
+        !message?.pendingApproval
+      )
+        return;
+      context.handle?.abort();
+      patch(messageId, (m) => ({
+        ...m,
+        pendingApproval: undefined,
+        resolvedApproval: {
+          decision: decision.decision,
+          payload: message.pendingApproval!,
+        },
+      }));
+      set({ approvalSubmitting: true });
+      context.handle = streamApproval(
+        context.taskId,
+        decision,
+        context.lastEventId,
+        handlers(context),
+      );
+    },
+    async cancel() {
+      const context = activeStream;
+      if (!context?.taskId || get().canceling) return;
+      set({ canceling: true, taskError: null });
+      try {
+        const result = await cancelStreamTask(context.taskId);
+        if (activeStream !== context) return;
+        if (result.status !== "canceled")
+          throw new Error("任务状态已变化，尚未确认取消，请等待当前结果。");
+        context.handle?.abort();
+        patch(context.assistantMessageId, (m) => ({
+          ...m,
+          status: "done",
+          canceled: true,
+          pendingApproval: undefined,
+        }));
+        finish(context);
+      } catch (error) {
+        if (activeStream !== context) return;
+        set({
+          canceling: false,
+          taskError: error instanceof Error ? error.message : "停止失败",
         });
       }
-
-      // 执行轨迹：除文本/工具入参分片外的事件折叠进反馈状态（toMessageStreamFeedback 内部已过滤）
-      const feedback = toMessageStreamFeedback(toStreamTaskEvent(event));
-      if (feedback) {
-        set((state) => ({
-          conversations: patchMessage(
-            state.conversations,
-            assistantMessage.id,
-            (m) => applyFeedbackEvent(m, feedback),
-          ),
-        }));
-      }
-
-      switch (event.type) {
-        case StreamTaskEventType.MessageDelta: {
-          const delta = (event.payload as MessageDeltaPayload | undefined)?.delta ?? "";
-          if (!delta) {
-            return;
-          }
-          set((state) => ({
-            conversations: patchMessage(state.conversations, assistantMessage.id, (m) => ({
-              ...m,
-              content: m.content + delta,
-            })),
-          }));
-          return;
-        }
-        case StreamTaskEventType.ConversationTitleUpdated: {
-          const payload = event.payload as ConversationTitleUpdatedPayload | undefined;
-          if (!payload?.title) {
-            return;
-          }
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === payload.conversationId ? { ...c, title: payload.title } : c,
-            ),
-          }));
-          return;
-        }
-        case StreamTaskEventType.ApprovalRequired: {
-          const payload = event.payload as ApprovalRequiredPayload | undefined;
-          if (!payload) {
-            return;
-          }
-          set((state) => ({
-            conversations: patchMessage(state.conversations, assistantMessage.id, (m) => ({
-              ...m,
-              pendingApproval: payload,
-            })),
-          }));
-          return;
-        }
-        case StreamTaskEventType.ApprovalResolved: {
-          const payload = event.payload as ApprovalResolvedPayload | undefined;
-          set((state) => ({
-            conversations: patchMessage(state.conversations, assistantMessage.id, (m) => {
-              if (!m.pendingApproval) {
-                return m;
-              }
-              return {
-                ...m,
-                pendingApproval: undefined,
-                resolvedApproval: payload
-                  ? { decision: payload.decision, payload: m.pendingApproval }
-                  : undefined,
-              };
-            }),
-          }));
-          return;
-        }
-        case StreamTaskEventType.MessageDone: {
-          const metrics = (event.payload as MessageDonePayload | undefined)?.metrics;
-          // HITL 挂起时不会发 message.done（任务提前 return），收到即代表本轮真正结束
-          set((state) => ({
-            sending: false,
-            conversations: patchMessage(state.conversations, assistantMessage.id, (m) => ({
-              ...m,
-              status: m.status === "streaming" ? "done" : m.status,
-              metrics: (metrics as MessageRunMetrics | undefined) ?? m.metrics,
-            })),
-          }));
-          return;
-        }
-        case StreamTaskEventType.TaskCompleted: {
-          set((state) => ({
-            conversations: patchMessage(state.conversations, assistantMessage.id, (m) =>
-              m.status === "streaming" && !m.pendingApproval ? { ...m, status: "done" } : m,
-            ),
-          }));
-          return;
-        }
-        case StreamTaskEventType.TaskError: {
-          set((state) => ({
-            sending: false,
-            conversations: patchMessage(state.conversations, assistantMessage.id, (m) => ({
-              ...m,
-              status: "error",
-              content:
-                m.content ||
-                STREAM_TASK_EVENT_LABELS[StreamTaskEventType.TaskError],
-            })),
-          }));
-          return;
-        }
-        default:
-          return;
-      }
-    };
-
-    const handleError = (error: Error) => {
-      set((state) => ({
+    },
+    reset() {
+      activeStream?.handle?.abort();
+      activeStream = null;
+      sessionEpoch += 1;
+      set({
+        conversations: [],
+        activeId: null,
+        loading: false,
+        loadError: null,
         sending: false,
+        activeMessageId: null,
+        taskId: null,
+        taskError: null,
+        canceling: false,
         approvalSubmitting: false,
-        conversations: patchMessage(state.conversations, assistantMessage.id, (m) => ({
-          ...m,
-          status: "error",
-          content: m.content || error.message,
-        })),
-      }));
-      activeStream = null;
-    };
-
-    const handleDone = () => {
-      // 等待人工审批时任务挂起、流先结束：保持 streaming 与 sending，等审批续跑
-      const pending = get()
-        .conversations.flatMap((c) => c.messages)
-        .find((m) => m.id === assistantMessage.id)?.pendingApproval;
-      if (pending) {
-        return;
-      }
-      set({ sending: false });
-      activeStream = null;
-      // 以服务端为最终事实源同步一次（真实消息 id、标题、updatedAt 排序）
-      void get().loadConversations();
-    };
-
-    streamChatMessage(
-      {
-        conversationId: get().activeId?.startsWith("local-")
-          ? undefined
-          : (get().activeId ?? undefined),
-        content: text,
-        agentId: options?.agentId ?? undefined,
-        selectedModelPresetId: options?.selectedModelPresetId,
-        reasoning: options?.reasoning,
-      },
-      { onEvent: handleEvent, onError: handleError, onDone: handleDone },
-    );
-  },
-
-  submitApproval(messageId, decision) {
-    const taskId = activeStream?.taskId;
-    const lastEventId = activeStream?.lastEventId;
-    if (!taskId || get().approvalSubmitting) {
-      return;
-    }
-
-    const message = get()
-      .conversations.flatMap((c) => c.messages)
-      .find((m) => m.id === messageId);
-    if (!message?.pendingApproval) {
-      return;
-    }
-
-    // 本地先收敛成已决定 + 回到 streaming，等续跑流的事件推进
-    set((state) => ({
-      approvalSubmitting: true,
-      conversations: patchMessage(state.conversations, messageId, (m) => ({
-        ...m,
-        status: "streaming",
-        pendingApproval: undefined,
-        resolvedApproval: m.pendingApproval
-          ? { decision: decision.decision, payload: m.pendingApproval }
-          : undefined,
-      })),
-    }));
-
-    const handleEvent = (
-      event: StreamTaskEventEnvelope,
-      frameId?: string,
-    ) => {
-      if (activeStream) {
-        if (event.taskId) {
-          activeStream.taskId = event.taskId;
-        }
-        if (frameId) {
-          activeStream.lastEventId = frameId;
-        }
-      }
-
-      const feedback = toMessageStreamFeedback(toStreamTaskEvent(event));
-      if (feedback) {
-        set((state) => ({
-          conversations: patchMessage(state.conversations, messageId, (m) =>
-            applyFeedbackEvent(m, feedback),
-          ),
-        }));
-      }
-
-      switch (event.type) {
-        case StreamTaskEventType.MessageDelta: {
-          const delta = (event.payload as MessageDeltaPayload | undefined)?.delta ?? "";
-          if (!delta) {
-            return;
-          }
-          set((state) => ({
-            conversations: patchMessage(state.conversations, messageId, (m) => ({
-              ...m,
-              content: m.content + delta,
-            })),
-          }));
-          return;
-        }
-        case StreamTaskEventType.MessageDone: {
-          const metrics = (event.payload as MessageDonePayload | undefined)?.metrics;
-          set((state) => ({
-            conversations: patchMessage(state.conversations, messageId, (m) => ({
-              ...m,
-              status: m.status === "streaming" ? "done" : m.status,
-              metrics: (metrics as MessageRunMetrics | undefined) ?? m.metrics,
-            })),
-          }));
-          return;
-        }
-        case StreamTaskEventType.TaskCompleted: {
-          set((state) => ({
-            conversations: patchMessage(state.conversations, messageId, (m) =>
-              m.status === "streaming" ? { ...m, status: "done" } : m,
-            ),
-          }));
-          return;
-        }
-        case StreamTaskEventType.TaskError: {
-          set((state) => ({
-            sending: false,
-            approvalSubmitting: false,
-            conversations: patchMessage(state.conversations, messageId, (m) => ({
-              ...m,
-              status: "error",
-              content:
-                m.content ||
-                STREAM_TASK_EVENT_LABELS[StreamTaskEventType.TaskError],
-            })),
-          }));
-          return;
-        }
-        default:
-          return;
-      }
-    };
-
-    streamApproval(taskId, decision, lastEventId, {
-      onEvent: handleEvent,
-      onError: (error) => {
-        set((state) => ({
-          sending: false,
-          approvalSubmitting: false,
-          conversations: patchMessage(state.conversations, messageId, (m) => ({
-            ...m,
-            status: "error",
-            content: m.content || error.message,
-          })),
-        }));
-        activeStream = null;
-      },
-      onDone: () => {
-        set({ sending: false, approvalSubmitting: false });
-        activeStream = null;
-        void get().loadConversations();
-      },
-    });
-  },
-
-  reset() {
-    activeStream = null;
-    set({
-      conversations: [],
-      activeId: null,
-      loading: false,
-      loadError: null,
-      sending: false,
-      approvalSubmitting: false,
-    });
-  },
-}));
+        drafts: {},
+      });
+    },
+  };
+});

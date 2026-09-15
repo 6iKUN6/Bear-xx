@@ -24,10 +24,15 @@ function Avatar({ name, avatar }: { name: string; avatar: string | null }) {
  * 选中项只影响接下来发送的消息；「默认」表示不带 agentId、用后端路由。
  * 会员不可用的智能体置灰不可选。
  */
-export function AgentMenu() {
+export function AgentMenu({
+  value,
+  onChange,
+}: { value?: string | null; onChange?: (id: string | null) => void } = {}) {
   const agents = useAgentStore((s) => s.agents);
-  const selectedAgentId = useAgentStore((s) => s.selectedAgentId);
-  const selectAgent = useAgentStore((s) => s.selectAgent);
+  const globalAgentId = useAgentStore((s) => s.selectedAgentId);
+  const globalSelectAgent = useAgentStore((s) => s.selectAgent);
+  const selectedAgentId = value === undefined ? globalAgentId : value;
+  const selectAgent = onChange ?? globalSelectAgent;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -85,7 +90,7 @@ export function AgentMenu() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full z-20 mb-1.5 w-[240px] overflow-hidden rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-glow)]">
+        <div className="absolute bottom-full left-0 z-30 mb-1.5 max-h-[340px] w-[240px] overflow-y-auto rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-glow)]">
           <button
             type="button"
             onClick={() => {
@@ -100,7 +105,7 @@ export function AgentMenu() {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px]">默认智能体</span>
               <span className="block text-[11px] text-[var(--lb-text-muted)]">
-                由后端路由决定
+                使用默认助手与创作流程
               </span>
             </span>
             {selectedAgentId === null && (
@@ -133,7 +138,9 @@ export function AgentMenu() {
                   <span className="block truncate text-[13px]">
                     {agent.name}
                     {agent.isDefault && (
-                      <span className="ml-1 text-[10px] text-[var(--lb-text-muted)]">默认</span>
+                      <span className="ml-1 text-[10px] text-[var(--lb-text-muted)]">
+                        默认
+                      </span>
                     )}
                   </span>
                   {agent.description && (
@@ -143,7 +150,10 @@ export function AgentMenu() {
                   )}
                 </span>
                 {agent.id === selectedAgentId && (
-                  <Check size={14} className="shrink-0 text-[var(--lb-accent)]" />
+                  <Check
+                    size={14}
+                    className="shrink-0 text-[var(--lb-accent)]"
+                  />
                 )}
               </button>
             );

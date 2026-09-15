@@ -92,9 +92,7 @@ export function ThemeMenu() {
             >
               <Swatch theme={theme} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px]">
-                  {theme.name}
-                </span>
+                <span className="block truncate text-[13px]">{theme.name}</span>
                 <span className="block text-[11px] text-[var(--lb-text-muted)]">
                   默认{theme.colorScheme === "dark" ? "深色" : "浅色"}
                 </span>

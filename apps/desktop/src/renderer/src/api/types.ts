@@ -68,6 +68,8 @@ export interface ConversationMessage {
   streamFeedback?: MessageStreamFeedbackState;
   /** 本轮运行指标（token / 耗时 / 缓存），message.done 回填 */
   metrics?: MessageRunMetrics | null;
+  errorMessage?: string;
+  canceled?: boolean;
   /** HITL：待人工审批（approval.required 载荷）；提交决定后清空 */
   pendingApproval?: ApprovalRequiredPayload;
   /** HITL：已处理的审批结论（决定 + 原载荷），历史卡收敛为一行 */
@@ -135,7 +137,9 @@ export interface ModelReasoningCapability {
     configurable: boolean;
   };
   effort?: {
-    values: readonly ("minimal" | "low" | "medium" | "high" | "xhigh" | "max")[];
+    values: readonly (
+      "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+    )[];
     defaultValue: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
     configurable: boolean;
   };
