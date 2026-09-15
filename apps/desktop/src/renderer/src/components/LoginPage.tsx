@@ -12,7 +12,6 @@ const PASSWORD_MIN_LENGTH = 8;
  * 注意后端语义：账号不存在时会用当前密码自动注册并直接登录。
  */
 export function LoginPage() {
-  const setPage = useAppStore((s) => s.setPage);
   const login = useAppStore((s) => s.login);
 
   const [username, setUsername] = useState("");
@@ -47,7 +46,7 @@ export function LoginPage() {
     <div className="relative flex h-full items-center justify-center">
       <button
         type="button"
-        onClick={() => setPage("workbench")}
+        onClick={() => useAppStore.getState().goBack()}
         className="absolute left-6 top-[18px] inline-flex items-center gap-1.5 rounded-[var(--lb-radius-sm)] px-2.5 py-1.5 text-[13px] text-[var(--lb-text-secondary)] transition-colors hover:bg-[var(--lb-surface-hover)] hover:text-[var(--lb-text-primary)]"
       >
         <ArrowLeft size={15} />
@@ -71,8 +70,13 @@ export function LoginPage() {
             autoComplete="username"
             className="mb-1 h-11 w-full rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-strong)] bg-[var(--lb-surface)] px-3.5 text-sm outline-none placeholder:text-[var(--lb-text-muted)] focus:border-[var(--lb-accent)]"
           />
-          <div className="mb-2 h-4 text-left text-xs text-[var(--lb-danger)]" aria-live="polite">
-            {username && !usernameValid ? "4–20 位，仅限字母、数字、下划线" : ""}
+          <div
+            className="mb-2 h-4 text-left text-xs text-[var(--lb-danger)]"
+            aria-live="polite"
+          >
+            {username && !usernameValid
+              ? "4–20 位，仅限字母、数字、下划线"
+              : ""}
           </div>
           <input
             type="password"
@@ -84,7 +88,10 @@ export function LoginPage() {
             autoComplete="current-password"
             className="mb-1 h-11 w-full rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-strong)] bg-[var(--lb-surface)] px-3.5 text-sm outline-none placeholder:text-[var(--lb-text-muted)] focus:border-[var(--lb-accent)]"
           />
-          <div className="mb-2 h-4 text-left text-xs text-[var(--lb-danger)]" aria-live="polite">
+          <div
+            className="mb-2 h-4 text-left text-xs text-[var(--lb-danger)]"
+            aria-live="polite"
+          >
             {password && !passwordValid ? "密码至少 8 位" : ""}
           </div>
           <button
@@ -95,7 +102,10 @@ export function LoginPage() {
             {submitting ? "登录中…" : "登 录"}
           </button>
         </form>
-        <p className="mt-3.5 h-4 text-xs text-[var(--lb-danger)]" aria-live="polite">
+        <p
+          className="mt-3.5 h-4 text-xs text-[var(--lb-danger)]"
+          aria-live="polite"
+        >
           {error ?? ""}
         </p>
       </div>

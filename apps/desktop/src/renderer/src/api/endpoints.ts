@@ -36,6 +36,16 @@ export function getAgents(): Promise<Agent[]> {
 }
 
 /** 获取指定智能体允许终端选择的模型（含思考能力目录）；自定义 Flow Agent 返回空 models */
-export function getAgentModelOptions(agentId: string): Promise<AgentModelOptions> {
+export function getAgentModelOptions(
+  agentId: string,
+): Promise<AgentModelOptions> {
   return request<AgentModelOptions>(`/agents/${agentId}/models`);
+}
+
+export function cancelStreamTask(
+  taskId: string,
+): Promise<{ taskId: string; status: string }> {
+  return request(`/stream-tasks/${encodeURIComponent(taskId)}/cancel`, {
+    method: "POST",
+  });
 }

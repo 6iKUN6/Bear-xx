@@ -1,3 +1,5 @@
+import { BrandTile } from "./BrandTile";
+import { CopyButton } from "./ui";
 import type { ConversationMessage } from "@/api/types";
 import { useChatStore } from "@/stores/chat-store";
 import { ApprovalCard } from "@/components/ApprovalCard";
@@ -10,14 +12,22 @@ import { TraceBlock } from "@/components/TraceBlock";
  * @description 轨迹与审批是消息级运行态，正文统一走 @litter-bear/markdown 渲染；
  * 流式时用 StreamingMarkdownContent 叠末尾 shimmer。
  */
-export function AssistantMessage({ message }: { message: ConversationMessage }) {
+export function AssistantMessage({
+  message,
+}: {
+  message: ConversationMessage;
+}) {
   const streaming = message.status === "streaming";
   const approvalSubmitting = useChatStore((s) => s.approvalSubmitting);
   const toggleStreamFeedback = useChatStore((s) => s.toggleStreamFeedback);
   const submitApproval = useChatStore((s) => s.submitApproval);
 
   return (
-    <div className="self-stretch">
+    <div className="assistant-message">
+      <div className="message-author">
+        <BrandTile size={21} />
+        <span>Sola</span>
+      </div>
       <TraceBlock
         feedback={message.streamFeedback}
         metrics={message.metrics}
@@ -43,10 +53,6 @@ export function AssistantMessage({ message }: { message: ConversationMessage }) 
         <div className="animate-[lb-pulse_1.2s_ease-in-out_infinite] text-sm leading-[1.75] text-[var(--lb-text-secondary)]">
           正在处理…
         </div>
-      ) : message.status === "error" ? (
-        <div className="whitespace-pre-wrap text-sm leading-[1.75] text-[var(--lb-danger)]">
-          {message.content}
-        </div>
       ) : streaming ? (
         <div className="text-sm leading-[1.75]">
           <StreamingMarkdownContent content={message.content} streaming />
@@ -54,6 +60,17 @@ export function AssistantMessage({ message }: { message: ConversationMessage }) 
       ) : (
         <div className="text-sm leading-[1.75]">
           <MarkdownContent content={message.content} />
+        </div>
+      )}
+      {message.status === "error" && (
+        <p className="message-error" role="alert">
+          {message.errorMessage || "生成失败，请重试。"}
+        </p>
+      )}
+      {message.canceled && <p className="muted text-xs mt-2">已停止生成</p>}
+      {!streaming && message.content && (
+        <div className="message-actions">
+          <CopyButton content={message.content} />
         </div>
       )}
     </div>

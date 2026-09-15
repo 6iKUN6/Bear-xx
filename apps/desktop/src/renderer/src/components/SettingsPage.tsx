@@ -13,7 +13,7 @@ export function SettingsPage() {
       <div className="mx-auto max-w-[600px]">
         <button
           type="button"
-          onClick={() => setPage("workbench")}
+          onClick={() => useAppStore.getState().goBack()}
           className="-ml-2.5 inline-flex items-center gap-1.5 rounded-[var(--lb-radius-sm)] px-2.5 py-1.5 text-[13px] text-[var(--lb-text-secondary)] transition-colors hover:bg-[var(--lb-surface-hover)] hover:text-[var(--lb-text-primary)]"
         >
           <ArrowLeft size={15} />
@@ -25,12 +25,16 @@ export function SettingsPage() {
         </p>
 
         <section className="mb-7">
-          <div className="mb-2 text-[11px] text-[var(--lb-text-muted)]">外观 · 主题</div>
+          <div className="mb-2 text-[11px] text-[var(--lb-text-muted)]">
+            外观 · 主题
+          </div>
           <ThemeMenu />
         </section>
 
         <section className="mb-7">
-          <div className="mb-2 text-[11px] text-[var(--lb-text-muted)]">账号</div>
+          <div className="mb-2 text-[11px] text-[var(--lb-text-muted)]">
+            账号
+          </div>
           <div className="rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]">
             <div className="flex items-center gap-3 px-3.5 py-3">
               <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-[var(--lb-accent-soft)] text-[13px] font-bold text-[var(--lb-accent-ink)]">
@@ -41,7 +45,7 @@ export function SettingsPage() {
                   {user ? user.nickname : "未登录"}
                 </div>
                 <div className="text-[11px] text-[var(--lb-text-muted)]">
-                  {user ? "已连接 · 会话与偏好同步中" : "登录后同步会话与偏好"}
+                  {user ? "已连接 · 会话保存在服务端" : "登录后访问云端会话"}
                 </div>
               </div>
               {user ? (
@@ -68,12 +72,14 @@ export function SettingsPage() {
         </section>
 
         <section>
-          <div className="mb-2 text-[11px] text-[var(--lb-text-muted)]">关于</div>
+          <div className="mb-2 text-[11px] text-[var(--lb-text-muted)]">
+            关于
+          </div>
           <div className="divide-y divide-[var(--lb-line-soft)] rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)]">
             {[
-              ["Sola 桌面端", "v0.1.0 骨架"],
+              ["Sola 桌面端", "v0.1.0"],
               ["运行时", "Sola Runtime（自托管）"],
-              ["编排", "AgentFlow · Temporal"],
+              ["创作项目", "保存在本机 · 支持离线编辑"],
               [
                 "外壳",
                 window.sola
@@ -82,7 +88,9 @@ export function SettingsPage() {
               ],
             ].map(([key, value]) => (
               <div key={key} className="flex items-center gap-3 px-3.5 py-3">
-                <div className="flex-1 text-[13px] text-[var(--lb-text-muted)]">{key}</div>
+                <div className="flex-1 text-[13px] text-[var(--lb-text-muted)]">
+                  {key}
+                </div>
                 <div className="text-[13px]">{value}</div>
               </div>
             ))}

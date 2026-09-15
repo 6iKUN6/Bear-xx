@@ -3,6 +3,9 @@ import { useAppStore } from "@/stores/app-store";
 import { useThemeStore } from "@/stores/theme-store";
 import { WorkbenchPage } from "@/components/WorkbenchPage";
 import { SettingsPage } from "@/components/SettingsPage";
+import { useCreationStore } from "@/stores/creation-store";
+import { useAgentStore } from "@/stores/agent-store";
+import { useChatStore } from "@/stores/chat-store";
 import { LoginPage } from "@/components/LoginPage";
 
 /**
@@ -11,7 +14,8 @@ import { LoginPage } from "@/components/LoginPage";
  */
 export default function App() {
   const page = useAppStore((s) => s.page);
-  const setPage = useAppStore((s) => s.setPage);
+  const goBack = useAppStore((s) => s.goBack);
+  const user = useAppStore((s) => s.user);
   const hydrateAuth = useAppStore((s) => s.hydrateAuth);
   const handleUnauthorized = useAppStore((s) => s.handleUnauthorized);
   const hydrateTheme = useThemeStore((s) => s.hydrate);
@@ -19,24 +23,50 @@ export default function App() {
   useEffect(() => {
     hydrateTheme();
     hydrateAuth();
+    useCreationStore.getState().hydrate();
   }, [hydrateTheme, hydrateAuth]);
+
+  useEffect(() => {
+    if (user) {
+      void useAgentStore.getState().loadAgents();
+      void useChatStore.getState().loadConversations();
+    }
+  }, [user]);
+  useEffect(() => {
+    const save = (event: BeforeUnloadEvent) => {
+      if (
+        useCreationStore.getState().dirty &&
+        !useCreationStore.getState().flush()
+      ) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", save);
+    return () => window.removeEventListener("beforeunload", save);
+  }, []);
 
   // client 在 401 且刷新失败后广播此事件（client 不反向依赖 store）
   useEffect(() => {
     const onUnauthorized = () => handleUnauthorized();
     window.addEventListener("sola:unauthorized", onUnauthorized);
-    return () => window.removeEventListener("sola:unauthorized", onUnauthorized);
+    return () =>
+      window.removeEventListener("sola:unauthorized", onUnauthorized);
   }, [handleUnauthorized]);
 
   useEffect(() => {
     const onKeydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && page !== "workbench") {
-        setPage("workbench");
+      if (
+        event.key === "Escape" &&
+        !document.querySelector("dialog[open]") &&
+        (page === "settings" || page === "login")
+      ) {
+        goBack();
       }
     };
     document.addEventListener("keydown", onKeydown);
     return () => document.removeEventListener("keydown", onKeydown);
-  }, [page, setPage]);
+  }, [page, goBack]);
 
   if (page === "settings") {
     return <SettingsPage />;

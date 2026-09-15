@@ -12,7 +12,10 @@ interface MarkdownContentProps {
  * 产出的是基于 --lb-* 变量的内联样式 HTML，直接交给 dangerouslySetInnerHTML。
  * 产物来自本地 markdown-it 渲染，不是用户注入的远程脚本。
  */
-export function MarkdownContent({ content, className = "" }: MarkdownContentProps) {
+export function MarkdownContent({
+  content,
+  className = "",
+}: MarkdownContentProps) {
   const html = useMemo(() => renderMarkdown(content), [content]);
 
   return (

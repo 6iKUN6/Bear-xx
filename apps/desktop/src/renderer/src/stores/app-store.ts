@@ -6,10 +6,15 @@ import { useAgentStore } from "@/stores/agent-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useModelStore } from "@/stores/model-store";
 
-export type AppPage = "workbench" | "settings" | "login";
+export type AppPage =
+  "workbench" | "projects" | "creation" | "flows" | "settings" | "login";
 
 interface AppState {
   page: AppPage;
+  returnPage: AppPage;
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
+  goBack: () => void;
   /** 当前登录用户；null = 未登录 */
   user: AuthUser | null;
   setPage: (page: AppPage) => void;
@@ -22,12 +27,28 @@ interface AppState {
   handleUnauthorized: () => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   page: "workbench",
+  returnPage: "workbench",
+  sidebarCollapsed: false,
+  toggleSidebar() {
+    set({ sidebarCollapsed: !get().sidebarCollapsed });
+  },
+  goBack() {
+    set({ page: get().returnPage });
+  },
   user: null,
 
   setPage(page) {
-    set({ page });
+    set({
+      page,
+      returnPage:
+        page === "settings" || page === "login"
+          ? get().page === "settings" || get().page === "login"
+            ? get().returnPage
+            : get().page
+          : page,
+    });
   },
 
   hydrateAuth() {
@@ -40,7 +61,7 @@ export const useAppStore = create<AppState>((set) => ({
   async login(username, password) {
     const res = await loginAccount({ username, password });
     authStorage.set(res.token, res.refreshToken, res.user);
-    set({ user: res.user, page: "workbench" });
+    set({ user: res.user, page: get().returnPage });
   },
 
   async logout() {
@@ -58,6 +79,7 @@ export const useAppStore = create<AppState>((set) => ({
     useChatStore.getState().reset();
     useAgentStore.getState().reset();
     useModelStore.getState().reset();
-    set({ user: null, page: "login" });
+    set({ user: null });
+    get().setPage("login");
   },
 }));

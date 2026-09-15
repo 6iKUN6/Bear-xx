@@ -13,6 +13,12 @@ export interface AgentModelSelection {
   reasoning?: ReasoningSelection;
 }
 
+let modelEpoch = 0;
+const pendingOptions = new Map<string, Promise<AgentModelOptions>>();
+export function modelSelectionKey(agentId: string, scopeId = "chat") {
+  return `${scopeId}:${agentId}`;
+}
+
 const STORAGE_KEY = "sola_desktop_agent_model_selections";
 
 type SavedSelections = Record<string, AgentModelSelection>;
@@ -24,7 +30,9 @@ function readSaved(): SavedSelections {
       return {};
     }
     const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
       ? (parsed as SavedSelections)
       : {};
   } catch {
@@ -46,8 +54,8 @@ export function isReasoningConfigurable(
 ): boolean {
   return Boolean(
     capability?.activation?.configurable ||
-      capability?.effort?.configurable ||
-      capability?.budget?.configurable,
+    capability?.effort?.configurable ||
+    capability?.budget?.configurable,
   );
 }
 
@@ -58,7 +66,9 @@ export function defaultModelReasoning(
   if (!isReasoningConfigurable(capability)) {
     return undefined;
   }
-  return capability?.defaultSelection ? { ...capability.defaultSelection } : undefined;
+  return capability?.defaultSelection
+    ? { ...capability.defaultSelection }
+    : undefined;
 }
 
 /** 校验本地记忆的思考值是否仍在能力目录闭集内；越界则回退目录默认 */
@@ -111,11 +121,16 @@ function resolveInitialSelection(
     return undefined;
   }
   const saved = readSaved()[agentId];
-  const savedModel = models.find((m) => m.modelPresetId === saved?.modelPresetId);
+  const savedModel = models.find(
+    (m) => m.modelPresetId === saved?.modelPresetId,
+  );
   if (saved && savedModel) {
     return {
       modelPresetId: saved.modelPresetId,
-      reasoning: validReasoningOrDefault(savedModel.reasoningCapability, saved.reasoning),
+      reasoning: validReasoningOrDefault(
+        savedModel.reasoningCapability,
+        saved.reasoning,
+      ),
     };
   }
   const model =
@@ -124,7 +139,7 @@ function resolveInitialSelection(
     modelPresetId: model.modelPresetId,
     reasoning:
       model.modelPresetId === defaultModelPresetId
-        ? (defaultReasoning ?? undefined)
+        ? (defaultReasoning ?? defaultModelReasoning(model.reasoningCapability))
         : defaultModelReasoning(model.reasoningCapability),
   };
 }
@@ -133,39 +148,62 @@ interface ModelState {
   /** 每个智能体的模型选项缓存（会话内） */
   optionsByAgent: Record<string, AgentModelOptions>;
   /** 每个智能体当前选择 */
-  selectionByAgent: Record<string, AgentModelSelection>;
+  selectionByScope: Record<string, AgentModelSelection>;
   loadingAgentId: string | null;
   loadError: string | null;
   /** 拉取并缓存某智能体的模型选项；同时解析出当前选择 */
-  ensureOptions: (agentId: string) => Promise<void>;
-  selectModel: (agentId: string, model: AgentModelOption) => void;
-  changeReasoning: (agentId: string, reasoning: ReasoningSelection | undefined) => void;
+  ensureOptions: (agentId: string, scopeId?: string) => Promise<void>;
+  selectModel: (
+    agentId: string,
+    model: AgentModelOption,
+    scopeId?: string,
+  ) => void;
+  changeReasoning: (
+    agentId: string,
+    reasoning: ReasoningSelection | undefined,
+    scopeId?: string,
+  ) => void;
   reset: () => void;
 }
 
 export const useModelStore = create<ModelState>((set, get) => ({
   optionsByAgent: {},
-  selectionByAgent: {},
+  selectionByScope: {},
   loadingAgentId: null,
   loadError: null,
 
-  async ensureOptions(agentId) {
-    if (get().optionsByAgent[agentId]) {
-      return;
-    }
-    set({ loadingAgentId: agentId, loadError: null });
+  async ensureOptions(agentId, scopeId = "chat") {
+    const key = modelSelectionKey(agentId, scopeId);
+    const epoch = modelEpoch;
     try {
-      const options = await getAgentModelOptions(agentId);
+      let options = get().optionsByAgent[agentId];
+      if (!options) {
+        set({ loadingAgentId: agentId, loadError: null });
+        let pending = pendingOptions.get(agentId);
+        if (!pending) {
+          pending = getAgentModelOptions(agentId);
+          pendingOptions.set(agentId, pending);
+        }
+        try {
+          options = await pending;
+        } finally {
+          if (pendingOptions.get(agentId) === pending)
+            pendingOptions.delete(agentId);
+        }
+      }
+      if (epoch !== modelEpoch) return;
+      const selection =
+        get().selectionByScope[key] ?? resolveInitialSelection(key, options);
       set((state) => ({
         optionsByAgent: { ...state.optionsByAgent, [agentId]: options },
-        selectionByAgent: {
-          ...state.selectionByAgent,
-          [agentId]:
-            state.selectionByAgent[agentId] ?? resolveInitialSelection(agentId, options),
-        },
+        selectionByScope: selection
+          ? { ...state.selectionByScope, [key]: selection }
+          : state.selectionByScope,
         loadingAgentId: null,
+        loadError: null,
       }));
     } catch (error) {
+      if (epoch !== modelEpoch) return;
       set({
         loadingAgentId: null,
         loadError: error instanceof Error ? error.message : "模型选项加载失败",
@@ -173,31 +211,40 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
   },
 
-  selectModel(agentId, model) {
+  selectModel(agentId, model, scopeId = "chat") {
+    const key = modelSelectionKey(agentId, scopeId);
     // 切模型时重置为该模型目录默认思考值
     const selection: AgentModelSelection = {
       modelPresetId: model.modelPresetId,
       reasoning: defaultModelReasoning(model.reasoningCapability),
     };
     set((state) => ({
-      selectionByAgent: { ...state.selectionByAgent, [agentId]: selection },
+      selectionByScope: { ...state.selectionByScope, [key]: selection },
     }));
-    writeSaved({ ...readSaved(), [agentId]: selection });
+    writeSaved({ ...readSaved(), [key]: selection });
   },
 
-  changeReasoning(agentId, reasoning) {
-    const current = get().selectionByAgent[agentId];
+  changeReasoning(agentId, reasoning, scopeId = "chat") {
+    const key = modelSelectionKey(agentId, scopeId);
+    const current = get().selectionByScope[key];
     if (!current) {
       return;
     }
     const selection = { ...current, reasoning };
     set((state) => ({
-      selectionByAgent: { ...state.selectionByAgent, [agentId]: selection },
+      selectionByScope: { ...state.selectionByScope, [key]: selection },
     }));
-    writeSaved({ ...readSaved(), [agentId]: selection });
+    writeSaved({ ...readSaved(), [key]: selection });
   },
 
   reset() {
-    set({ optionsByAgent: {}, selectionByAgent: {}, loadingAgentId: null, loadError: null });
+    modelEpoch += 1;
+    pendingOptions.clear();
+    set({
+      optionsByAgent: {},
+      selectionByScope: {},
+      loadingAgentId: null,
+      loadError: null,
+    });
   },
 }));

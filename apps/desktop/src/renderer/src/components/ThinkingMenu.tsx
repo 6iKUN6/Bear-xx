@@ -5,6 +5,7 @@ import type { ModelReasoningCapability } from "@/api/types";
 import {
   isReasoningConfigurable,
   useModelStore,
+  modelSelectionKey,
 } from "@/stores/model-store";
 import { Switch } from "@/components/Switch";
 
@@ -22,6 +23,7 @@ type EffortKey = keyof typeof EFFORT_LABELS;
 interface ThinkingMenuProps {
   /** 当前生效的智能体 id；null = 后端默认路由（无具体 agent，不出思考选项） */
   agentId: string | null;
+  scopeId?: string;
 }
 
 /**
@@ -29,10 +31,14 @@ interface ThinkingMenuProps {
  * @description 跟随当前选中模型的 reasoningCapability 目录；模型思考不可调时不渲染。
  * 与 ModelMenu 的模型选择分离，但共享 model-store 的 selection——切模型会重置思考为该模型目录默认。
  */
-export function ThinkingMenu({ agentId }: ThinkingMenuProps) {
-  const options = useModelStore((s) => (agentId ? s.optionsByAgent[agentId] : undefined));
+export function ThinkingMenu({ agentId, scopeId = "chat" }: ThinkingMenuProps) {
+  const options = useModelStore((s) =>
+    agentId ? s.optionsByAgent[agentId] : undefined,
+  );
   const selection = useModelStore((s) =>
-    agentId ? s.selectionByAgent[agentId] : undefined,
+    agentId
+      ? s.selectionByScope[modelSelectionKey(agentId, scopeId)]
+      : undefined,
   );
   const ensureOptions = useModelStore((s) => s.ensureOptions);
   const changeReasoning = useModelStore((s) => s.changeReasoning);
@@ -42,9 +48,9 @@ export function ThinkingMenu({ agentId }: ThinkingMenuProps) {
 
   useEffect(() => {
     if (agentId) {
-      void ensureOptions(agentId);
+      void ensureOptions(agentId, scopeId);
     }
-  }, [agentId, ensureOptions]);
+  }, [agentId, scopeId, ensureOptions]);
 
   useEffect(() => {
     if (!open) {
@@ -75,15 +81,20 @@ export function ThinkingMenu({ agentId }: ThinkingMenuProps) {
   const capability = selectedModel?.reasoningCapability ?? null;
 
   // 模型思考由供应商固定（或选项未就绪）时不渲染入口
-  if (!options || !selectedModel || !selection || !capability || !isReasoningConfigurable(capability)) {
+  if (
+    !options ||
+    !selectedModel ||
+    !selection ||
+    !capability ||
+    !isReasoningConfigurable(capability)
+  ) {
     return null;
   }
 
   const reasoning = selection.reasoning ?? capability.defaultSelection ?? {};
   const thinkingOff = reasoning.activation === "disabled";
   const effortKey = (reasoning.effort ?? capability.effort?.defaultValue) as
-    | EffortKey
-    | undefined;
+    EffortKey | undefined;
   const triggerLabel = thinkingOff
     ? "思考关闭"
     : effortKey
@@ -112,11 +123,11 @@ export function ThinkingMenu({ agentId }: ThinkingMenuProps) {
       </button>
 
       {open && (
-        <div className="absolute bottom-full z-20 mb-1.5 w-[280px] overflow-hidden rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-glow)]">
+        <div className="model-popover absolute bottom-full right-0 z-30 mb-1.5 w-[280px] overflow-hidden rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-glow)]">
           <ReasoningFields
             capability={capability}
             value={selection.reasoning}
-            onChange={(r) => agentId && changeReasoning(agentId, r)}
+            onChange={(r) => agentId && changeReasoning(agentId, r, scopeId)}
           />
         </div>
       )}
@@ -157,7 +168,10 @@ function ReasoningFields({
             onCheckedChange={(on) =>
               onChange(
                 on
-                  ? { ...capability.defaultSelection, activation: enabledActivation }
+                  ? {
+                      ...capability.defaultSelection,
+                      activation: enabledActivation,
+                    }
                   : { activation: "disabled" },
               )
             }
@@ -193,7 +207,9 @@ function EffortSelect({
 }) {
   return (
     <div className="mb-2 flex items-center justify-between gap-2">
-      <span className="text-[12px] text-[var(--lb-text-secondary)]">思考强度</span>
+      <span className="text-[12px] text-[var(--lb-text-secondary)]">
+        思考强度
+      </span>
       <div className="relative">
         <select
           value={selected}
@@ -230,7 +246,11 @@ function BudgetRow({
     <div className="mb-1">
       <ChoiceRow
         label="预算"
-        values={capability.supportsAuto ? (["auto", "manual"] as const) : (["manual"] as const)}
+        values={
+          capability.supportsAuto
+            ? (["auto", "manual"] as const)
+            : (["manual"] as const)
+        }
         selected={isAuto ? "auto" : "manual"}
         getLabel={(v) => (v === "auto" ? "自动" : "手动")}
         onSelect={(mode) =>
@@ -263,6 +283,7 @@ function BudgetRow({
               budgetTokens: Number(e.target.value) || capability.minimum || 1,
             })
           }
+          aria-label="思考预算 Token 数"
           className="h-8 w-full rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-soft)] bg-[var(--lb-page-background)] px-2 text-[12px] outline-none focus:border-[var(--lb-accent)]"
         />
       )}
@@ -285,7 +306,9 @@ function ChoiceRow<T extends string>({
 }) {
   return (
     <div className="mb-2">
-      <div className="mb-1 text-[11px] text-[var(--lb-text-muted)]">{label}</div>
+      <div className="mb-1 text-[11px] text-[var(--lb-text-muted)]">
+        {label}
+      </div>
       <div className="flex flex-wrap gap-1">
         {values.map((value) => (
           <button

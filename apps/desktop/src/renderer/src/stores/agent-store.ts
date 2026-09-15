@@ -19,6 +19,8 @@ interface AgentState {
   reset: () => void;
 }
 
+let agentEpoch = 0;
+
 export const useAgentStore = create<AgentState>((set) => ({
   agents: [],
   selectedAgentId: null,
@@ -26,24 +28,33 @@ export const useAgentStore = create<AgentState>((set) => ({
   loadError: null,
 
   async loadAgents() {
+    const epoch = agentEpoch;
     set({ loadError: null });
     try {
       const agents = await getAgents();
+      if (epoch !== agentEpoch) return;
       set((state) => ({
         // 只展示可见的；按「可用优先 + 默认优先」排序
         agents: agents
           .filter((a) => a.visible)
-          .sort((a, b) => Number(b.canUse) - Number(a.canUse) || Number(b.isDefault) - Number(a.isDefault)),
+          .sort(
+            (a, b) =>
+              Number(b.canUse) - Number(a.canUse) ||
+              Number(b.isDefault) - Number(a.isDefault),
+          ),
         loaded: true,
         // 选中项已不在列表（被下架/权限变化）时回落到默认
         selectedAgentId:
-          state.selectedAgentId && agents.some((a) => a.id === state.selectedAgentId && a.canUse)
+          state.selectedAgentId &&
+          agents.some((a) => a.id === state.selectedAgentId && a.canUse)
             ? state.selectedAgentId
             : null,
       }));
     } catch (error) {
+      if (epoch !== agentEpoch) return;
       set({
-        loadError: error instanceof Error ? error.message : "智能体列表加载失败",
+        loadError:
+          error instanceof Error ? error.message : "智能体列表加载失败",
       });
     }
   },
@@ -53,6 +64,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   },
 
   reset() {
+    agentEpoch += 1;
     set({ agents: [], selectedAgentId: null, loaded: false, loadError: null });
   },
 }));

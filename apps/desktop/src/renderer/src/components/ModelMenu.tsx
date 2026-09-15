@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Cpu } from "lucide-react";
-import { useModelStore } from "@/stores/model-store";
+import { modelSelectionKey, useModelStore } from "@/stores/model-store";
 
 interface ModelMenuProps {
   /** 当前生效的智能体 id；null = 后端默认路由（无具体 agent，不出模型选项） */
   agentId: string | null;
+  scopeId?: string;
 }
 
 /**
@@ -13,10 +14,14 @@ interface ModelMenuProps {
  * 只负责模型单选；思考开关 / 强度 / 预算拆到 ThinkingMenu。选择仅影响下一条消息，
  * 服务端发送时仍会按允许集合与能力目录重新校验。
  */
-export function ModelMenu({ agentId }: ModelMenuProps) {
-  const options = useModelStore((s) => (agentId ? s.optionsByAgent[agentId] : undefined));
+export function ModelMenu({ agentId, scopeId = "chat" }: ModelMenuProps) {
+  const options = useModelStore((s) =>
+    agentId ? s.optionsByAgent[agentId] : undefined,
+  );
   const selection = useModelStore((s) =>
-    agentId ? s.selectionByAgent[agentId] : undefined,
+    agentId
+      ? s.selectionByScope[modelSelectionKey(agentId, scopeId)]
+      : undefined,
   );
   const ensureOptions = useModelStore((s) => s.ensureOptions);
   const selectModel = useModelStore((s) => s.selectModel);
@@ -26,9 +31,9 @@ export function ModelMenu({ agentId }: ModelMenuProps) {
 
   useEffect(() => {
     if (agentId) {
-      void ensureOptions(agentId);
+      void ensureOptions(agentId, scopeId);
     }
-  }, [agentId, ensureOptions]);
+  }, [agentId, scopeId, ensureOptions]);
 
   useEffect(() => {
     if (!open) {
@@ -80,7 +85,7 @@ export function ModelMenu({ agentId }: ModelMenuProps) {
       </button>
 
       {open && (
-        <div className="absolute bottom-full z-20 mb-1.5 w-[280px] overflow-hidden rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-glow)]">
+        <div className="model-popover absolute bottom-full right-0 z-30 mb-1.5 w-[280px] overflow-hidden rounded-[var(--lb-radius-md)] border border-[var(--lb-line-soft)] bg-[var(--lb-surface)] shadow-[var(--lb-shadow-glow)]">
           <div className="max-h-[300px] overflow-y-auto p-1.5">
             <div className="flex flex-col">
               {options.models.map((model) => {
@@ -89,7 +94,10 @@ export function ModelMenu({ agentId }: ModelMenuProps) {
                   <button
                     key={model.modelPresetId}
                     type="button"
-                    onClick={() => agentId && selectModel(agentId, model)}
+                    onClick={() => {
+                      if (agentId) selectModel(agentId, model, scopeId);
+                      setOpen(false);
+                    }}
                     className={`flex items-center justify-between gap-2 rounded-[var(--lb-radius-sm)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--lb-surface-hover)] ${
                       active ? "bg-[var(--lb-accent-soft)]" : ""
                     }`}
@@ -103,7 +111,10 @@ export function ModelMenu({ agentId }: ModelMenuProps) {
                       </span>
                     </span>
                     {active && (
-                      <Check size={14} className="shrink-0 text-[var(--lb-accent)]" />
+                      <Check
+                        size={14}
+                        className="shrink-0 text-[var(--lb-accent)]"
+                      />
                     )}
                   </button>
                 );

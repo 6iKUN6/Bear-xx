@@ -90,7 +90,9 @@ function openSseStream(
         if (done) {
           break;
         }
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        buffer += decoder
+          .decode(value, { stream: true })
+          .replace(/\r\n/g, "\n");
         buffer = consumeFrames(buffer, handlers);
       }
       handlers.onDone();

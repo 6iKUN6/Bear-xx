@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { Check, ChevronRight, X } from "lucide-react";
-import {
-  formatApprovalArgs,
-  splitApprovalArgs,
-} from "@litter-bear/chat-core";
+import { formatApprovalArgs, splitApprovalArgs } from "@litter-bear/chat-core";
 import {
   APPROVAL_DECISION_LABELS,
   type ApprovalDecision,
@@ -41,12 +38,16 @@ export function ApprovalCard({
 
   const [editing, setEditing] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
-  const [editText, setEditText] = useState(() => formatApprovalArgs(payload.args));
+  const [editText, setEditText] = useState(() =>
+    formatApprovalArgs(payload.args),
+  );
   const [parseError, setParseError] = useState<string | null>(null);
 
   // 已处理：整张卡收敛为一行结论
   if (resolvedDecision) {
-    return <ResolvedLine toolName={payload.toolName} decision={resolvedDecision} />;
+    return (
+      <ResolvedLine toolName={payload.toolName} decision={resolvedDecision} />
+    );
   }
 
   const disabled = submitting;
@@ -104,7 +105,9 @@ export function ApprovalCard({
             className="w-full resize-y rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-strong)] bg-[var(--lb-page-background)] p-2 font-mono text-[12px] leading-relaxed outline-none focus:border-[var(--lb-accent)] disabled:opacity-60"
           />
           {parseError && (
-            <p className="mt-1 text-[12px] text-[var(--lb-danger)]">{parseError}</p>
+            <p className="mt-1 text-[12px] text-[var(--lb-danger)]">
+              {parseError}
+            </p>
           )}
         </div>
       ) : (
@@ -112,7 +115,10 @@ export function ApprovalCard({
           {facts.length > 0 && (
             <div className="mt-2.5 flex flex-col gap-1.5">
               {facts.map((fact) => (
-                <div key={fact.key} className="flex items-baseline gap-2 text-[12px]">
+                <div
+                  key={fact.key}
+                  className="flex items-baseline gap-2 text-[12px]"
+                >
                   <span className="shrink-0 font-mono text-[var(--lb-text-muted)]">
                     {fact.key}
                   </span>
