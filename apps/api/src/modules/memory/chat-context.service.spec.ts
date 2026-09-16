@@ -2,7 +2,8 @@ import { ConversationType, MessageRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatContextService } from './chat-context.service';
 import { ConversationSummaryService } from './conversation-summary.service';
-import { CHAT_CONTEXT_RECENT_MESSAGE_LIMIT } from './memory.constants';
+import { Test } from '@nestjs/testing';
+import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
 
 describe('ChatContextService', () => {
@@ -11,10 +12,26 @@ describe('ChatContextService', () => {
    * @returns 返回服务实例以及 Prisma、摘要服务的 mock 对象
    * @description 为上下文组装用例提供隔离的依赖对象，便于验证最近窗口查询和摘要注入行为。
    */
-  const createService = () => {
+  const createService = async () => {
+    const history = jest.fn<
+      Promise<
+        Array<{
+          role: MessageRole;
+          content: string;
+          agentId: string | null;
+          modelContext?: unknown;
+        }>
+      >,
+      []
+    >();
     const prisma = {
       message: {
-        findMany: jest.fn(),
+        findMany: jest.fn(async () =>
+          (await history()).map((message, index) => ({
+            ...message,
+            id: `message-${index}`,
+          })),
+        ),
       },
       agent: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -25,22 +42,48 @@ describe('ChatContextService', () => {
         findUnique: jest.fn().mockResolvedValue(null),
       },
     };
+    const streamTask = {
+      findFirst: jest.fn(async () => ({
+        contextMessageIds: (await history())
+          .map((_, index) => `message-${index}`)
+          .reverse(),
+      })),
+    };
     const conversationSummaryService = {
       getConversationSummary: jest.fn(),
     };
 
+    const module = await Test.createTestingModule({
+      providers: [
+        ChatContextService,
+        { provide: PrismaService, useValue: { ...prisma, streamTask } },
+        {
+          provide: ConversationSummaryService,
+          useValue: conversationSummaryService,
+        },
+        {
+          provide: LlmModelRegistryService,
+          useValue: {
+            getContextLimits: () => ({
+              contextWindowTokens: 100000,
+              maxOutputTokens: 10000,
+              modelPreset: 'test-model',
+            }),
+          },
+        },
+      ],
+    }).compile();
     return {
-      service: new ChatContextService(
-        prisma as unknown as PrismaService,
-        conversationSummaryService as unknown as ConversationSummaryService,
-      ),
+      service: module.get(ChatContextService),
       prisma,
       conversationSummaryService,
+      history,
     };
   };
 
-  it('会把摘要作为隐藏 system 上下文并返回最近窗口元信息', async () => {
-    const { service, prisma, conversationSummaryService } = createService();
+  it('预算充足时使用原文，不注入可能过期的历史摘要', async () => {
+    const { service, conversationSummaryService, history } =
+      await createService();
 
     conversationSummaryService.getConversationSummary.mockResolvedValue({
       id: 'summary-1',
@@ -51,7 +94,7 @@ describe('ChatContextService', () => {
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     });
-    prisma.message.findMany.mockResolvedValue([
+    history.mockResolvedValue([
       {
         role: MessageRole.ASSISTANT,
         content: '助手回复',
@@ -69,32 +112,12 @@ describe('ChatContextService', () => {
       'pending-message',
     );
 
-    expect(prisma.message.findMany).toHaveBeenCalledWith({
-      where: {
-        conversationId: 'conversation-1',
-        id: { not: 'pending-message' },
-      },
-      select: {
-        role: true,
-        content: true,
-        agentId: true,
-        modelContext: true,
-      },
-      orderBy: { createdAt: 'desc' },
-      take: CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
-    });
-    expect(bundle.summary).toEqual({
-      content: '用户希望先完成第一版 memory 规则。',
-      latestMessageId: 'message-8',
-      messageCount: 8,
-    });
-    expect(bundle.recentWindow).toEqual({
-      limit: CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
-      messageCount: 2,
-    });
-    expect(bundle.messages[0]?.role).toBe('system');
-    expect(bundle.messages[0]?.content).toContain('不要向用户暴露摘要本身');
-    expect(bundle.messages.slice(1)).toEqual([
+    expect(bundle.summary).toBeUndefined();
+    expect(
+      conversationSummaryService.getConversationSummary,
+    ).not.toHaveBeenCalled();
+    expect(bundle.recentWindow.messageCount).toBe(2);
+    expect(bundle.messages).toEqual([
       {
         role: 'user',
         content: '用户问题',
@@ -107,9 +130,10 @@ describe('ChatContextService', () => {
   });
 
   it('群会话：其它智能体的发言转写为署名记录，自己的保持 assistant', async () => {
-    const { service, prisma, conversationSummaryService } = createService();
+    const { service, prisma, conversationSummaryService, history } =
+      await createService();
     conversationSummaryService.getConversationSummary.mockResolvedValue(null);
-    prisma.message.findMany.mockResolvedValue([
+    history.mockResolvedValue([
       // findMany 按 createdAt desc 返回，service 内部会 reverse
       {
         role: MessageRole.ASSISTANT,
@@ -150,9 +174,10 @@ describe('ChatContextService', () => {
   });
 
   it('单助手会话（含 agentId 全为 null 的历史）不做任何转写，零回归', async () => {
-    const { service, prisma, conversationSummaryService } = createService();
+    const { service, prisma, conversationSummaryService, history } =
+      await createService();
     conversationSummaryService.getConversationSummary.mockResolvedValue(null);
-    prisma.message.findMany.mockResolvedValue([
+    history.mockResolvedValue([
       { role: MessageRole.ASSISTANT, content: '回复', agentId: null },
       { role: MessageRole.USER, content: '问题', agentId: null },
     ]);
@@ -171,10 +196,11 @@ describe('ChatContextService', () => {
   });
 
   it('群聊首条消息（历史无其它发言）也注入身份说明，含自己与其它成员的能力', async () => {
-    const { service, prisma, conversationSummaryService } = createService();
+    const { service, prisma, conversationSummaryService, history } =
+      await createService();
     conversationSummaryService.getConversationSummary.mockResolvedValue(null);
     // 群里第一句话：历史只有用户这一条，没有任何 assistant 发言
-    prisma.message.findMany.mockResolvedValue([
+    history.mockResolvedValue([
       { role: MessageRole.USER, content: '你俩有人会画画吗', agentId: null },
     ]);
     prisma.conversation.findUnique.mockResolvedValue({
@@ -213,9 +239,10 @@ describe('ChatContextService', () => {
   });
 
   it('单聊会话不注入群聊身份说明', async () => {
-    const { service, prisma, conversationSummaryService } = createService();
+    const { service, prisma, conversationSummaryService, history } =
+      await createService();
     conversationSummaryService.getConversationSummary.mockResolvedValue(null);
-    prisma.message.findMany.mockResolvedValue([
+    history.mockResolvedValue([
       { role: MessageRole.USER, content: '你好', agentId: null },
     ]);
     prisma.conversation.findUnique.mockResolvedValue({
@@ -233,9 +260,10 @@ describe('ChatContextService', () => {
   });
 
   it('历史默认助手（null）发言在具体智能体回答时按默认智能体名转写', async () => {
-    const { service, prisma, conversationSummaryService } = createService();
+    const { service, prisma, conversationSummaryService, history } =
+      await createService();
     conversationSummaryService.getConversationSummary.mockResolvedValue(null);
-    prisma.message.findMany.mockResolvedValue([
+    history.mockResolvedValue([
       { role: MessageRole.ASSISTANT, content: '通用回答', agentId: null },
       { role: MessageRole.USER, content: '问题', agentId: null },
     ]);

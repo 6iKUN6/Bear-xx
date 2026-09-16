@@ -115,6 +115,12 @@ export class ModelPresetService {
     ) {
       throw new BadRequestException('停用的模型或连接不能设为系统默认模型');
     }
+    if (
+      dto.contextWindowTokens &&
+      dto.maxOutputTokens &&
+      dto.maxOutputTokens >= dto.contextWindowTokens
+    )
+      throw new BadRequestException('最大输出 token 必须小于上下文容量');
     const presetId = `${connection.connectionKey}:${model}`;
     if (presetId.length > 400) {
       throw new BadRequestException('自动生成的模型预设 ID 过长');
@@ -137,6 +143,7 @@ export class ModelPresetService {
           upstreamFormat: toDbUpstreamFormat(upstreamFormat),
           temperature: dto.temperature ?? null,
           maxOutputTokens: dto.maxOutputTokens ?? null,
+          contextWindowTokens: dto.contextWindowTokens ?? null,
           topP: dto.topP ?? null,
           enabled: dto.enabled ?? true,
           isDefault: dto.isDefault ?? false,
@@ -182,6 +189,20 @@ export class ModelPresetService {
     ) {
       throw new BadRequestException('停用的模型或连接不能设为系统默认模型');
     }
+    const contextWindowTokens =
+      dto.contextWindowTokens === undefined
+        ? current.contextWindowTokens
+        : dto.contextWindowTokens;
+    const maxOutputTokens =
+      dto.maxOutputTokens === undefined
+        ? current.maxOutputTokens
+        : dto.maxOutputTokens;
+    if (
+      contextWindowTokens &&
+      maxOutputTokens &&
+      maxOutputTokens >= contextWindowTokens
+    )
+      throw new BadRequestException('最大输出 token 必须小于上下文容量');
     const connectionChanged =
       (model !== undefined && model !== current.model) ||
       toDbUpstreamFormat(upstreamFormat) !== current.upstreamFormat;
@@ -204,6 +225,7 @@ export class ModelPresetService {
             : undefined,
           temperature: dto.temperature,
           maxOutputTokens: dto.maxOutputTokens,
+          contextWindowTokens: dto.contextWindowTokens,
           topP: dto.topP,
           enabled: dto.enabled,
           isDefault: dto.isDefault,
@@ -307,6 +329,7 @@ export class ModelPresetService {
       model: row.model,
       temperature: row.temperature,
       maxOutputTokens: row.maxOutputTokens,
+      contextWindowTokens: row.contextWindowTokens,
       topP: row.topP,
       reasoningCapability:
         toReasoningCapabilityProjection(

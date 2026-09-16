@@ -55,10 +55,16 @@ export class PlannerService {
     try {
       const parsed = await this.llmService.generateStructured(
         [
-          { role: 'system', content: buildTaskPlannerPrompt(cap) },
+          {
+            role: 'system',
+            content: [input.systemPrompt, buildTaskPlannerPrompt(cap)]
+              .filter(Boolean)
+              .join('\n\n'),
+          },
+          ...input.messages,
           {
             role: 'user',
-            content: this.buildUserPrompt(userText, toolNames, feedback),
+            content: this.buildUserPrompt(toolNames, feedback),
           },
         ],
         planSchema,
@@ -95,14 +101,13 @@ export class PlannerService {
     };
   }
 
-  private buildUserPrompt(
-    userText: string,
-    toolNames: string[],
-    feedback: string[],
-  ): string {
+  private buildUserPrompt(toolNames: string[], feedback: string[]): string {
     const toolLine =
       toolNames.length > 0 ? toolNames.join('、') : '（无可用工具）';
-    const sections = [`用户请求：\n${userText}`, `可用工具：${toolLine}`];
+    const sections = [
+      '请根据上述对话规划用户最新请求。',
+      `可用工具：${toolLine}`,
+    ];
     // 打回重规划时把用户历次意见拼进来，让模型据此调整拆解（而非重复上一版计划）。
     if (feedback.length > 0) {
       sections.push(

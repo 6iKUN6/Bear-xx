@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   AgentFlowApprovalKind,
   AgentFlowApprovalStatus,
@@ -52,6 +52,10 @@ import {
   buildSynthesisPrompt,
 } from '../../ai/agent-loop/execution/plan-prompt.builder';
 import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
+import {
+  getModelCallTokenUsage,
+  runWithModelCallContext,
+} from '../../ai/telemetry/model-call-context';
 import { LlmService } from '../../llm/llm.service';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import type { LlmMessage } from '../../llm/llm.types';
@@ -65,6 +69,10 @@ import type {
   PlanStep,
 } from '../../ai/agent-loop/execution/plan.types';
 import { ChatContextService } from '../../memory/chat-context.service';
+import {
+  estimateContextTokens,
+  estimateNodeContextTokens,
+} from '../../memory/context-budget';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
@@ -89,6 +97,7 @@ import type {
   AgentFlowRunSnapshot,
   AgentFlowWorkflowInput,
 } from '../../../temporal/workflows/agent-flow.workflow.types';
+import type { ReasoningSelection } from '@litter-bear/types';
 
 const FLOW_APPROVAL_TIMEOUT_SECONDS = 900;
 /** Flow 内由 LangChain 消费的单次模型请求边界；失败不再叠加 Temporal 整节点重试。 */
@@ -980,10 +989,12 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     }
     const plan = await this.createPlan(
       context,
+      input,
       node.maxSteps,
       [],
       node.modelPreset,
       node.reasoning,
+      budget,
     );
     // 只在真的调了模型时记账：fromModel 为 false 说明 Planner 已降级为规则单步计划。
     // fromModel 只在这里用于记账，不再持久化——它唯一的下游消费者 buildStepPrompt 从不读它。
@@ -1053,10 +1064,12 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const planNode = this.readPlanNode(context, node.planRef);
     const replanned = await this.createPlan(
       context,
+      input,
       planNode.maxSteps,
       nextFeedback,
       planNode.modelPreset,
       planNode.reasoning,
+      budget,
     );
     // 重新规划同样是一次真实模型调用，反复 reject_replan 必须计入预算
     if (replanned.fromModel) {
@@ -1102,6 +1115,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     if (node.policy === 'model') {
       const verdict = await this.judgePlanReviewNeeded(
         context,
+        input,
         steps,
         node.modelPreset,
         node.reasoning,
@@ -1135,6 +1149,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    */
   private async judgePlanReviewNeeded(
     context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
     steps: PlanStep[],
     modelPreset: string | undefined,
     reasoning: import('@litter-bear/types').ReasoningSelection | undefined,
@@ -1147,24 +1162,29 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return { needsReview: true, reason: '模型调用额度已用尽，转人工确认' };
     }
     try {
-      const parsed = await this.llmService.generateStructured(
-        [
-          { role: 'system', content: planReviewGatePrompt },
-          {
-            role: 'user',
-            content: steps
-              .map((step, index) => `${index + 1}. ${step.goal}`)
-              .join('\n'),
-          },
-        ],
-        planReviewGateSchema,
+      const messages = [
+        { role: 'system' as const, content: planReviewGatePrompt },
         {
-          schemaName: 'plan_review_gate',
-          request: {
-            model: { modelId: modelPreset },
-            reasoning,
-          },
+          role: 'user' as const,
+          content: steps
+            .map((step, index) => `${index + 1}. ${step.goal}`)
+            .join('\n'),
         },
+      ];
+      const parsed = await this.runTrackedModelNode(
+        context,
+        input,
+        modelPreset,
+        reasoning,
+        estimateContextTokens(messages),
+        () =>
+          this.llmService.generateStructured(messages, planReviewGateSchema, {
+            schemaName: 'plan_review_gate',
+            request: {
+              model: { modelId: modelPreset },
+              reasoning,
+            },
+          }),
       );
       budget.countModelCall();
       await budget.flush();
@@ -1234,18 +1254,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       context.task.userId,
       context.mcdonaldsCredentialId,
     );
-    const chatContext = await this.chatContextService.buildContextBundle(
-      context.task.conversationId,
-      context.task.messageId,
-      context.task.agentId,
-    );
     const systemPrompt = mergeSystemPrompt(
       context.agentSystemPrompt,
       capabilities.systemPromptAdditions,
     );
     const agentInput: AgentLoopInput = {
       userId: context.task.userId,
-      messages: chatContext.messages,
+      messages: [],
       systemPrompt,
       tools: capabilities.tools,
       approvalToolNames: capabilities.approvalToolNames,
@@ -1288,6 +1303,15 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       step,
       planLoop.observations,
     );
+    const chatContext = await this.buildNodeChatContext(
+      context,
+      node.executor.modelPreset,
+      stepPrompt,
+      tools,
+      budget,
+    );
+    if (budget.modelCallExhausted())
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     const stream = resumeDecision
       ? this.commonChatAgentService.resumeEvents({
           modelPreset: node.executor.modelPreset,
@@ -1547,13 +1571,22 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const schema = createStructuredOutputSchema(node.fields);
     let parsed: Record<string, unknown> | null;
     try {
-      parsed = await this.llmService.generateStructured(messages, schema, {
-        schemaName: 'agent_flow_structured_output',
-        request: {
-          model: { modelId: node.modelPreset },
-          reasoning: node.reasoning,
-        },
-      });
+      parsed = await this.runTrackedModelNode(
+        context,
+        input,
+        node.modelPreset,
+        node.reasoning,
+        estimateContextTokens(messages) +
+          estimateNodeContextTokens(node.instruction, []),
+        async () =>
+          this.llmService.generateStructured(messages, schema, {
+            schemaName: 'agent_flow_structured_output',
+            request: {
+              model: { modelId: node.modelPreset },
+              reasoning: node.reasoning,
+            },
+          }),
+      );
     } finally {
       budget.countModelCall();
       await budget.flush();
@@ -1593,16 +1626,21 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     );
     let parsed: { passed: boolean; score: number; reason: string } | null;
     try {
-      parsed = await this.llmService.generateStructured(
-        messages,
-        evaluateSchema,
-        {
-          schemaName: 'agent_flow_evaluate',
-          request: {
-            model: { modelId: node.modelPreset },
-            reasoning: node.reasoning,
-          },
-        },
+      parsed = await this.runTrackedModelNode(
+        context,
+        input,
+        node.modelPreset,
+        node.reasoning,
+        estimateContextTokens(messages) +
+          estimateNodeContextTokens(node.criteria, []),
+        () =>
+          this.llmService.generateStructured(messages, evaluateSchema, {
+            schemaName: 'agent_flow_evaluate',
+            request: {
+              model: { modelId: node.modelPreset },
+              reasoning: node.reasoning,
+            },
+          }),
       );
     } finally {
       budget.countModelCall();
@@ -1685,8 +1723,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const observations = node.observationsRef
       ? await this.readRefStringArray(context, node.observationsRef)
       : [];
-    const agentInput = await this.createAgentLoopInput(context, []);
-    const systemPrompt = buildSynthesisPrompt(agentInput, observations);
+    const systemPrompt = buildSynthesisPrompt(
+      {
+        messages: [],
+        systemPrompt: mergeSystemPrompt(context.agentSystemPrompt, []),
+      },
+      observations,
+    );
     return this.executeAgentNode(
       context,
       input,
@@ -1707,37 +1750,101 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    */
   private async createPlan(
     context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
     maxSteps: number,
     feedback: string[],
-    modelPreset: string,
-    reasoning?: import('@litter-bear/types').ReasoningSelection,
+    modelPreset: string | undefined,
+    reasoning: import('@litter-bear/types').ReasoningSelection | undefined,
+    budget: FlowBudgetTracker,
   ): Promise<AgentPlan> {
-    const input = await this.createAgentLoopInput(context, []);
-    return this.planner.plan(input, maxSteps, feedback, modelPreset, reasoning);
+    const systemPrompt = mergeSystemPrompt(context.agentSystemPrompt, []);
+    // Planner 自带的规划说明与 JSON schema 预留 2048 token，反馈另按实际长度统计。
+    const chatContext = await this.buildNodeChatContext(
+      context,
+      modelPreset,
+      `${systemPrompt}\n${feedback.join('\n')}`,
+      [],
+      budget,
+      2048,
+    );
+    if (budget.modelCallExhausted())
+      throw createNonRetryableActivityFailure(
+        '会话压缩后模型调用预算已用尽',
+        'AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED',
+      );
+    return this.runTrackedModelNode(
+      context,
+      input,
+      modelPreset,
+      reasoning,
+      estimateContextTokens(chatContext.messages) + 2048,
+      () =>
+        this.planner.plan(
+          {
+            userId: context.task.userId,
+            messages: chatContext.messages,
+            systemPrompt,
+            tools: [],
+          },
+          maxSteps,
+          feedback,
+          modelPreset,
+          reasoning,
+        ),
+    );
   }
 
   /**
-   * 创建 Flow 节点复用的 AgentLoop 输入
-   * @param context 当前 Flow 节点执行上下文
-   * @param tools 已经完成能力闭集校验的工具集
-   * @returns 返回可供 Planner 或 prompt builder 使用的最小输入
-   * @description 该输入不包含旧策略、HTTP 请求对象或 Temporal 数据；Flow 节点只用它传递冻结会话、合并后的系统提示词和受控工具名。
+   * 为调用模型的节点组装有预算的会话上下文
+   * @param context 当前任务与节点
+   * @param modelPreset 本节点使用的模型
+   * @param systemPrompt 已合并上游观察和技能的提示词
+   * @param tools 本节点装配的工具
+   * @param budget Flow 模型调用计数器
+   * @param extraTokens 图片或结构化输出等额外预留
+   * @returns 固定历史范围内的上下文包
+   * @description 摘要按需在节点运行前完成并落库，摘要调用也计入 Flow 预算；失败明确终止，不伪装成无历史。
    */
-  private async createAgentLoopInput(
+  private async buildNodeChatContext(
     context: AgentFlowExecutionContext,
-    tools: unknown[],
-  ): Promise<AgentLoopInput> {
-    const chatContext = await this.chatContextService.buildContextBundle(
-      context.task.conversationId,
-      context.task.messageId,
-      context.task.agentId,
-    );
-    return {
-      userId: context.task.userId,
-      messages: chatContext.messages,
-      systemPrompt: mergeSystemPrompt(context.agentSystemPrompt, []),
-      tools,
-    };
+    modelPreset: string | undefined,
+    systemPrompt: string | undefined,
+    tools: readonly unknown[],
+    budget: FlowBudgetTracker,
+    extraTokens = 0,
+  ) {
+    try {
+      return await this.chatContextService.buildContextBundle(
+        context.task.conversationId,
+        context.task.messageId,
+        context.task.agentId,
+        {
+          modelPreset,
+          reservedTokens:
+            estimateNodeContextTokens(systemPrompt ?? '', tools) + extraTokens,
+          onSummaryModelCall: async () => {
+            if (budget.modelCallExhausted())
+              throw createNonRetryableActivityFailure(
+                '会话压缩已达到模型调用预算上限',
+                'AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED',
+              );
+            budget.countModelCall();
+            await budget.flush();
+          },
+        },
+      );
+    } catch (error) {
+      if (error instanceof ApplicationFailure) throw error;
+      if (error instanceof BadRequestException)
+        throw createNonRetryableActivityFailure(
+          error.message,
+          'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
+        );
+      throw createNonRetryableActivityFailure(
+        '会话上下文准备失败，请重试或检查摘要模型配置',
+        'AGENT_FLOW_CONTEXT_ERROR',
+      );
+    }
   }
 
   /**
@@ -1868,11 +1975,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       context.task.userId,
       context.mcdonaldsCredentialId,
     );
-    const chatContext = await this.chatContextService.buildContextBundle(
-      context.task.conversationId,
-      context.task.messageId,
-      context.task.agentId,
-    );
     const systemPrompt =
       systemPromptOverride ??
       mergeSystemPrompt(
@@ -1883,6 +1985,16 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     if (budget.modelCallExhausted()) {
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
+    const chatContext = await this.buildNodeChatContext(
+      context,
+      node.modelPreset,
+      systemPrompt,
+      capabilities.tools,
+      budget,
+      isAnswerNode(context) && context.task.imageAssetId ? 4096 : 0,
+    );
+    if (budget.modelCallExhausted())
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     const onModelTurn = budget.countModelCall;
     // 只有终节点保存供应商私有上下文；中间节点不得把它带入 outputs 或消息表。
     const isAnswer = isAnswerNode(context);
@@ -1932,11 +2044,21 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     // outputs.text 供下游 $ref 引用。理由见 isAnswerNode。
     let result: Awaited<ReturnType<AgentFlowActivities['consumeAgentStream']>>;
     try {
-      result = await this.consumeAgentStream(context, input, stream, {
-        initialContent: isAnswer ? context.task.fullContent : '',
-        publishMessageDelta: isAnswer,
-        budget,
-      });
+      result = await this.runTrackedModelNode(
+        context,
+        input,
+        node.modelPreset,
+        node.reasoning,
+        estimateContextTokens(vision?.messages ?? chatContext.messages) +
+          estimateNodeContextTokens(systemPrompt ?? '', capabilities.tools) +
+          (isAnswer && context.task.imageAssetId ? 4096 : 0),
+        async () =>
+          this.consumeAgentStream(context, input, stream, {
+            initialContent: isAnswer ? context.task.fullContent : '',
+            publishMessageDelta: isAnswer,
+            budget,
+          }),
+      );
     } catch (error) {
       throw toAgentFlowModelFailure(error);
     }
@@ -2659,6 +2781,123 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       },
       update: { state: value },
     });
+  }
+
+  /**
+   * 追踪一个 Flow 模型节点的完整调用段
+   * @description 一个 Agent 节点可能包含多次 ReAct 往返，这里将它们聚合为同一条模型节点 trace，
+   * 同时保留每次供应商 usage 的累加结果。思考内容只传递配置与 token，不把私有思维链写入事件。
+   */
+  private async runTrackedModelNode<T>(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    modelPreset: string | undefined,
+    reasoning: ReasoningSelection | undefined,
+    estimatedInputTokens: number,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const limits = this.modelRegistry.getContextLimits(modelPreset);
+    const resolved = this.modelRegistry.resolveTextRequest({
+      model: { modelId: modelPreset },
+      reasoning,
+    });
+    const traceKey = `model:${input.nodeExecutionId}`;
+    const percent = this.contextUsagePercent(
+      estimatedInputTokens,
+      limits.contextWindowTokens,
+    );
+    await this.publishModelTraceEvent(context, input, {
+      eventName: StreamTaskEventType.ModelCallStart,
+      payload: {
+        nodeKey: context.node.key,
+        traceKey,
+        publicStatus: '正在调用模型',
+        model: resolved.model.model,
+        provider: resolved.model.platform,
+        modelPresetId: limits.modelPreset,
+        contextWindowTokens: limits.contextWindowTokens,
+        estimatedInputTokens,
+        contextUsagePercent: percent,
+        ...(reasoning ? { reasoning } : {}),
+      },
+    });
+
+    const startedAt = Date.now();
+    let completed = false;
+    let usage: ReturnType<typeof getModelCallTokenUsage>;
+    try {
+      const result = await runWithModelCallContext(
+        context.task.id,
+        async () => {
+          try {
+            return await fn();
+          } finally {
+            // AsyncLocalStorage 在 run 返回后会恢复父上下文，必须在这里读取聚合结果。
+            usage = getModelCallTokenUsage();
+          }
+        },
+        context.task.userId,
+      );
+      completed = true;
+      return result;
+    } finally {
+      if (completed && usage) {
+        const inputTokens = usage.inputTokens ?? estimatedInputTokens;
+        await this.publishModelTraceEvent(context, input, {
+          eventName: StreamTaskEventType.ModelCallDone,
+          payload: {
+            nodeKey: context.node.key,
+            traceKey,
+            model: resolved.model.model,
+            provider: resolved.model.platform,
+            modelPresetId: limits.modelPreset,
+            contextWindowTokens: limits.contextWindowTokens,
+            inputTokens,
+            outputTokens: usage.outputTokens,
+            totalTokens: usage.totalTokens,
+            cachedInputTokens: usage.cachedInputTokens,
+            reasoningTokens: usage.reasoningTokens,
+            contextUsagePercent: this.contextUsagePercent(
+              inputTokens,
+              limits.contextWindowTokens,
+            ),
+            estimated: usage.estimated,
+            durationMs: Date.now() - startedAt,
+            ...(reasoning ? { reasoning } : {}),
+          },
+        });
+      }
+    }
+  }
+
+  private contextUsagePercent(inputTokens: number, capacity: number): number {
+    return Math.min(100, Math.round((inputTokens / capacity) * 1000) / 10);
+  }
+
+  private async publishModelTraceEvent(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    event: {
+      eventName:
+        StreamTaskEventType.ModelCallStart | StreamTaskEventType.ModelCallDone;
+      payload:
+        | import('@litter-bear/types/protocol').ModelCallStartPayload
+        | import('@litter-bear/types/protocol').ModelCallDonePayload;
+    },
+  ): Promise<void> {
+    const persisted = await this.prisma.$transaction((transaction) =>
+      this.taskEventService.persistInTransaction(transaction, {
+        taskId: context.task.id,
+        streamId: context.task.streamId,
+        userId: context.task.userId,
+        conversationId: context.task.conversationId,
+        messageId: context.task.messageId,
+        eventName: event.eventName,
+        status: StreamTaskStatus.STREAMING,
+        payload: event.payload,
+      }),
+    );
+    await this.taskEventService.publishAfterCommit(persisted);
   }
 
   /**

@@ -70,6 +70,20 @@ describe('AgentFlowActivities', () => {
   const modelRegistry = {
     invalidate: jest.fn(),
     getVisionTransport: jest.fn(),
+    getContextLimits: jest.fn(() => ({
+      modelPreset: 'preset-default',
+      contextWindowTokens: 128000,
+      maxOutputTokens: 4096,
+    })),
+    resolveTextRequest: jest.fn(() => ({
+      model: {
+        id: 'preset-default',
+        provider: 'openai',
+        platform: 'openai',
+        model: 'test-model',
+      },
+      generation: {},
+    })),
   };
   const storageAssetService = { prepareChatImageForModel: jest.fn() };
   const stepEvaluator = { enough: jest.fn() };
@@ -320,7 +334,7 @@ describe('AgentFlowActivities', () => {
     expect(modelRegistry.invalidate.mock.invocationCallOrder[0]).toBeLessThan(
       flowCompiler.compile.mock.invocationCallOrder[0],
     );
-    expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(3);
+    expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(4);
   });
 
   it('模型调用以原子 increment 计入预算计数列', async () => {
@@ -1533,6 +1547,47 @@ describe('AgentFlowActivities', () => {
       .find((event) => event.eventName === 'flow.node.started');
     expect((started?.payload as { title?: unknown } | undefined)?.title).toBe(
       '执行智能体节点',
+    );
+  });
+
+  it('摘要调用计入 Flow 预算，额度用尽后不会继续调用回答模型', async () => {
+    mockAgentNode();
+    prisma.streamTask.update.mockResolvedValue({
+      flowModelCalls: flowDefinition().policy.maxModelCalls,
+      flowToolCalls: 0,
+    });
+    chatContextService.buildContextBundle.mockImplementationOnce(
+      async (
+        _conversationId: string,
+        _messageId: string,
+        _agentId: string,
+        options: {
+          modelPreset: string;
+          reservedTokens: number;
+          onSummaryModelCall: () => Promise<void>;
+        },
+      ) => {
+        expect(options.modelPreset).toBe('openai:test');
+        expect(options.reservedTokens).toBeGreaterThan(0);
+        await options.onSummaryModelCall();
+        return { messages: [{ role: 'user', content: '继续' }] };
+      },
+    );
+    const result = await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'task-1:version-1:answer',
+      iteration: 0,
+    });
+    expect(result).toMatchObject({ kind: 'stopped', status: 'error' });
+    expect(commonChatAgentService.streamEvents).not.toHaveBeenCalled();
+    expect(prisma.streamTask.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          flowModelCalls: { increment: 1 },
+          flowToolCalls: { increment: 0 },
+        },
+      }),
     );
   });
 

@@ -380,6 +380,9 @@ function PresetCard({
         <Badge variant={capability.variant} title={capability.desc}>
           {capability.name}
         </Badge>
+        {!preset.contextWindowTokens ? (
+          <Badge variant="warning">上下文容量未配置</Badge>
+        ) : null}
         <Badge variant={enabled ? "outline" : "secondary"}>
           {enabled ? "启用" : "停用"}
         </Badge>

@@ -13,6 +13,7 @@
  */
 
 import type { FlowNodeType } from "../agent-flow/definition.js";
+import type { ReasoningSelection } from "../model-reasoning.js";
 import type { AgentStrategyMode } from "./strategy.js";
 import type {
   ApprovalDecisionType,
@@ -161,6 +162,16 @@ export interface ModelCallStartPayload extends StreamNodePayloadBase {
   model?: string;
   /** 供应商标识；同上 */
   provider?: string;
+  /** 稳定的模型预设标识，便于前端读取模型目录缓存。 */
+  modelPresetId?: string;
+  /** 供应商实际声明的上下文容量。 */
+  contextWindowTokens?: number;
+  /** 调用前按实际消息和工具定义估算的输入 token。 */
+  estimatedInputTokens?: number;
+  /** 调用前估算的上下文占用百分比。 */
+  contextUsagePercent?: number;
+  /** 本节点采用的思考配置；只描述开关和强度，不暴露私有思维链。 */
+  reasoning?: ReasoningSelection;
 }
 
 /**
@@ -174,6 +185,21 @@ export interface ModelCallDonePayload {
   model?: string;
   /** 供应商标识 */
   provider?: string;
+  modelPresetId?: string;
+  contextWindowTokens?: number;
+  /** 供应商返回或服务端估算的输入 token。 */
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  /** 输入 token / 上下文容量；不是输出 token 的费用占比。 */
+  contextUsagePercent?: number;
+  /** 任一字段来自估算时为 true。 */
+  estimated?: boolean;
+  /** 节点内模型调用总耗时。 */
+  durationMs?: number;
+  reasoning?: ReasoningSelection;
 }
 
 /* ── 工具调用 ───────────────────────────────────────────────── */

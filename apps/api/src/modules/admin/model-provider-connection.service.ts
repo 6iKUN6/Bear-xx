@@ -342,6 +342,12 @@ export class ModelProviderConnectionService {
       throw new BadRequestException('停用的模型不能设为系统默认模型');
     }
     for (const model of models) {
+      if (
+        model.contextWindowTokens &&
+        model.maxOutputTokens &&
+        model.maxOutputTokens >= model.contextWindowTokens
+      )
+        throw new BadRequestException('最大输出 token 必须小于上下文容量');
       assertProviderAllowsUpstreamFormat(
         providerKey,
         this.requireUpstreamFormat(model.upstreamFormat),
@@ -375,6 +381,7 @@ export class ModelProviderConnectionService {
       ),
       temperature: dto.temperature ?? null,
       maxOutputTokens: dto.maxOutputTokens ?? null,
+      contextWindowTokens: dto.contextWindowTokens ?? null,
       topP: dto.topP ?? null,
       enabled: dto.enabled ?? true,
       isDefault: dto.isDefault ?? false,

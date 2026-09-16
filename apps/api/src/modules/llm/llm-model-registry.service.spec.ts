@@ -70,6 +70,23 @@ describe('LlmModelRegistryService', () => {
     return { registry, findMany };
   }
 
+  it('上下文容量缺失时明确要求配置，配置后按指定模型与输出预留计算', async () => {
+    const { registry } = await createRegistry([row()]);
+    expect(() => registry.getContextLimits()).toThrow('配置上下文容量');
+    const configured = await createRegistry([
+      row({ contextWindowTokens: 64000, maxOutputTokens: 8000 }),
+    ]);
+    expect(configured.registry.getContextLimits('openai:gpt-5.5')).toEqual({
+      modelPreset: 'openai:gpt-5.5',
+      contextWindowTokens: 64000,
+      maxOutputTokens: 8000,
+    });
+    const invalid = await createRegistry([
+      row({ contextWindowTokens: 8000, maxOutputTokens: 8000 }),
+    ]);
+    expect(() => invalid.registry.getContextLimits()).toThrow('必须小于');
+  });
+
   it('对外列表不含 apiKey，只给脱敏 hint', async () => {
     const { registry } = await createRegistry([row()]);
 

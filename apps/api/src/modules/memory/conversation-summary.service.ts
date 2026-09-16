@@ -1,255 +1,202 @@
-import { Injectable } from '@nestjs/common';
-import { MessageRole } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { MessageRole, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
+import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
 import {
   conversationSummaryFullPrompt,
   conversationSummaryIncrementalPrompt,
 } from '../../prompts';
 import {
-  CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
-  CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
-  CONVERSATION_SUMMARY_MAX_SOURCE_MESSAGE_COUNT,
-  CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT,
-  CONVERSATION_SUMMARY_TEMPERATURE,
-} from './memory.constants';
+  estimateContextTextTokens,
+  estimateContextTokens,
+} from './context-budget';
+
+export interface SummarySourceMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  agentId?: string | null;
+}
+
+export interface ConversationSummaryValue {
+  summary: string;
+  latestMessageId: string | null;
+  messageCount: number;
+  sourceDigest: string | null;
+}
+
+export interface SummaryOptions {
+  modelPreset?: string;
+  maxOutputTokens?: number;
+  onModelCall?: () => void | Promise<void>;
+}
+
+/**
+ * 标识摘要覆盖的有序消息
+ * @param messages 已冻结边界内的来源消息
+ * @returns 不含正文的内容摘要
+ * @description 同时校验顺序、角色、发言者和正文，禁止把其它范围或旧实现的摘要当成可复用前缀。
+ */
+export function summarySourceDigest(
+  messages: readonly SummarySourceMessage[],
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        messages.map(({ id, role, content, agentId }) => [
+          id,
+          role,
+          content,
+          agentId ?? null,
+        ]),
+      ),
+    )
+    .digest('hex');
+}
 
 @Injectable()
 export class ConversationSummaryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly llmService: LlmService,
+    private readonly modelRegistry: LlmModelRegistryService,
   ) {}
 
   /**
-   * 获取会话摘要
-   * @param conversationId 会话ID
-   * @returns 返回会话摘要记录；若不存在则返回 null
-   * @description 查询指定会话当前已保存的历史摘要，供聊天上下文组装和摘要增量刷新复用。
+   * 获取当前已保存摘要
+   * @param conversationId 会话标识
+   * @returns 当前摘要或空值
+   * @description 读取方必须校验它是否属于自己的冻结历史前缀。
    */
-  async getConversationSummary(conversationId: string) {
+  getConversationSummary(conversationId: string) {
     return this.prisma.conversationSummary.findUnique({
       where: { conversationId },
     });
   }
 
   /**
-   * 刷新会话摘要
-   * @param conversationId 会话ID
-   * @returns 返回最新摘要记录；若当前无需摘要则返回 null
-   * @description 基于会话的较早历史消息生成或增量更新摘要，将最近窗口之外的上下文压缩存储，供后续对话复用。
+   * 按明确的历史前缀生成或增量更新摘要
+   * @param conversationId 所属会话
+   * @param sourceMessages 本轮决定压缩的消息，省略时读取已完成历史
+   * @param options 摘要模型、输出预算和计费回调
+   * @returns 覆盖给定前缀的摘要；没有来源时为空
+   * @description 在主模型调用前按需执行；长输入逐块摘要，不再仅取最后 80 条。并发写用比较更新，旧任务不能覆盖更长的新摘要。
    */
-  async refreshConversationSummary(conversationId: string) {
-    const history = await this.prisma.message.findMany({
-      where: { conversationId },
-      select: {
-        id: true,
-        role: true,
-        content: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    const summarySourceMessages = history.slice(
-      0,
-      Math.max(0, history.length - CHAT_CONTEXT_RECENT_MESSAGE_LIMIT),
+  async refreshConversationSummary(
+    conversationId: string,
+    sourceMessages?: readonly SummarySourceMessage[],
+    options: SummaryOptions = {},
+  ): Promise<ConversationSummaryValue | null> {
+    const messages =
+      sourceMessages ??
+      (await this.prisma.message.findMany({
+        where: { conversationId, status: MessageStatus.DONE },
+        select: { id: true, role: true, content: true, agentId: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }));
+    if (messages.length === 0) return null;
+    const limits = this.modelRegistry.getContextLimits(options.modelPreset);
+    const maxOutputTokens = Math.min(
+      options.maxOutputTokens ?? 2048,
+      limits.maxOutputTokens,
     );
-
+    const existing = await this.getConversationSummary(conversationId);
+    const reusable =
+      existing &&
+      existing.messageCount <= messages.length &&
+      existing.sourceDigest ===
+        summarySourceDigest(messages.slice(0, existing.messageCount));
+    let summary = reusable ? existing.summary : '';
+    let offset = reusable ? existing.messageCount : 0;
+    const sourceDigest = summarySourceDigest(messages);
     if (
-      summarySourceMessages.length <
-      CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT
-    ) {
-      await this.prisma.conversationSummary.deleteMany({
-        where: { conversationId },
-      });
-      return null;
-    }
-
-    const latestMessageId =
-      summarySourceMessages[summarySourceMessages.length - 1]?.id ?? null;
-    const existingSummary = await this.getConversationSummary(conversationId);
-
+      offset === messages.length &&
+      estimateContextTextTokens(summary) <= maxOutputTokens * 2
+    )
+      return existing;
+    // 小模型需要更短摘要时从原始前缀重建，不用过长的旧摘要挤占新消息空间。
     if (
-      existingSummary &&
-      existingSummary.latestMessageId === latestMessageId &&
-      existingSummary.messageCount === summarySourceMessages.length
+      offset === messages.length ||
+      estimateContextTextTokens(summary) > maxOutputTokens * 2
     ) {
-      return existingSummary;
+      summary = '';
+      offset = 0;
     }
-
-    const summary = await this.generateSummaryContent(
-      existingSummary?.summary,
-      this.readIncrementalMessages(
-        summarySourceMessages,
-        existingSummary?.messageCount,
-      ),
-      this.limitSummarySourceMessages(summarySourceMessages),
+    const inputBudget = Math.floor(
+      (limits.contextWindowTokens - maxOutputTokens) * 0.7,
     );
-
-    return this.prisma.conversationSummary.upsert({
-      where: { conversationId },
-      create: {
-        conversationId,
-        summary,
-        latestMessageId,
-        messageCount: summarySourceMessages.length,
-      },
-      update: {
-        summary,
-        latestMessageId,
-        messageCount: summarySourceMessages.length,
-      },
-    });
-  }
-
-  /**
-   * 生成摘要内容
-   * @param existingSummary 现有摘要内容
-   * @param incrementalMessages 需要增量合并的新消息列表
-   * @param fullMessages 用于全量重算的完整消息列表
-   * @returns 返回摘要文本
-   * @description 优先在已有摘要基础上增量合并新增历史消息；若不存在可复用摘要，则退回到全量摘要生成。
-   */
-  private async generateSummaryContent(
-    existingSummary: string | undefined,
-    incrementalMessages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-    fullMessages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-  ): Promise<string> {
-    if (existingSummary && incrementalMessages.length > 0) {
-      return this.generateIncrementalSummary(
-        existingSummary,
-        incrementalMessages,
+    const chunkTokens = inputBudget - maxOutputTokens * 2 - 1200;
+    if (chunkTokens < 128)
+      throw new BadRequestException(
+        '模型上下文容量不足以生成会话摘要，请调整模型配置',
       );
-    }
-
-    return this.generateFullSummary(fullMessages);
-  }
-
-  /**
-   * 生成全量摘要
-   * @param messages 用于摘要的完整历史消息列表
-   * @returns 返回压缩后的摘要文本
-   * @description 基于会话较早历史消息生成结构化中文摘要，保留事实、偏好、待办和上下文约束，供后续轮次直接注入模型上下文。
-   */
-  private async generateFullSummary(
-    messages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-  ): Promise<string> {
-    return this.generateText([
-      {
-        role: 'system',
-        content: conversationSummaryFullPrompt,
-      },
-      {
-        role: 'user',
-        content: `请总结以下历史消息：\n\n${this.formatMessages(messages)}`,
-      },
-    ]);
-  }
-
-  /**
-   * 生成增量摘要
-   * @param existingSummary 当前已保存的摘要内容
-   * @param messages 需要合并进摘要的新消息列表
-   * @returns 返回更新后的摘要文本
-   * @description 在已有摘要基础上，仅根据新增历史消息更新摘要，减少长会话反复全量重算的模型开销。
-   */
-  private async generateIncrementalSummary(
-    existingSummary: string,
-    messages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-  ): Promise<string> {
-    return this.generateText([
-      {
-        role: 'system',
-        content: conversationSummaryIncrementalPrompt,
-      },
-      {
-        role: 'user',
-        content: `已有摘要：\n${existingSummary}\n\n新增消息：\n${this.formatMessages(messages)}\n\n请返回更新后的完整摘要。`,
-      },
-    ]);
-  }
-
-  /**
-   * 调用模型生成文本
-   * @param messages 用于模型生成的消息列表
-   * @returns 返回完整文本内容
-   * @description 通过统一的 LLM 服务非流式生成完整文本，供摘要生成等非实时输出场景复用。
-   */
-  private async generateText(
-    messages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }>,
-  ): Promise<string> {
-    return this.llmService.generateChatText(messages, {
-      generation: {
-        temperature: CONVERSATION_SUMMARY_TEMPERATURE,
-        maxOutputTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
-      },
-    });
-  }
-
-  /**
-   * 读取需要增量合并的消息
-   * @param messages 当前摘要来源消息列表
-   * @param summarizedMessageCount 已经被旧摘要覆盖的消息数量
-   * @returns 返回尚未合并进摘要的新增历史消息
-   * @description 只把旧摘要之后的新历史消息交给增量摘要提示词，避免重复压缩已经覆盖的内容。
-   */
-  private readIncrementalMessages(
-    messages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-    summarizedMessageCount: number | undefined,
-  ) {
-    return messages.slice(summarizedMessageCount ?? 0);
-  }
-
-  /**
-   * 限制摘要来源消息数量
-   * @param messages 当前摘要来源消息列表
-   * @returns 返回用于全量摘要生成的消息窗口
-   * @description 第一版保留较早历史中的最近一段摘要来源，避免极长会话触发过大的后台摘要请求。
-   */
-  private limitSummarySourceMessages(
-    messages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-  ) {
-    return messages.slice(-CONVERSATION_SUMMARY_MAX_SOURCE_MESSAGE_COUNT);
-  }
-
-  /**
-   * 格式化历史消息
-   * @param messages 历史消息列表
-   * @returns 返回供模型消费的纯文本消息串
-   * @description 将用户和助手消息按时间顺序格式化为可读文本，降低摘要提示词的组装复杂度。
-   */
-  private formatMessages(
-    messages: Array<{
-      role: MessageRole;
-      content: string;
-    }>,
-  ): string {
-    return messages
-      .map((message, index) => {
-        const speaker = message.role === MessageRole.USER ? '用户' : '助手';
-        return `${index + 1}. ${speaker}：${message.content}`;
+    // 每个 UTF-16 单元至多三个 UTF-8 字节，预留标签空间后按字符块保证摘要请求本身也有界。
+    const chunkChars = Math.max(1, Math.floor(((chunkTokens - 128) * 2) / 3));
+    const sourceText = messages
+      .slice(offset)
+      .map((message) => {
+        const speaker =
+          message.role === MessageRole.USER
+            ? '用户'
+            : `助手${message.agentId ? ' ' + message.agentId : ''}`;
+        return `【${speaker}】\n${message.content}`;
       })
-      .join('\n');
+      .join('\n\n');
+    for (
+      let start = 0;
+      start < Math.max(1, sourceText.length);
+      start += chunkChars
+    ) {
+      const content = sourceText.slice(start, start + chunkChars);
+      const prompt = [
+        {
+          role: 'system' as const,
+          content: summary
+            ? conversationSummaryIncrementalPrompt
+            : conversationSummaryFullPrompt,
+        },
+        {
+          role: 'user' as const,
+          content: `${summary ? '已有摘要：\n' + summary + '\n\n' : ''}新增历史片段：\n${content}\n\n摘要长度预算约 ${maxOutputTokens} token；只返回更新后的完整摘要。`,
+        },
+      ];
+      if (estimateContextTokens(prompt) > inputBudget)
+        throw new BadRequestException('会话摘要输入超出模型预算');
+      await options.onModelCall?.();
+      summary = (
+        await this.llmService.generateChatText(prompt, {
+          model: { modelId: limits.modelPreset },
+          generation: { maxOutputTokens },
+        })
+      ).trim();
+      if (!summary) throw new Error('会话摘要生成失败：模型返回空内容');
+      if (estimateContextTextTokens(summary) > maxOutputTokens * 2)
+        throw new Error('会话摘要生成失败：模型返回内容超出摘要预算');
+    }
+    const value: ConversationSummaryValue = {
+      summary,
+      latestMessageId: messages[messages.length - 1].id,
+      messageCount: messages.length,
+      sourceDigest,
+    };
+    // upsert 仅负责并发首次创建；已有行的替换必须比较读取版本，不能倒退覆盖其它任务成果。
+    await this.prisma.conversationSummary.upsert({
+      where: { conversationId },
+      create: { conversationId, ...value },
+      update: {},
+    });
+    if (existing && existing.messageCount <= messages.length) {
+      await this.prisma.conversationSummary.updateMany({
+        where: {
+          conversationId,
+          updatedAt: existing.updatedAt,
+          sourceDigest: existing.sourceDigest,
+        },
+        data: value,
+      });
+    }
+    return value;
   }
 }
