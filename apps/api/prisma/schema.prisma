@@ -283,6 +283,8 @@ model ModelPreset {
   upstreamFormat  ModelUpstreamFormat @default(OPENAI_CHAT_COMPLETIONS) @map("upstream_format")
   temperature     Float?
   maxOutputTokens Int?                @map("max_output_tokens")
+  /// 供应商实际接受的总上下文容量；未配置时不得猜测长对话预算。
+  contextWindowTokens Int?            @map("context_window_tokens")
   topP            Float?              @map("top_p")
   enabled         Boolean             @default(true)
   isDefault       Boolean             @default(false) @map("is_default")
@@ -386,6 +388,8 @@ model ConversationSummary {
   summary         String       @db.Text
   latestMessageId String?      @map("latest_message_id")
   messageCount    Int          @default(0) @map("message_count")
+  /// 被摘要的有序消息内容摘要，校验增量复用与消息边界；旧记录为空时重新生成。
+  sourceDigest    String?      @map("source_digest")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
@@ -456,6 +460,8 @@ model StreamTask {
   messageId                    String?                     @map("message_id")
   message                      Message?                    @relation(fields: [messageId], references: [id], onDelete: Cascade)
   requestPayload               Json                        @map("request_payload")
+  /// 创建任务时可见的已完成消息 ID，最后一项固定为本轮用户消息。
+  contextMessageIds            String[]                    @default([]) @map("context_message_ids")
   executionState               Json?                       @map("execution_state")
   resultPayload                Json?                       @map("result_payload")
   agentId                      String?                     @map("agent_id")
