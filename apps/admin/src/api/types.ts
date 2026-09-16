@@ -354,6 +354,7 @@ export interface ModelPreset {
   model: string;
   temperature: number | null;
   maxOutputTokens: number | null;
+  contextWindowTokens: number | null;
   topP: number | null;
   reasoningCapability: ModelReasoningCapability | null;
   enabled: boolean;
@@ -376,6 +377,7 @@ export interface CreateModelPresetInput {
   model: string;
   temperature?: number | null;
   maxOutputTokens?: number | null;
+  contextWindowTokens?: number | null;
   topP?: number | null;
   enabled?: boolean;
   isDefault?: boolean;

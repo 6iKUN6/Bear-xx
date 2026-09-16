@@ -96,6 +96,15 @@ export function toMessageStreamFeedback(
     type === StreamTaskEventType.ToolCallDone
       ? payloadOf(payload, StreamTaskEventType.ToolCallDone).outputSummary
       : undefined;
+  const modelPayload =
+    type === StreamTaskEventType.ModelCallStart ||
+    type === StreamTaskEventType.ModelCallDone
+      ? payload
+      : undefined;
+  const reasoningRecord =
+    modelPayload?.reasoning && typeof modelPayload.reasoning === "object"
+      ? (modelPayload.reasoning as Record<string, unknown>)
+      : undefined;
 
   return {
     id: resolveFeedbackId(event, type, payload),
@@ -109,6 +118,32 @@ export function toMessageStreamFeedback(
     toolSummary,
     durationMs,
     outputSummary,
+    ...(modelPayload
+      ? {
+          model: readString(modelPayload.model),
+          provider: readString(modelPayload.provider),
+          modelPresetId: readString(modelPayload.modelPresetId),
+          contextWindowTokens: readNumber(modelPayload.contextWindowTokens),
+          estimatedInputTokens: readNumber(modelPayload.estimatedInputTokens),
+          inputTokens: readNumber(modelPayload.inputTokens),
+          outputTokens: readNumber(modelPayload.outputTokens),
+          totalTokens: readNumber(modelPayload.totalTokens),
+          cachedInputTokens: readNumber(modelPayload.cachedInputTokens),
+          reasoningTokens: readNumber(modelPayload.reasoningTokens),
+          contextUsagePercent: readNumber(modelPayload.contextUsagePercent),
+          estimated: modelPayload.estimated === true,
+          reasoningEnabled:
+            reasoningRecord?.activation === "enabled" ||
+            reasoningRecord?.effort !== undefined ||
+            reasoningRecord?.budgetTokens !== undefined,
+          reasoningEffort: readString(reasoningRecord?.effort),
+          reasoningBudgetTokens:
+            typeof reasoningRecord?.budgetTokens === "number" ||
+            reasoningRecord?.budgetTokens === "auto"
+              ? reasoningRecord.budgetTokens
+              : undefined,
+        }
+      : {}),
     updatedAt: Date.now(),
   };
 }
@@ -142,6 +177,7 @@ export function toMessageStreamFeedbackFromTrace(
     return null;
   }
 
+  const metrics = traceItem.metrics;
   return {
     id: traceItem.id,
     type: traceItem.type,
@@ -165,6 +201,25 @@ export function toMessageStreamFeedbackFromTrace(
     durationMs: traceItem.durationMs ?? undefined,
     inputSummary: traceItem.inputSummary,
     outputSummary: traceItem.outputSummary,
+    ...(metrics
+      ? {
+          model: metrics.model,
+          provider: metrics.provider,
+          modelPresetId: metrics.modelPresetId,
+          contextWindowTokens: metrics.contextWindowTokens,
+          estimatedInputTokens: metrics.estimatedInputTokens,
+          inputTokens: metrics.inputTokens,
+          outputTokens: metrics.outputTokens,
+          totalTokens: metrics.totalTokens,
+          cachedInputTokens: metrics.cachedInputTokens,
+          reasoningTokens: metrics.reasoningTokens,
+          contextUsagePercent: metrics.contextUsagePercent,
+          estimated: metrics.estimated,
+          reasoningEnabled: metrics.reasoningEnabled,
+          reasoningEffort: metrics.reasoningEffort,
+          reasoningBudgetTokens: metrics.reasoningBudgetTokens,
+        }
+      : {}),
     updatedAt: Date.now(),
   };
 }
@@ -349,6 +404,12 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
 function findLastInfoEvent(events: MessageStreamEventFeedback[]) {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
@@ -391,6 +452,17 @@ export interface StreamTraceRow {
   durationMs?: number | null;
   /** 展开细节（入参/出参摘要的易读文本），无则不显示展开 caret */
   detail?: string;
+  model?: string;
+  provider?: string;
+  contextWindowTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  contextUsagePercent?: number;
+  reasoningTokens?: number;
+  reasoningEnabled?: boolean;
+  reasoningEffort?: string;
+  estimated?: boolean;
 }
 
 /**
@@ -440,7 +512,11 @@ function isStepEvent(event: MessageStreamEventFeedback) {
   if (event.title === FLOW_RUN_TRACE_TITLE) {
     return false;
   }
-  return event.stage === "tool" || event.stage === "workflow";
+  return (
+    event.stage === "tool" ||
+    event.stage === "workflow" ||
+    event.stage === "model"
+  );
 }
 
 /**
@@ -460,6 +536,17 @@ export function buildStreamTraceRows(
     summary: readRowSummary(event),
     durationMs: event.durationMs ?? undefined,
     detail: readRowDetail(event),
+    model: event.model,
+    provider: event.provider,
+    contextWindowTokens: event.contextWindowTokens,
+    inputTokens: event.inputTokens ?? event.estimatedInputTokens,
+    outputTokens: event.outputTokens,
+    totalTokens: event.totalTokens,
+    contextUsagePercent: event.contextUsagePercent,
+    reasoningTokens: event.reasoningTokens,
+    reasoningEnabled: event.reasoningEnabled,
+    reasoningEffort: event.reasoningEffort,
+    estimated: event.estimated,
   }));
 }
 
@@ -488,6 +575,31 @@ function readRowSummary(event: MessageStreamEventFeedback) {
 
 function readRowDetail(event: MessageStreamEventFeedback) {
   const parts: string[] = [];
+  if (event.model || event.provider) {
+    const modelLine = joinParts([event.provider, event.model]);
+    if (modelLine) parts.push(modelLine);
+  }
+  if (event.contextUsagePercent !== undefined) {
+    const input = event.inputTokens ?? event.estimatedInputTokens;
+    const capacity = event.contextWindowTokens;
+    parts.push(
+      `上下文 ${event.contextUsagePercent}%${
+        input !== undefined && capacity
+          ? ` · ${formatNumber(input)} / ${formatNumber(capacity)} tokens`
+          : ""
+      }`,
+    );
+  }
+  if (event.totalTokens !== undefined || event.inputTokens !== undefined) {
+    parts.push(
+      `输入 ${formatNumber(event.inputTokens)} · 输出 ${formatNumber(event.outputTokens)} · 总计 ${formatNumber(event.totalTokens)}${event.estimated ? "（估算）" : ""}`,
+    );
+  }
+  if (event.reasoningEnabled || event.reasoningTokens !== undefined) {
+    parts.push(
+      `思考已启用${event.reasoningEffort ? ` · ${event.reasoningEffort}` : ""}${event.reasoningTokens !== undefined ? ` · ${formatNumber(event.reasoningTokens)} tokens` : ""}`,
+    );
+  }
   if (event.inputSummary) {
     parts.push(`入参 ${formatSummaryObject(event.inputSummary)}`);
   }
@@ -495,6 +607,10 @@ function readRowDetail(event: MessageStreamEventFeedback) {
     parts.push(`出参 ${formatSummaryObject(event.outputSummary)}`);
   }
   return parts.length ? parts.join("\n") : undefined;
+}
+
+function formatNumber(value?: number) {
+  return value === undefined ? "—" : value.toLocaleString("zh-CN");
 }
 
 function formatSummaryObject(value: Record<string, unknown>) {

@@ -128,6 +128,12 @@ function TraceRowView({ row }: { row: StreamTraceRow }) {
         <span className="shrink-0 font-mono text-[var(--lb-text-primary)]">
           {row.name}
         </span>
+        {row.provider && <ProviderLogo provider={row.provider} />}
+        {row.model && (
+          <span className="max-w-[180px] truncate text-[11px] text-[var(--lb-text-secondary)]">
+            {row.model}
+          </span>
+        )}
         {row.summary && (
           <span className="min-w-0 flex-1 truncate text-[var(--lb-text-secondary)]">
             {row.summary}
@@ -136,6 +142,16 @@ function TraceRowView({ row }: { row: StreamTraceRow }) {
         {duration && (
           <span className="shrink-0 tabular-nums text-[var(--lb-text-muted)]">
             {duration}
+          </span>
+        )}
+        {row.contextUsagePercent !== undefined && (
+          <span className="shrink-0 tabular-nums text-[11px] text-[var(--lb-text-muted)]">
+            上下文 {row.contextUsagePercent}%
+          </span>
+        )}
+        {row.totalTokens !== undefined && (
+          <span className="shrink-0 tabular-nums text-[11px] text-[var(--lb-text-muted)]">
+            {formatCompactNumber(row.totalTokens)} tokens{row.estimated ? " 估算" : ""}
           </span>
         )}
         {toggleable && (
@@ -151,6 +167,33 @@ function TraceRowView({ row }: { row: StreamTraceRow }) {
         </pre>
       )}
     </div>
+  );
+}
+
+function ProviderLogo({ provider }: { provider: string }) {
+  const key = provider.toLowerCase();
+  const label =
+    key === "openai"
+      ? "O"
+      : key === "anthropic"
+        ? "A"
+        : key === "google"
+          ? "G"
+          : key === "deepseek"
+            ? "D"
+            : key === "kimi" || key === "kimi-coding"
+              ? "K"
+              : key === "qwen"
+                ? "Q"
+                : provider.slice(0, 1).toUpperCase();
+  return (
+    <span
+      title={provider}
+      aria-label={`模型供应商 ${provider}`}
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--lb-surface-muted)] text-[9px] font-semibold text-[var(--lb-text-secondary)]"
+    >
+      {label}
+    </span>
   );
 }
 

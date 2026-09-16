@@ -7,6 +7,7 @@ import {
   IsIn,
   IsNotEmpty,
   IsNumber,
+  IsInt,
   IsOptional,
   IsString,
   Max,
@@ -60,6 +61,16 @@ export class CreateConnectionModelDto {
   @IsNumber()
   @Min(1)
   maxOutputTokens?: number;
+
+  @ApiPropertyOptional({
+    description: '供应商实际上下文容量（token）；聊天前必须配置',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(2048)
+  @Max(10000000)
+  contextWindowTokens?: number | null;
 
   @ApiPropertyOptional({ description: 'topP' })
   @IsOptional()
@@ -218,6 +229,7 @@ export class ModelPresetResponseDto {
   @ApiProperty() model: string;
   @ApiProperty({ nullable: true }) temperature: number | null;
   @ApiProperty({ nullable: true }) maxOutputTokens: number | null;
+  @ApiProperty({ nullable: true }) contextWindowTokens: number | null;
   @ApiProperty({ nullable: true }) topP: number | null;
   @ApiProperty({ type: ModelReasoningCapabilityDto, nullable: true })
   reasoningCapability: ModelReasoningCapabilityDto | null;

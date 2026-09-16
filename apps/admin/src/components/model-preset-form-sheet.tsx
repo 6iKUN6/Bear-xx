@@ -56,6 +56,7 @@ export function ModelPresetFormSheet({
     model: preset?.model ?? "",
     temperature: preset?.temperature ?? null,
     maxOutputTokens: preset?.maxOutputTokens ?? null,
+    contextWindowTokens: preset?.contextWindowTokens ?? null,
     topP: preset?.topP ?? null,
     enabled: preset?.enabled ?? true,
     isDefault: preset?.isDefault ?? false,
@@ -82,6 +83,24 @@ export function ModelPresetFormSheet({
   const handleSubmit = async () => {
     if (!form.name.trim() || !form.model.trim()) {
       toast.error("请填写模型名称和模型 ID");
+      return;
+    }
+    if (
+      form.contextWindowTokens !== null &&
+      form.contextWindowTokens !== undefined &&
+      (!Number.isInteger(form.contextWindowTokens) ||
+        form.contextWindowTokens < 2048 ||
+        form.contextWindowTokens > 10000000)
+    ) {
+      toast.error("上下文容量须为 2,048 到 10,000,000 之间的整数");
+      return;
+    }
+    if (
+      form.contextWindowTokens &&
+      form.maxOutputTokens &&
+      form.maxOutputTokens >= form.contextWindowTokens
+    ) {
+      toast.error("最大输出 token 必须小于上下文容量");
       return;
     }
     const body: CreateModelPresetInput = {
@@ -213,6 +232,28 @@ export function ModelPresetFormSheet({
             <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
               <ReasoningCapabilitySummary capability={reasoningCapability} />
             </div>
+          </Field>
+
+          <Field label="上下文容量（token）">
+            <Input
+              type="number"
+              min={2048}
+              max={10000000}
+              step={1}
+              value={form.contextWindowTokens ?? ""}
+              onChange={(event) =>
+                set({ contextWindowTokens: numberOrNull(event.target.value) })
+              }
+              placeholder="填写供应商实际提供的容量"
+            />
+            <p className="text-xs text-muted-foreground">
+              包含输入和输出。系统会预留输出空间，在历史接近输入预算时生成摘要。
+            </p>
+            {!form.contextWindowTokens ? (
+              <p className="text-xs text-[var(--lb-warning)]">
+                尚未配置，聊天前需要补充。
+              </p>
+            ) : null}
           </Field>
 
           {reasoningCapability?.temperaturePolicy ===

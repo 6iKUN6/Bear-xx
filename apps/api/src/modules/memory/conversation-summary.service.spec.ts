@@ -1,171 +1,181 @@
+import { Test } from '@nestjs/testing';
 import { MessageRole } from '@prisma/client';
-import { LlmService } from '../llm/llm.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ConversationSummaryService } from './conversation-summary.service';
+import { LlmService } from '../llm/llm.service';
+import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
 import {
-  CHAT_CONTEXT_RECENT_MESSAGE_LIMIT,
-  CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
-  CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT,
-  CONVERSATION_SUMMARY_TEMPERATURE,
-} from './memory.constants';
+  ConversationSummaryService,
+  summarySourceDigest,
+  type SummarySourceMessage,
+} from './conversation-summary.service';
+import { estimateContextTokens } from './context-budget';
 
-type MessageRecord = {
-  id: string;
-  role: MessageRole;
-  content: string;
-};
-
-/**
- * 创建测试消息列表
- * @param count 需要创建的消息数量
- * @returns 返回按用户和助手角色交替排列的测试消息列表
- * @description 用于构造超过最近窗口的会话历史，验证摘要来源消息的阈值和增量切片规则。
- */
-const createMessages = (count: number): MessageRecord[] =>
-  Array.from({ length: count }, (_, index) => ({
-    id: `message-${index + 1}`,
-    role: index % 2 === 0 ? MessageRole.USER : MessageRole.ASSISTANT,
-    content: `消息内容 ${index + 1}`,
+/** 构造有序消息，用于校验摘要覆盖范围。 */
+function messages(count: number): SummarySourceMessage[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `message-${index}`,
+    role: index % 2 ? MessageRole.ASSISTANT : MessageRole.USER,
+    content: `原始内容-${index}`,
+    agentId: null,
   }));
+}
 
-describe('ConversationSummaryService', () => {
-  /**
-   * 创建会话摘要服务测试实例
-   * @returns 返回服务实例以及 Prisma、LLM 的 mock 对象
-   * @description 为每个用例提供隔离的依赖注入对象，避免测试之间共享 mock 调用状态。
-   */
-  const createService = () => {
-    const prisma = {
-      message: {
-        findMany: jest.fn(),
-      },
-      conversationSummary: {
-        findUnique: jest.fn(),
-        deleteMany: jest.fn(),
-        upsert: jest.fn(),
-      },
-    };
-    const llmService = {
-      generateChatText: jest.fn(),
-    };
-
-    return {
-      service: new ConversationSummaryService(
-        prisma as unknown as PrismaService,
-        llmService as unknown as LlmService,
-      ),
-      prisma,
-      llmService,
-    };
+/** 装配真实摘要服务，数据库和模型作为可控边界。 */
+async function setup() {
+  const prisma = {
+    conversationSummary: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
-
-  it('历史消息不足摘要阈值时会清理旧摘要并返回 null', async () => {
-    const { service, prisma, llmService } = createService();
-    const messageCount =
-      CHAT_CONTEXT_RECENT_MESSAGE_LIMIT +
-      CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT -
-      1;
-
-    prisma.message.findMany.mockResolvedValue(createMessages(messageCount));
-    prisma.conversationSummary.deleteMany.mockResolvedValue({ count: 1 });
-
-    await expect(
-      service.refreshConversationSummary('conversation-1'),
-    ).resolves.toBeNull();
-    expect(prisma.conversationSummary.deleteMany).toHaveBeenCalledWith({
-      where: { conversationId: 'conversation-1' },
-    });
-    expect(llmService.generateChatText).not.toHaveBeenCalled();
-  });
-
-  it('没有可复用摘要时会使用非流式生成全量摘要并保存', async () => {
-    const { service, prisma, llmService } = createService();
-    const sourceMessageCount = CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT;
-    const messageCount = CHAT_CONTEXT_RECENT_MESSAGE_LIMIT + sourceMessageCount;
-    const summaryRecord = {
-      id: 'summary-1',
-      conversationId: 'conversation-1',
-      summary: '新的摘要',
-      latestMessageId: `message-${sourceMessageCount}`,
-      messageCount: sourceMessageCount,
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-    };
-
-    prisma.message.findMany.mockResolvedValue(createMessages(messageCount));
-    prisma.conversationSummary.findUnique.mockResolvedValue(null);
-    prisma.conversationSummary.upsert.mockResolvedValue(summaryRecord);
-    llmService.generateChatText.mockResolvedValue('新的摘要');
-
-    await expect(
-      service.refreshConversationSummary('conversation-1'),
-    ).resolves.toEqual(summaryRecord);
-    expect(llmService.generateChatText).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ role: 'system' }),
-        expect.objectContaining({ role: 'user' }),
-      ]),
+  const llm = {
+    generateChatText: jest
+      .fn<
+        ReturnType<LlmService['generateChatText']>,
+        Parameters<LlmService['generateChatText']>
+      >()
+      .mockResolvedValue('主角林舟留在潜艇内，下一步完成第二章。'),
+  };
+  const module = await Test.createTestingModule({
+    providers: [
+      ConversationSummaryService,
+      { provide: PrismaService, useValue: prisma },
+      { provide: LlmService, useValue: llm },
       {
-        generation: {
-          temperature: CONVERSATION_SUMMARY_TEMPERATURE,
-          maxOutputTokens: CONVERSATION_SUMMARY_MAX_OUTPUT_TOKENS,
+        provide: LlmModelRegistryService,
+        useValue: {
+          getContextLimits: () => ({
+            modelPreset: 'summary-model',
+            contextWindowTokens: 16000,
+            maxOutputTokens: 2000,
+          }),
         },
       },
-    );
-    expect(prisma.conversationSummary.upsert).toHaveBeenCalledWith({
-      where: { conversationId: 'conversation-1' },
-      create: {
-        conversationId: 'conversation-1',
-        summary: '新的摘要',
-        latestMessageId: `message-${sourceMessageCount}`,
-        messageCount: sourceMessageCount,
-      },
-      update: {
-        summary: '新的摘要',
-        latestMessageId: `message-${sourceMessageCount}`,
-        messageCount: sourceMessageCount,
-      },
-    });
+    ],
+  }).compile();
+  return { service: module.get(ConversationSummaryService), prisma, llm };
+}
+
+describe('ConversationSummaryService', () => {
+  it('没有压缩来源时不调用模型，也不清除已有摘要', async () => {
+    const { service, prisma, llm } = await setup();
+    expect(await service.refreshConversationSummary('c', [])).toBeNull();
+    expect(llm.generateChatText).not.toHaveBeenCalled();
+    expect(prisma.conversationSummary.upsert).not.toHaveBeenCalled();
   });
 
-  it('已有摘要落后时会只把新增历史消息交给增量摘要', async () => {
-    const { service, prisma, llmService } = createService();
-    const sourceMessageCount =
-      CONVERSATION_SUMMARY_MIN_SOURCE_MESSAGE_COUNT + 1;
-    const messageCount = CHAT_CONTEXT_RECENT_MESSAGE_LIMIT + sourceMessageCount;
+  it('覆盖超过 80 条的全部来源，并批量摘要而非每条调用模型', async () => {
+    const { service, llm } = await setup();
+    const source = messages(120);
+    const value = await service.refreshConversationSummary('c', source, {
+      maxOutputTokens: 1000,
+    });
+    const prompts = llm.generateChatText.mock.calls
+      .flatMap(([input]) => input.map((message) => message.content))
+      .join('\n');
+    expect(prompts).toContain('原始内容-0');
+    expect(prompts).toContain('原始内容-119');
+    expect(llm.generateChatText.mock.calls.length).toBeLessThan(5);
+    expect(value?.messageCount).toBe(120);
+    expect(value?.sourceDigest).toBe(summarySourceDigest(source));
+  });
 
-    prisma.message.findMany.mockResolvedValue(createMessages(messageCount));
+  it('只在验证过的前缀基础上增量合并新历史', async () => {
+    const { service, prisma, llm } = await setup();
+    const source = messages(6);
     prisma.conversationSummary.findUnique.mockResolvedValue({
-      id: 'summary-1',
-      conversationId: 'conversation-1',
       summary: '旧摘要',
-      latestMessageId: 'message-2',
       messageCount: 2,
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      latestMessageId: source[1].id,
+      sourceDigest: summarySourceDigest(source.slice(0, 2)),
+      updatedAt: new Date(0),
     });
-    prisma.conversationSummary.upsert.mockResolvedValue({
-      id: 'summary-1',
-      conversationId: 'conversation-1',
-      summary: '更新后的摘要',
-      latestMessageId: `message-${sourceMessageCount}`,
-      messageCount: sourceMessageCount,
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    await service.refreshConversationSummary('c', source, {
+      maxOutputTokens: 1000,
     });
-    llmService.generateChatText.mockResolvedValue('更新后的摘要');
+    const prompt = llm.generateChatText.mock.calls[0][0][1].content;
+    expect(prompt).toContain('旧摘要');
+    expect(prompt).toContain('原始内容-2');
+    expect(prompt).not.toContain('原始内容-0');
+    expect(prisma.conversationSummary.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          conversationId: 'c',
+          updatedAt: new Date(0),
+          sourceDigest: summarySourceDigest(source.slice(0, 2)),
+        },
+      }),
+    );
+  });
 
-    await service.refreshConversationSummary('conversation-1');
+  it('同一来源摘要复用，不重复调用模型', async () => {
+    const { service, prisma, llm } = await setup();
+    const source = messages(4);
+    prisma.conversationSummary.findUnique.mockResolvedValue({
+      summary: '已有摘要',
+      messageCount: 4,
+      latestMessageId: source[3].id,
+      sourceDigest: summarySourceDigest(source),
+      updatedAt: new Date(0),
+    });
+    expect(
+      (await service.refreshConversationSummary('c', source))?.summary,
+    ).toBe('已有摘要');
+    expect(llm.generateChatText).not.toHaveBeenCalled();
+  });
 
-    const [messages] = llmService.generateChatText.mock.calls[0] as [
-      Array<{ role: string; content: string }>,
+  it('旧任务不能使用或覆盖包含未来消息的新摘要', async () => {
+    const { service, prisma, llm } = await setup();
+    const source = messages(6);
+    prisma.conversationSummary.findUnique.mockResolvedValue({
+      summary: '未来一轮的秘密',
+      messageCount: 6,
+      latestMessageId: source[5].id,
+      sourceDigest: summarySourceDigest(source),
+      updatedAt: new Date(0),
+    });
+    const value = await service.refreshConversationSummary(
+      'c',
+      source.slice(0, 2),
+    );
+    expect(value?.messageCount).toBe(2);
+    expect(llm.generateChatText.mock.calls[0][0][1].content).not.toContain(
+      '未来一轮',
+    );
+    expect(prisma.conversationSummary.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('单条超长旧消息分块处理，摘要请求本身不超过预算', async () => {
+    const { service, llm } = await setup();
+    const source = [
+      {
+        ...messages(1)[0],
+        content: '开头设定' + '长章节内容'.repeat(4000) + '结尾事实',
+      },
     ];
-    const userPrompt = messages[1]?.content ?? '';
+    const onModelCall = jest.fn();
+    await service.refreshConversationSummary('c', source, {
+      maxOutputTokens: 1000,
+      onModelCall,
+    });
+    expect(llm.generateChatText.mock.calls.length).toBeGreaterThan(1);
+    expect(onModelCall).toHaveBeenCalledTimes(
+      llm.generateChatText.mock.calls.length,
+    );
+    for (const [input] of llm.generateChatText.mock.calls)
+      expect(estimateContextTokens(input)).toBeLessThanOrEqual(10500);
+    expect(llm.generateChatText.mock.calls.at(-1)?.[0][1].content).toContain(
+      '结尾事实',
+    );
+  });
 
-    expect(userPrompt).toContain('已有摘要：\n旧摘要');
-    expect(userPrompt).not.toContain('消息内容 1');
-    expect(userPrompt).not.toContain('消息内容 2');
-    expect(userPrompt).toContain('消息内容 3');
-    expect(userPrompt).toContain(`消息内容 ${sourceMessageCount}`);
+  it('空摘要明确失败，原有摘要和消息不被覆盖', async () => {
+    const { service, prisma, llm } = await setup();
+    llm.generateChatText.mockResolvedValue('');
+    await expect(
+      service.refreshConversationSummary('c', messages(2)),
+    ).rejects.toThrow('空内容');
+    expect(prisma.conversationSummary.upsert).not.toHaveBeenCalled();
   });
 });

@@ -80,6 +80,7 @@ export interface LlmModelPreset extends LlmModelConfig {
   enabled?: boolean;
   temperature?: number;
   maxOutputTokens?: number;
+  contextWindowTokens?: number;
   topP?: number;
   capability?: LlmPresetCapability;
 }

@@ -32,6 +32,23 @@ export interface MessageStreamEventFeedback {
   durationMs?: number | null;
   inputSummary?: Record<string, unknown> | null;
   outputSummary?: Record<string, unknown> | null;
+  /** 模型节点的运行信息（模型调用事件专用）。 */
+  model?: string;
+  provider?: string;
+  modelPresetId?: string;
+  contextWindowTokens?: number;
+  estimatedInputTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  contextUsagePercent?: number;
+  estimated?: boolean;
+  /** 只标记思考配置，不承载供应商私有思维链。 */
+  reasoningEnabled?: boolean;
+  reasoningEffort?: string;
+  reasoningBudgetTokens?: number | "auto";
   updatedAt: number;
 }
 
@@ -58,6 +75,21 @@ export interface MessageCacheHitMetrics {
 }
 
 export interface MessageRunMetrics {
+  model?: string;
+  provider?: string;
+  modelPresetId?: string;
+  contextWindowTokens?: number;
+  estimatedInputTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  contextUsagePercent?: number;
+  estimated?: boolean;
+  reasoningEnabled?: boolean;
+  reasoningEffort?: string;
+  reasoningBudgetTokens?: number | "auto";
   tokenUsage?: MessageTokenUsageMetrics;
   cache?: MessageCacheHitMetrics;
   durationMs?: number;

@@ -556,8 +556,18 @@ export class StreamTaskService {
 
       await this.enforceAgentAccess(tx, userId, agentId, isTest);
 
+      // 固定本轮可见历史：只纳入已完成消息；即使同会话之后继续发送，旧任务也不读未来消息。
+      const contextMessages = await tx.message.findMany({
+        where: {
+          conversationId: targetConversationId,
+          status: MessageStatus.DONE,
+        },
+        select: { id: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+
       //消息入库
-      await tx.message.create({
+      const userMessage = await tx.message.create({
         data: {
           role: MessageRole.USER,
           content: messageContent,
@@ -633,6 +643,10 @@ export class StreamTaskService {
           conversationId: targetConversationId,
           messageId: assistantMessage.id,
           requestPayload,
+          contextMessageIds: [
+            ...contextMessages.map((message) => message.id),
+            userMessage.id,
+          ],
           // agentId 来自快照（可能是回落到的 isDefault Agent），不是入参
           ...flowSnapshot,
           expiresAt: new Date(Date.now() + this.bufferTtl * 1000),

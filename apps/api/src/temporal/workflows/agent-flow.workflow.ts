@@ -553,6 +553,8 @@ function findApplicationFailure(
  */
 const FAILURE_TYPE_CATEGORY: Readonly<Record<string, TaskErrorCategory>> = {
   AGENT_FLOW_RUNTIME_CONTEXT_INVALID: 'invalid',
+  AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED: 'budget_exceeded',
+  AGENT_FLOW_CONTEXT_ERROR: 'server',
   AGENT_FLOW_INVALID_SNAPSHOT: 'invalid',
   AGENT_FLOW_TASK_SNAPSHOT_MISMATCH: 'invalid',
   AGENT_FLOW_APPROVAL_INVALID: 'invalid',

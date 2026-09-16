@@ -189,6 +189,38 @@ export class LlmModelRegistryService implements OnModuleInit {
     };
   }
 
+  /**
+   * 读取会话组装所需的模型容量
+   * @param presetId 本节点模型预设；省略时使用系统默认预设
+   * @returns 返回明确配置的总容量与输出预留
+   * @description 不解密凭据，不推测模型名称对应的容量；未配置时明确要求管理员补充。
+   */
+  getContextLimits(presetId?: string): {
+    modelPreset: string;
+    contextWindowTokens: number;
+    maxOutputTokens: number;
+  } {
+    const preset = this.resolvePreset(
+      presetId ? { modelId: presetId } : undefined,
+    );
+    if (!preset?.contextWindowTokens) {
+      throw new BadRequestException(
+        `请在后台为模型「${preset?.name ?? presetId ?? '系统默认模型'}」配置上下文容量`,
+      );
+    }
+    // 未指定输出上限时为生成保留四分之一容量，不将这个预留冒充供应商上限。
+    const maxOutputTokens =
+      preset.maxOutputTokens ?? Math.ceil(preset.contextWindowTokens / 4);
+    if (maxOutputTokens >= preset.contextWindowTokens) {
+      throw new BadRequestException('模型最大输出 token 必须小于上下文容量');
+    }
+    return {
+      modelPreset: preset.id,
+      contextWindowTokens: preset.contextWindowTokens,
+      maxOutputTokens,
+    };
+  }
+
   /** 读取指定预设可安全下发前端的思考能力。 */
   getReasoningCapability(presetId: string): LlmReasoningCapability | undefined {
     const preset = this.requireLoadedPresets().find(
@@ -278,6 +310,7 @@ export class LlmModelRegistryService implements OnModuleInit {
       baseURL: row.connection.baseURL,
       temperature: row.temperature ?? undefined,
       maxOutputTokens: row.maxOutputTokens ?? undefined,
+      contextWindowTokens: row.contextWindowTokens ?? undefined,
       topP: row.topP ?? undefined,
       enabled: row.enabled,
       capability: CAPABILITY_BY_DB_VALUE[row.capability],
