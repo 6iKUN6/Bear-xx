@@ -507,6 +507,7 @@ model StreamTask {
   agentFlowSignalOutbox        AgentFlowSignalOutbox[]     @relation("AgentFlowSignalOutboxTask")
   agentFlowNodeRuns            AgentFlowNodeExecution[]    @relation("AgentFlowNodeExecutionTask")
   agentFlowNodeStates          AgentFlowNodeState[]        @relation("AgentFlowNodeStateTask")
+  agentFlowNodeContexts        AgentFlowNodeContext[]
 
   @@index([userId, status])
   @@index([conversationId])
@@ -643,6 +644,21 @@ model AgentFlowNodeExecution {
   @@unique([taskId, nodeExecutionId])
   @@index([taskId])
   @@map("agent_flow_node_executions")
+}
+
+/// 模型节点的输入快照。独立于完成事实和可变 scratch；正文不进入 Trace 或 Temporal History。
+model AgentFlowNodeContext {
+  id              String     @id @default(cuid())
+  taskId          String     @map("task_id")
+  nodeExecutionId String     @map("node_execution_id")
+  /// 同一节点的计划步骤、重规划和评审分别冻结输入。
+  phase           String
+  snapshot        Json
+  createdAt       DateTime   @default(now()) @map("created_at")
+  task            StreamTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, nodeExecutionId, phase])
+  @@map("agent_flow_node_contexts")
 }
 
 /// 一个 Flow 节点执行**过程中**的内部状态（scratch）。
