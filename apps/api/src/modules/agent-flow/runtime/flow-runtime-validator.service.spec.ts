@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import {
   AGENT_FLOW_SCHEMA_VERSION,
@@ -10,9 +11,14 @@ import { FlowRuntimeValidator } from './flow-runtime-validator.service';
 describe('FlowRuntimeValidator', () => {
   let validator: FlowRuntimeValidator;
   let capability: string;
+  const getContextLimits = jest.fn();
 
   beforeEach(async () => {
     capability = 'tools';
+    getContextLimits.mockReset().mockReturnValue({
+      contextWindowTokens: 64000,
+      maxOutputTokens: 8000,
+    });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FlowRuntimeValidator,
@@ -26,6 +32,7 @@ describe('FlowRuntimeValidator', () => {
             listAvailableModels: () => [{ id: 'model-enabled' }],
             // 能力档位来自真实探测；默认给通过工具往返的档位
             getCapability: () => capability,
+            getContextLimits,
             normalizePresetReasoning: (_presetId: string, selection: unknown) =>
               selection,
           },
@@ -35,6 +42,50 @@ describe('FlowRuntimeValidator', () => {
 
     validator = module.get(FlowRuntimeValidator);
   });
+
+  it.each(['publish', 'task'] as const)(
+    '%s 阶段拒绝缺少上下文容量的模型并给出节点位置',
+    (phase) => {
+      getContextLimits.mockImplementation(() => {
+        throw new BadRequestException(
+          '请在后台为模型「测试模型」配置上下文容量',
+        );
+      });
+      const base = baseDefinition();
+      const definition: FlowDefinition = {
+        ...base,
+        nodes: base.nodes.map((node) =>
+          node.type === 'agent'
+            ? {
+                ...node,
+                config: {
+                  ...node.config,
+                  modelPreset:
+                    phase === 'task' ? 'agent-default' : 'model-enabled',
+                },
+              }
+            : node,
+        ),
+      };
+
+      expect(
+        validator.validate(definition, {
+          phase,
+          agentDefaultModelPreset: 'model-enabled',
+        }),
+      ).toEqual({
+        valid: false,
+        errors: [
+          {
+            path: 'nodes.0.config.modelPreset',
+            rule: 'model-context-limits',
+            message: '请在后台为模型「测试模型」配置上下文容量',
+          },
+        ],
+      });
+      expect(getContextLimits).toHaveBeenCalledWith('model-enabled');
+    },
+  );
 
   it('在发布前拒绝未注册的模型、工具组和技能', () => {
     const result = validator.validate({

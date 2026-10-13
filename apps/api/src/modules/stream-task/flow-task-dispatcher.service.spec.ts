@@ -4,6 +4,33 @@ import { calculateFlowDefinitionDigest } from '../agent-flow/definition/flow-def
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 
 describe('FlowTaskDispatcherService', () => {
+  it('任务锁定失败时直接返回可操作的配置错误，不派发到 Worker', async () => {
+    const { service, prisma, runtimeValidator, temporalClient } =
+      createService();
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1',
+      ...agentModelConfig('model-enabled'),
+      defaultFlowVersion: null,
+    });
+    runtimeValidator.validate.mockReturnValue({
+      valid: false,
+      errors: [
+        {
+          path: 'nodes.1.config.modelPreset',
+          rule: 'model-context-limits',
+          message: '请在后台为模型「测试模型」配置上下文容量',
+        },
+      ],
+    });
+
+    await expect(
+      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+        agentId: 'agent-1',
+      }),
+    ).rejects.toThrow('请在后台为模型「测试模型」配置上下文容量');
+    expect(temporalClient.startWorkflow).not.toHaveBeenCalled();
+  });
+
   const directDigest = calculateFlowDefinitionDigest(
     createFlowDefinitionPreset('direct'),
   );

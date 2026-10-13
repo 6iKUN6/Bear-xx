@@ -8,6 +8,7 @@ import {
 import {
   FlowDefinitionV9Schema,
   FlowDefinitionV10Schema,
+  FlowDefinitionV11Schema,
 } from './flow-definition.schema';
 import { calculateFlowDefinitionDigest } from './flow-definition.digest';
 import {
@@ -55,8 +56,8 @@ const LOOP_LAYOUT = {
 /**
  * 识别并在可能时规范化任意版本的 Flow Definition
  * @param input 数据库工件或外部导入的未知 JSON
- * @returns 返回版本状态；current/upgradeable 同时带当前 v11 Definition
- * @description 当前版本只做结构识别，完整图错误由发布校验负责；v9/v10 必须先按历史语义
+ * @returns 返回版本状态；current/upgradeable 同时带当前版本 Definition
+ * @description 当前版本只做结构识别，完整图错误由发布校验负责；v9/v10/v11 必须先按历史语义
  * 完整合法，且迁移结果也完整合法，才标记为 upgradeable。v1-v8 与未来版本不猜测升级。
  */
 export function inspectFlowDefinition(
@@ -81,11 +82,13 @@ export function inspectFlowDefinition(
         };
   }
 
-  if (sourceVersion === 10) {
+  if (sourceVersion === 10 || sourceVersion === 11) {
     if (hasNonEmptyLegacyContinueWhen(input)) {
       return legacyLoopMigrationRequired(sourceVersion);
     }
-    const legacy = FlowDefinitionV10Schema.safeParse(input);
+    const legacy = (
+      sourceVersion === 11 ? FlowDefinitionV11Schema : FlowDefinitionV10Schema
+    ).safeParse(input);
     if (!legacy.success) {
       return {
         status: 'invalid',
@@ -118,7 +121,7 @@ export function inspectFlowDefinition(
       errors: [],
       definition: validated.definition,
       report: {
-        fromVersion: 10,
+        fromVersion: sourceVersion,
         toVersion: AGENT_FLOW_SCHEMA_VERSION,
         loopAssignments: [],
         relativeLayoutNodeIds: [],
@@ -138,7 +141,7 @@ export function inspectFlowDefinition(
           message:
             sourceVersion === null
               ? 'FlowDefinition 缺少整数 schemaVersion'
-              : `暂不支持 schemaVersion ${sourceVersion}，当前只支持 v9/v10 到 v11 的升级`,
+              : `暂不支持 schemaVersion ${sourceVersion}，当前只支持 v9/v10/v11 到 v12 的升级`,
         },
       ],
     };
@@ -254,8 +257,8 @@ export function normalizeFlowDefinition(input: unknown):
  * @param input 数据库中的原始 Definition 工件
  * @param inspection 已成功产出当前内存模型的版本检查结果
  * @returns 返回迁移前的源工件摘要
- * @description 当前版本使用已解析对象；v9/v10 使用数据库中的原始工件计算，绝不对迁移后的
- * v11 内存对象计算历史摘要。调用方只在 inspection.definition 存在时进入，因此失败表示内部
+ * @description 当前版本使用已解析对象；v9/v10/v11 使用数据库中的原始工件计算，绝不对迁移后的
+ * 当前内存对象计算历史摘要。调用方只在 inspection.definition 存在时进入，因此失败表示内部
  * 版本分支与检查器发生漂移，应直接抛错而不能返回默认摘要。
  */
 function calculateInspectedSourceDigest(
@@ -265,7 +268,11 @@ function calculateInspectedSourceDigest(
   if (inspection.sourceVersion === AGENT_FLOW_SCHEMA_VERSION) {
     return calculateFlowDefinitionDigest(inspection.definition!);
   }
-  if (inspection.sourceVersion === 9 || inspection.sourceVersion === 10) {
+  if (
+    inspection.sourceVersion === 9 ||
+    inspection.sourceVersion === 10 ||
+    inspection.sourceVersion === 11
+  ) {
     // 迁移 schema 会把 continueWhen 解析投影为 breakWhen；摘要必须基于数据库中原始工件，
     // 否则任务快照校验会把字段规范化误判为 Definition 被篡改。
     if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
@@ -324,7 +331,7 @@ function legacyLoopMigrationRequired(
         path: 'nodes',
         rule: 'loop-condition-migration',
         message:
-          '旧版 continueWhen 非空，无法在现有条件闭集内证明与 breakWhen 等价，请人工编辑后创建 v11 草稿',
+          '旧版 continueWhen 非空，无法在现有条件闭集内证明与 breakWhen 等价，请人工编辑后创建当前版本草稿',
       },
     ],
   };
@@ -333,7 +340,7 @@ function legacyLoopMigrationRequired(
 /**
  * 将合法 v9 图确定性迁移为 v10 容器契约
  * @param definition 已按 v9 规则验证、但版本号临时投影为当前值的 Definition
- * @returns 返回当前 v11 Definition 与节点归属、坐标变化摘要
+ * @returns 返回当前版本 Definition 与节点归属、坐标变化摘要
  * @description 只依据工件自身拓扑与布局计算，不读取时间、数据库、窗口或随机数。
  */
 function migrateV9ToV10(definition: FlowDefinition): {

@@ -1,3 +1,4 @@
+import { createAgentContextBudgetMiddleware } from './agent-context-budget';
 import { Injectable } from '@nestjs/common';
 import { Command } from '@langchain/langgraph';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -153,7 +154,17 @@ export class CommonChatAgentLoopService {
       model: request.model,
       systemPrompt: request.systemPrompt,
       tools: request.tools,
-      middleware: useHitl ? buildHitlMiddleware(hitlTools) : [],
+      middleware: [
+        ...(request.contextBudget
+          ? [
+              createAgentContextBudgetMiddleware({
+                ...request.contextBudget,
+                protectedMessageCount: request.messages.length,
+              }),
+            ]
+          : []),
+        ...(useHitl ? buildHitlMiddleware(hitlTools) : []),
+      ],
       checkpointer: useHitl ? this.checkpointer.get() : undefined,
     });
   }

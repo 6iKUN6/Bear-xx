@@ -401,14 +401,14 @@ describe('AgentFlowVersionService', () => {
       version: 3,
       schemaStatus: 'current',
     });
-    expect(result.report).toMatchObject({ fromVersion: 9, toVersion: 11 });
+    expect(result.report).toMatchObject({ fromVersion: 9, toVersion: 12 });
     expect(createVersion).toHaveBeenCalledWith({
       data: expect.objectContaining({
         flowId: 'flow-1',
         version: 3,
         status: 'DRAFT',
         digest: null,
-        schemaVersion: 11,
+        schemaVersion: 12,
       }),
     });
     expect(createAudit).toHaveBeenCalledWith({
@@ -422,7 +422,7 @@ describe('AgentFlowVersionService', () => {
           sourceVersionId: 'version-9',
           targetVersionId: 'version-11',
           fromSchemaVersion: 9,
-          toSchemaVersion: 11,
+          toSchemaVersion: 12,
         },
       },
     });

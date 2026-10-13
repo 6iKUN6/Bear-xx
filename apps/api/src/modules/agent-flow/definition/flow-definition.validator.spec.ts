@@ -48,6 +48,48 @@ describe('FlowDefinitionValidator', () => {
     expect(validateFlowDefinition(definition).success).toBe(true);
   });
 
+  it.each([
+    [[{ $ref: ['start', 'text'] }], true],
+    [[{ $ref: ['answer', 'text'] }], false],
+    [[{ $ref: ['missing', 'text'] }], false],
+    [[{ $ref: ['start', 'missing'] }], false],
+    [[{ $ref: ['start', 'text'] }, { $ref: ['start', 'text'] }], false],
+  ])('模型上下文引用必须存在、唯一且来自必经上游：%j', (inputRefs, success) => {
+    const original = validDefinition();
+    const definition = {
+      ...original,
+      nodes: original.nodes.map((node) =>
+        node.id === 'plan'
+          ? {
+              ...node,
+              config: {
+                ...node.config,
+                inputRefs,
+                context: { conversation: 'summary', maxInputTokens: 6000 },
+              },
+            }
+          : node,
+      ),
+    };
+    expect(validateFlowDefinition(definition).success).toBe(success);
+  });
+
+  it('非模型审批不得保留不会驱动执行的上下文配置', () => {
+    const original = validDefinition();
+    const definition = {
+      ...original,
+      nodes: original.nodes.map((node) =>
+        node.id === 'review'
+          ? {
+              ...node,
+              config: { ...node.config, context: { conversation: 'auto' } },
+            }
+          : node,
+      ),
+    };
+    expect(validateFlowDefinition(definition).success).toBe(false);
+  });
+
   it('允许结构化节点保存空草稿，但发布校验拒绝不完整配置', () => {
     const definition = {
       ...validDefinition(),

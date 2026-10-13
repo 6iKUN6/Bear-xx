@@ -31,6 +31,18 @@ describe('FlowDefinitionVersioning', () => {
     );
   });
 
+  it('v11 升级保留源工件 digest 和未配置节点的历史默认行为', () => {
+    const legacy = { ...directV9(), schemaVersion: 11 };
+    const normalized = normalizeFlowDefinition(legacy);
+    expect(normalized.success).toBe(true);
+    if (!normalized.success) return;
+    expect(normalized.definition).toEqual({
+      ...legacy,
+      schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    });
+    expect(normalized.sourceDigest).toBe(calculateFlowDefinitionDigest(legacy));
+  });
+
   it('v9 Loop 确定性补齐归属并把体内坐标转成相对坐标', () => {
     const legacy = loopV9();
     const sourceSnapshot = structuredClone(legacy);
@@ -97,7 +109,7 @@ describe('FlowDefinitionVersioning', () => {
     const legacy = loopV10([]);
     const inspected = inspectFlowDefinition(legacy);
     expect(inspected.status).toBe('upgradeable');
-    expect(inspected.definition?.schemaVersion).toBe(11);
+    expect(inspected.definition?.schemaVersion).toBe(AGENT_FLOW_SCHEMA_VERSION);
     expect(inspected.definition?.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

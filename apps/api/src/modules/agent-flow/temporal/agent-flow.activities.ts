@@ -51,9 +51,13 @@ import {
   buildStepPrompt,
   buildSynthesisPrompt,
 } from '../../ai/agent-loop/execution/plan-prompt.builder';
-import { PlannerService } from '../../ai/agent-loop/execution/planner.service';
+import {
+  PlannerService,
+  buildPlannerMessages,
+} from '../../ai/agent-loop/execution/planner.service';
 import {
   getModelCallTokenUsage,
+  getModelCallPeakInput,
   runWithModelCallContext,
 } from '../../ai/telemetry/model-call-context';
 import { LlmService } from '../../llm/llm.service';
@@ -68,11 +72,11 @@ import type {
   AgentPlan,
   PlanStep,
 } from '../../ai/agent-loop/execution/plan.types';
-import { ChatContextService } from '../../memory/chat-context.service';
 import {
-  estimateContextTokens,
-  estimateNodeContextTokens,
-} from '../../memory/context-budget';
+  FlowContextService,
+  type FlowNodeContextSnapshot,
+} from '../runtime/flow-context.service';
+import type { FlowModelContextConfig } from '@litter-bear/types/agent-flow';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
@@ -230,7 +234,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     private readonly prisma: PrismaService,
     private readonly flowCompiler: FlowCompiler,
     private readonly capabilityResolver: CapabilityResolver,
-    private readonly chatContextService: ChatContextService,
+    private readonly flowContextService: FlowContextService,
     private readonly commonChatAgentService: CommonChatAgentService,
     private readonly planner: PlannerService,
     @Inject(STEP_EVALUATOR) private readonly stepEvaluator: StepEvaluator,
@@ -1119,6 +1123,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         steps,
         node.modelPreset,
         node.reasoning,
+        scratch.revision,
       );
       if (!verdict.needsReview) {
         return this.completeApproval(
@@ -1153,6 +1158,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     steps: PlanStep[],
     modelPreset: string | undefined,
     reasoning: import('@litter-bear/types').ReasoningSelection | undefined,
+    revision = 0,
   ): Promise<{ needsReview: boolean; reason: string }> {
     const budget = this.createBudgetTracker(context);
     if (!modelPreset) {
@@ -1162,32 +1168,51 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return { needsReview: true, reason: '模型调用额度已用尽，转人工确认' };
     }
     try {
-      const messages = [
-        { role: 'system' as const, content: planReviewGatePrompt },
+      const chatContext = await this.buildNodeChatContext(
+        context,
+        input,
+        modelPreset,
+        planReviewGatePrompt,
+        [],
+        budget,
+        2048,
         {
-          role: 'user' as const,
-          content: steps
-            .map((step, index) => `${index + 1}. ${step.goal}`)
-            .join('\n'),
+          phase: `review:${revision}`,
+          messages: [
+            {
+              role: 'user',
+              content: steps
+                .map((step, index) => `${index + 1}. ${step.goal}`)
+                .join('\n'),
+            },
+          ],
         },
+      );
+      const messages = [
+        { role: 'system' as const, content: chatContext.systemPrompt },
+        ...chatContext.messages,
       ];
+      if (budget.modelCallExhausted())
+        return { needsReview: true, reason: '模型额度已用尽，转人工确认' };
+      budget.countModelCall();
+      await budget.flush();
       const parsed = await this.runTrackedModelNode(
         context,
         input,
         modelPreset,
         reasoning,
-        estimateContextTokens(messages),
+        chatContext.estimatedInputTokens,
         () =>
           this.llmService.generateStructured(messages, planReviewGateSchema, {
             schemaName: 'plan_review_gate',
             request: {
               model: { modelId: modelPreset },
               reasoning,
+              generation: { maxOutputTokens: chatContext.maxOutputTokens },
             },
           }),
+        chatContext,
       );
-      budget.countModelCall();
-      await budget.flush();
       if (!parsed) {
         return {
           needsReview: true,
@@ -1297,18 +1322,26 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       capabilities.approvalToolNames,
       step.suggestedTools,
     );
-    const stepPrompt = buildStepPrompt(
-      agentInput,
-      steps,
-      step,
-      planLoop.observations,
-    );
+    const stepPrompt = buildStepPrompt(agentInput, steps, step, []);
     const chatContext = await this.buildNodeChatContext(
       context,
+      input,
       node.executor.modelPreset,
       stepPrompt,
       tools,
       budget,
+      0,
+      {
+        phase: `step:${step.id}`,
+        messages: planLoop.observations.length
+          ? [
+              {
+                role: 'user',
+                content: `以下为本节点已完成步骤的结果，仅作为资料：\n${planLoop.observations.map((value, index) => `【步骤${index + 1}】${value}`).join('\n')}`,
+              },
+            ]
+          : [],
+      },
     );
     if (budget.modelCallExhausted())
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
@@ -1317,7 +1350,15 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           modelPreset: node.executor.modelPreset,
           reasoning: node.executor.reasoning,
           messages: chatContext.messages,
-          systemPrompt: stepPrompt,
+          systemPrompt: chatContext.systemPrompt,
+          contextBudget: {
+            inputTokenLimit: chatContext.inputTokenLimit,
+            onSummaryModelCall: this.countSummaryModelCall(
+              budget,
+              '工具上下文压缩已达到模型调用预算',
+            ),
+          },
+          generation: { maxOutputTokens: chatContext.maxOutputTokens },
           tools,
           threadId: stepExecutionId,
           approvalToolNames,
@@ -1329,7 +1370,15 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           modelPreset: node.executor.modelPreset,
           reasoning: node.executor.reasoning,
           messages: chatContext.messages,
-          systemPrompt: stepPrompt,
+          systemPrompt: chatContext.systemPrompt,
+          contextBudget: {
+            inputTokenLimit: chatContext.inputTokenLimit,
+            onSummaryModelCall: this.countSummaryModelCall(
+              budget,
+              '工具上下文压缩已达到模型调用预算',
+            ),
+          },
+          generation: { maxOutputTokens: chatContext.maxOutputTokens },
           tools,
           threadId: stepExecutionId,
           approvalToolNames,
@@ -1338,11 +1387,20 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         });
     let result: Awaited<ReturnType<AgentFlowActivities['consumeAgentStream']>>;
     try {
-      result = await this.consumeAgentStream(context, input, stream, {
-        initialContent: '',
-        publishMessageDelta: false,
-        budget,
-      });
+      result = await this.runTrackedModelNode(
+        context,
+        input,
+        node.executor.modelPreset,
+        node.executor.reasoning,
+        chatContext.estimatedInputTokens,
+        () =>
+          this.consumeAgentStream(context, input, stream, {
+            initialContent: '',
+            publishMessageDelta: false,
+            budget,
+          }),
+        chatContext,
+      );
     } catch (error) {
       throw toAgentFlowModelFailure(error);
     }
@@ -1551,7 +1609,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * @param input Temporal 下传的稳定节点执行标识
    * @param node 已编译的结构化输出节点
    * @returns 返回结构化字段输出或明确失败
-   * @description 输入只来自显式引用，模型结果必须通过动态严格 Schema；失败不伪造字段，也不
+   * @description 默认读取显式引用，可按节点策略额外读取历史；模型结果必须通过动态严格 Schema，失败不伪造字段，也不
    * 将失败转成 Loop 的继续条件。
    */
   private async executeStructuredOutputNode(
@@ -1563,11 +1621,21 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     if (budget.modelCallExhausted()) {
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
-    const messages = await this.buildStructuredNodeMessages(
+    const chatContext = await this.buildNodeChatContext(
       context,
-      node.inputRefs,
-      node.instruction,
+      input,
+      node.modelPreset,
+      `严格按照要求输出 JSON，不要输出额外字段。\n${node.instruction}`,
+      [],
+      budget,
+      2048,
     );
+    if (budget.modelCallExhausted())
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
+    const messages = [
+      { role: 'system' as const, content: chatContext.systemPrompt },
+      ...chatContext.messages,
+    ];
     const schema = createStructuredOutputSchema(node.fields);
     let parsed: Record<string, unknown> | null;
     try {
@@ -1576,16 +1644,17 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         node.modelPreset,
         node.reasoning,
-        estimateContextTokens(messages) +
-          estimateNodeContextTokens(node.instruction, []),
+        chatContext.estimatedInputTokens,
         async () =>
           this.llmService.generateStructured(messages, schema, {
             schemaName: 'agent_flow_structured_output',
             request: {
               model: { modelId: node.modelPreset },
               reasoning: node.reasoning,
+              generation: { maxOutputTokens: chatContext.maxOutputTokens },
             },
           }),
+        chatContext,
       );
     } finally {
       budget.countModelCall();
@@ -1619,11 +1688,21 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     if (budget.modelCallExhausted()) {
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
     }
-    const messages = await this.buildStructuredNodeMessages(
+    const chatContext = await this.buildNodeChatContext(
       context,
-      node.inputRefs,
-      node.criteria,
+      input,
+      node.modelPreset,
+      `严格按照评估标准输出 JSON。\n${node.criteria}`,
+      [],
+      budget,
+      2048,
     );
+    if (budget.modelCallExhausted())
+      return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
+    const messages = [
+      { role: 'system' as const, content: chatContext.systemPrompt },
+      ...chatContext.messages,
+    ];
     let parsed: { passed: boolean; score: number; reason: string } | null;
     try {
       parsed = await this.runTrackedModelNode(
@@ -1631,16 +1710,17 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         node.modelPreset,
         node.reasoning,
-        estimateContextTokens(messages) +
-          estimateNodeContextTokens(node.criteria, []),
+        chatContext.estimatedInputTokens,
         () =>
           this.llmService.generateStructured(messages, evaluateSchema, {
             schemaName: 'agent_flow_evaluate',
             request: {
               model: { modelId: node.modelPreset },
               reasoning: node.reasoning,
+              generation: { maxOutputTokens: chatContext.maxOutputTokens },
             },
           }),
+        chatContext,
       );
     } finally {
       budget.countModelCall();
@@ -1655,53 +1735,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     return this.completeNode(context, input, 'default', '评估完成', {
       outputs: parsed,
     });
-  }
-
-  /**
-   * 构造结构化节点的模型输入
-   * @param context 当前节点执行上下文
-   * @param refs 节点配置中的输入引用
-   * @param instruction 当前节点的提取要求或评估标准
-   * @returns 返回带来源标签的模型消息列表
-   * @description 引用缺失或字段缺失是快照/运行时上下文错误，直接失败，不使用空值兜底。
-   */
-  private async buildStructuredNodeMessages(
-    context: AgentFlowExecutionContext,
-    refs: readonly FlowRef[],
-    instruction: string,
-  ): Promise<LlmMessage[]> {
-    const upstream = await this.loadUpstreamOutputs(context.task.id);
-    const blocks = refs.map((ref) => {
-      const [sourceId, field] = ref.$ref;
-      const outputs = upstream.get(sourceId);
-      if (!outputs || !Object.hasOwn(outputs, field)) {
-        throw createNonRetryableActivityFailure(
-          `结构化节点引用「${sourceId}.${field}」没有已落库的输出`,
-          'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
-        );
-      }
-      const value = outputs[field];
-      const serialized =
-        typeof value === 'string' ? value : JSON.stringify(value);
-      if (serialized === undefined) {
-        throw createNonRetryableActivityFailure(
-          `结构化节点引用「${sourceId}.${field}」的输出无法序列化`,
-          'AGENT_FLOW_RUNTIME_CONTEXT_INVALID',
-        );
-      }
-      return `来源 ${sourceId}.${field}:\n${serialized}`;
-    });
-    return [
-      {
-        role: 'system',
-        content:
-          '你是 AgentFlow 的结构化节点。严格按照用户要求输出 JSON，不要输出 Markdown、解释或额外字段。',
-      },
-      {
-        role: 'user',
-        content: `${instruction.trim()}\n\n输入内容：\n${blocks.join('\n\n')}`,
-      },
-    ];
   }
 
   /**
@@ -1720,20 +1753,24 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     node: Extract<CompiledFlowNode, { type: 'synthesize' }>,
     resumeDecision: ApprovalDecision | PlanReviewDecision | undefined,
   ): Promise<AgentFlowNodeExecutionResult> {
-    const observations = node.observationsRef
-      ? await this.readRefStringArray(context, node.observationsRef)
-      : [];
     const systemPrompt = buildSynthesisPrompt(
       {
         messages: [],
         systemPrompt: mergeSystemPrompt(context.agentSystemPrompt, []),
       },
-      observations,
+      [],
     );
     return this.executeAgentNode(
       context,
       input,
-      toSynthesizeExecutor(node.modelPreset, node.reasoning),
+      {
+        ...toSynthesizeExecutor(node.modelPreset, node.reasoning),
+        context: node.context,
+        inputRefs: [
+          ...(node.inputRefs ?? []),
+          ...(node.observationsRef ? [node.observationsRef] : []),
+        ],
+      },
       resumeDecision as ApprovalDecision | undefined,
       systemPrompt,
     );
@@ -1758,14 +1795,36 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     budget: FlowBudgetTracker,
   ): Promise<AgentPlan> {
     const systemPrompt = mergeSystemPrompt(context.agentSystemPrompt, []);
-    // Planner 自带的规划说明与 JSON schema 预留 2048 token，反馈另按实际长度统计。
+    const tools = await this.resolvePlannerTools(context);
+    const plannerMessages = buildPlannerMessages(
+      { messages: [], systemPrompt, tools },
+      maxSteps,
+      feedback,
+    );
+    const plannerConfig =
+      context.node.type === 'approval'
+        ? this.readPlanNode(context, context.node.planRef)
+        : context.node;
+    // 提示词按真实内容计算，额外空间仅留给结构化输出 schema。
     const chatContext = await this.buildNodeChatContext(
       context,
+      input,
       modelPreset,
-      `${systemPrompt}\n${feedback.join('\n')}`,
+      plannerMessages[0].content,
       [],
       budget,
       2048,
+      {
+        phase: `plan:${feedback.length}`,
+        includeCurrent: true,
+        messages: plannerMessages.slice(1),
+        config: {
+          ...plannerConfig,
+          context: ('context' in plannerConfig
+            ? plannerConfig.context
+            : undefined) ?? { conversation: 'auto' },
+        },
+      },
     );
     if (budget.modelCallExhausted())
       throw createNonRetryableActivityFailure(
@@ -1777,62 +1836,134 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       input,
       modelPreset,
       reasoning,
-      estimateContextTokens(chatContext.messages) + 2048,
+      chatContext.estimatedInputTokens,
       () =>
         this.planner.plan(
           {
             userId: context.task.userId,
             messages: chatContext.messages,
-            systemPrompt,
-            tools: [],
+            systemPrompt: chatContext.systemPrompt,
+            tools,
           },
           maxSteps,
           feedback,
           modelPreset,
           reasoning,
+          {
+            messages: [
+              { role: 'system', content: chatContext.systemPrompt },
+              ...chatContext.messages,
+            ],
+            maxOutputTokens: chatContext.maxOutputTokens,
+            fallbackUserText: context.task.inputText,
+          },
         ),
+      chatContext,
     );
+  }
+
+  /**
+   * 读取计划执行器允许的工具目录
+   * @param context 规划或打回重规划时的节点上下文
+   * @returns 供 Planner 提示词使用的工具名称，不执行任何工具
+   * @description 沿 planRef 找到消费本计划的 PlanLoop（含计划审批转交），
+   * 按任务身份解析实际能力；多个消费者取交集，避免计划建议某个执行器无权使用的工具。
+   */
+  private async resolvePlannerTools(
+    context: AgentFlowExecutionContext,
+  ): Promise<Array<{ name: string }>> {
+    const planKey =
+      context.node.type === 'approval'
+        ? this.readPlanNode(context, context.node.planRef).key
+        : context.node.key;
+    const sources = new Set([planKey]);
+    for (const node of context.compiledPlan.nodes) {
+      if (node.type === 'approval' && node.planRef.$ref[0] === planKey) {
+        sources.add(node.key);
+      }
+    }
+    let commonNames: string[] | undefined;
+    for (const node of context.compiledPlan.nodes) {
+      if (node.type !== 'plan-loop' || !sources.has(node.planRef.$ref[0]))
+        continue;
+      const capabilities = await this.capabilityResolver.resolve(
+        toFlowCapabilityDecision(node.executor),
+        context.task.userId,
+        context.mcdonaldsCredentialId,
+      );
+      const names = new Set(capabilities.tools.map((tool) => tool.name));
+      commonNames = commonNames
+        ? commonNames.filter((name) => names.has(name))
+        : [...names];
+    }
+    return (commonNames ?? []).map((name) => ({ name }));
   }
 
   /**
    * 为调用模型的节点组装有预算的会话上下文
    * @param context 当前任务与节点
    * @param modelPreset 本节点使用的模型
-   * @param systemPrompt 已合并上游观察和技能的提示词
+   * @param systemPrompt 已合并智能体身份、节点指令和技能的提示词
    * @param tools 本节点装配的工具
    * @param budget Flow 模型调用计数器
    * @param extraTokens 图片或结构化输出等额外预留
-   * @returns 固定历史范围内的上下文包
+   * @returns 已冻结的节点输入、预算和来源清单
    * @description 摘要按需在节点运行前完成并落库，摘要调用也计入 Flow 预算；失败明确终止，不伪装成无历史。
    */
   private async buildNodeChatContext(
     context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
     modelPreset: string | undefined,
     systemPrompt: string | undefined,
     tools: readonly unknown[],
     budget: FlowBudgetTracker,
     extraTokens = 0,
-  ) {
+    options: {
+      phase?: string;
+      messages?: LlmMessage[];
+      config?: FlowModelContextConfig;
+      includeCurrent?: boolean;
+    } = {},
+  ): Promise<FlowNodeContextSnapshot> {
+    const node = context.node;
+    const config: FlowModelContextConfig =
+      options.config ??
+      (node.type === 'plan-loop'
+        ? node.executor
+        : 'modelPreset' in node
+          ? node
+          : {});
+    const defaultMode =
+      node.type === 'structured-output' ||
+      node.type === 'evaluate' ||
+      node.type === 'approval'
+        ? 'none'
+        : 'auto';
     try {
-      return await this.chatContextService.buildContextBundle(
-        context.task.conversationId,
-        context.task.messageId,
-        context.task.agentId,
-        {
-          modelPreset,
-          reservedTokens:
-            estimateNodeContextTokens(systemPrompt ?? '', tools) + extraTokens,
-          onSummaryModelCall: async () => {
-            if (budget.modelCallExhausted())
-              throw createNonRetryableActivityFailure(
-                '会话压缩已达到模型调用预算上限',
-                'AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED',
-              );
-            budget.countModelCall();
-            await budget.flush();
-          },
-        },
-      );
+      return await this.flowContextService.prepare({
+        taskId: context.task.id,
+        nodeExecutionId: input.nodeExecutionId,
+        phase: options.phase ?? 'model',
+        conversationId: context.task.conversationId,
+        pendingMessageId: context.task.messageId,
+        agentId: context.task.agentId,
+        startNodeKey: context.compiledPlan.entryNodeKey,
+        currentInput:
+          (options.includeCurrent ?? defaultMode !== 'none')
+            ? context.task.inputText
+            : undefined,
+        modelPreset,
+        systemPrompt: systemPrompt ?? '',
+        policy: config.context ?? { conversation: defaultMode },
+        inputRefs: config.inputRefs,
+        messages: options.messages,
+        tools,
+        extraTokens,
+        onSummaryModelCall: this.countSummaryModelCall(
+          budget,
+          '会话压缩已达到模型调用预算上限',
+        ),
+      });
     } catch (error) {
       if (error instanceof ApplicationFailure) throw error;
       if (error instanceof BadRequestException)
@@ -1987,11 +2118,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     }
     const chatContext = await this.buildNodeChatContext(
       context,
+      input,
       node.modelPreset,
       systemPrompt,
       capabilities.tools,
       budget,
       isAnswerNode(context) && context.task.imageAssetId ? 4096 : 0,
+      { config: node },
     );
     if (budget.modelCallExhausted())
       return this.stopOnBudgetExceeded(context, input, 'maxModelCalls');
@@ -2017,7 +2150,15 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           modelPreset: node.modelPreset,
           reasoning: node.reasoning,
           messages: vision?.messages ?? chatContext.messages,
-          systemPrompt,
+          systemPrompt: chatContext.systemPrompt,
+          contextBudget: {
+            inputTokenLimit: chatContext.inputTokenLimit,
+            onSummaryModelCall: this.countSummaryModelCall(
+              budget,
+              '工具上下文压缩已达到模型调用预算',
+            ),
+          },
+          generation: { maxOutputTokens: chatContext.maxOutputTokens },
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
@@ -2031,7 +2172,15 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           modelPreset: node.modelPreset,
           reasoning: node.reasoning,
           messages: vision?.messages ?? chatContext.messages,
-          systemPrompt,
+          systemPrompt: chatContext.systemPrompt,
+          contextBudget: {
+            inputTokenLimit: chatContext.inputTokenLimit,
+            onSummaryModelCall: this.countSummaryModelCall(
+              budget,
+              '工具上下文压缩已达到模型调用预算',
+            ),
+          },
+          generation: { maxOutputTokens: chatContext.maxOutputTokens },
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
@@ -2049,15 +2198,14 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         input,
         node.modelPreset,
         node.reasoning,
-        estimateContextTokens(vision?.messages ?? chatContext.messages) +
-          estimateNodeContextTokens(systemPrompt ?? '', capabilities.tools) +
-          (isAnswer && context.task.imageAssetId ? 4096 : 0),
+        chatContext.estimatedInputTokens,
         async () =>
           this.consumeAgentStream(context, input, stream, {
             initialContent: isAnswer ? context.task.fullContent : '',
             publishMessageDelta: isAnswer,
             budget,
           }),
+        chatContext,
       );
     } catch (error) {
       throw toAgentFlowModelFailure(error);
@@ -2103,7 +2251,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * @param modelPreset 回答节点锁定的模型预设 ID
    * @param messages 当前会话文字上下文
    * @returns 返回带公网图片 URL 的消息；K3 额外返回仅驻留内存的发包替换
-   * @description 只修改最后一条 user 消息。历史图片不自动回放；Data URI 不进入消息状态，
+   * @description 只给本轮原文附图；原文由引用提供时追加图片消息。历史图片不自动回放；Data URI 不进入消息状态，
    * 因而不会写进 LangGraph checkpoint、数据库、Redis 或 Temporal History。
    */
   private async prepareAnswerVision(
@@ -2124,14 +2272,9 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       transport,
     );
     const lastUserIndex = messages.findLastIndex(
-      (message) => message.role === 'user',
+      (message) =>
+        message.role === 'user' && message.content === context.task.inputText,
     );
-    if (lastUserIndex < 0) {
-      throw createNonRetryableActivityFailure(
-        '图片任务缺少当前用户消息',
-        'AGENT_FLOW_TASK_SNAPSHOT_MISMATCH',
-      );
-    }
     const withImage = messages.map((message, index) =>
       index === lastUserIndex
         ? {
@@ -2141,6 +2284,13 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           }
         : message,
     );
+    // 显式引用 start.text 时当前正文已经包含在来源消息中，只追加图片，不能覆盖上游结果。
+    if (lastUserIndex < 0)
+      withImage.push({
+        role: 'user',
+        content: '',
+        image: { url: image.publicUrl, detail: 'auto' },
+      });
     return {
       messages: withImage,
       ...(image.wireDataUri
@@ -2635,28 +2785,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   }
 
   /**
-   * 读取一个引用指向的字符串数组
-   * @param context 当前编译后的节点执行上下文
-   * @param ref 指向某个上游节点数组输出的引用
-   * @returns 返回其中的字符串元素
-   * @description 用于 synthesize 读取步骤观察。与计划不同，观察为空是合法的（步骤可能一条
-   * 都没跑），因此读不到只退化为空数组而不失败。
-   */
-  private async readRefStringArray(
-    context: AgentFlowExecutionContext,
-    ref: FlowRef,
-  ): Promise<string[]> {
-    const [sourceId, field] = ref.$ref;
-    const outputs = (await this.loadUpstreamOutputs(context.task.id)).get(
-      sourceId,
-    );
-    const value = outputs?.[field];
-    return Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string')
-      : [];
-  }
-
-  /**
    * 取出被审计划所属的已编译 plan 节点
    * @param context 当前编译后的节点执行上下文
    * @param ref 审批节点的 planRef
@@ -2795,13 +2923,22 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     reasoning: ReasoningSelection | undefined,
     estimatedInputTokens: number,
     fn: () => Promise<T>,
+    snapshot?: FlowNodeContextSnapshot,
   ): Promise<T> {
     const limits = this.modelRegistry.getContextLimits(modelPreset);
     const resolved = this.modelRegistry.resolveTextRequest({
       model: { modelId: modelPreset },
       reasoning,
     });
-    const traceKey = `model:${input.nodeExecutionId}`;
+    const traceKey = `model:${input.nodeExecutionId}:${snapshot?.phase ?? 'model'}:${context.task.streamId ?? 'initial'}`;
+    const contextSources = snapshot
+      ? {
+          conversation: snapshot.manifest.conversation,
+          historyMessageCount: snapshot.manifest.messageIds.length,
+          summaryMessageCount: snapshot.manifest.summaryMessageCount,
+          upstream: snapshot.manifest.sources,
+        }
+      : undefined;
     const percent = this.contextUsagePercent(
       estimatedInputTokens,
       limits.contextWindowTokens,
@@ -2812,6 +2949,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         nodeKey: context.node.key,
         traceKey,
         publicStatus: '正在调用模型',
+        contextSources,
+        inputTokenLimit: snapshot?.inputTokenLimit,
         model: resolved.model.model,
         provider: resolved.model.platform,
         modelPresetId: limits.modelPreset,
@@ -2824,6 +2963,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
 
     const startedAt = Date.now();
     let completed = false;
+    let peak: ReturnType<typeof getModelCallPeakInput>;
     let usage: ReturnType<typeof getModelCallTokenUsage>;
     try {
       const result = await runWithModelCallContext(
@@ -2834,6 +2974,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           } finally {
             // AsyncLocalStorage 在 run 返回后会恢复父上下文，必须在这里读取聚合结果。
             usage = getModelCallTokenUsage();
+            peak = getModelCallPeakInput();
           }
         },
         context.task.userId,
@@ -2841,32 +2982,36 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       completed = true;
       return result;
     } finally {
-      if (completed && usage) {
-        const inputTokens = usage.inputTokens ?? estimatedInputTokens;
-        await this.publishModelTraceEvent(context, input, {
-          eventName: StreamTaskEventType.ModelCallDone,
-          payload: {
-            nodeKey: context.node.key,
-            traceKey,
-            model: resolved.model.model,
-            provider: resolved.model.platform,
-            modelPresetId: limits.modelPreset,
-            contextWindowTokens: limits.contextWindowTokens,
-            inputTokens,
-            outputTokens: usage.outputTokens,
-            totalTokens: usage.totalTokens,
-            cachedInputTokens: usage.cachedInputTokens,
-            reasoningTokens: usage.reasoningTokens,
-            contextUsagePercent: this.contextUsagePercent(
-              inputTokens,
-              limits.contextWindowTokens,
-            ),
-            estimated: usage.estimated,
-            durationMs: Date.now() - startedAt,
-            ...(reasoning ? { reasoning } : {}),
-          },
-        });
-      }
+      const inputTokens = usage?.inputTokens;
+      await this.publishModelTraceEvent(context, input, {
+        eventName: StreamTaskEventType.ModelCallDone,
+        payload: {
+          nodeKey: context.node.key,
+          traceKey,
+          model: resolved.model.model,
+          provider: resolved.model.platform,
+          modelPresetId: limits.modelPreset,
+          contextWindowTokens: limits.contextWindowTokens,
+          inputTokens,
+          status: completed ? 'success' : 'error',
+          contextSources,
+          inputTokenLimit: snapshot?.inputTokenLimit,
+          peakInputTokens: peak?.tokens ?? estimatedInputTokens,
+          contextUsageEstimated: peak?.estimated ?? true,
+          outputTokens: usage?.outputTokens,
+          totalTokens: usage?.totalTokens,
+          invocations: usage?.invocations,
+          cachedInputTokens: usage?.cachedInputTokens,
+          reasoningTokens: usage?.reasoningTokens,
+          contextUsagePercent: this.contextUsagePercent(
+            peak?.tokens ?? estimatedInputTokens,
+            snapshot?.contextWindowTokens ?? limits.contextWindowTokens,
+          ),
+          estimated: usage?.estimated ?? true,
+          durationMs: Date.now() - startedAt,
+          ...(reasoning ? { reasoning } : {}),
+        },
+      });
     }
   }
 
@@ -2929,6 +3074,28 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         };
       },
     );
+  }
+
+  /**
+   * 为上下文压缩的摘要调用占用 Flow 模型调用额度
+   * @param budget 当前节点的预算追踪器
+   * @param exhaustedMessage 额度已用尽时的失败说明
+   * @returns 摘要调用前执行的计数回调
+   * @description 先检查再计数并立即落库，额度用尽时不可重试地终止，不跳过摘要继续发送超预算请求。
+   */
+  private countSummaryModelCall(
+    budget: FlowBudgetTracker,
+    exhaustedMessage: string,
+  ): () => Promise<void> {
+    return async () => {
+      if (budget.modelCallExhausted())
+        throw createNonRetryableActivityFailure(
+          exhaustedMessage,
+          'AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED',
+        );
+      budget.countModelCall();
+      await budget.flush();
+    };
   }
 
   /**

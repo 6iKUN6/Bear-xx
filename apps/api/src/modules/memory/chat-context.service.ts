@@ -18,6 +18,10 @@ import {
 
 export interface ChatContextOptions {
   modelPreset?: string;
+  conversation?: 'auto' | 'summary';
+  maxInputTokens?: number;
+  /** 本轮正文已由节点显式引用时，用空正文占位参与历史边界计算，返回前移除。 */
+  includeCurrentInput?: boolean;
   /** 完整节点提示词、工具定义、上游结果等固定输入的预算。 */
   reservedTokens?: number;
   onSummaryModelCall?: () => void | Promise<void>;
@@ -25,6 +29,7 @@ export interface ChatContextOptions {
 
 export interface ChatContextBundle {
   messages: LlmMessage[];
+  messageIds: string[];
   summary?: {
     content: string;
     latestMessageId?: string;
@@ -90,10 +95,12 @@ export class ChatContextService {
     }
     const limits = this.modelRegistry.getContextLimits(options.modelPreset);
     const inputLimit =
-      limits.contextWindowTokens -
-      limits.maxOutputTokens -
-      Math.max(256, Math.ceil(limits.contextWindowTokens * 0.05)) -
-      (options.reservedTokens ?? 0);
+      Math.min(
+        limits.contextWindowTokens -
+          limits.maxOutputTokens -
+          Math.max(256, Math.ceil(limits.contextWindowTokens * 0.05)),
+        options.maxInputTokens ?? Infinity,
+      ) - (options.reservedTokens ?? 0);
     if (inputLimit < 1024)
       throw new BadRequestException(
         '节点指令、工具和输出预留已占满模型上下文，请缩小输入或使用容量更大的模型',
@@ -176,11 +183,20 @@ export class ChatContextService {
           : {}),
       };
     });
+    if (options.includeCurrentInput === false) {
+      historyMessages[historyMessages.length - 1] = {
+        role: 'user',
+        content: '',
+      };
+    }
     let messages = [...contextMessages, ...historyMessages];
     let summary: ConversationSummaryValue | null = null;
     let retainedCount = historyMessages.length;
     const trigger = Math.floor(inputLimit * 0.8);
-    if (estimateContextTokens(messages) > trigger) {
+    if (
+      estimateContextTokens(messages) > trigger ||
+      (options.conversation === 'summary' && historyMessages.length > 1)
+    ) {
       const summaryTokens = Math.max(
         128,
         Math.min(2048, limits.maxOutputTokens, Math.floor(inputLimit * 0.08)),
@@ -193,6 +209,8 @@ export class ChatContextService {
       const canReuse =
         existing &&
         prefixLength > 0 &&
+        (options.conversation !== 'summary' ||
+          prefixLength === orderedMessages.length - 1) &&
         prefixLength < orderedMessages.length &&
         existing.sourceDigest ===
           summarySourceDigest(orderedMessages.slice(0, prefixLength)) &&
@@ -204,7 +222,7 @@ export class ChatContextService {
       ): LlmMessage[] => [
         ...contextMessages,
         {
-          role: 'system',
+          role: 'user',
           content: this.formatSummaryContextMessage(value.summary),
         },
         ...historyMessages.slice(offset),
@@ -222,7 +240,11 @@ export class ChatContextService {
         if (orderedMessages[offset].role !== MessageRole.USER)
           throw new BadRequestException('任务上下文末尾不是本轮用户消息');
         const target = Math.floor(inputLimit * 0.5) - summaryTokens * 2 - 200;
-        for (let index = offset - 1; index >= 0; index--) {
+        for (
+          let index = offset - 1;
+          options.conversation !== 'summary' && index >= 0;
+          index--
+        ) {
           if (orderedMessages[index].role !== MessageRole.USER) continue;
           if (
             estimateContextTokens([
@@ -262,11 +284,18 @@ export class ChatContextService {
         }
       }
     }
+    if (options.includeCurrentInput === false) messages = messages.slice(0, -1);
     const inputTokens = estimateContextTokens(messages);
     if (inputTokens > inputLimit)
       throw new BadRequestException('压缩后的会话仍超出模型上下文，请拆分内容');
     return {
       messages,
+      messageIds: orderedMessages
+        .slice(
+          orderedMessages.length - retainedCount,
+          options.includeCurrentInput === false ? -1 : undefined,
+        )
+        .map((message) => message.id),
       summary: summary
         ? {
             content: summary.summary,

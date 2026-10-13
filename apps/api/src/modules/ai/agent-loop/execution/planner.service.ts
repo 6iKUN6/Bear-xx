@@ -47,26 +47,19 @@ export class PlannerService {
     feedback: string[] = [],
     modelPreset?: string,
     reasoning?: ReasoningSelection,
+    prepared?: {
+      messages: LlmMessage[];
+      maxOutputTokens: number;
+      fallbackUserText: string;
+    },
   ): Promise<AgentPlan> {
-    const userText = this.readLatestUserText(input.messages);
-    const toolNames = this.readToolNames(input.tools);
+    const userText =
+      prepared?.fallbackUserText ?? this.readLatestUserText(input.messages);
     const cap = Math.max(1, Math.min(maxSteps, PLANNER_HARD_STEP_CAP));
 
     try {
       const parsed = await this.llmService.generateStructured(
-        [
-          {
-            role: 'system',
-            content: [input.systemPrompt, buildTaskPlannerPrompt(cap)]
-              .filter(Boolean)
-              .join('\n\n'),
-          },
-          ...input.messages,
-          {
-            role: 'user',
-            content: this.buildUserPrompt(toolNames, feedback),
-          },
-        ],
+        prepared?.messages ?? buildPlannerMessages(input, maxSteps, feedback),
         planSchema,
         {
           schemaName: 'agent_plan',
@@ -76,6 +69,13 @@ export class PlannerService {
                 request: {
                   model: { modelId: modelPreset },
                   reasoning,
+                  ...(prepared
+                    ? {
+                        generation: {
+                          maxOutputTokens: prepared.maxOutputTokens,
+                        },
+                      }
+                    : {}),
                 },
               }
             : {}),
@@ -99,24 +99,6 @@ export class PlannerService {
       steps: [{ id: 'step-1', goal: userText || '完成用户请求' }],
       fromModel: false,
     };
-  }
-
-  private buildUserPrompt(toolNames: string[], feedback: string[]): string {
-    const toolLine =
-      toolNames.length > 0 ? toolNames.join('、') : '（无可用工具）';
-    const sections = [
-      '请根据上述对话规划用户最新请求。',
-      `可用工具：${toolLine}`,
-    ];
-    // 打回重规划时把用户历次意见拼进来，让模型据此调整拆解（而非重复上一版计划）。
-    if (feedback.length > 0) {
-      sections.push(
-        `用户对上一版计划的反馈（请据此调整）：\n${feedback
-          .map((text, index) => `${index + 1}. ${text}`)
-          .join('\n')}`,
-      );
-    }
-    return sections.join('\n\n');
   }
 
   /**
@@ -152,18 +134,6 @@ export class PlannerService {
     return steps;
   }
 
-  private readToolNames(tools: unknown[] | undefined): string[] {
-    return (tools ?? [])
-      .map((tool) => {
-        if (tool && typeof tool === 'object') {
-          const name = (tool as Record<string, unknown>).name;
-          return typeof name === 'string' ? name : undefined;
-        }
-        return undefined;
-      })
-      .filter((name): name is string => Boolean(name));
-  }
-
   private readLatestUserText(messages: LlmMessage[]): string {
     for (let index = messages.length - 1; index >= 0; index--) {
       if (messages[index].role === 'user') {
@@ -172,4 +142,74 @@ export class PlannerService {
     }
     return '';
   }
+}
+
+/**
+ * 构建规划器的完整消息，供 Flow 在调用前冻结输入
+ * @param input 会话消息、系统指令和工具
+ * @param maxSteps 步骤数量上限
+ * @param feedback 已有重规划反馈
+ * @returns 实际发送给规划模型的消息
+ * @description 与 Planner 共用，避免预算估算与真实提示词出现两套拼装逻辑。
+ */
+export function buildPlannerMessages(
+  input: Pick<AgentLoopInput, 'messages' | 'systemPrompt' | 'tools'>,
+  maxSteps: number,
+  feedback: string[],
+): LlmMessage[] {
+  const cap = Math.max(1, Math.min(maxSteps, PLANNER_HARD_STEP_CAP));
+  return [
+    {
+      role: 'system',
+      content: [input.systemPrompt, buildTaskPlannerPrompt(cap)]
+        .filter(Boolean)
+        .join('\n\n'),
+    },
+    ...input.messages,
+    {
+      role: 'user',
+      content: buildUserPrompt(readToolNames(input.tools), feedback),
+    },
+  ];
+}
+
+/**
+ * 生成规划请求与历次反馈
+ * @param toolNames 可用工具名称
+ * @param feedback 历次重规划反馈
+ * @returns 规划器的数据消息正文
+ */
+function buildUserPrompt(toolNames: string[], feedback: string[]): string {
+  const toolLine =
+    toolNames.length > 0 ? toolNames.join('、') : '（无可用工具）';
+  const sections = [
+    '请根据上述对话规划用户最新请求。',
+    `可用工具：${toolLine}`,
+  ];
+  // 打回重规划时把用户历次意见拼进来，让模型据此调整拆解（而非重复上一版计划）。
+  if (feedback.length > 0) {
+    sections.push(
+      `用户对上一版计划的反馈（请据此调整）：\n${feedback
+        .map((text, index) => `${index + 1}. ${text}`)
+        .join('\n')}`,
+    );
+  }
+  return sections.join('\n\n');
+}
+
+/**
+ * 读取规划器可使用的工具名称
+ * @param tools 装配后的工具列表
+ * @returns 非空的工具名称列表
+ */
+function readToolNames(tools: unknown[] | undefined): string[] {
+  return (tools ?? [])
+    .map((tool) => {
+      if (tool && typeof tool === 'object') {
+        const name = (tool as Record<string, unknown>).name;
+        return typeof name === 'string' ? name : undefined;
+      }
+      return undefined;
+    })
+    .filter((name): name is string => Boolean(name));
 }

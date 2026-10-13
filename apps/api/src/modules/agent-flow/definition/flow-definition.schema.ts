@@ -123,8 +123,20 @@ const conditionCaseSchema = z
   })
   .strict();
 
+const modelContextShape = {
+  context: z
+    .object({
+      conversation: z.enum(['none', 'summary', 'auto']),
+      maxInputTokens: z.number().int().min(1024).max(10_000_000).optional(),
+    })
+    .strict()
+    .optional(),
+  inputRefs: z.array(flowRefSchema).max(8).optional(),
+};
+
 const agentNodeConfigSchema = z
   .object({
+    ...modelContextShape,
     modelPreset: nonEmptyKeySchema.optional(),
     reasoning: reasoningSelectionSchema.optional(),
     toolGroups: z.array(nonEmptyKeySchema).max(32),
@@ -141,6 +153,7 @@ const approvalNodeConfigSchema = z
   .object({
     kind: z.literal('plan-review'),
     policy: z.enum(['always', 'never', 'model']),
+    ...modelContextShape,
     modelPreset: nonEmptyKeySchema.optional(),
     reasoning: reasoningSelectionSchema.optional(),
     planRef: flowRefSchema,
@@ -153,6 +166,15 @@ const approvalNodeConfigSchema = z
         path: ['modelPreset'],
         message: '只有 model 审批策略可以配置模型预设',
       });
+    }
+    for (const field of ['context', 'inputRefs'] as const) {
+      if (config.policy !== 'model' && config[field] !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: '只有 model 审批策略可以配置模型上下文',
+        });
+      }
     }
     if (config.policy !== 'model' && config.reasoning !== undefined) {
       context.addIssue({
@@ -199,9 +221,10 @@ const structuredFieldSchema = z
 const modelNodeInputRefsSchema = z.array(flowRefSchema).max(8);
 const structuredOutputNodeConfigSchema = z
   .object({
-    inputRefs: modelNodeInputRefsSchema,
     instruction: z.string().trim().max(2_000),
     fields: z.array(structuredFieldSchema).max(16),
+    ...modelContextShape,
+    inputRefs: modelNodeInputRefsSchema,
     modelPreset: nonEmptyKeySchema.optional(),
     reasoning: reasoningSelectionSchema.optional(),
   })
@@ -226,8 +249,9 @@ const structuredOutputNodeConfigSchema = z
   });
 const evaluateNodeConfigSchema = z
   .object({
-    inputRefs: modelNodeInputRefsSchema,
     criteria: z.string().trim().max(2_000),
+    ...modelContextShape,
+    inputRefs: modelNodeInputRefsSchema,
     modelPreset: nonEmptyKeySchema.optional(),
     reasoning: reasoningSelectionSchema.optional(),
   })
@@ -271,6 +295,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
       type: z.literal('plan'),
       config: z
         .object({
+          ...modelContextShape,
           modelPreset: nonEmptyKeySchema.optional(),
           reasoning: reasoningSelectionSchema.optional(),
           maxSteps: z
@@ -311,6 +336,7 @@ const flowNodeSchema = z.discriminatedUnion('type', [
       config: z
         .object({
           observationsRef: flowRefSchema.optional(),
+          ...modelContextShape,
           modelPreset: nonEmptyKeySchema.optional(),
           reasoning: reasoningSelectionSchema.optional(),
         })
@@ -551,3 +577,8 @@ export const FlowDefinitionV10Schema = z.preprocess(
   normalizeLegacyLoopCondition,
   FlowDefinitionSchema.extend({ schemaVersion: z.literal(10) }),
 );
+
+/** v11 工件只在入口规范化到当前版本，不维护第二套运行时。 */
+export const FlowDefinitionV11Schema = FlowDefinitionSchema.extend({
+  schemaVersion: z.literal(11),
+});

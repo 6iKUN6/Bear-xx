@@ -198,7 +198,9 @@ export class FlowTaskDispatcherService {
     });
     if (!runtime.valid) {
       throw new BadRequestException({
-        message: `${source} Flow 在当前配置下无法运行`,
+        message: `${source} Flow 在当前配置下无法运行：${[
+          ...new Set(runtime.errors.map((error) => error.message)),
+        ].join('；')}`,
         errors: runtime.errors,
       });
     }

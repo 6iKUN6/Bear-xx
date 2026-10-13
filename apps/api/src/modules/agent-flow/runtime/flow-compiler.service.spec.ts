@@ -29,6 +29,10 @@ describe('FlowCompiler', () => {
         {
           provide: LlmModelRegistryService,
           useValue: {
+            getContextLimits: () => ({
+              contextWindowTokens: 64000,
+              maxOutputTokens: 8000,
+            }),
             listAvailableModels: () => [{ id: 'model-enabled' }],
             // 已通过工具往返探测；带工具的节点才允许使用
             getCapability: () => 'tools',

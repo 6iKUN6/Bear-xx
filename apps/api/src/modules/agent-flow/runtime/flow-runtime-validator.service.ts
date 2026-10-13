@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type { FlowDefinition, FlowNode } from '@litter-bear/types/agent-flow';
 import {
   CapabilityRegistry,
@@ -264,8 +264,8 @@ export class FlowRuntimeValidator {
    * @param availableModels 当前可用模型预设集合
    * @param errors 用于收集全部错误的数组
    * @returns 无返回值
-   * @description 发布期允许 agent-default 占位；任务期必须已锁定为当前仍可用的具体预设。
-   * 显式预设在两个阶段都必须存在且启用。
+   * @description 自定义 Flow 发布期要求具体预设；内置 Flow 的 agent-default 在任务期解析。
+   * 解析后的预设必须启用、配置有效上下文容量，并满足思考参数要求。
    */
   private validateModelPreset(
     declaredModelPreset: string | undefined,
@@ -299,6 +299,11 @@ export class FlowRuntimeValidator {
           message: `任务锁定的默认模型「${context.agentDefaultModelPreset}」不可用`,
         });
       } else {
+        this.validateContextLimits(
+          context.agentDefaultModelPreset,
+          path,
+          errors,
+        );
         this.validateReasoning(
           context.agentDefaultModelPreset,
           context.agentDefaultReasoning,
@@ -316,12 +321,38 @@ export class FlowRuntimeValidator {
       });
       return;
     }
+    this.validateContextLimits(modelPreset, path, errors);
     this.validateReasoning(
       modelPreset,
       reasoning,
       path.replace(/\.modelPreset$/, '.reasoning'),
       errors,
     );
+  }
+
+  /**
+   * 检查模型上下文容量与输出预留
+   * @param modelPreset 已解析且可用的模型预设
+   * @param path 节点模型字段路径
+   * @param errors 收集可展示的配置错误
+   * @returns 无返回值，配置无效时追加错误
+   * @description 复用运行时同一预算入口，避免任务创建成功后才在 Worker 内失败。
+   */
+  private validateContextLimits(
+    modelPreset: string,
+    path: string,
+    errors: FlowRuntimeValidationError[],
+  ): void {
+    try {
+      this.modelRegistry.getContextLimits(modelPreset);
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+      errors.push({
+        path,
+        rule: 'model-context-limits',
+        message: error.message,
+      });
+    }
   }
 
   /** 将目录异常收敛为可定位到节点字段的发布/任务校验错误。 */

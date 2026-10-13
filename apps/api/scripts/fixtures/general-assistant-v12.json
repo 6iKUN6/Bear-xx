@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 12,
+  "kind": "agent-flow",
+  "name": "通用助手：直接回答或规划执行",
+  "description": "简单请求直接回答并按需搜索；复杂请求先规划，再逐步执行并汇总。使用当前默认智能体的 DeepSeek 预设，发布前需配置其上下文容量。仅开放联网搜索，不包含本地文件或终端执行能力。",
+  "policy": {
+    "maxSteps": 5,
+    "maxModelCalls": 32,
+    "maxToolCalls": 20,
+    "maxDurationSeconds": 900
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "name": "用户输入",
+      "type": "start",
+      "config": {}
+    },
+    {
+      "id": "classify",
+      "name": "判断任务复杂度",
+      "type": "structured-output",
+      "config": {
+        "modelPreset": "deepseek-234a606f12d3c23e:deepseek-v4-flash",
+        "reasoning": {
+          "activation": "enabled",
+          "effort": "low"
+        },
+        "context": {
+          "conversation": "auto"
+        },
+        "inputRefs": [
+          {
+            "$ref": ["start", "text"]
+          }
+        ],
+        "instruction": "结合本轮请求和历史对话，只判断是否需要显式的多步骤计划。寒暄、知识问答、翻译、短文改写、一次搜索即可回答的请求归为 simple；需要依次收集多份资料、比较并形成结论、分阶段创作或多个相互依赖操作的请求归为 complex。不要仅因请求很长就判为 complex。缺少必要信息时归为 simple，由回答节点向用户澄清。不要执行任务，不要回答问题，只输出 route。",
+        "fields": [
+          {
+            "name": "route",
+            "type": "enum",
+            "required": true,
+            "values": ["simple", "complex"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "route",
+      "name": "选择执行路径",
+      "type": "condition",
+      "config": {
+        "cases": [
+          {
+            "key": "complex",
+            "logic": "and",
+            "conditions": [
+              {
+                "ref": {
+                  "$ref": ["classify", "route"]
+                },
+                "operator": "is",
+                "value": "complex"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "direct_answer",
+      "name": "直接回答",
+      "type": "agent",
+      "config": {
+        "modelPreset": "deepseek-234a606f12d3c23e:deepseek-v4-flash",
+        "reasoning": {
+          "activation": "enabled",
+          "effort": "high"
+        },
+        "context": {
+          "conversation": "auto"
+        },
+        "inputRefs": [
+          {
+            "$ref": ["start", "text"]
+          }
+        ],
+        "toolGroups": ["search"],
+        "skills": [],
+        "maxToolIterations": 4
+      }
+    },
+    {
+      "id": "plan",
+      "name": "制定计划",
+      "type": "plan",
+      "config": {
+        "modelPreset": "deepseek-234a606f12d3c23e:deepseek-v4-flash",
+        "reasoning": {
+          "activation": "enabled",
+          "effort": "high"
+        },
+        "context": {
+          "conversation": "auto"
+        },
+        "inputRefs": [
+          {
+            "$ref": ["start", "text"]
+          }
+        ],
+        "maxSteps": 5
+      }
+    },
+    {
+      "id": "execute",
+      "name": "逐步行动",
+      "type": "plan-loop",
+      "config": {
+        "executor": {
+          "type": "agent",
+          "modelPreset": "deepseek-234a606f12d3c23e:deepseek-v4-flash",
+          "reasoning": {
+            "activation": "enabled",
+            "effort": "high"
+          },
+          "context": {
+            "conversation": "auto"
+          },
+          "inputRefs": [
+            {
+              "$ref": ["start", "text"]
+            }
+          ],
+          "toolGroups": ["search"],
+          "skills": [],
+          "maxToolIterations": 4
+        },
+        "stopPolicy": "all-steps",
+        "planRef": {
+          "$ref": ["plan", "steps"]
+        }
+      }
+    },
+    {
+      "id": "final_answer",
+      "name": "汇总交付",
+      "type": "synthesize",
+      "config": {
+        "modelPreset": "deepseek-234a606f12d3c23e:deepseek-v4-flash",
+        "reasoning": {
+          "activation": "enabled",
+          "effort": "high"
+        },
+        "context": {
+          "conversation": "auto"
+        },
+        "inputRefs": [
+          {
+            "$ref": ["start", "text"]
+          }
+        ],
+        "observationsRef": {
+          "$ref": ["execute", "observations"]
+        }
+      }
+    },
+    {
+      "id": "end",
+      "name": "结束",
+      "type": "end",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "classify"
+    },
+    {
+      "from": "classify",
+      "to": "route"
+    },
+    {
+      "from": "route",
+      "to": "direct_answer",
+      "when": "else"
+    },
+    {
+      "from": "route",
+      "to": "plan",
+      "when": "complex"
+    },
+    {
+      "from": "direct_answer",
+      "to": "end"
+    },
+    {
+      "from": "plan",
+      "to": "execute"
+    },
+    {
+      "from": "execute",
+      "to": "final_answer"
+    },
+    {
+      "from": "final_answer",
+      "to": "end"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "start": {
+        "x": 80,
+        "y": 240
+      },
+      "classify": {
+        "x": 360,
+        "y": 240
+      },
+      "route": {
+        "x": 640,
+        "y": 240
+      },
+      "direct_answer": {
+        "x": 920,
+        "y": 80
+      },
+      "plan": {
+        "x": 920,
+        "y": 400
+      },
+      "execute": {
+        "x": 1200,
+        "y": 400
+      },
+      "final_answer": {
+        "x": 1480,
+        "y": 400
+      },
+      "end": {
+        "x": 1760,
+        "y": 240
+      }
+    }
+  }
+}

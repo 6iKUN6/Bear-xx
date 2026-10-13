@@ -1,3 +1,4 @@
+import type { AgentContextBudget } from './agent-context-budget';
 import type {
   ApprovalRequiredPayload,
   ToolCallDeltaPayload,
@@ -10,6 +11,9 @@ import { StreamTaskEventType } from '../../../stream-task/stream-task-event.type
 
 export interface CommonChatAgentLoopRequest {
   messages: BaseMessage[];
+  contextBudget?: AgentContextBudget & {
+    summarize: (text: string) => Promise<string>;
+  };
   systemPrompt?: string;
   tools?: unknown[];
   /** HITL 会话标识（checkpointer thread_id）；= taskId */

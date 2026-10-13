@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import type { AgentFlowWorkflowInput } from '../../../temporal/workflows/agent-flow.workflow.types';
 import { FlowCompiler } from '../runtime/flow-compiler.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
+import { FlowContextService } from '../runtime/flow-context.service';
 import { ChatContextService } from '../../memory/chat-context.service';
 import { CommonChatAgentService } from '../../ai/agents';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
@@ -35,6 +36,7 @@ describe('AgentFlowActivities', () => {
       findMany: jest.fn(),
       create: jest.fn(),
     },
+    agentFlowNodeContext: { findUnique: jest.fn(), upsert: jest.fn() },
     agentFlowNodeState: {
       findUnique: jest.fn(),
       upsert: jest.fn(),
@@ -70,8 +72,8 @@ describe('AgentFlowActivities', () => {
   const modelRegistry = {
     invalidate: jest.fn(),
     getVisionTransport: jest.fn(),
-    getContextLimits: jest.fn(() => ({
-      modelPreset: 'preset-default',
+    getContextLimits: jest.fn((preset?: string) => ({
+      modelPreset: preset ?? 'preset-default',
       contextWindowTokens: 128000,
       maxOutputTokens: 4096,
     })),
@@ -104,6 +106,10 @@ describe('AgentFlowActivities', () => {
     prisma.agentFlowNodeExecution.findUnique.mockResolvedValue(null);
     prisma.agentFlowNodeExecution.findMany.mockResolvedValue([]);
     // 默认「本节点还没有私有状态」，需要断言轮次或步骤进度的用例再各自覆盖
+    prisma.agentFlowNodeContext.findUnique.mockResolvedValue(null);
+    prisma.agentFlowNodeContext.upsert.mockImplementation(({ create }) =>
+      Promise.resolve(create),
+    );
     prisma.agentFlowNodeState.findUnique.mockResolvedValue(null);
     prisma.agentFlowNodeState.upsert.mockResolvedValue({});
     prisma.streamTask.updateMany.mockResolvedValue({ count: 1 });
@@ -121,6 +127,7 @@ describe('AgentFlowActivities', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentFlowActivities,
+        FlowContextService,
         {
           provide: PrismaService,
           useValue: prisma,
@@ -306,6 +313,7 @@ describe('AgentFlowActivities', () => {
       approvalToolNames: [],
     });
     chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
       messages: [{ role: 'user', content: '你好' }],
     });
     commonChatAgentService.streamEvents.mockReturnValue(emptyEventStream());
@@ -334,7 +342,60 @@ describe('AgentFlowActivities', () => {
     expect(modelRegistry.invalidate.mock.invocationCallOrder[0]).toBeLessThan(
       flowCompiler.compile.mock.invocationCallOrder[0],
     );
-    expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(4);
+    expect(taskEventService.persistInTransaction).toHaveBeenCalledTimes(5);
+  });
+
+  it('带上游引用的图片回答保留引用结果，不把最后一条资料消息覆盖成用户输入', async () => {
+    mockAgentNode();
+    const task = await prisma.streamTask.findUnique();
+    prisma.streamTask.findUnique.mockResolvedValue({
+      ...task,
+      requestPayload: {
+        content: '看图并结合检索结果',
+        imageAssetId: 'asset-1',
+      },
+    });
+    const compiled = flowCompiler.compile();
+    compiled.plan.nodes[0].inputRefs = [{ $ref: ['start', 'text'] }];
+    compiled.plan.entryNodeKey = 'start';
+    flowCompiler.compile.mockReturnValue(compiled);
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'start',
+        nodeExecutionId: 'start#0',
+        outputs: { text: '上游资料必须保留' },
+      },
+    ]);
+    chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
+      messages: [],
+    });
+    modelRegistry.getVisionTransport.mockReturnValue('url');
+    storageAssetService.prepareChatImageForModel.mockResolvedValue({
+      publicUrl: 'https://example.test/image.png',
+    });
+    commonChatAgentService.streamEvents.mockReturnValue(emptyEventStream());
+    await activities.executeNode({
+      workflow: workflowInput(),
+      nodeKey: 'answer',
+      nodeExecutionId: 'answer#0',
+      iteration: 0,
+    });
+    expect(commonChatAgentService.streamEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: expect.stringContaining('上游资料必须保留'),
+          }),
+          {
+            role: 'user',
+            content: '',
+            image: { url: 'https://example.test/image.png', detail: 'auto' },
+          },
+        ],
+      }),
+    );
   });
 
   it('模型调用以原子 increment 计入预算计数列', async () => {
@@ -623,6 +684,7 @@ describe('AgentFlowActivities', () => {
       approvalToolNames: ['create-order', 'cancel-order'],
     });
     chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
       messages: [{ role: 'user', content: '处理订单' }],
     });
     commonChatAgentService.streamEvents.mockReturnValue(
@@ -689,6 +751,90 @@ describe('AgentFlowActivities', () => {
     );
   });
 
+  it.each([false, true])(
+    'Planner 只读取消费其计划的执行器工具（经审批：%s）',
+    async (viaApproval) => {
+      const node = {
+        key: 'plan',
+        type: 'plan',
+        modelPreset: 'openai:test',
+        maxSteps: 3,
+        next: { default: ['execute'] },
+      };
+      mockExecutionContext({ node });
+      const executor = {
+        modelPreset: 'openai:test',
+        toolGroups: ['search'],
+        skills: [],
+        maxToolIterations: 2,
+        approvalToolNames: [],
+      };
+      flowCompiler.compile.mockReturnValue({
+        success: true,
+        plan: {
+          nodes: [
+            node,
+            {
+              key: 'review',
+              type: 'approval',
+              planRef: { $ref: ['plan', 'steps'] },
+            },
+            {
+              key: 'execute',
+              type: 'plan-loop',
+              executor,
+              planRef: { $ref: [viaApproval ? 'review' : 'plan', 'steps'] },
+            },
+            {
+              key: 'unrelated',
+              type: 'plan-loop',
+              executor: { ...executor, toolGroups: ['image-gen'] },
+              planRef: { $ref: ['another-plan', 'steps'] },
+            },
+          ],
+        },
+      });
+      capabilityResolver.resolve.mockResolvedValue({
+        tools: [{ name: 'webSearch' }],
+        systemPromptAdditions: [],
+        approvalToolNames: [],
+      });
+      chatContextService.buildContextBundle.mockResolvedValue({
+        messageIds: [],
+        messages: [],
+      });
+      planner.plan.mockResolvedValue({
+        steps: [
+          { id: 'step-1', goal: '搜索资料', suggestedTools: ['webSearch'] },
+        ],
+        fromModel: true,
+      });
+
+      await activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'plan',
+        nodeExecutionId: 'task-1:version-1:plan',
+        iteration: 0,
+      });
+
+      expect(capabilityResolver.resolve).toHaveBeenCalledTimes(1);
+      expect(planner.plan).toHaveBeenCalledWith(
+        expect.objectContaining({ tools: [{ name: 'webSearch' }] }),
+        3,
+        [],
+        'openai:test',
+        undefined,
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              content: expect.stringContaining('可用工具：webSearch'),
+            }),
+          ]),
+        }),
+      );
+    },
+  );
+
   it('plan 节点把生成的计划写成自己的声明输出', async () => {
     mockExecutionContext({
       node: {
@@ -700,6 +846,7 @@ describe('AgentFlowActivities', () => {
       },
     });
     chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
       messages: [{ role: 'user', content: '帮我安排旅行' }],
     });
     planner.plan.mockResolvedValue({
@@ -722,12 +869,28 @@ describe('AgentFlowActivities', () => {
 
     expect(planner.plan).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: [{ role: 'user', content: '帮我安排旅行' }],
+        messages: expect.arrayContaining([
+          { role: 'user', content: '帮我安排旅行' },
+        ]),
       }),
       3,
       [],
       'openai:test',
       undefined,
+      expect.objectContaining({
+        maxOutputTokens: 4096,
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('# 任务规划'),
+          }),
+          { role: 'user', content: '帮我安排旅行' },
+          expect.objectContaining({
+            role: 'user',
+            content: expect.stringContaining('可用工具：'),
+          }),
+        ]),
+      }),
     );
     // 计划是本节点的**声明输出**，下游经 $ref 读它；此前它藏在 executionState 的全局
     // blob 里，图上有两个 plan 节点时根本说不清用的是哪份
@@ -840,6 +1003,7 @@ describe('AgentFlowActivities', () => {
       approvalToolNames: [],
     });
     chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
       messages: [{ role: 'user', content: '帮我安排旅行' }],
     });
     commonChatAgentService.streamEvents.mockReturnValue(
@@ -1570,7 +1734,10 @@ describe('AgentFlowActivities', () => {
         expect(options.modelPreset).toBe('openai:test');
         expect(options.reservedTokens).toBeGreaterThan(0);
         await options.onSummaryModelCall();
-        return { messages: [{ role: 'user', content: '继续' }] };
+        return {
+          messages: [{ role: 'user', content: '继续' }],
+          messageIds: [],
+        };
       },
     );
     const result = await activities.executeNode({
@@ -1667,6 +1834,7 @@ describe('AgentFlowActivities', () => {
       approvalToolNames: [],
     });
     chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
       messages: [{ role: 'user', content: '你好' }],
     });
     commonChatAgentService.streamEvents.mockReturnValue(
@@ -1737,7 +1905,7 @@ describe('AgentFlowActivities', () => {
       expect.anything(),
       expect.anything(),
       expect.objectContaining({
-        request: { model: { modelId: 'openai:test' } },
+        request: expect.objectContaining({ model: { modelId: 'openai:test' } }),
       }),
     );
   });
@@ -1827,6 +1995,7 @@ describe('AgentFlowActivities', () => {
       approvalToolNames: [],
     });
     chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
       messages: [{ role: 'user', content: '你好' }],
     });
   }
