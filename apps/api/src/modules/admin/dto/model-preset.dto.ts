@@ -162,6 +162,8 @@ export class UpdateModelProviderConnectionDto {
 
 /** 供应商模板中的推荐模型安全投影。 */
 export class ModelProviderRecommendedModelDto {
+  @ApiProperty({ nullable: true }) contextWindowTokens: number | null;
+  @ApiProperty({ nullable: true }) maxOutputTokens: number | null;
   @ApiProperty() model: string;
   @ApiProperty() name: string;
   @ApiProperty({ enum: UPSTREAM_FORMATS }) upstreamFormat: string;

@@ -7,7 +7,10 @@ import { ModelPresetCapability, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LlmCredentialCryptoService } from '../llm/llm-credential-crypto.service';
 import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
-import { assertProviderAllowsUpstreamFormat } from '../llm/model-provider-template.catalog';
+import {
+  applyModelTokenDefaults,
+  assertProviderAllowsUpstreamFormat,
+} from '../llm/model-provider-template.catalog';
 import {
   findModelReasoningCapability,
   toReasoningCapabilityProjection,
@@ -104,6 +107,7 @@ export class ModelPresetService {
     }
     const upstreamFormat = this.requireUpstreamFormat(dto.upstreamFormat);
     assertProviderAllowsUpstreamFormat(connection.providerKey, upstreamFormat);
+    dto = applyModelTokenDefaults(connection.providerKey, dto);
     const name = dto.name.trim();
     const model = dto.model.trim();
     if (!name || !model) {

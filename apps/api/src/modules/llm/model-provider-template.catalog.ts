@@ -6,6 +6,9 @@ export interface ModelProviderRecommendedModel {
   model: string;
   name: string;
   upstreamFormat: LlmUpstreamFormat;
+  /** 默认运行预算；未公开的值保持为空，来源见 MODEL_PRESET_TOKEN_LIMITS.md。 */
+  contextWindowTokens: number | null;
+  maxOutputTokens: number | null;
 }
 
 /** 服务端内置的供应商连接模板。 */
@@ -35,16 +38,22 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'gpt-5.6-sol',
         name: 'GPT-5.6 Sol',
         upstreamFormat: 'openai_responses',
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
       },
       {
         model: 'gpt-5.6-terra',
         name: 'GPT-5.6 Terra',
         upstreamFormat: 'openai_responses',
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
       },
       {
         model: 'gpt-5.6-luna',
         name: 'GPT-5.6 Luna',
         upstreamFormat: 'openai_responses',
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
       },
     ],
   },
@@ -59,21 +68,29 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'claude-fable-5-1',
         name: 'Claude Fable 5.1',
         upstreamFormat: 'anthropic_messages',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
       },
       {
         model: 'claude-opus-5',
         name: 'Claude Opus 5',
         upstreamFormat: 'anthropic_messages',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
       },
       {
         model: 'claude-sonnet-5',
         name: 'Claude Sonnet 5',
         upstreamFormat: 'anthropic_messages',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
       },
       {
         model: 'claude-haiku-4-5',
         name: 'Claude Haiku 4.5',
         upstreamFormat: 'anthropic_messages',
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
       },
     ],
   },
@@ -88,11 +105,15 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'deepseek-v4-pro',
         name: 'DeepSeek V4 Pro',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 393216,
       },
       {
         model: 'deepseek-v4-flash',
         name: 'DeepSeek V4 Flash',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 384000,
       },
     ],
   },
@@ -107,21 +128,29 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'kimi-k3',
         name: 'Kimi K3（1M）',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
       },
       {
         model: 'kimi-k2.7-code',
         name: 'Kimi K2.7 Code',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
       },
       {
         model: 'kimi-k2.7-code-highspeed',
         name: 'Kimi K2.7 Code Highspeed',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
       },
       {
         model: 'kimi-k2.6',
         name: 'Kimi K2.6',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
       },
     ],
   },
@@ -136,21 +165,29 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'k3',
         name: 'Kimi K3',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
       },
       {
         model: 'k3-256k',
         name: 'Kimi K3（256K）',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 262144,
+        maxOutputTokens: null,
       },
       {
         model: 'kimi-for-coding',
         name: 'Kimi K2.7 Code',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
       },
       {
         model: 'kimi-for-coding-highspeed',
         name: 'Kimi K2.7 Code Highspeed',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
       },
     ],
   },
@@ -165,16 +202,22 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'doubao-seed-evolving',
         name: '豆包 Seed Evolving',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: null,
+        maxOutputTokens: null,
       },
       {
         model: 'doubao-seed-2-1-pro-260628',
         name: '豆包 Seed 2.1 Pro',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: null,
+        maxOutputTokens: null,
       },
       {
         model: 'doubao-seed-2-1-turbo-260628',
         name: '豆包 Seed 2.1 Turbo',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: null,
+        maxOutputTokens: null,
       },
     ],
   },
@@ -189,21 +232,29 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'gemini-3-pro-preview',
         name: 'Gemini 3 Pro Preview',
         upstreamFormat: 'gemini_generate_content',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
       },
       {
         model: 'gemini-3-flash-preview',
         name: 'Gemini 3 Flash Preview',
         upstreamFormat: 'gemini_generate_content',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
       },
       {
         model: 'gemini-2.5-pro',
         name: 'Gemini 2.5 Pro',
         upstreamFormat: 'gemini_generate_content',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
       },
       {
         model: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',
         upstreamFormat: 'gemini_generate_content',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65535,
       },
     ],
   },
@@ -218,16 +269,22 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'qwen3.8-max',
         name: 'Qwen 3.8 Max',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 131072,
       },
       {
         model: 'qwen3.8-flash',
         name: 'Qwen 3.8 Flash',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 131072,
       },
       {
         model: 'qwen3.7-plus',
         name: 'Qwen 3.7 Plus',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 131072,
       },
     ],
   },
@@ -242,11 +299,15 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'glm-5.3',
         name: 'GLM 5.3',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 131072,
       },
       {
         model: 'glm-5.3-flash',
         name: 'GLM 5.3 Flash',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 131072,
       },
     ],
   },
@@ -261,16 +322,22 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
         model: 'MiniMax-M3',
         name: 'MiniMax M3',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 512000,
       },
       {
         model: 'MiniMax-M2.7',
         name: 'MiniMax M2.7',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 204800,
+        maxOutputTokens: 131072,
       },
       {
         model: 'MiniMax-M2.7-highspeed',
         name: 'MiniMax M2.7 Highspeed',
         upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 204800,
+        maxOutputTokens: 131072,
       },
     ],
   },
@@ -358,4 +425,40 @@ export function normalizeModelProviderBaseUrl(value: string): string {
   }
   url.pathname = normalizedPath;
   return url.toString().replace(/\/$/, '');
+}
+
+/**
+ * 为新建模型补齐模板默认预算
+ * @param providerKey 供应商模板标识
+ * @param input 待创建模型及显式预算
+ * @returns 合并后的创建参数，显式值（含 null）保持不变
+ * @description 只按精确模型 ID 匹配；未知型号不猜测，不用于更新已有预设。
+ */
+export function applyModelTokenDefaults<
+  T extends {
+    model: string;
+    contextWindowTokens?: number | null;
+    maxOutputTokens?: number | null;
+  },
+>(
+  providerKey: string,
+  input: T,
+): T & {
+  contextWindowTokens: number | null;
+  maxOutputTokens: number | null;
+} {
+  const model = requireModelProviderTemplate(
+    providerKey,
+  ).recommendedModels.find((item) => item.model === input.model.trim());
+  return {
+    ...input,
+    contextWindowTokens:
+      input.contextWindowTokens === undefined
+        ? (model?.contextWindowTokens ?? null)
+        : input.contextWindowTokens,
+    maxOutputTokens:
+      input.maxOutputTokens === undefined
+        ? (model?.maxOutputTokens ?? null)
+        : input.maxOutputTokens,
+  };
 }

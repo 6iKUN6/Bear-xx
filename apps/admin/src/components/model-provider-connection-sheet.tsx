@@ -72,6 +72,8 @@ export function ModelProviderConnectionSheet({
     const recommended = template.recommendedModels
       .filter((model) => selectedRecommended.has(model.model))
       .map((model) => ({
+        contextWindowTokens: model.contextWindowTokens,
+        maxOutputTokens: model.maxOutputTokens,
         name: model.name,
         model: model.model,
         upstreamFormat: model.upstreamFormat,

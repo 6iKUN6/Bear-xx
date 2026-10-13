@@ -14,6 +14,7 @@ import { LlmCredentialCryptoService } from '../llm/llm-credential-crypto.service
 import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
 import {
   MODEL_PROVIDER_TEMPLATES,
+  applyModelTokenDefaults,
   assertProviderAllowsUpstreamFormat,
   normalizeModelProviderBaseUrl,
   requireModelProviderTemplate,
@@ -138,6 +139,12 @@ export class ModelProviderConnectionService {
     if (!apiKey) {
       throw new BadRequestException('新建供应商连接必须提供 API Key');
     }
+    dto = {
+      ...dto,
+      models: dto.models.map((model) =>
+        applyModelTokenDefaults(dto.providerKey, model),
+      ),
+    };
     this.validateInitialModels(dto.providerKey, dto.models, dto.enabled);
     const connectionKey = this.createConnectionKey(dto.providerKey);
     const apiKeyWrite = {

@@ -103,6 +103,47 @@ describe('ModelProviderConnectionService', () => {
     modelPresetService.toResponse.mockReturnValue({ id: model.id });
   });
 
+  it('模板接口与批量创建连接使用同一份模型预算', async () => {
+    const service = createService();
+    const template = service
+      .listTemplates()
+      .find((item) => item.providerKey === 'deepseek');
+    expect(template?.recommendedModels).toContainEqual(
+      expect.objectContaining({
+        model: 'deepseek-v4-pro',
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 393216,
+      }),
+    );
+    await service.create({
+      providerKey: 'deepseek',
+      name: 'DeepSeek',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: 'test-key',
+      models: [
+        {
+          name: 'DeepSeek V4 Pro',
+          model: 'deepseek-v4-pro',
+          upstreamFormat: 'openai_chat_completions',
+        },
+      ],
+    });
+    expect(prisma.modelProviderConnection.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          models: {
+            create: [
+              expect.objectContaining({
+                contextWindowTokens: 1048576,
+                maxOutputTokens: 393216,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+  });
+
   it('在同一事务创建连接和至少一个共享凭据的模型', async () => {
     await createService().create({
       providerKey: 'deepseek',
