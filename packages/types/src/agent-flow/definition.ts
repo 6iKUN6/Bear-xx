@@ -7,12 +7,12 @@ import type { ReasoningSelection } from "../model-reasoning.js";
  * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点；6 引入受控 loop 节点；
  * 7 引入每张图唯一且强制显式连接的 end 节点；8 让 plan 与模型审批显式声明模型，
  * 从而让 Flow 内全部模型调用都服从同一套模型归属规则；9 为每个真实模型调用节点增加
- * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局；11 增加受限结构化输出与评估节点，并将 Loop 条件改为 breakWhen。
+ * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局；11 增加受限结构化输出与评估节点，并将 Loop 条件改为 breakWhen；12 增加模型节点的显式输入与会话上下文策略。
  * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 11 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 12 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -94,8 +94,21 @@ export interface FlowPolicy {
   readonly maxDurationSeconds: number;
 }
 
+/** 节点读取历史的策略；本轮输入和显式引用独立于历史策略。 */
+export interface FlowNodeContextPolicy {
+  readonly conversation: "none" | "summary" | "auto";
+  /** 完整输入上限（含指令、工具和上游），仍受模型容量约束。 */
+  readonly maxInputTokens?: number;
+}
+
+/** 模型节点共享的输入声明；引用仍由 Flow 图做可达性和类型校验。 */
+export interface FlowModelContextConfig {
+  readonly context?: FlowNodeContextPolicy;
+  readonly inputRefs?: readonly FlowRef[];
+}
+
 /** Agent 节点的受限执行器配置。 */
-export interface FlowAgentNodeConfig {
+export interface FlowAgentNodeConfig extends FlowModelContextConfig {
   /** 缺省时继承任务锁定的 Agent 默认模型。 */
   readonly modelPreset?: string;
   readonly reasoning?: ReasoningSelection;
@@ -105,7 +118,7 @@ export interface FlowAgentNodeConfig {
 }
 
 /** Plan 节点配置。 */
-export interface FlowPlanNodeConfig {
+export interface FlowPlanNodeConfig extends FlowModelContextConfig {
   /** 缺省时继承任务锁定的 Agent 默认模型。 */
   readonly modelPreset?: string;
   readonly reasoning?: ReasoningSelection;
@@ -146,7 +159,7 @@ export interface FlowPlanLoopNodeConfig {
 export type FlowApprovalPolicy = "always" | "never" | "model";
 
 /** 当前仅开放计划审批节点。 */
-export interface FlowApprovalNodeConfig {
+export interface FlowApprovalNodeConfig extends FlowModelContextConfig {
   readonly kind: "plan-review";
   readonly policy: FlowApprovalPolicy;
   /** 仅 policy=model 时生效；缺省时继承任务锁定的 Agent 默认模型。 */
@@ -292,7 +305,7 @@ export interface FlowApprovalNode extends FlowNodeBase {
 }
 
 /** 汇总节点配置。 */
-export interface FlowSynthesizeNodeConfig {
+export interface FlowSynthesizeNodeConfig extends FlowModelContextConfig {
   /**
    * 要汇总谁的步骤观察
    * @description 可选：缺省时退化为不带工具的普通汇总（保留原有语义），有值时读取被引节点的
@@ -327,7 +340,7 @@ export interface FlowStructuredField {
 }
 
 /** 结构化输出节点配置。 */
-export interface FlowStructuredOutputNodeConfig {
+export interface FlowStructuredOutputNodeConfig extends FlowModelContextConfig {
   readonly inputRefs: readonly FlowRef[];
   readonly instruction: string;
   readonly fields: readonly FlowStructuredField[];
@@ -342,7 +355,7 @@ export interface FlowStructuredOutputNode extends FlowNodeBase {
 }
 
 /** 评估节点配置。 */
-export interface FlowEvaluateNodeConfig {
+export interface FlowEvaluateNodeConfig extends FlowModelContextConfig {
   readonly inputRefs: readonly FlowRef[];
   readonly criteria: string;
   readonly modelPreset?: string;

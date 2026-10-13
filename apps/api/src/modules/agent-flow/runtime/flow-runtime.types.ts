@@ -1,5 +1,6 @@
 import type {
   FlowApprovalPolicy,
+  FlowModelContextConfig,
   FlowConditionCase,
   FlowRef,
   FlowDefinition,
@@ -46,7 +47,8 @@ export interface CompiledFlowNodeBase {
 }
 
 /** 编译后的 Agent 节点。 */
-export interface CompiledAgentFlowNode extends CompiledFlowNodeBase {
+export interface CompiledAgentFlowNode
+  extends CompiledFlowNodeBase, FlowModelContextConfig {
   type: 'agent';
   modelPreset: string;
   reasoning?: ReasoningSelection;
@@ -57,7 +59,8 @@ export interface CompiledAgentFlowNode extends CompiledFlowNodeBase {
 }
 
 /** 编译后的 Plan 节点。 */
-export interface CompiledPlanFlowNode extends CompiledFlowNodeBase {
+export interface CompiledPlanFlowNode
+  extends CompiledFlowNodeBase, FlowModelContextConfig {
   type: 'plan';
   /** 规划使用的模型；编译期已把 agent-default 解析成具体预设 */
   modelPreset: string;
@@ -79,7 +82,8 @@ export interface CompiledPlanLoopFlowNode extends CompiledFlowNodeBase {
 }
 
 /** 编译后的计划审批节点。 */
-export interface CompiledApprovalFlowNode extends CompiledFlowNodeBase {
+export interface CompiledApprovalFlowNode
+  extends CompiledFlowNodeBase, FlowModelContextConfig {
   type: 'approval';
   kind: 'plan-review';
   /** 门禁策略；model 由模型判断是否需要人工确认，失败一律闭合为需要 */
@@ -92,7 +96,8 @@ export interface CompiledApprovalFlowNode extends CompiledFlowNodeBase {
 }
 
 /** 编译后的汇总节点。 */
-export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
+export interface CompiledSynthesizeFlowNode
+  extends CompiledFlowNodeBase, FlowModelContextConfig {
   type: 'synthesize';
   /** 要汇总谁的步骤观察；缺省即普通汇总 */
   observationsRef?: FlowRef;
@@ -102,7 +107,8 @@ export interface CompiledSynthesizeFlowNode extends CompiledFlowNodeBase {
 }
 
 /** 编译后的结构化输出节点。 */
-export interface CompiledStructuredOutputFlowNode extends CompiledFlowNodeBase {
+export interface CompiledStructuredOutputFlowNode
+  extends CompiledFlowNodeBase, FlowModelContextConfig {
   type: 'structured-output';
   inputRefs: readonly FlowRef[];
   instruction: string;
@@ -112,7 +118,8 @@ export interface CompiledStructuredOutputFlowNode extends CompiledFlowNodeBase {
 }
 
 /** 编译后的评估节点。 */
-export interface CompiledEvaluateFlowNode extends CompiledFlowNodeBase {
+export interface CompiledEvaluateFlowNode
+  extends CompiledFlowNodeBase, FlowModelContextConfig {
   type: 'evaluate';
   inputRefs: readonly FlowRef[];
   criteria: string;

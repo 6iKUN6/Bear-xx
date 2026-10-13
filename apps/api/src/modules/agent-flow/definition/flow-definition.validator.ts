@@ -428,6 +428,29 @@ function validateConfigRefs(
   loopRegions: ReadonlyMap<string, FlowLoopRegion>,
   errors: FlowDefinitionValidationError[],
 ): void {
+  const inputConfig =
+    node.type === 'plan-loop' ? node.config.executor : node.config;
+  if ('inputRefs' in inputConfig) {
+    const refs = inputConfig.inputRefs ?? [];
+    if (new Set(refs.map((ref) => ref.$ref.join('.'))).size !== refs.length) {
+      errors.push({
+        path: `nodes.${nodeIndex}.config.inputRefs`,
+        rule: 'duplicate-ref',
+        message: '输入引用不能重复',
+      });
+    }
+    refs.forEach((ref, refIndex) =>
+      checkRef(
+        ref,
+        node,
+        `nodes.${nodeIndex}.config.${node.type === 'plan-loop' ? 'executor.' : ''}inputRefs.${refIndex}`,
+        nodesById,
+        dominators,
+        loopRegions,
+        errors,
+      ),
+    );
+  }
   if (node.type === 'plan-loop') {
     requireArrayRef(
       node.config.planRef,
@@ -476,19 +499,6 @@ function validateConfigRefs(
       errors,
     );
     return;
-  }
-  if (node.type === 'structured-output' || node.type === 'evaluate') {
-    node.config.inputRefs.forEach((ref, refIndex) => {
-      checkRef(
-        ref,
-        node,
-        `nodes.${nodeIndex}.config.inputRefs.${refIndex}`,
-        nodesById,
-        dominators,
-        loopRegions,
-        errors,
-      );
-    });
   }
 }
 

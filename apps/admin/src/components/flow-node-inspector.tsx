@@ -186,6 +186,8 @@ export function FlowNodeInspector({
         )}
       </InspectorSection>
 
+      <ContextFields node={node} definition={definition} editing={editing} />
+
       <NodeConfig node={node} definition={definition} editing={editing} />
 
       {editing && node.type !== "start" && node.type !== "end" ? (
@@ -200,6 +202,106 @@ export function FlowNodeInspector({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+/** 模型输入范围：只影响上下文读取，不改变工具权限或 Flow 调度。 */
+function ContextFields({
+  node,
+  definition,
+  editing,
+}: Pick<FlowNodeInspectorProps, "node" | "definition" | "editing">) {
+  if (
+    ![
+      "agent",
+      "plan",
+      "plan-loop",
+      "synthesize",
+      "structured-output",
+      "evaluate",
+      "approval",
+    ].includes(node.type)
+  )
+    return null;
+  if (node.type === "approval" && node.config.policy !== "model") return null;
+  const config =
+    node.type === "plan-loop"
+      ? (asRecord(node.config.executor) ?? {})
+      : node.config;
+  const context = asRecord(config.context) ?? {};
+  const mode =
+    typeof context.conversation === "string"
+      ? context.conversation
+      : ["structured-output", "evaluate", "approval"].includes(node.type)
+        ? "none"
+        : "auto";
+  const write = (patch: Record<string, unknown>) => {
+    const next = { ...config, ...patch };
+    editing?.onChangeConfig(
+      node.type === "plan-loop" ? { ...node.config, executor: next } : next,
+    );
+  };
+  return (
+    <InspectorSection title="上下文">
+      <div className="space-y-3">
+        <Field
+          label="会话历史"
+          hint="上游引用独立保留；结构化、评估和审核节点默认只读指定输入"
+        >
+          <Select
+            disabled={!editing}
+            value={mode}
+            onValueChange={(conversation) =>
+              write({ context: { ...context, conversation } })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">自动：按预算保留历史</SelectItem>
+              <SelectItem value="summary">摘要：只保留历史摘要</SelectItem>
+              <SelectItem value="none">关闭：不读取会话历史</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field
+          label="输入 token 上限"
+          hint="留空按模型容量计算；包含指令、工具和上游内容"
+        >
+          <Input
+            type="number"
+            min={1024}
+            max={10000000}
+            disabled={!editing}
+            value={
+              typeof context.maxInputTokens === "number"
+                ? context.maxInputTokens
+                : ""
+            }
+            placeholder="跟随模型容量"
+            onChange={(event) => {
+              const next: Record<string, unknown> = {
+                ...context,
+                conversation: mode,
+              };
+              if (event.target.value === "") delete next.maxInputTokens;
+              else next.maxInputTokens = Number(event.target.value);
+              write({ context: next });
+            }}
+          />
+        </Field>
+        {node.type !== "structured-output" && node.type !== "evaluate" && (
+          <InputRefsField
+            nodeId={node.id}
+            definition={definition}
+            value={config.inputRefs}
+            editing={editing}
+            onChange={(inputRefs) => write({ inputRefs })}
+          />
+        )}
+      </div>
+    </InspectorSection>
   );
 }
 
@@ -371,6 +473,8 @@ function NodeConfig({
                 } else {
                   delete next.modelPreset;
                   delete next.reasoning;
+                  delete next.context;
+                  delete next.inputRefs;
                 }
                 editing?.onChangeConfig(next);
               }}
@@ -745,7 +849,10 @@ function InputRefsField({
   };
 
   return (
-    <Field label="输入引用" hint="按顺序处理，至少一条、最多八条">
+    <Field
+      label="输入引用"
+      hint="按顺序注入上游结果，最多八条；结构化输出与评估至少需要一条"
+    >
       <div className="space-y-2">
         {refs.length === 0 ? (
           <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
@@ -1969,6 +2076,8 @@ function withModelSelection(
     next.reasoning = reasoning;
   } else {
     delete next.reasoning;
+    delete next.context;
+    delete next.inputRefs;
   }
   return next;
 }

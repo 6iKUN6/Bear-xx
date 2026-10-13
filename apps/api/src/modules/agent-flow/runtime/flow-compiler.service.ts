@@ -101,6 +101,10 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'plan',
+          ...(node.config.context ? { context: node.config.context } : {}),
+          ...(node.config.inputRefs
+            ? { inputRefs: node.config.inputRefs }
+            : {}),
           modelPreset: this.resolveModelPreset(
             node.config.modelPreset,
             context,
@@ -130,6 +134,10 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'approval',
+          ...(node.config.context ? { context: node.config.context } : {}),
+          ...(node.config.inputRefs
+            ? { inputRefs: node.config.inputRefs }
+            : {}),
           kind: node.config.kind,
           policy: node.config.policy,
           ...(node.config.policy === 'model'
@@ -152,6 +160,10 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'synthesize',
+          ...(node.config.context ? { context: node.config.context } : {}),
+          ...(node.config.inputRefs
+            ? { inputRefs: node.config.inputRefs }
+            : {}),
           ...(node.config.observationsRef
             ? { observationsRef: node.config.observationsRef }
             : {}),
@@ -170,6 +182,7 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'structured-output',
+          ...(node.config.context ? { context: node.config.context } : {}),
           inputRefs: node.config.inputRefs,
           instruction: node.config.instruction,
           fields: node.config.fields,
@@ -188,6 +201,7 @@ export class FlowCompiler {
           key: node.id,
           ...alias(node),
           type: 'evaluate',
+          ...(node.config.context ? { context: node.config.context } : {}),
           inputRefs: node.config.inputRefs,
           criteria: node.config.criteria,
           modelPreset: this.resolveModelPreset(
@@ -250,6 +264,8 @@ export class FlowCompiler {
       }
     }
     return {
+      ...(config.context ? { context: config.context } : {}),
+      ...(config.inputRefs ? { inputRefs: config.inputRefs } : {}),
       modelPreset: this.resolveModelPreset(config.modelPreset, context),
       reasoning: this.resolveReasoning(
         config.modelPreset,

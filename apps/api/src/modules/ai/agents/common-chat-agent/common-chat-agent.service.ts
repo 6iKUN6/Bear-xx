@@ -1,3 +1,5 @@
+import type { AgentContextBudget } from './agent-context-budget';
+import { agentContextSummaryPrompt } from '../../../../prompts';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ApprovalDecision } from '@litter-bear/types/protocol';
@@ -30,6 +32,7 @@ export interface CommonChatAgentRequest {
   modelPreset?: string | LlmModelPreset;
   llm?: LlmTextRequest | ResolvedLlmTextRequest;
   messages: LlmMessage[];
+  contextBudget?: AgentContextBudget;
   systemPrompt?: string;
   generation?: LlmGenerationConfig;
   reasoning?: ReasoningSelection;
@@ -189,6 +192,20 @@ export class CommonChatAgentService {
       threadId: request.threadId,
       approvalToolNames: request.approvalToolNames,
       abortSignal: request.abortSignal,
+      contextBudget: request.contextBudget
+        ? {
+            ...request.contextBudget,
+            summarize: (text) =>
+              this.llmService.generateChatText(
+                [
+                  { role: 'system', content: agentContextSummaryPrompt },
+                  { role: 'user', content: text },
+                ],
+                resolvedRequest,
+                { suppressStream: true, abortSignal: request.abortSignal },
+              ),
+          }
+        : undefined,
       onModelTurn: request.onModelTurn,
       onCompletedMessages: modelContext.onCompletedMessages,
     })) {
@@ -224,6 +241,20 @@ export class CommonChatAgentService {
       approvalToolNames: request.approvalToolNames,
       decision: request.decision,
       abortSignal: request.abortSignal,
+      contextBudget: request.contextBudget
+        ? {
+            ...request.contextBudget,
+            summarize: (text) =>
+              this.llmService.generateChatText(
+                [
+                  { role: 'system', content: agentContextSummaryPrompt },
+                  { role: 'user', content: text },
+                ],
+                resolvedRequest,
+                { suppressStream: true, abortSignal: request.abortSignal },
+              ),
+          }
+        : undefined,
       onModelTurn: request.onModelTurn,
       onCompletedMessages: modelContext.onCompletedMessages,
     })) {

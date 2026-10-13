@@ -155,6 +155,36 @@ describe('按模型预算压缩', () => {
     expect(llm.generateChatText).toHaveBeenCalledTimes(calls);
   });
 
+  it('摘要模式在容量充足时仍压缩旧历史，当前消息完整保留且摘要不提升为系统指令', async () => {
+    const { service, history, llm } = await createLongContext(1, 5);
+    const bundle = await service.buildContextBundle('c', 'pending', null, {
+      modelPreset: 'large',
+      conversation: 'summary',
+    });
+    expect(llm.generateChatText).toHaveBeenCalledTimes(1);
+    expect(bundle.summary?.messageCount).toBe(4);
+    expect(bundle.messages).toHaveLength(2);
+    expect(bundle.messages[0].role).toBe('user');
+    expect(bundle.messages[1].content).toBe(history[4].content);
+    expect(bundle.messageIds).toEqual(['long-4']);
+  });
+
+  it('显式上游引用提供本轮输入时，历史侧不重复注入或误压缩本轮正文', async () => {
+    const { service, history, llm } = await createLongContext(1, 5);
+    history[4].content = '本轮唯一正文'.repeat(5000);
+    const bundle = await service.buildContextBundle('c', 'pending', null, {
+      conversation: 'summary',
+      includeCurrentInput: false,
+    });
+    expect(bundle.messages).toHaveLength(1);
+    expect(bundle.messages[0].content).not.toContain('本轮唯一正文');
+    expect(bundle.summary?.messageCount).toBe(4);
+    expect(bundle.messageIds).toEqual([]);
+    expect(JSON.stringify(llm.generateChatText.mock.calls)).not.toContain(
+      '本轮唯一正文',
+    );
+  });
+
   it('本轮输入过大时明确报错，不截断用户内容或伪造摘要', async () => {
     const { service, history, llm } = await createLongContext(1, 1);
     history[0].content = '本轮必须保留的长正文'.repeat(3000);

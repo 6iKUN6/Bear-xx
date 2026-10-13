@@ -1,6 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
+export const agentContextSummaryPrompt = readPromptMarkdown(
+  'agent-context-summary.md',
+);
 export const chatAgentCommonPrompt = readPromptMarkdown('common-chat-agent.md');
 export const conversationSummaryFullPrompt = readPromptMarkdown(
   'conversation-summary-full.md',
