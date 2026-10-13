@@ -115,6 +115,34 @@ describe('ModelPresetService', () => {
     );
   });
 
+  it('单独创建推荐模型时将模板预算真正写入数据库', async () => {
+    await createService().create('connection-1', {
+      name: 'DeepSeek V4 Flash',
+      model: 'deepseek-v4-flash',
+      upstreamFormat: 'openai_chat_completions',
+    });
+    expect(prisma.modelPreset.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          contextWindowTokens: 1048576,
+          maxOutputTokens: 384000,
+        }),
+      }),
+    );
+  });
+
+  it('合并模板默认值后仍检查输入输出预算冲突', async () => {
+    await expect(
+      createService().create('connection-1', {
+        name: 'DeepSeek V4 Flash',
+        model: 'deepseek-v4-flash',
+        upstreamFormat: 'openai_chat_completions',
+        contextWindowTokens: 32000,
+      }),
+    ).rejects.toThrow('最大输出 token 必须小于上下文容量');
+    expect(prisma.modelPreset.create).not.toHaveBeenCalled();
+  });
+
   it('允许在 Google 连接下创建 Gemini 原生协议模型', async () => {
     prisma.modelProviderConnection.findUnique.mockResolvedValue({
       ...connection,

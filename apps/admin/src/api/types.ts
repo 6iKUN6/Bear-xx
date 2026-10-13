@@ -318,6 +318,8 @@ export type ModelProviderKey =
   | "custom-openai";
 
 export interface ModelProviderRecommendedModel {
+  contextWindowTokens: number | null;
+  maxOutputTokens: number | null;
   model: string;
   name: string;
   upstreamFormat: UpstreamFormat;
@@ -457,10 +459,7 @@ export interface ModelPresetProbeResult {
 
 export type AgentFlowVersionStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 export type FlowSchemaStatus =
-  | "current"
-  | "upgradeable"
-  | "invalid"
-  | "unsupported";
+  "current" | "upgradeable" | "invalid" | "unsupported";
 
 /** 校验错误；`path` 形如 `nodes.0.config.modelPreset`，用于在编辑器里定位 */
 export interface FlowDefinitionValidationError {

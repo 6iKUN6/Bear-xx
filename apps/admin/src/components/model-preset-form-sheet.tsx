@@ -172,6 +172,42 @@ export function ModelPresetFormSheet({
             </Field>
           ) : null}
 
+          {!preset && template.recommendedModels.length > 0 ? (
+            <Field label="从模板填写">
+              <Select
+                onValueChange={(value) => {
+                  const model = template.recommendedModels.find(
+                    (item) => item.model === value,
+                  );
+                  if (model)
+                    set({
+                      model: model.model,
+                      name: model.name,
+                      upstreamFormat: model.upstreamFormat,
+                      contextWindowTokens: model.contextWindowTokens,
+                      maxOutputTokens: model.maxOutputTokens,
+                      temperature: null,
+                      topP: null,
+                    });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择推荐模型及默认参数" />
+                </SelectTrigger>
+                <SelectContent>
+                  {template.recommendedModels.map((model) => (
+                    <SelectItem key={model.model} value={model.model}>
+                      {model.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                参数可按供应商实际限制调整；未公开的值需要手动补充。
+              </p>
+            </Field>
+          ) : null}
+
           <Field label="模型名称">
             <Input
               value={form.name}
@@ -292,7 +328,7 @@ export function ModelPresetFormSheet({
                 />
               </Field>
             ) : null}
-            <Field label="maxTokens">
+            <Field label="最大输出 token">
               <Input
                 type="number"
                 min={1}
