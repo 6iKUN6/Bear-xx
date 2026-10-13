@@ -2,6 +2,8 @@
 import {
   STREAM_TASK_EVENT_LABELS as EVENT_LABELS,
   type StreamTaskPayloadMap,
+  type ModelContextSources,
+  type ModelInvocationUsage,
 } from "@litter-bear/types/protocol";
 import { StreamTaskEventType, type StreamTaskEvent } from "./stream-event.js";
 import type {
@@ -111,12 +113,15 @@ export function toMessageStreamFeedback(
     type: event.type,
     title,
     detail,
-    tone: EVENT_TONES[type] || "info",
+    tone:
+      type === StreamTaskEventType.ModelCallDone && payload.status === "error"
+        ? "error"
+        : EVENT_TONES[type] || "info",
     display: isTextDisplayEvent(type) ? "text" : "panel",
     stage: traceStageFromEvent(type),
     toolName: readString(payload.toolName) ?? readString(payload.name),
     toolSummary,
-    durationMs,
+    durationMs: modelPayload ? readNumber(modelPayload.durationMs) : durationMs,
     outputSummary,
     ...(modelPayload
       ? {
@@ -124,10 +129,17 @@ export function toMessageStreamFeedback(
           provider: readString(modelPayload.provider),
           modelPresetId: readString(modelPayload.modelPresetId),
           contextWindowTokens: readNumber(modelPayload.contextWindowTokens),
+          contextSources: readContextSources(modelPayload.contextSources),
+          inputTokenLimit: readNumber(modelPayload.inputTokenLimit),
+          peakInputTokens: readNumber(modelPayload.peakInputTokens),
+          contextUsageEstimated:
+            type === StreamTaskEventType.ModelCallStart ||
+            modelPayload.contextUsageEstimated === true,
           estimatedInputTokens: readNumber(modelPayload.estimatedInputTokens),
           inputTokens: readNumber(modelPayload.inputTokens),
           outputTokens: readNumber(modelPayload.outputTokens),
           totalTokens: readNumber(modelPayload.totalTokens),
+          invocations: readInvocations(modelPayload.invocations),
           cachedInputTokens: readNumber(modelPayload.cachedInputTokens),
           reasoningTokens: readNumber(modelPayload.reasoningTokens),
           contextUsagePercent: readNumber(modelPayload.contextUsagePercent),
@@ -196,7 +208,7 @@ export function toMessageStreamFeedbackFromTrace(
     toolSummary:
       traceItem.type === "TOOL_CALL" &&
       traceItem.status.toUpperCase() === "SUCCESS"
-        ? traceItem.summary ?? undefined
+        ? (traceItem.summary ?? undefined)
         : undefined,
     durationMs: traceItem.durationMs ?? undefined,
     inputSummary: traceItem.inputSummary,
@@ -207,17 +219,25 @@ export function toMessageStreamFeedbackFromTrace(
           provider: metrics.provider,
           modelPresetId: metrics.modelPresetId,
           contextWindowTokens: metrics.contextWindowTokens,
+          contextSources: metrics.contextSources,
+          inputTokenLimit: metrics.inputTokenLimit,
+          peakInputTokens: metrics.peakInputTokens,
+          contextUsageEstimated: metrics.contextUsageEstimated,
           estimatedInputTokens: metrics.estimatedInputTokens,
           inputTokens: metrics.inputTokens,
           outputTokens: metrics.outputTokens,
           totalTokens: metrics.totalTokens,
+          invocations: metrics.invocations,
           cachedInputTokens: metrics.cachedInputTokens,
           reasoningTokens: metrics.reasoningTokens,
           contextUsagePercent: metrics.contextUsagePercent,
           estimated: metrics.estimated,
-          reasoningEnabled: metrics.reasoningEnabled,
-          reasoningEffort: metrics.reasoningEffort,
-          reasoningBudgetTokens: metrics.reasoningBudgetTokens,
+          reasoningEnabled:
+            metrics.reasoning?.activation === "enabled" ||
+            metrics.reasoning?.effort !== undefined ||
+            metrics.reasoning?.budgetTokens !== undefined,
+          reasoningEffort: metrics.reasoning?.effort,
+          reasoningBudgetTokens: metrics.reasoning?.budgetTokens,
         }
       : {}),
     updatedAt: Date.now(),
@@ -260,9 +280,7 @@ function shouldHideToolArguments(event: MessageStreamEventFeedback) {
 }
 
 function shortenStatusText(value: string, maxLength = 48) {
-  return value.length > maxLength
-    ? `${value.slice(0, maxLength)}…`
-    : value;
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
 }
 
 /**
@@ -580,10 +598,10 @@ function readRowDetail(event: MessageStreamEventFeedback) {
     if (modelLine) parts.push(modelLine);
   }
   if (event.contextUsagePercent !== undefined) {
-    const input = event.inputTokens ?? event.estimatedInputTokens;
+    const input = event.peakInputTokens ?? event.estimatedInputTokens;
     const capacity = event.contextWindowTokens;
     parts.push(
-      `上下文 ${event.contextUsagePercent}%${
+      `上下文 ${event.contextUsagePercent}%${event.contextUsageEstimated ? "（估算）" : ""}${
         input !== undefined && capacity
           ? ` · ${formatNumber(input)} / ${formatNumber(capacity)} tokens`
           : ""
@@ -595,10 +613,45 @@ function readRowDetail(event: MessageStreamEventFeedback) {
       `输入 ${formatNumber(event.inputTokens)} · 输出 ${formatNumber(event.outputTokens)} · 总计 ${formatNumber(event.totalTokens)}${event.estimated ? "（估算）" : ""}`,
     );
   }
+  if (event.inputTokens !== undefined) {
+    parts.push(
+      formatCacheUsage(
+        event.inputTokens,
+        event.cachedInputTokens,
+        event.estimated,
+      ),
+    );
+  }
+  if (event.invocations?.length) {
+    parts.push(`逐次模型调用（${event.invocations.length} 次）：`);
+    for (const call of event.invocations) {
+      parts.push(
+        `第 ${call.callIndex} 次 · 输入 ${formatNumber(call.inputTokens)} · 输出 ${formatNumber(call.outputTokens)} · 总计 ${formatNumber(call.totalTokens)}${call.estimated ? "（估算）" : ""}`,
+      );
+      parts.push(
+        `  ${formatCacheUsage(call.inputTokens, call.cachedInputTokens, call.estimated)}${call.reasoningTokens !== undefined ? ` · 思考 ${formatNumber(call.reasoningTokens)} tokens` : ""}`,
+      );
+    }
+  }
   if (event.reasoningEnabled || event.reasoningTokens !== undefined) {
     parts.push(
       `思考已启用${event.reasoningEffort ? ` · ${event.reasoningEffort}` : ""}${event.reasoningTokens !== undefined ? ` · ${formatNumber(event.reasoningTokens)} tokens` : ""}`,
     );
+  }
+  if (event.contextSources) {
+    const sources = event.contextSources;
+    const mode = { none: "不读取历史", summary: "历史摘要", auto: "自动历史" }[
+      sources.conversation
+    ];
+    parts.push(
+      `上下文策略：${mode} · 原文 ${sources.historyMessageCount} 条 · 摘要覆盖 ${sources.summaryMessageCount} 条`,
+    );
+    if (sources.upstream.length)
+      parts.push(
+        `上游：${sources.upstream.map((source) => `${source.nodeKey}.${source.field}`).join("、")}`,
+      );
+    if (event.inputTokenLimit !== undefined)
+      parts.push(`输入上限：${formatNumber(event.inputTokenLimit)} tokens`);
   }
   if (event.inputSummary) {
     parts.push(`入参 ${formatSummaryObject(event.inputSummary)}`);
@@ -607,6 +660,41 @@ function readRowDetail(event: MessageStreamEventFeedback) {
     parts.push(`出参 ${formatSummaryObject(event.outputSummary)}`);
   }
   return parts.length ? parts.join("\n") : undefined;
+}
+
+/** 解析协议的单一来源形状，不猜测别名或混合结构。 */
+function readContextSources(value: unknown): ModelContextSources | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    !["none", "summary", "auto"].includes(String(record.conversation)) ||
+    typeof record.historyMessageCount !== "number" ||
+    typeof record.summaryMessageCount !== "number" ||
+    !Array.isArray(record.upstream)
+  )
+    return undefined;
+  const upstream: ModelContextSources["upstream"] = [];
+  for (const source of record.upstream) {
+    if (
+      !source ||
+      typeof source !== "object" ||
+      typeof source.nodeKey !== "string" ||
+      typeof source.nodeExecutionId !== "string" ||
+      typeof source.field !== "string"
+    )
+      return undefined;
+    upstream.push({
+      nodeKey: source.nodeKey,
+      nodeExecutionId: source.nodeExecutionId,
+      field: source.field,
+    });
+  }
+  return {
+    conversation: record.conversation as ModelContextSources["conversation"],
+    historyMessageCount: record.historyMessageCount,
+    summaryMessageCount: record.summaryMessageCount,
+    upstream,
+  };
 }
 
 function formatNumber(value?: number) {
@@ -667,11 +755,11 @@ export function mergeStreamFeedbackEvent(
 function traceStageFromTraceItem(
   traceItem: MessageTraceItem,
 ): MessageTraceStage {
-  if (traceItem.status === "ERROR" || traceItem.type === "ERROR") {
-    return "error";
-  }
   if (traceItem.type === "MODEL_CALL") {
     return "model";
+  }
+  if (traceItem.status === "ERROR" || traceItem.type === "ERROR") {
+    return "error";
   }
   if (traceItem.type === "TOOL_CALL") {
     return "tool";
@@ -734,4 +822,56 @@ function traceStageFromEvent(type: StreamTaskEventType): MessageTraceStage {
     return "context";
   }
   return "workflow";
+}
+
+/**
+ * 格式化缓存用量，未知数据不视为零命中。
+ * @param inputTokens 输入 token
+ * @param cachedTokens 供应商返回的缓存读取 token
+ * @param estimated 输入是否来自估算
+ * @returns 缓存数量与可计算时的命中率
+ */
+function formatCacheUsage(
+  inputTokens: number,
+  cachedTokens: number | undefined,
+  estimated?: boolean,
+): string {
+  if (cachedTokens === undefined) return "缓存：供应商未提供或未完整提供";
+  const percent =
+    !estimated && inputTokens > 0 && cachedTokens <= inputTokens
+      ? ` · 命中率 ${Math.round((cachedTokens / inputTokens) * 1000) / 10}%`
+      : "";
+  return `缓存读取 ${formatNumber(cachedTokens)} tokens${percent}`;
+}
+
+/**
+ * 读取逐次调用的安全用量字段
+ * @param value 流式事件中的调用数组
+ * @returns 类型有效的用量列表；不包含提示词或回复内容
+ */
+function readInvocations(value: unknown): ModelInvocationUsage[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const calls: ModelInvocationUsage[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record: Record<string, unknown> = item;
+    const callIndex = readNumber(record.callIndex);
+    const inputTokens = readNumber(record.inputTokens);
+    if (
+      callIndex === undefined ||
+      inputTokens === undefined ||
+      typeof record.estimated !== "boolean"
+    )
+      continue;
+    calls.push({
+      callIndex,
+      inputTokens,
+      estimated: record.estimated,
+      outputTokens: readNumber(record.outputTokens),
+      totalTokens: readNumber(record.totalTokens),
+      cachedInputTokens: readNumber(record.cachedInputTokens),
+      reasoningTokens: readNumber(record.reasoningTokens),
+    });
+  }
+  return calls;
 }

@@ -156,8 +156,18 @@ export interface WorkflowStepDonePayload extends WorkflowStepStartPayload {
   fromModel?: boolean;
 }
 
+/** 模型节点实际读取的上下文来源；只公开计数和节点字段，不公开原文。 */
+export interface ModelContextSources {
+  conversation: "none" | "summary" | "auto";
+  historyMessageCount: number;
+  summaryMessageCount: number;
+  upstream: { nodeKey: string; nodeExecutionId: string; field: string }[];
+}
+
 /** `model.call.start` 载荷 */
 export interface ModelCallStartPayload extends StreamNodePayloadBase {
+  contextSources?: ModelContextSources;
+  inputTokenLimit?: number;
   /** 模型名；请求未解析出模型时缺失 */
   model?: string;
   /** 供应商标识；同上 */
@@ -178,7 +188,25 @@ export interface ModelCallStartPayload extends StreamNodePayloadBase {
  * `model.call.done` 载荷
  * @description ⚠️ 与 start 不对称：没有 `publicStatus`。
  */
+/** 节点内一次实际模型调用的用量；缓存字段缺失表示供应商未提供。 */
+export interface ModelInvocationUsage {
+  callIndex: number;
+  inputTokens: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  estimated: boolean;
+}
+
 export interface ModelCallDonePayload {
+  invocations?: ModelInvocationUsage[];
+  contextSources?: ModelContextSources;
+  inputTokenLimit?: number;
+  /** 节点内单次请求的最大输入，不是累计输入。 */
+  peakInputTokens?: number;
+  contextUsageEstimated?: boolean;
+  status?: "success" | "error";
   nodeKey: string;
   traceKey: string;
   /** 模型名 */
@@ -193,7 +221,7 @@ export interface ModelCallDonePayload {
   totalTokens?: number;
   cachedInputTokens?: number;
   reasoningTokens?: number;
-  /** 输入 token / 上下文容量；不是输出 token 的费用占比。 */
+  /** 单次请求峰值输入 / 上下文容量；与累计 token 消耗独立。 */
   contextUsagePercent?: number;
   /** 任一字段来自估算时为 true。 */
   estimated?: boolean;
