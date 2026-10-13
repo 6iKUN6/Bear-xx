@@ -219,6 +219,7 @@ export class ConversationTraceService {
         mcpServer: input.mcpServer,
         mcpTool: input.mcpTool,
         error: this.toJsonValue(input.error),
+        metrics: this.toJsonValue(input.metrics),
         metadata: this.toJsonValue(input.metadata),
         endedAt,
         durationMs,

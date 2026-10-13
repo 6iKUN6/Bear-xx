@@ -381,3 +381,70 @@ describe('mapStreamEventToTraceCommand · flow 节点标题', () => {
     expect(withoutTitle.input).toMatchObject({ title: '流程节点执行失败' });
   });
 });
+
+describe('模型上下文 trace', () => {
+  it.each(['success', 'error'] as const)(
+    '保留 %s 节点的来源、峰值、累计量和思考配置',
+    (status) => {
+      const payload = {
+        nodeKey: 'writer',
+        traceKey: 'model:writer#1',
+        status,
+        model: 'test-model',
+        provider: 'openai',
+        contextWindowTokens: 10000,
+        contextSources: {
+          conversation: 'auto' as const,
+          historyMessageCount: 3,
+          summaryMessageCount: 20,
+          upstream: [
+            {
+              nodeKey: 'research',
+              nodeExecutionId: 'research#1',
+              field: 'text',
+            },
+          ],
+        },
+        invocations: [
+          {
+            callIndex: 1,
+            inputTokens: 100,
+            outputTokens: 10,
+            totalTokens: 110,
+            cachedInputTokens: 0,
+            estimated: false,
+          },
+        ],
+        inputTokenLimit: 8000,
+        peakInputTokens: 3000,
+        inputTokens: 9000,
+        outputTokens: 1000,
+        contextUsagePercent: 30,
+        contextUsageEstimated: false,
+        reasoning: { effort: 'high' as const },
+      };
+      const command = mapStreamEventToTraceCommand({
+        taskId: 't',
+        conversationId: 'c',
+        messageId: 'm',
+        eventName: StreamTaskEventType.ModelCallDone,
+        payload,
+      });
+      expect(command).toMatchObject({
+        action: status === 'error' ? 'fail' : 'complete',
+        input: {
+          traceKey: payload.traceKey,
+          metrics: {
+            invocations: payload.invocations,
+            contextSources: payload.contextSources,
+            peakInputTokens: 3000,
+            inputTokens: 9000,
+            contextUsagePercent: 30,
+            contextUsageEstimated: false,
+            reasoning: { effort: 'high' },
+          },
+        },
+      });
+    },
+  );
+});

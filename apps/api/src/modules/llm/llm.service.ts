@@ -178,6 +178,7 @@ export class LlmService {
     try {
       const response = await chatModel.invoke(langChainMessages, {
         signal: options?.abortSignal,
+        ...(options?.suppressStream ? { tags: ['langsmith:nostream'] } : {}),
       });
       const content = this.readChunkText(response.content).trim();
 
@@ -384,7 +385,7 @@ export class LlmService {
    * @param outputText 输出文本
    * @returns 返回统一 token 用量指标
    * @description 在模型回调没有采集到真实 usage 时，为旧链路提供保守估算；
-   * 供应商 Prompt Cache 的 token 数无法由本地推断，因此固定为 0。
+   * 供应商 Prompt Cache 的 token 数无法由本地推断，因此不填充该字段。
    */
   buildEstimatedTokenUsage(
     inputMessages: LlmMessage[],
@@ -397,7 +398,6 @@ export class LlmService {
       inputTokens,
       outputTokens,
       totalTokens: inputTokens + outputTokens,
-      cachedInputTokens: 0,
       estimated: true,
     };
   }

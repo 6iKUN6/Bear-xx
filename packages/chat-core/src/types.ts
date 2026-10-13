@@ -1,3 +1,6 @@
+import type { ModelInvocationUsage } from "@litter-bear/types/protocol";
+import type { ReasoningSelection } from "@litter-bear/types";
+import type { ModelContextSources } from "@litter-bear/types/protocol";
 /**
  * 聊天展示层的跨端共享类型
  * @description 这些是前端展示状态（非线上传输契约——契约在 @litter-bear/types/protocol），
@@ -9,15 +12,10 @@ export type MessageStatus = "sending" | "streaming" | "done" | "error";
 export type MessageStreamEventTone = "info" | "success" | "warning" | "error";
 export type MessageStreamEventDisplay = "panel" | "text";
 export type MessageTraceStage =
-  | "context"
-  | "model"
-  | "tool"
-  | "approval"
-  | "output"
-  | "error"
-  | "workflow";
+  "context" | "model" | "tool" | "approval" | "output" | "error" | "workflow";
 
 export interface MessageStreamEventFeedback {
+  invocations?: ModelInvocationUsage[];
   id: string;
   type: string;
   title: string;
@@ -36,6 +34,10 @@ export interface MessageStreamEventFeedback {
   model?: string;
   provider?: string;
   modelPresetId?: string;
+  contextSources?: ModelContextSources;
+  inputTokenLimit?: number;
+  peakInputTokens?: number;
+  contextUsageEstimated?: boolean;
   contextWindowTokens?: number;
   estimatedInputTokens?: number;
   inputTokens?: number;
@@ -75,9 +77,14 @@ export interface MessageCacheHitMetrics {
 }
 
 export interface MessageRunMetrics {
+  invocations?: ModelInvocationUsage[];
   model?: string;
   provider?: string;
   modelPresetId?: string;
+  contextSources?: ModelContextSources;
+  inputTokenLimit?: number;
+  peakInputTokens?: number;
+  contextUsageEstimated?: boolean;
   contextWindowTokens?: number;
   estimatedInputTokens?: number;
   inputTokens?: number;
@@ -87,9 +94,7 @@ export interface MessageRunMetrics {
   reasoningTokens?: number;
   contextUsagePercent?: number;
   estimated?: boolean;
-  reasoningEnabled?: boolean;
-  reasoningEffort?: string;
-  reasoningBudgetTokens?: number | "auto";
+  reasoning?: ReasoningSelection;
   tokenUsage?: MessageTokenUsageMetrics;
   cache?: MessageCacheHitMetrics;
   durationMs?: number;

@@ -140,8 +140,11 @@ export function mapStreamEventToTraceCommand(
             model: payload?.model,
             provider: payload?.provider,
             modelPresetId: payload?.modelPresetId,
+            contextSources: payload?.contextSources,
+            inputTokenLimit: payload?.inputTokenLimit,
             contextWindowTokens: payload?.contextWindowTokens,
             estimatedInputTokens: payload?.estimatedInputTokens,
+            contextUsageEstimated: true,
             contextUsagePercent: payload?.contextUsagePercent,
             reasoning: payload?.reasoning,
           },
@@ -151,35 +154,56 @@ export function mapStreamEventToTraceCommand(
       };
     }
 
-    case StreamTaskEventType.ModelCallDone:
+    case StreamTaskEventType.ModelCallDone: {
+      const metrics = {
+        model: input.payload?.model,
+        provider: input.payload?.provider,
+        modelPresetId: input.payload?.modelPresetId,
+        contextSources: input.payload?.contextSources,
+        inputTokenLimit: input.payload?.inputTokenLimit,
+        peakInputTokens: input.payload?.peakInputTokens,
+        contextUsageEstimated: input.payload?.contextUsageEstimated,
+        contextWindowTokens: input.payload?.contextWindowTokens,
+        inputTokens: input.payload?.inputTokens,
+        outputTokens: input.payload?.outputTokens,
+        totalTokens: input.payload?.totalTokens,
+        invocations: input.payload?.invocations,
+        cachedInputTokens: input.payload?.cachedInputTokens,
+        reasoningTokens: input.payload?.reasoningTokens,
+        contextUsagePercent: input.payload?.contextUsagePercent,
+        estimated: input.payload?.estimated,
+        durationMs: input.payload?.durationMs,
+        reasoning: input.payload?.reasoning,
+      };
+      const traceKey =
+        input.payload?.traceKey ?? `model:${input.payload?.nodeKey ?? 'call'}`;
+      if (input.payload?.status === 'error')
+        return {
+          action: 'fail',
+          input: {
+            ...context,
+            traceKey,
+            nodeKey: input.payload.nodeKey,
+            type: ConversationTraceItemType.MODEL_CALL,
+            title: '调用模型失败',
+            metrics,
+            error: { message: '模型调用失败' },
+            endedAt: new Date(),
+          },
+        };
       return {
         action: 'complete',
         input: {
           taskId: input.taskId,
-          traceKey:
-            input.payload?.traceKey ??
-            `model:${input.payload?.nodeKey ?? 'call'}`,
+          traceKey,
           nodeKey: input.payload?.nodeKey,
           summary: '模型调用完成',
-          metrics: {
-            model: input.payload?.model,
-            provider: input.payload?.provider,
-            modelPresetId: input.payload?.modelPresetId,
-            contextWindowTokens: input.payload?.contextWindowTokens,
-            inputTokens: input.payload?.inputTokens,
-            outputTokens: input.payload?.outputTokens,
-            totalTokens: input.payload?.totalTokens,
-            cachedInputTokens: input.payload?.cachedInputTokens,
-            reasoningTokens: input.payload?.reasoningTokens,
-            contextUsagePercent: input.payload?.contextUsagePercent,
-            estimated: input.payload?.estimated,
-            durationMs: input.payload?.durationMs,
-            reasoning: input.payload?.reasoning,
-          },
+          metrics,
           metadata: safeMetadata(input.payload),
           endedAt: new Date(),
         },
       };
+    }
 
     case StreamTaskEventType.ToolCallStart: {
       const payload = input.payload;

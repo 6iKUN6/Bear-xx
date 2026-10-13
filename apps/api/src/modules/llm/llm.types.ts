@@ -1,3 +1,4 @@
+import type { ModelInvocationUsage } from '@litter-bear/types/protocol';
 import type { ReasoningSelection } from '@litter-bear/types';
 
 export type LlmProviderName = 'openai' | 'anthropic' | 'google';
@@ -162,6 +163,8 @@ export interface LlmStreamOptions {
 
 export interface LlmGenerateOptions {
   abortSignal?: AbortSignal;
+  /** 内部摘要等辅助调用不进入外层 LangGraph 的 messages 流。 */
+  suppressStream?: boolean;
 }
 
 /** 结构化生成选项 */
@@ -173,6 +176,7 @@ export interface LlmStructuredOptions extends LlmGenerateOptions {
 }
 
 export interface LlmTokenUsageMetrics {
+  invocations?: ModelInvocationUsage[];
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;

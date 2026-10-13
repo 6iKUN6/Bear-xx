@@ -1,3 +1,4 @@
+import type { ModelInvocationUsage } from '@litter-bear/types/protocol';
 import { AsyncLocalStorage } from 'async_hooks';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { LLMResult } from '@langchain/core/outputs';
@@ -13,7 +14,7 @@ interface ProviderTokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  cachedInputTokens: number;
+  cachedInputTokens?: number;
   reasoningTokens?: number;
 }
 
@@ -121,49 +122,75 @@ export function recordModelCallEnd(runId: string, output: LLMResult): void {
  * 等多轮调用折叠为最终回答的一次估算；任意一次走估算时整体标记 estimated。
  */
 export function getModelCallTokenUsage(): LlmTokenUsageMetrics | undefined {
-  const records = storage.getStore()?.modelCalls.values();
-  if (!records) {
-    return undefined;
-  }
-
-  let callCount = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let totalTokens = 0;
-  let cachedInputTokens = 0;
-  let reasoningTokens = 0;
-  let estimated = false;
-
-  for (const record of records) {
-    callCount += 1;
-    if (record.providerUsage) {
-      inputTokens += record.providerUsage.inputTokens;
-      outputTokens += record.providerUsage.outputTokens;
-      totalTokens += record.providerUsage.totalTokens;
-      cachedInputTokens += record.providerUsage.cachedInputTokens;
-      reasoningTokens += record.providerUsage.reasoningTokens ?? 0;
-      continue;
-    }
-
-    estimated = true;
-    inputTokens += record.estimatedInputTokens;
-    outputTokens += record.estimatedOutputTokens ?? 0;
-    totalTokens +=
-      record.estimatedInputTokens + (record.estimatedOutputTokens ?? 0);
-  }
-
-  if (callCount === 0) {
-    return undefined;
-  }
-
+  const records = storage.getStore()?.modelCalls;
+  if (!records?.size) return undefined;
+  const invocations: ModelInvocationUsage[] = [...records.values()].map(
+    (record, index) => {
+      if (record.providerUsage) {
+        return {
+          callIndex: index + 1,
+          ...record.providerUsage,
+          estimated: false,
+        };
+      }
+      return {
+        callIndex: index + 1,
+        inputTokens: record.estimatedInputTokens,
+        outputTokens: record.estimatedOutputTokens,
+        totalTokens:
+          record.estimatedOutputTokens === undefined
+            ? undefined
+            : record.estimatedInputTokens + record.estimatedOutputTokens,
+        estimated: true,
+      };
+    },
+  );
+  const sum = (
+    field:
+      | 'inputTokens'
+      | 'outputTokens'
+      | 'totalTokens'
+      | 'cachedInputTokens'
+      | 'reasoningTokens',
+  ) => invocations.reduce((total, call) => total + (call[field] ?? 0), 0);
   return {
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    cachedInputTokens,
-    ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
-    estimated,
+    invocations,
+    inputTokens: sum('inputTokens'),
+    outputTokens: invocations.every((call) => call.outputTokens !== undefined)
+      ? sum('outputTokens')
+      : undefined,
+    totalTokens: invocations.every((call) => call.totalTokens !== undefined)
+      ? sum('totalTokens')
+      : undefined,
+    cachedInputTokens: invocations.every(
+      (call) => call.cachedInputTokens !== undefined,
+    )
+      ? sum('cachedInputTokens')
+      : undefined,
+    reasoningTokens: invocations.every(
+      (call) => call.reasoningTokens !== undefined,
+    )
+      ? sum('reasoningTokens')
+      : undefined,
+    estimated: invocations.some((call) => call.estimated),
   };
+}
+
+/**
+ * 读取节点内单次请求的最高输入占用
+ * @returns 峰值及该峰值是否来自估算；没有调用时返回 undefined
+ * @description 累计输入用于计费，峰值用于上下文容量，二者不能混用。
+ */
+export function getModelCallPeakInput():
+  { tokens: number; estimated: boolean } | undefined {
+  let peak: { tokens: number; estimated: boolean } | undefined;
+  for (const record of storage.getStore()?.modelCalls.values() ?? []) {
+    const tokens =
+      record.providerUsage?.inputTokens ?? record.estimatedInputTokens;
+    if (!peak || tokens > peak.tokens)
+      peak = { tokens, estimated: !record.providerUsage };
+  }
+  return peak;
 }
 
 /**
@@ -247,6 +274,15 @@ function readProviderUsage(output: LLMResult): ProviderTokenUsage | undefined {
     const usage = toRecord(message?.usage_metadata);
     const parsed = parseProviderUsage(usage, 'snake');
     if (parsed) {
+      // OpenAI 兼容接口的原始 usage 由 SDK 保留在 response_metadata；
+      // DeepSeek 的独有缓存字段未必进入 LangChain 的归一结果。
+      const raw = toRecord(toRecord(message?.response_metadata)?.usage);
+      if (readNumber(raw?.prompt_tokens) === parsed.inputTokens) {
+        const details = toRecord(raw?.prompt_tokens_details);
+        parsed.cachedInputTokens ??=
+          readNumber(details?.cached_tokens) ??
+          readNumber(raw?.prompt_cache_hit_tokens);
+      }
       return parsed;
     }
   }
@@ -295,8 +331,7 @@ function parseProviderUsage(
     totalTokens,
     cachedInputTokens:
       readNumber(inputDetails?.cache_read) ??
-      readNumber(inputDetails?.cached_tokens) ??
-      0,
+      readNumber(inputDetails?.cached_tokens),
     reasoningTokens: readNumber(outputDetails?.reasoning),
   };
 }
