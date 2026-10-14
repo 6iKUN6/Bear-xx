@@ -1,186 +1,54 @@
-# LLM 模型供应商配置规范
+# LLM 模型供应商配置
 
-本文档用于说明当前后端 `llm` 模块如何接入不同模型供应商，以及推荐的配置方式。
+聊天模型的唯一配置来源是数据库：管理员在后台创建**供应商连接**（地址 + 加密密钥），再在连接下添加**模型预设**。环境变量不再提供任何模型地址、密钥或默认模型。
 
-## 当前设计
+设计取舍与演进过程见 `docs/superpowers/specs/2026-09-04-model-provider-connections-design.md`、`2026-09-04-agent-flow-model-ownership-design.md`、`2026-09-05-model-reasoning-configuration-design.md`；本文只描述现状与操作方式。
 
-当前 `llm` 模块采用三层轻量结构：
+## 数据模型
 
-- `LlmService`：负责消息转换、流式输出编排、对外暴露统一调用入口
-- `LlmModelRegistryService`：负责解析 `modelId / provider / platform / model`，合并模型预设和默认参数
-- `LlmChatModelFactory`：按 provider 创建 LangChain 聊天模型实例，业务层不直接依赖 SDK
-
-当前内置两个 provider 实现：
-
-- `openai`：OpenAI Chat Completions 兼容协议，覆盖 OpenAI、DeepSeek、Kimi、豆包等 platform
-- `anthropic`：Anthropic SDK 协议，使用 `ChatAnthropic`
-
-这里的 `openai` 表示“OpenAI 兼容协议 provider”，不是只能调用 OpenAI 官方；`provider` 决定 SDK 协议，`platform` 决定密钥和供应商配置来源。
-
-因此豆包、DeepSeek、Kimi 这类兼容 OpenAI 接口的供应商，当前都应按以下方式接入：
-
-- `provider` 固定为 `openai`
-- `platform` 填具体商家名，例如 `deepseek`、`kimi`、`doubao`
-- `model` 填供应商要求的真实模型名
-- `baseURL` 填供应商网关地址
-- `apiKey` 填供应商密钥
-
-对于供应商侧的代码组织，推荐放在 `src/modules/llm/providers/<platform>.ts` 中，并遵循以下约束：
-
-- 每个文件只描述一个供应商
-- 文件内部优先声明该供应商常用模型枚举
-- 文件对外暴露 `createXxxModelPreset(...)`
-- 该函数只负责创建模型预设实体，不直接负责调用 LangChain
-- 真正的模型实例化统一交给 `LlmChatModelFactory`
-
-例如：
-
-- `providers/doubao.ts`
-- `providers/deepseek.ts`
-- `providers/kimi.ts`
-
-这样可以保证“供应商差异”停留在配置层，而不是散落到业务调用链路里。
-
-## 推荐配置原则
-
-- 对话链路优先通过 `modelId` 选择模型，不建议在业务层硬编码 `baseURL`
-- admin 可通过 `/admin/model-presets` 管理 `ModelPreset` 元数据；数据库绝不保存 API key
-- `LlmModelRegistryService` 的生效优先级为：内置预设 < 平台环境变量自动预设 < 数据库 `ModelPreset` < `LLM_MODEL_PRESETS` 显式配置
-- `LLM_MODEL_PRESETS` 只用于部署侧显式覆盖或无数据库环境的 bootstrap，不是 admin 管理模型的唯一来源
-- 默认模型通过 `LLM_DEFAULT_MODEL_ID` 指定，而不是散落在业务代码里
-- `provider` 只表示 SDK/协议实现，不直接表示商家品牌
-- `platform` 才表示实际商家或模型平台
-
-## 环境变量说明
-
-- `LLM_MODEL`
-  当请求未传模型选择信息，且未配置 `LLM_DEFAULT_MODEL_ID` 时使用的通用默认模型名。
-- `LLM_DEFAULT_MODEL_ID`
-  默认模型预设 ID，优先级高于 `LLM_MODEL`。
-- `LLM_MODEL_PRESETS`
-  JSON 数组格式的模型预设列表。
-- `OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL`
-  OpenAI 官方模型的默认鉴权、网关和模型名，其中 `OPENAI_API_KEY` 同时也用于语音转写和图片生成。
-- `DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL`
-  DeepSeek 模型预设的默认鉴权、网关和模型名。
-- `KIMI_API_KEY / KIMI_BASE_URL / KIMI_MODEL`
-  Kimi 模型预设的默认鉴权、网关和模型名。
-- `DOUBAO_API_KEY / DOUBAO_BASE_URL / DOUBAO_MODEL`
-  豆包模型预设的默认鉴权、网关和模型名。
-- `ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL`
-  Anthropic provider 的默认鉴权、网关和模型名。
-
-## 模型预设格式
-
-`LLM_MODEL_PRESETS` 中的每个对象支持以下字段：
-
-```json
-{
-  "id": "deepseek:deepseek-chat",
-  "provider": "openai",
-  "platform": "deepseek",
-  "model": "deepseek-chat",
-  "baseURL": "https://api.deepseek.com/v1",
-  "apiKey": "sk-xxx",
-  "enabled": true,
-  "temperature": 0.7,
-  "maxOutputTokens": 4096,
-  "topP": 1
-}
+```txt
+ModelProviderConnection   一个供应商账号：providerKey / baseURL / apiKey 密文 / 连通状态
+  └─ ModelPreset          连接下的一个模型：model / upstreamFormat / token 预算 / 能力档位
+       ├─ Agent.defaultModelPreset     智能体默认模型
+       └─ AgentAllowedModelPreset      智能体允许终端选择的模型集合（默认模型必须在其中）
 ```
 
-字段语义：
+- `presetId` = `${connectionKey}:${model}`，创建后不可变；Agent、任务快照与 Flow Definition 都按它引用模型。
+- apiKey 用 `LLM_CREDENTIAL_ENCRYPTION_KEY` 做 AES-GCM 加密后存入 `api_key_ciphertext`，只在发起模型调用时解密，明文不写回缓存、不下发前端（前端只拿指纹尾号）。这把密钥丢失或更换后，已存密文全部无法解密，需要在后台逐个重填。
+- `upstreamFormat` 是唯一决定 SDK 的字段：`openai_chat_completions` / `openai_responses` / `anthropic_messages` / `gemini_generate_content`；provider 由它推导（`llm-upstream-format.ts`），不单独存储。
 
-- `id`：模型预设唯一标识，建议使用 `平台:模型名`
-- `provider`：调用实现名，当前为 `openai` 或 `anthropic`
-- `platform`：实际供应商或平台名
-- `model`：真实模型名
-- `baseURL`：供应商 API 地址
-- `apiKey`：仅 `LLM_MODEL_PRESETS` 这一环境变量配置可选提供；admin 数据库预设永不保存该字段，运行时按 platform 从环境变量取密钥
-- `enabled`：是否启用
-- `temperature / maxOutputTokens / topP`：该模型的默认生成参数
+## 供应商模板
 
-## 配置示例
+`src/modules/llm/model-provider-template.catalog.ts` 是 providerKey、默认地址、允许的 wire 格式和推荐模型的唯一事实源，后台通过 `GET /admin/model-provider-templates` 只读消费。当前内置：OpenAI、Anthropic、DeepSeek、Kimi、Kimi 编程套餐、豆包、Google Gemini、通义千问、智谱 GLM、MiniMax、OpenRouter，以及自定义 OpenAI 兼容端点（`custom-openai`）。
 
-### 1. OpenAI 官方
+推荐模型带 `contextWindowTokens` / `maxOutputTokens` 默认值：新建预设时请求未携带的字段按模板补齐，显式传入的值（包括 `null`）原样保留。数值来源与核对口径见仓库根目录 `MODEL_PRESET_TOKEN_LIMITS.md`；对已有预设可运行 `pnpm --filter ./apps/api exec node scripts/backfill-model-token-limits.cjs` 补齐空值。
 
-```env
-OPENAI_API_KEY=sk-openai-xxx
-OPENAI_BASE_URL=https://api.openai.com/v1
-LLM_DEFAULT_MODEL_ID=openai:gpt-4o-mini
-LLM_MODEL_PRESETS=[{"id":"openai:gpt-4o-mini","provider":"openai","platform":"openai","model":"gpt-4o-mini","baseURL":"https://api.openai.com/v1","apiKey":"sk-openai-xxx"}]
-```
+## 后台操作流程
 
-### 2. Anthropic
+1. **新建供应商连接**（`POST /admin/model-provider-connections`）：选模板、填 apiKey，可同时勾选推荐模型一并创建。服务端校验 baseURL 与 wire 格式是否属于该模板。
+2. **探测连接**（`POST /admin/model-provider-connections/:id/probe`）：最小请求验证地址与密钥。
+3. **添加/编辑模型**（`POST /admin/model-provider-connections/:id/models`、`PATCH /admin/model-presets/:id`）：可从模板一键填写。
+4. **探测模型能力**（`POST /admin/model-presets/:id/probe`）：实测写回能力档位——`UNVERIFIED` 未探测、`UNREACHABLE` 不可达、`BASIC` 仅能对话、`TOOLS` 工具往返通过。**带工具的 Flow 节点只接受 `TOOLS` 档位**，档位来自真实探测而不是配置声明。
+5. **配置智能体**：设置允许模型集合与默认模型。删除或停用被引用的预设前，用 `GET /admin/model-presets/:id/references` 查看影响面。
 
-```env
-LLM_DEFAULT_MODEL_ID=anthropic:claude-sonnet-4-5-20250929
-ANTHROPIC_API_KEY=sk-ant-xxx
-ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
-```
+## 运行时约束
 
-### 3. DeepSeek
+- `LlmModelRegistryService` 启动时加载「启用的预设 + 启用的连接」，后台写操作后重新加载。数据库不可用时直接报错，不降级到任何静态配置。
+- Flow 的模型节点必须能解析出 `contextWindowTokens`；未配置时任务创建即失败（「请在后台为模型配置上下文容量」）。`maxOutputTokens` 未配置时按上下文的 1/4 预留输出，必须小于上下文容量。
+- 模型节点写具体 `presetId`；只有内置 direct Flow 可使用 `agent-default`，在任务创建时解析为「本轮选择 ?? 智能体默认模型」，且必须在允许集合内。
+- 思考（reasoning）与识图能力由 `model-reasoning.catalog.ts` / `model-vision.catalog.ts` 按 (platform, wire 格式, model) 匹配，终端控件完全由目录驱动，不按模型名猜测。
+- 业务层只调用 `LlmService`；具体 SDK 实例由 `LlmChatModelFactory` 按 `upstreamFormat` 创建。
 
-```env
-LLM_DEFAULT_MODEL_ID=deepseek:deepseek-chat
-LLM_MODEL_PRESETS=[{"id":"deepseek:deepseek-chat","provider":"openai","platform":"deepseek","model":"deepseek-chat","baseURL":"https://api.deepseek.com/v1","apiKey":"sk-deepseek-xxx"}]
-```
+## 扩展方式
 
-### 4. Kimi
+- **新增 OpenAI / Anthropic 兼容的供应商**：在模板目录加一项（providerKey、默认地址、允许格式、推荐模型及 token 上限），后台在 `model-provider-logo.tsx` 补 Logo；模型有思考或识图能力时同步补两个能力目录。不需要改调用链路。
+- **新增 wire 格式**：同时修改 Prisma 枚举 `ModelUpstreamFormat`（经迁移）、`llm-upstream-format.ts` 的映射，以及 `LlmChatModelFactory` 的构造分支。
 
-```env
-LLM_DEFAULT_MODEL_ID=kimi:kimi-k2
-LLM_MODEL_PRESETS=[{"id":"kimi:kimi-k2","provider":"openai","platform":"kimi","model":"kimi-k2-0711-preview","baseURL":"https://api.moonshot.cn/v1","apiKey":"sk-kimi-xxx"}]
-```
+## 与模型无关的环境变量
 
-### 5. 豆包
+以下能力不走模型预设，仍由环境变量配置，见 `.env.example`：
 
-```env
-LLM_DEFAULT_MODEL_ID=doubao:doubao-seed-1-6
-LLM_MODEL_PRESETS=[{"id":"doubao:doubao-seed-1-6","provider":"openai","platform":"doubao","model":"doubao-seed-1-6-250615","baseURL":"https://ark.cn-beijing.volces.com/api/v3","apiKey":"sk-doubao-xxx"}]
-```
-
-### 6. 同时注册多个供应商
-
-```env
-LLM_DEFAULT_MODEL_ID=deepseek:deepseek-chat
-LLM_MODEL_PRESETS=[{"id":"openai:gpt-4o-mini","provider":"openai","platform":"openai","model":"gpt-4o-mini","baseURL":"https://api.openai.com/v1","apiKey":"sk-openai-xxx"},{"id":"deepseek:deepseek-chat","provider":"openai","platform":"deepseek","model":"deepseek-chat","baseURL":"https://api.deepseek.com/v1","apiKey":"sk-deepseek-xxx"},{"id":"kimi:kimi-k2","provider":"openai","platform":"kimi","model":"kimi-k2-0711-preview","baseURL":"https://api.moonshot.cn/v1","apiKey":"sk-kimi-xxx"},{"id":"doubao:doubao-seed-1-6","provider":"openai","platform":"doubao","model":"doubao-seed-1-6-250615","baseURL":"https://ark.cn-beijing.volces.com/api/v3","apiKey":"sk-doubao-xxx"}]
-```
-
-## 接口传参建议
-
-推荐优先传：
-
-```json
-{
-  "modelId": "deepseek:deepseek-chat"
-}
-```
-
-不推荐在业务请求里长期传整套供应商细节。原因是：
-
-- 不利于任务恢复时复用同一份模型配置
-- 容易让 controller/service 直接耦合供应商细节
-- 后续切换默认参数时要改多个调用方
-
-如果确实需要临时指定，也可以传：
-
-```json
-{
-  "provider": "openai",
-  "platform": "deepseek",
-  "model": "deepseek-chat"
-}
-```
-
-## 后续扩展方式
-
-如果后续要接入新的协议 provider，按下面步骤扩展：
-
-1. 在 `llm.types.ts` 中补充新的 `LlmProviderName`
-2. 在 `LlmModelRegistryService` 中补充 provider 校验、密钥解析与预设转换
-3. 在 `LlmChatModelFactory` 中新增对应 LangChain 模型构造分支
-4. 在 `llm.module.ts` 注册新增依赖
-5. 保持业务层仍只调用 `LlmService`
-
-这样可以扩展供应商实现，但不会把聊天链路重新变回多层深调用。
+- `OPENAI_API_KEY` + `AI_WHISPER_MODEL` / `AI_IMAGE_MODEL`：语音转写与 `/chat` 图片生成（`AiService`，直连 OpenAI）。
+- `IMAGE_GEN_*`：生图工具与 `/images` 接口的生图 provider。
+- `TAVILY_API_KEY`：联网搜索工具。
+- `LLM_MAX_RETRIES` / `LLM_TIMEOUT_MS` / `LLM_DEBUG*`：全局调用健壮性与调试日志。
