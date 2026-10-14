@@ -248,5 +248,33 @@ export function validateEnvironment(config: Record<string, unknown>) {
   if (errors.length > 0) {
     throw new Error(`Config validation error:\n${errors.toString()}`);
   }
+  if (validated.NODE_ENV === 'production') assertProductionSecrets(validated);
   return validated;
+}
+
+/** 生产环境 JWT 密钥的最小长度（字节）。 */
+const MIN_PRODUCTION_SECRET_BYTES = 32;
+
+/**
+ * 校验生产环境的签名密钥强度
+ * @param config 已通过字段校验的环境变量
+ * @returns 无返回值，不满足时抛错阻止启动
+ * @description 只在 production 生效：开发与测试允许短占位值。两把 JWT 密钥必须足够长且互不相同，
+ * 否则 access 与 refresh token 可以互相冒用，弱密钥则可被离线爆破后伪造任意登录态。
+ */
+function assertProductionSecrets(config: EnvConfig): void {
+  const problems: string[] = [];
+  for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+    if (Buffer.byteLength(config[key], 'utf8') < MIN_PRODUCTION_SECRET_BYTES) {
+      problems.push(
+        `${key} 在生产环境至少需要 ${MIN_PRODUCTION_SECRET_BYTES} 字节`,
+      );
+    }
+  }
+  if (config.JWT_ACCESS_SECRET === config.JWT_REFRESH_SECRET) {
+    problems.push('JWT_ACCESS_SECRET 与 JWT_REFRESH_SECRET 不能相同');
+  }
+  if (problems.length > 0) {
+    throw new Error(`Config validation error:\n${problems.join('\n')}`);
+  }
 }
