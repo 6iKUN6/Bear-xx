@@ -690,7 +690,7 @@ export class PlanGraphBuilder {
   /**
    * 从节点里发编排事件
    * @description 必须走 `config.writer`——`@langchain/langgraph` 顶层导出的 `writer()`
-   * 在节点里调用不抛错也不产出任何块（静默失效，见 `scripts/debug-graph-events.cjs`）。
+   * 在节点里调用不抛错也不产出任何块（静默失效，实测记录见 `docs/plan-graph-migration.md`）。
    * 收口成一个方法，既避免误用，也让载荷受 AgentLoopWorkflowEvent 约束。
    *
    * `writer` 在 `LangGraphRunnableConfig` 上是可选的（该类型把 Runtime 整体 Partial 了），

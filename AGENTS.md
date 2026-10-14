@@ -165,8 +165,8 @@ pnpm --filter ./apps/admin run build       # tsc --noEmit + vite build
 # Prisma schema/migration 改动后
 pnpm --filter ./apps/api run db:migrate
 
-# agent / HITL 机制验证（真实模型，独立于 HTTP）
-node apps/api/scripts/debug-{tool-call,agent,hitl,planner,router}.cjs
+# AgentFlow 真实链路验证（真实模型 + Temporal，需先启动开发栈）
+node apps/api/scripts/debug-agent-flow.cjs [direct|hybrid|plan_execute]
 ```
 
 命令无法执行时，最终回复必须说明原因，并列出用户需本地补跑的命令。

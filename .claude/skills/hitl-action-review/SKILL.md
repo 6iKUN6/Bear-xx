@@ -31,7 +31,7 @@ HITL 当前仅覆盖 ReAct。Plan/Hybrid 是手写 controller，不在 LangGraph
 
 ## 验证
 
-运行 `node apps/api/scripts/debug-hitl.cjs`：首轮工具未执行，approve 后才执行；再覆盖 reject、edit、再次中断、断线恢复和非属主提交。执行 API `build`、`lint:check`，并检查 `approval.required`、`WAITING_HUMAN`、续跑和终态的顺序。
+启动开发栈后运行 `node apps/api/scripts/debug-agent-flow.cjs plan_execute`：首轮工具未执行，approve 后才执行；再覆盖 reject、edit、再次中断、断线恢复和非属主提交。执行 API `build`、`lint:check`，并检查 `approval.required`、`WAITING_HUMAN`、续跑和终态的顺序。
 
 ## 常见误区
 
