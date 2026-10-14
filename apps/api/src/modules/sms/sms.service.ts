@@ -1,4 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -18,8 +23,14 @@ export class SmsService {
    * @param phone 手机号
    * @returns 无返回值
    * @description 生成六位验证码并写入 Redis，同时持久化到数据库作为兜底，并对发送频率进行限制。
+   * 尚未接入短信供应商：生产环境无法真正下发验证码，直接返回 503，不生成也不记录验证码；
+   * 非生产环境把验证码打到日志供本地登录。
    */
   async sendCode(phone: string): Promise<void> {
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      throw new ServiceUnavailableException('短信验证码服务暂未开放');
+    }
+
     // Rate limit: 1 code per 60s per phone
     const limitKey = `sms:limit:${phone}`;
     const limited = await this.redis.get(limitKey);
@@ -43,8 +54,7 @@ export class SmsService {
       },
     });
 
-    // TODO: Integrate actual SMS provider (Aliyun/Tencent Cloud)
-    // For development, log the code
+    // TODO: 接入短信供应商（阿里云 / 腾讯云）后移除上方的生产环境拦截与本日志
     this.logger.log(`[DEV] SMS code for ${phone}: ${code}`);
   }
 

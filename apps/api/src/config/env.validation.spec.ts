@@ -67,4 +67,50 @@ describe('环境配置校验', () => {
       ),
     ).toThrow(/LLM_CREDENTIAL_ENCRYPTION_KEY/);
   });
+
+  describe('生产环境 JWT 密钥', () => {
+    const strong = (fill: number) => Buffer.alloc(48, fill).toString('base64');
+
+    it('开发环境允许短占位密钥', () => {
+      expect(() =>
+        validateEnvironment(minimalEnvironment({ NODE_ENV: 'development' })),
+      ).not.toThrow();
+    });
+
+    it('生产环境拒绝短于 32 字节的密钥', () => {
+      expect(() =>
+        validateEnvironment(
+          minimalEnvironment({
+            NODE_ENV: 'production',
+            JWT_ACCESS_SECRET: 'access-secret',
+            JWT_REFRESH_SECRET: strong(2),
+          }),
+        ),
+      ).toThrow(/JWT_ACCESS_SECRET 在生产环境至少需要 32 字节/);
+    });
+
+    it('生产环境拒绝两把相同的密钥', () => {
+      expect(() =>
+        validateEnvironment(
+          minimalEnvironment({
+            NODE_ENV: 'production',
+            JWT_ACCESS_SECRET: strong(1),
+            JWT_REFRESH_SECRET: strong(1),
+          }),
+        ),
+      ).toThrow(/不能相同/);
+    });
+
+    it('生产环境接受足够长且互不相同的密钥', () => {
+      expect(() =>
+        validateEnvironment(
+          minimalEnvironment({
+            NODE_ENV: 'production',
+            JWT_ACCESS_SECRET: strong(1),
+            JWT_REFRESH_SECRET: strong(2),
+          }),
+        ),
+      ).not.toThrow();
+    });
+  });
 });
