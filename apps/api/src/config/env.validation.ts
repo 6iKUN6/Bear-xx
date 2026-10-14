@@ -66,65 +66,10 @@ export class EnvConfig {
   @IsString()
   JWT_REFRESH_EXPIRES_IN?: string;
 
+  /** 仅用于语音转写（Whisper）与 /chat 图片生成（DALL-E）；聊天模型的密钥在后台加密入库。 */
   @IsOptional()
   @IsString()
   OPENAI_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  OPENAI_BASE_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  OPENAI_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  ANTHROPIC_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  ANTHROPIC_BASE_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  ANTHROPIC_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  DEEPSEEK_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  DEEPSEEK_BASE_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  DEEPSEEK_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  KIMI_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  KIMI_BASE_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  KIMI_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  DOUBAO_API_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  DOUBAO_BASE_URL?: string;
-
-  @IsOptional()
-  @IsString()
-  DOUBAO_MODEL?: string;
 
   /**
    * 模型预设 apiKey 的加密主密钥
@@ -137,18 +82,6 @@ export class EnvConfig {
   @IsNotEmpty()
   @Matches(/^[A-Za-z0-9+/]+={0,2}$/)
   LLM_CREDENTIAL_ENCRYPTION_KEY: string;
-
-  @IsOptional()
-  @IsString()
-  LLM_DEFAULT_MODEL_ID?: string;
-
-  @IsOptional()
-  @IsString()
-  LLM_MODEL?: string;
-
-  @IsOptional()
-  @IsString()
-  LLM_MODEL_PRESETS?: string;
 
   @IsOptional()
   @IsString()

@@ -17,6 +17,9 @@
  *   hybrid        plan -> plan-loop -> synthesize：验证多步推进与 Activity 超时余量
  *   plan_execute  plan -> approval -> plan-loop -> synthesize：验证 HITL 闭环
  *   --keep        保留本次产生的数据库数据（默认清理，避免污染开发库）
+ *
+ * 模型：默认使用默认智能体的默认模型；`DEBUG_AGENT_FLOW_MODEL_PRESET=<presetId>` 可指定后台
+ * 已启用的其他预设。脚本不读取任何模型密钥环境变量。
  */
 
 const fs = require('fs');
@@ -51,14 +54,6 @@ async function main() {
     calculateFlowDefinitionDigest,
   } = require('../src/modules/agent-flow/definition/flow-definition.digest');
 
-  const modelPreset = resolveModelPreset();
-  log('start', {
-    preset: options.preset,
-    modelPreset,
-    prompt: options.prompt,
-    keepData: options.keep,
-  });
-
   const application = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn'],
   });
@@ -68,6 +63,13 @@ async function main() {
 
   try {
     await assertTemporalWorkersReachable(prisma);
+    const modelPreset = await resolveModelPreset(prisma);
+    log('start', {
+      preset: options.preset,
+      modelPreset: modelPreset.presetId,
+      prompt: options.prompt,
+      keepData: options.keep,
+    });
 
     const definition = createFlowDefinitionPreset(options.preset);
     fixture = await createFixture(prisma, {
@@ -168,22 +170,39 @@ function defaultPrompt(preset) {
 
 /**
  * 解析本次运行使用的模型预设
- * @returns 返回模型预设 ID
- * @description 默认走 Kimi；预设 ID 形如 platform:model，与 LlmModelRegistry 的注册规则一致。
- * 只读环境变量，不在脚本里硬编码任何密钥。
+ * @param prisma 已连接开发库的 Prisma 服务
+ * @returns 返回后台已启用的模型预设（id 与业务 presetId）
+ * @description 模型与密钥只来自后台 model_presets；DEBUG_AGENT_FLOW_MODEL_PRESET 指定业务
+ * presetId，缺省时沿用默认智能体的默认模型。两者都没有或预设不可用时明确失败。
  */
-function resolveModelPreset() {
+async function resolveModelPreset(prisma) {
   const explicit = process.env.DEBUG_AGENT_FLOW_MODEL_PRESET?.trim();
-  if (explicit) {
-    return explicit;
-  }
-  if (!process.env.KIMI_API_KEY) {
+  const preset = explicit
+    ? await prisma.modelPreset.findUnique({
+        where: { presetId: explicit },
+        select: { id: true, presetId: true, enabled: true },
+      })
+    : (
+        await prisma.agent.findFirst({
+          where: { isDefault: true },
+          select: {
+            defaultModelPreset: {
+              select: { id: true, presetId: true, enabled: true },
+            },
+          },
+        })
+      )?.defaultModelPreset;
+  if (!preset) {
     throw new Error(
-      'KIMI_API_KEY 未配置：设置该变量，或用 DEBUG_AGENT_FLOW_MODEL_PRESET 指定其他已注册预设',
+      explicit
+        ? `模型预设「${explicit}」不存在，请在后台确认业务 presetId`
+        : '默认智能体未配置默认模型：在后台配置，或用 DEBUG_AGENT_FLOW_MODEL_PRESET 指定预设',
     );
   }
-  const model = process.env.KIMI_MODEL?.trim() || 'kimi-k2-0711-preview';
-  return `kimi:${model}`;
+  if (!preset.enabled) {
+    throw new Error(`模型预设「${preset.presetId}」未启用`);
+  }
+  return preset;
 }
 
 /**
@@ -242,7 +261,8 @@ async function createFixture(prisma, input) {
   const agent = await prisma.agent.create({
     data: {
       name: label,
-      modelPreset: input.modelPreset,
+      defaultModelPresetId: input.modelPreset.id,
+      allowedModelPresets: { create: { modelPresetId: input.modelPreset.id } },
       defaultFlowVersionId: flowVersion.id,
       createdById: user.id,
     },

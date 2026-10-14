@@ -26,7 +26,7 @@ Agent 改动必须以可观测行为回归，而不是“这次回答看起来�
 
 ## 运行时真相
 
-工具链应继续使用 `agent.stream({ streamMode: 'messages' })`。遇到工具 `400` 时，先用 `debug-tool-call.cjs` 和 `debug-agent.cjs` 分离 provider、agent 与事件映射；不得为了“trace 更完整”改回已知不兼容的 `streamEvents({ version: 'v3' })`。
+工具链应继续使用 `agent.stream({ streamMode: 'messages' })`。遇到工具 `400` 时，先在后台对该模型预设执行能力探测（`POST /admin/model-presets/:id/probe`，`TOOLS` 档位即工具往返通过）区分 provider 问题，再用 `debug-agent-flow.cjs` 复现 agent 与事件映射；不得为了“trace 更完整”改回已知不兼容的 `streamEvents({ version: 'v3' })`。
 
 ## 发布门槛
 

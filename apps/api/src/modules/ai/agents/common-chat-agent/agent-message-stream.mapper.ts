@@ -13,7 +13,7 @@
  *
  * messages 的命名空间首段标明来源（子图是两段、外层节点直接调模型是单段），
  * 编排图据此区分「步骤过程文本（收集为观察）」与「最终答案（下发 delta）」。
- * 结论由 `scripts/debug-subgraph-interrupt.cjs` 与 `scripts/debug-graph-events.cjs` 实测得出。
+ * 实测结论记录在 `docs/plan-graph-migration.md`。
  */
 
 import type { AIMessageChunk, ToolMessage } from '@langchain/core/messages';
@@ -234,7 +234,7 @@ function createModelTurnCounter(
  * @description custom 块是编排节点用 `config.writer()` 推出的成品事件，原样透传；
  * messages 块走与 ReAct 链路完全相同的解析。
  *
- * ⚠️ custom 块的命名空间**恒为空数组**（实测，见 `scripts/debug-graph-events.cjs`），
+ * ⚠️ custom 块的命名空间**恒为空数组**（实测，见 `docs/plan-graph-migration.md`），
  * 与 messages 的「外层节点 1 段、子图内 2 段」不是一套语义。消费侧要先按事件类型
  * 分支，再在模型输出上用段数区分「步骤过程文本」与「最终答案」，
  * 不能直接拿 `namespace.length` 判断所有事件。

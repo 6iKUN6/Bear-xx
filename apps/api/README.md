@@ -66,15 +66,13 @@ $ pnpm run test:cov
 $ node scripts/debug-web-search.cjs                 # 默认查询词
 $ node scripts/debug-web-search.cjs "香港 2026 年公众假期"   # 自定义查询词
 
-# 工具调用往返：复现 ReAct 两轮工具调用，排查代理的 call_id 语义问题
-$ node scripts/debug-tool-call.cjs
+# AgentFlow 真实链路：真实模型 + Temporal 编排，观测事件、trace 与终态（需先启动开发栈）
+$ node scripts/debug-agent-flow.cjs direct
+$ node scripts/debug-agent-flow.cjs plan_execute   # 含计划审批，自动 approve
+$ DEBUG_AGENT_FLOW_MODEL_PRESET=<presetId> node scripts/debug-agent-flow.cjs hybrid
 
-# 其它：大模型 / 路由 / 规划 / HITL / agent 链路
-$ node scripts/debug-llm.cjs
-$ node scripts/debug-router.cjs
-$ node scripts/debug-planner.cjs
-$ node scripts/debug-hitl.cjs
-$ node scripts/debug-agent.cjs
+# 麦当劳 MCP 只读连通性：只调用 tools/list；Token 是个人凭据，由命令行传入
+$ node scripts/debug-mcdonalds-mcp.cjs <MCP_TOKEN>
 ```
 
 `debug-web-search.cjs` 成功时输出 `result: SEARCH_OK`；若返回 `SEARCH_FAILED_OR_EMPTY`，检查 `TAVILY_API_KEY` 是否有效或额度是否用尽。

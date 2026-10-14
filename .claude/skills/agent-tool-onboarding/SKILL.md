@@ -28,7 +28,7 @@ description: Use when adding, changing, or exposing a LangChain or MCP tool to a
 
 ## 验证
 
-先用实际 schema 做最小工具调用；按改动范围运行 `node apps/api/scripts/debug-tool-call.cjs`、`debug-router.cjs`，有审批则 `debug-hitl.cjs`。再执行 `pnpm --filter ./apps/api run build` 与 `lint:check`。验证工具实际执行、拒绝时未执行、错误事件与用户归属都正确。
+先用实际 schema 做最小工具调用：启动开发栈后运行 `node apps/api/scripts/debug-agent-flow.cjs direct` 走真实模型与 Temporal 链路，有审批则跑 `plan_execute` 场景。再执行 `pnpm --filter ./apps/api run build` 与 `lint:check`。验证工具实际执行、拒绝时未执行、错误事件与用户归属都正确。
 
 ## 常见误区
 
