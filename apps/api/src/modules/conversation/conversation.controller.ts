@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -20,9 +21,13 @@ import { ConversationService } from './conversation.service';
 import {
   AddConversationAgentDto,
   CreateConversationDto,
+  ListConversationMessagesQueryDto,
   UpdateConversationDto,
 } from './dto/create-conversation.dto';
-import { ConversationDto } from './dto/conversation-response.dto';
+import {
+  ConversationDto,
+  ConversationMessagePageDto,
+} from './dto/conversation-response.dto';
 import { EmptyResultDto } from '../../common/dto/empty-result.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -36,8 +41,9 @@ export class ConversationController {
 
   @Get()
   @ApiOperation({
-    summary: '获取所有会话',
-    description: '返回当前用户的所有会话及消息列表',
+    summary: '获取会话列表',
+    description:
+      '返回当前用户的会话基础信息（按更新时间倒序），不含消息；消息经 /conversations/:id/messages 分页读取',
   })
   @ApiOkResponse({
     description: '会话列表',
@@ -46,6 +52,21 @@ export class ConversationController {
   })
   async findAll(@CurrentUser('id') userId: string) {
     return this.conversationService.findAllByUser(userId);
+  }
+
+  @Get(':id/messages')
+  @ApiOperation({
+    summary: '分页获取会话消息',
+    description:
+      '从最新消息往回翻页，本页按时间正序返回；hasMore 为 true 时以本页第一条消息 ID 作为 before 继续请求',
+  })
+  @ApiOkResponse({ type: ConversationMessagePageDto })
+  async findMessages(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Query() query: ListConversationMessagesQueryDto,
+  ) {
+    return this.conversationService.findMessages(id, userId, query);
   }
 
   @Post()

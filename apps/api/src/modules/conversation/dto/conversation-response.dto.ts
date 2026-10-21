@@ -172,6 +172,15 @@ export class ConversationMessageDto {
     required: false,
   })
   orders?: McDonaldsOrderResponseDto[];
+
+  @ApiProperty({
+    description:
+      '尚未结束的生成任务 ID（排队、生成中、暂停或等待审批）；客户端据此续接流。用户消息与已结束的助手消息为 null',
+    nullable: true,
+    type: String,
+    example: null,
+  })
+  activeTaskId: string | null;
 }
 
 export class ConversationDto {
@@ -203,13 +212,6 @@ export class ConversationDto {
   defaultAgentId?: string | null;
 
   @ApiProperty({
-    description: '会话消息列表',
-    type: ConversationMessageDto,
-    isArray: true,
-  })
-  messages: ConversationMessageDto[];
-
-  @ApiProperty({
     description: '会话创建时间戳（毫秒）',
     example: 1735689600000,
   })
@@ -220,4 +222,20 @@ export class ConversationDto {
     example: 1735689600000,
   })
   updatedAt: number;
+}
+
+export class ConversationMessagePageDto {
+  @ApiProperty({
+    description: '本页消息，按时间正序排列（最早的在前）',
+    type: ConversationMessageDto,
+    isArray: true,
+  })
+  messages: ConversationMessageDto[];
+
+  @ApiProperty({
+    description:
+      '是否还有更早的消息；为 true 时以本页第一条消息 ID 作为 before 继续请求',
+    example: false,
+  })
+  hasMore: boolean;
 }

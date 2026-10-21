@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConversationType } from '@prisma/client';
+import { ConversationType, Prisma, StreamTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { McDonaldsOrderService } from '../mcdonalds-order/mcdonalds-order.service';
 import {
@@ -12,6 +12,14 @@ import {
   AgentAccessService,
 } from '../agent-access/agent-access.service';
 import { CosStorageService } from '../storage/cos-storage.service';
+
+/** 尚未进入终态的任务状态；与 StreamTaskService 的终态判定互补，客户端据此决定是否续接。 */
+const ACTIVE_STREAM_TASK_STATUSES: StreamTaskStatus[] = [
+  StreamTaskStatus.PENDING,
+  StreamTaskStatus.STREAMING,
+  StreamTaskStatus.PAUSED,
+  StreamTaskStatus.WAITING_HUMAN,
+];
 
 @Injectable()
 export class ConversationService {
@@ -23,34 +31,77 @@ export class ConversationService {
   ) {}
 
   /**
-   * 查询指定用户的全部会话列表
+   * 查询指定用户的会话列表
    * @param userId 用户ID
-   * @returns 返回会话列表，包含会话基础信息及已按时间正序排列的消息列表
-   * @description 根据用户ID查询其全部会话，并按会话更新时间倒序返回，便于前端直接渲染历史聊天记录。
+   * @returns 返回按更新时间倒序的会话基础信息，不含消息
+   * @description 消息改由 findMessages 按会话分页读取：列表只用于侧栏目录，一次性带出所有会话的全部消息与
+   * 轨迹会随使用时长线性变慢。
    */
   async findAllByUser(userId: string) {
     const conversations = await this.prisma.conversation.findMany({
       // 过滤掉 admin 测试会话：测试记录只在 admin 测试工作台可见，不进端侧列表。
       where: { userId, isTest: false },
-      include: {
-        messages: {
-          orderBy: { createdAt: 'asc' },
-          include: {
-            imageAsset: { select: { key: true } },
-            turnTraceItems: {
-              orderBy: { sequence: 'asc' },
-            },
-          },
-        },
-      },
       orderBy: { updatedAt: 'desc' },
     });
+    return conversations.map((conversation) => this.toBrief(conversation));
+  }
 
-    // 批量映射发言者名字（群聊消息归属展示；agent 被删后回退 id 兜底）
+  /**
+   * 分页读取会话消息
+   * @param conversationId 会话ID
+   * @param userId 用户ID
+   * @param query 分页游标与每页条数
+   * @returns 返回本页消息（时间正序）及是否还有更早消息
+   * @description 从最新往回翻页：before 缺省时取最新一页，否则取严格早于游标消息的一页。
+   * 同毫秒创建的消息用 id 作次序，保证翻页不重复、不遗漏。游标不属于该会话时直接报错，不退化为第一页。
+   */
+  async findMessages(
+    conversationId: string,
+    userId: string,
+    query: { before?: string; limit: number },
+  ) {
+    await this.ensureOwnership(conversationId, userId);
+
+    let cursorWhere: Prisma.MessageWhereInput = {};
+    if (query.before) {
+      const cursor = await this.prisma.message.findFirst({
+        where: { id: query.before, conversationId },
+        select: { id: true, createdAt: true },
+      });
+      if (!cursor) {
+        throw new NotFoundException('分页游标对应的消息不存在');
+      }
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ],
+      };
+    }
+
+    const rows = await this.prisma.message.findMany({
+      where: { conversationId, ...cursorWhere },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      include: {
+        imageAsset: { select: { key: true } },
+        turnTraceItems: { orderBy: { sequence: 'asc' } },
+        streamTasks: {
+          where: { status: { in: ACTIVE_STREAM_TASK_STATUSES } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    const hasMore = rows.length > query.limit;
+    const messages = rows.slice(0, query.limit).reverse();
+
+    // 批量映射发言者名字（群聊消息归属展示；agent 被删后回退 null）
     const agentIds = [
       ...new Set(
-        conversations
-          .flatMap((c) => c.messages.map((m) => m.agentId))
+        messages
+          .map((m) => m.agentId)
           .filter((id): id is string => Boolean(id)),
       ),
     ];
@@ -65,25 +116,28 @@ export class ConversationService {
         : [],
     );
 
-    const orders = await this.prisma.mcDonaldsOrder.findMany({
-      where: { userId, messageId: { not: null } },
-      select: {
-        id: true,
-        messageId: true,
-        externalOrderId: true,
-        status: true,
-        statusLabel: true,
-        storeName: true,
-        fulfillmentType: true,
-        totalAmount: true,
-        discountAmount: true,
-        currency: true,
-        items: true,
-        estimatedFulfillmentAt: true,
-        lastRefreshedAt: true,
-        createdAt: true,
-      },
-    });
+    const orders =
+      messages.length > 0
+        ? await this.prisma.mcDonaldsOrder.findMany({
+            where: { userId, messageId: { in: messages.map((m) => m.id) } },
+            select: {
+              id: true,
+              messageId: true,
+              externalOrderId: true,
+              status: true,
+              statusLabel: true,
+              storeName: true,
+              fulfillmentType: true,
+              totalAmount: true,
+              discountAmount: true,
+              currency: true,
+              items: true,
+              estimatedFulfillmentAt: true,
+              lastRefreshedAt: true,
+              createdAt: true,
+            },
+          })
+        : [];
     const ordersByMessageId = new Map<
       string,
       ReturnType<McDonaldsOrderService['toOrderCard']>[]
@@ -97,13 +151,8 @@ export class ConversationService {
       ordersByMessageId.set(order.messageId, messageOrders);
     }
 
-    return conversations.map((c) => ({
-      id: c.id,
-      title: c.title,
-      type: c.type,
-      agentIds: c.agentIds,
-      defaultAgentId: c.defaultAgentId,
-      messages: c.messages.map((m) => ({
+    return {
+      messages: messages.map((m) => ({
         id: m.id,
         role: m.role.toLowerCase(),
         content: m.content,
@@ -130,10 +179,10 @@ export class ConversationService {
           outputSummary: item.outputSummary,
         })),
         orders: ordersByMessageId.get(m.id) ?? [],
+        activeTaskId: m.streamTasks[0]?.id ?? null,
       })),
-      createdAt: c.createdAt.getTime(),
-      updatedAt: c.updatedAt.getTime(),
-    }));
+      hasMore,
+    };
   }
 
   /**
@@ -335,7 +384,7 @@ export class ConversationService {
     }
   }
 
-  /** 会话基础信息投影（创建/更新/成员操作的统一响应） */
+  /** 会话基础信息投影（列表/创建/更新/成员操作的统一响应，不含消息） */
   private toBrief(conversation: {
     id: string;
     title: string;
@@ -351,7 +400,6 @@ export class ConversationService {
       type: conversation.type,
       agentIds: conversation.agentIds,
       defaultAgentId: conversation.defaultAgentId,
-      messages: [],
       createdAt: conversation.createdAt.getTime(),
       updatedAt: conversation.updatedAt.getTime(),
     };

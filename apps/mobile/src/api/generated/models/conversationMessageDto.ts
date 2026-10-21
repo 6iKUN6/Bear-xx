@@ -43,4 +43,9 @@ export interface ConversationMessageDto {
   trace?: ConversationMessageTraceItemDto[];
   /** 该助手消息创建的麦当劳订单卡片 */
   orders?: McDonaldsOrderResponseDto[];
+  /**
+     * 尚未结束的生成任务 ID（排队、生成中、暂停或等待审批）；客户端据此续接流。用户消息与已结束的助手消息为 null
+     * @nullable
+     */
+  activeTaskId: string | null;
 }

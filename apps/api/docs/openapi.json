@@ -2967,6 +2967,80 @@
         ]
       }
     },
+    "/api/admin/agent-flows/validate-definition": {
+      "post": {
+        "operationId": "AgentFlowController_validateDefinition",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateAgentFlowDefinitionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowValidationResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "校验未保存的 FlowDefinition（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flows/inspect-definition": {
+      "post": {
+        "operationId": "AgentFlowController_inspectDefinition",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateAgentFlowDefinitionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowDefinitionInspectionResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "预检并规范化 FlowDefinition（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
     "/api/admin/agent-flow-versions/{versionId}/validate": {
       "post": {
         "operationId": "AgentFlowController_validate",
@@ -3034,6 +3108,42 @@
           }
         ],
         "summary": "发布草稿版本（管理员）",
+        "tags": [
+          "管理-AgentFlow"
+        ]
+      }
+    },
+    "/api/admin/agent-flow-versions/{versionId}/upgrade-to-current": {
+      "post": {
+        "operationId": "AgentFlowController_upgradeToCurrentDraft",
+        "parameters": [
+          {
+            "name": "versionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentFlowVersionUpgradeResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "升级历史 FlowDefinition 为当前草稿（管理员）",
         "tags": [
           "管理-AgentFlow"
         ]
@@ -3162,7 +3272,7 @@
     },
     "/api/conversations": {
       "get": {
-        "description": "返回当前用户的所有会话及消息列表",
+        "description": "返回当前用户的会话基础信息（按更新时间倒序），不含消息；消息经 /conversations/:id/messages 分页读取",
         "operationId": "ConversationController_findAll",
         "parameters": [],
         "responses": {
@@ -3185,7 +3295,7 @@
             "bearer": []
           }
         ],
-        "summary": "获取所有会话",
+        "summary": "获取会话列表",
         "tags": [
           "会话"
         ]
@@ -3222,6 +3332,65 @@
           }
         ],
         "summary": "创建会话（单聊/群聊）",
+        "tags": [
+          "会话"
+        ]
+      }
+    },
+    "/api/conversations/{id}/messages": {
+      "get": {
+        "description": "从最新消息往回翻页，本页按时间正序返回；hasMore 为 true 时以本页第一条消息 ID 作为 before 继续请求",
+        "operationId": "ConversationController_findMessages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "分页游标：只返回早于该消息的消息；缺省返回最新一页",
+            "schema": {
+              "example": "cmf_msg_123",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "每页条数",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationMessagePageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "分页获取会话消息",
         "tags": [
           "会话"
         ]
@@ -5658,6 +5827,132 @@
           "updatedAt"
         ]
       },
+      "TestExecutionFlowSnapshotDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          },
+          "digest": {
+            "type": "string",
+            "description": "任务创建时冻结的 Flow Definition 摘要"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "versionId",
+          "version",
+          "digest"
+        ]
+      },
+      "TestExecutionModelSnapshotDto": {
+        "type": "object",
+        "properties": {
+          "presetId": {
+            "type": "string",
+            "description": "任务冻结的模型预设业务标识"
+          },
+          "name": {
+            "type": "object",
+            "description": "当前模型预设显示名称",
+            "nullable": true
+          },
+          "model": {
+            "type": "object",
+            "description": "当前底层模型名",
+            "nullable": true
+          },
+          "providerKey": {
+            "type": "object",
+            "description": "当前供应商模板标识",
+            "nullable": true
+          }
+        },
+        "required": [
+          "presetId",
+          "name",
+          "model",
+          "providerKey"
+        ]
+      },
+      "TestExecutionNodeModelDto": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "object",
+            "nullable": true
+          },
+          "nodeType": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "agent-default",
+              "explicit"
+            ]
+          },
+          "model": {
+            "$ref": "#/components/schemas/TestExecutionModelSnapshotDto"
+          }
+        },
+        "required": [
+          "nodeId",
+          "nodeName",
+          "nodeType",
+          "source",
+          "model"
+        ]
+      },
+      "TestMessageExecutionDto": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string"
+          },
+          "taskStatus": {
+            "type": "string"
+          },
+          "flow": {
+            "$ref": "#/components/schemas/TestExecutionFlowSnapshotDto"
+          },
+          "agentDefaultModel": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TestExecutionModelSnapshotDto"
+              }
+            ]
+          },
+          "nodeModels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TestExecutionNodeModelDto"
+            }
+          }
+        },
+        "required": [
+          "taskId",
+          "taskStatus",
+          "flow",
+          "agentDefaultModel",
+          "nodeModels"
+        ]
+      },
       "TestSessionMessageDto": {
         "type": "object",
         "properties": {
@@ -5696,6 +5991,15 @@
             "items": {
               "$ref": "#/components/schemas/TaskTraceItemDto"
             }
+          },
+          "execution": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TestMessageExecutionDto"
+              }
+            ]
           }
         },
         "required": [
@@ -5705,7 +6009,8 @@
           "agentId",
           "status",
           "createdAt",
-          "trace"
+          "trace",
+          "execution"
         ]
       },
       "TestSessionDetailDto": {
@@ -5761,6 +6066,14 @@
       "ModelProviderRecommendedModelDto": {
         "type": "object",
         "properties": {
+          "contextWindowTokens": {
+            "type": "object",
+            "nullable": true
+          },
+          "maxOutputTokens": {
+            "type": "object",
+            "nullable": true
+          },
           "model": {
             "type": "string"
           },
@@ -5787,6 +6100,8 @@
           }
         },
         "required": [
+          "contextWindowTokens",
+          "maxOutputTokens",
           "model",
           "name",
           "upstreamFormat",
@@ -5922,6 +6237,10 @@
             "type": "object",
             "nullable": true
           },
+          "contextWindowTokens": {
+            "type": "object",
+            "nullable": true
+          },
           "topP": {
             "type": "object",
             "nullable": true
@@ -5986,6 +6305,7 @@
           "model",
           "temperature",
           "maxOutputTokens",
+          "contextWindowTokens",
           "topP",
           "reasoningCapability",
           "enabled",
@@ -6121,6 +6441,11 @@
             "type": "number",
             "description": "最大输出 token"
           },
+          "contextWindowTokens": {
+            "type": "object",
+            "description": "供应商实际上下文容量（token）；聊天前必须配置",
+            "nullable": true
+          },
           "topP": {
             "type": "number",
             "description": "topP"
@@ -6216,6 +6541,11 @@
           "maxOutputTokens": {
             "type": "number",
             "description": "最大输出 token"
+          },
+          "contextWindowTokens": {
+            "type": "object",
+            "description": "供应商实际上下文容量（token）；聊天前必须配置",
+            "nullable": true
           },
           "topP": {
             "type": "number",
@@ -6393,6 +6723,11 @@
           "maxOutputTokens": {
             "type": "number",
             "description": "最大输出 token"
+          },
+          "contextWindowTokens": {
+            "type": "object",
+            "description": "供应商实际上下文容量（token）；聊天前必须配置",
+            "nullable": true
           },
           "topP": {
             "type": "number",
@@ -7266,8 +7601,18 @@
             "type": "object",
             "additionalProperties": true
           },
-          "schemaCompatible": {
-            "type": "boolean"
+          "schemaStatus": {
+            "type": "string",
+            "enum": [
+              "current",
+              "upgradeable",
+              "invalid",
+              "unsupported"
+            ]
+          },
+          "schemaTargetVersion": {
+            "type": "object",
+            "nullable": true
           },
           "schemaErrors": {
             "type": "array",
@@ -7303,7 +7648,8 @@
           "version",
           "status",
           "definition",
-          "schemaCompatible",
+          "schemaStatus",
+          "schemaTargetVersion",
           "digest",
           "schemaVersion",
           "createdAt",
@@ -7475,6 +7821,19 @@
           "definition"
         ]
       },
+      "ValidateAgentFlowDefinitionDto": {
+        "type": "object",
+        "properties": {
+          "definition": {
+            "type": "object",
+            "description": "仅校验、不持久化的完整 FlowDefinition JSON 工件",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "definition"
+        ]
+      },
       "AgentFlowValidationResponseDto": {
         "type": "object",
         "properties": {
@@ -7495,6 +7854,106 @@
         "required": [
           "valid",
           "errors"
+        ]
+      },
+      "FlowLoopAssignmentDto": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "loopId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodeId",
+          "loopId"
+        ]
+      },
+      "AgentFlowVersionUpgradeReportDto": {
+        "type": "object",
+        "properties": {
+          "fromVersion": {
+            "type": "number"
+          },
+          "toVersion": {
+            "type": "number"
+          },
+          "loopAssignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowLoopAssignmentDto"
+            }
+          },
+          "relativeLayoutNodeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "fromVersion",
+          "toVersion",
+          "loopAssignments",
+          "relativeLayoutNodeIds"
+        ]
+      },
+      "AgentFlowDefinitionInspectionResponseDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "upgradeable",
+              "invalid",
+              "unsupported"
+            ]
+          },
+          "sourceVersion": {
+            "type": "object",
+            "nullable": true
+          },
+          "targetVersion": {
+            "type": "object",
+            "nullable": true
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FlowDefinitionValidationErrorDto"
+            }
+          },
+          "definition": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "report": {
+            "$ref": "#/components/schemas/AgentFlowVersionUpgradeReportDto"
+          }
+        },
+        "required": [
+          "status",
+          "sourceVersion",
+          "targetVersion",
+          "errors"
+        ]
+      },
+      "AgentFlowVersionUpgradeResponseDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/AgentFlowVersionResponseDto"
+          },
+          "report": {
+            "$ref": "#/components/schemas/AgentFlowVersionUpgradeReportDto"
+          }
+        },
+        "required": [
+          "version",
+          "report"
         ]
       },
       "ImportAgentFlowDto": {
@@ -7520,6 +7979,54 @@
         },
         "required": [
           "versionId"
+        ]
+      },
+      "ConversationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "会话 ID",
+            "example": "cmf_conv_123"
+          },
+          "title": {
+            "type": "string",
+            "description": "会话标题",
+            "example": "新对话"
+          },
+          "type": {
+            "type": "string",
+            "description": "会话形态：SINGLE 单聊 / GROUP 群聊",
+            "example": "SINGLE"
+          },
+          "agentIds": {
+            "description": "GROUP=可 @ 的成员列表；SINGLE=绑定的智能体",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defaultAgentId": {
+            "type": "object",
+            "description": "默认回答者；GROUP 下 null = 自动路由",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "number",
+            "description": "会话创建时间戳（毫秒）",
+            "example": 1735689600000
+          },
+          "updatedAt": {
+            "type": "number",
+            "description": "会话更新时间戳（毫秒）",
+            "example": 1735689600000
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "createdAt",
+          "updatedAt"
         ]
       },
       "ConversationMessageTraceItemDto": {
@@ -7694,6 +8201,12 @@
             "items": {
               "$ref": "#/components/schemas/McDonaldsOrderResponseDto"
             }
+          },
+          "activeTaskId": {
+            "type": "string",
+            "description": "尚未结束的生成任务 ID（排队、生成中、暂停或等待审批）；客户端据此续接流。用户消息与已结束的助手消息为 null",
+            "nullable": true,
+            "example": null
           }
         },
         "required": [
@@ -7701,63 +8214,29 @@
           "role",
           "content",
           "status",
-          "createdAt"
+          "createdAt",
+          "activeTaskId"
         ]
       },
-      "ConversationDto": {
+      "ConversationMessagePageDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "会话 ID",
-            "example": "cmf_conv_123"
-          },
-          "title": {
-            "type": "string",
-            "description": "会话标题",
-            "example": "新对话"
-          },
-          "type": {
-            "type": "string",
-            "description": "会话形态：SINGLE 单聊 / GROUP 群聊",
-            "example": "SINGLE"
-          },
-          "agentIds": {
-            "description": "GROUP=可 @ 的成员列表；SINGLE=绑定的智能体",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "defaultAgentId": {
-            "type": "object",
-            "description": "默认回答者；GROUP 下 null = 自动路由",
-            "nullable": true
-          },
           "messages": {
-            "description": "会话消息列表",
+            "description": "本页消息，按时间正序排列（最早的在前）",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ConversationMessageDto"
             }
           },
-          "createdAt": {
-            "type": "number",
-            "description": "会话创建时间戳（毫秒）",
-            "example": 1735689600000
-          },
-          "updatedAt": {
-            "type": "number",
-            "description": "会话更新时间戳（毫秒）",
-            "example": 1735689600000
+          "hasMore": {
+            "type": "boolean",
+            "description": "是否还有更早的消息；为 true 时以本页第一条消息 ID 作为 before 继续请求",
+            "example": false
           }
         },
         "required": [
-          "id",
-          "title",
           "messages",
-          "createdAt",
-          "updatedAt"
+          "hasMore"
         ]
       },
       "CreateConversationDto": {

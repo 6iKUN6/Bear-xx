@@ -5,10 +5,16 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { ModelProviderRecommendedModelDtoContextWindowTokens } from './modelProviderRecommendedModelDtoContextWindowTokens';
+import type { ModelProviderRecommendedModelDtoMaxOutputTokens } from './modelProviderRecommendedModelDtoMaxOutputTokens';
 import type { ModelProviderRecommendedModelDtoUpstreamFormat } from './modelProviderRecommendedModelDtoUpstreamFormat';
 import type { ModelReasoningCapabilityDto } from './modelReasoningCapabilityDto';
 
 export interface ModelProviderRecommendedModelDto {
+  /** @nullable */
+  contextWindowTokens: ModelProviderRecommendedModelDtoContextWindowTokens;
+  /** @nullable */
+  maxOutputTokens: ModelProviderRecommendedModelDtoMaxOutputTokens;
   model: string;
   name: string;
   upstreamFormat: ModelProviderRecommendedModelDtoUpstreamFormat;

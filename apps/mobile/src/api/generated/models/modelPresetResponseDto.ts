@@ -8,6 +8,7 @@
 import type { ModelPresetConnectionSummaryDto } from './modelPresetConnectionSummaryDto';
 import type { ModelPresetResponseDtoApiKeyHint } from './modelPresetResponseDtoApiKeyHint';
 import type { ModelPresetResponseDtoCapability } from './modelPresetResponseDtoCapability';
+import type { ModelPresetResponseDtoContextWindowTokens } from './modelPresetResponseDtoContextWindowTokens';
 import type { ModelPresetResponseDtoLastCheckedAt } from './modelPresetResponseDtoLastCheckedAt';
 import type { ModelPresetResponseDtoLastCheckError } from './modelPresetResponseDtoLastCheckError';
 import type { ModelPresetResponseDtoMaxOutputTokens } from './modelPresetResponseDtoMaxOutputTokens';
@@ -29,6 +30,8 @@ export interface ModelPresetResponseDto {
   temperature: ModelPresetResponseDtoTemperature;
   /** @nullable */
   maxOutputTokens: ModelPresetResponseDtoMaxOutputTokens;
+  /** @nullable */
+  contextWindowTokens: ModelPresetResponseDtoContextWindowTokens;
   /** @nullable */
   topP: ModelPresetResponseDtoTopP;
   /** @nullable */

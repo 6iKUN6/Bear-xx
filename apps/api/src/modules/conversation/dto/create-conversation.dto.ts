@@ -3,10 +3,14 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ConversationType } from '@prisma/client';
 
@@ -58,4 +62,28 @@ export class AddConversationAgentDto {
   @ApiPropertyOptional({ description: '要加入群聊的智能体 id' })
   @IsString()
   agentId: string;
+}
+
+export class ListConversationMessagesQueryDto {
+  @ApiPropertyOptional({
+    description: '分页游标：只返回早于该消息的消息；缺省返回最新一页',
+    example: 'cmf_msg_123',
+  })
+  @IsOptional()
+  @IsString()
+  before?: string;
+
+  @ApiPropertyOptional({
+    type: Number,
+    default: 30,
+    minimum: 1,
+    maximum: 100,
+    description: '每页条数',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 30;
 }
