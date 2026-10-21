@@ -19,6 +19,27 @@ export interface StreamHandle {
 }
 
 /**
+ * SSE 请求失败
+ * @description retryable 区分「连接问题，可用同一 taskId 续接」与「请求本身被拒绝」：
+ * 网络中断、空闲超时、429 与 5xx 可续接；401 与其余 4xx 重试不会变好，直接报错。
+ */
+export class StreamRequestError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "StreamRequestError";
+  }
+}
+
+/**
+ * 连接空闲上限：服务端每 15s 发一次心跳，超过 3 个心跳周期没有任何字节，
+ * 视为半开连接（休眠唤醒、切换网络后常见），主动断开交给上层续接。
+ */
+const STREAM_IDLE_TIMEOUT_MS = 45_000;
+
+/**
  * 发送消息并消费 SSE 流（POST /chat/message）
  * @description 用 fetch + ReadableStream 带 Bearer 消费 SSE（EventSource 无法带
  * Authorization）。逐帧解析 `id:`/`event:`/`data:`，回调 onEvent。返回可 abort 的句柄。
@@ -70,6 +91,24 @@ export function streamPlanReview(
   );
 }
 
+/**
+ * 续接进行中的任务流（POST /stream-tasks/:taskId/resume）
+ * @description 服务端先重放 lastEventId 之后的缓冲帧，再接实时帧；任务已终态时直接下发终态。
+ * 用于断线重连与重启后恢复，不会重新触发模型调用。
+ */
+export function resumeTaskStream(
+  taskId: string,
+  lastEventId: string,
+  handlers: ChatStreamHandlers,
+): StreamHandle {
+  return openSseStream(
+    `/api/stream-tasks/${encodeURIComponent(taskId)}/resume`,
+    { lastEventId },
+    handlers,
+    "恢复连接失败",
+  );
+}
+
 /** 打开一条 POST SSE 流并逐帧回调；返回可 abort 句柄 */
 function openSseStream(
   path: string,
@@ -79,9 +118,19 @@ function openSseStream(
 ): StreamHandle {
   const controller = new AbortController();
   const token = authStorage.getToken();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let idleExpired = false;
+  const armIdleTimer = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      idleExpired = true;
+      controller.abort();
+    }, STREAM_IDLE_TIMEOUT_MS);
+  };
 
   void (async () => {
     try {
+      armIdleTimer();
       const response = await fetch(`${API_BASE_URL}${path}`, {
         method: "POST",
         headers: {
@@ -96,10 +145,13 @@ function openSseStream(
       if (response.status === 401) {
         authStorage.clear();
         window.dispatchEvent(new CustomEvent("sola:unauthorized"));
-        throw new Error("登录已过期，请重新登录");
+        throw new StreamRequestError("登录已过期，请重新登录", false);
       }
       if (!response.ok || !response.body) {
-        throw new Error(`${failureLabel}（${response.status}）`);
+        throw new StreamRequestError(
+          `${failureLabel}（${response.status}）`,
+          response.status === 429 || response.status >= 500,
+        );
       }
 
       const reader = response.body.getReader();
@@ -111,6 +163,7 @@ function openSseStream(
         if (done) {
           break;
         }
+        armIdleTimer();
         buffer += decoder
           .decode(value, { stream: true })
           .replace(/\r\n/g, "\n");
@@ -118,12 +171,26 @@ function openSseStream(
       }
       handlers.onDone();
     } catch (error) {
+      if (idleExpired) {
+        handlers.onError(
+          new StreamRequestError("连接长时间无响应，已断开", true),
+        );
+        return;
+      }
       if (controller.signal.aborted) {
         return;
       }
       handlers.onError(
-        error instanceof Error ? error : new Error(String(error)),
+        error instanceof StreamRequestError
+          ? error
+          : // fetch 层抛出的都是网络问题（断网、连接被重置、DNS 失败），可续接
+            new StreamRequestError(
+              error instanceof Error ? error.message : String(error),
+              true,
+            ),
       );
+    } finally {
+      clearTimeout(idleTimer);
     }
   })();
 

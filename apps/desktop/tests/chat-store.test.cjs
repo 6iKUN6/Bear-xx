@@ -2,6 +2,13 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { loadStore } = require("./load-store.cjs");
 
+class StreamRequestError extends Error {
+  constructor(message, retryable) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
+
 function setup() {
   const streams = [];
   const canceled = [];
@@ -35,6 +42,9 @@ function setup() {
       },
     },
     "@/api/stream": {
+      StreamRequestError,
+      resumeTaskStream: (id, cursor, handlers) =>
+        stream({ kind: "resume", id, cursor }, handlers),
       streamChatMessage: stream,
       streamApproval: (id, approvalId, decision, cursor, handlers) =>
         stream({ kind: "tool", id, approvalId, decision, cursor }, handlers),
@@ -267,4 +277,91 @@ test("流意外结束时保留部分正文并标明错误，不伪装生成成�
   assert.equal(message.content, "部分正文");
   assert.equal(message.status, "error");
   assert.match(message.errorMessage, /未收到完成确认/);
+});
+
+test("断线后用同一任务从断点续接，收到新帧即清除重连状态", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { store, streams, Event } = setup();
+  store.getState().send("长任务");
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", payload: { delta: "前半" } },
+    "1-0",
+  );
+  streams[0].handlers.onError(new StreamRequestError("network", true));
+  assert.equal(store.getState().reconnecting, true);
+  assert.equal(store.getState().sending, true);
+  assert.equal(streams.length, 1, "退避期间不立即重连");
+  t.mock.timers.tick(1000);
+  assert.deepEqual(streams[1].body, { kind: "resume", id: "task", cursor: "1-0" });
+  // 重放已收到的帧不会重复拼接正文
+  streams[1].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", payload: { delta: "前半" } },
+    "1-0",
+  );
+  streams[1].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", payload: { delta: "后半" } },
+    "2-0",
+  );
+  assert.equal(store.getState().reconnecting, false);
+  streams[1].handlers.onEvent(
+    { type: Event.MessageDone, payload: { content: "前半后半" } },
+    "3-0",
+  );
+  streams[1].handlers.onDone();
+  const message = store.getState().conversations[0].messages[1];
+  assert.equal(message.content, "前半后半");
+  assert.equal(message.status, "done");
+  assert.equal(store.getState().sending, false);
+});
+
+test("连接提前关闭也会续接；续接次数用尽后才标记错误", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { store, streams, Event } = setup();
+  store.getState().send("消息");
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", payload: { delta: "部分" } },
+    "1-0",
+  );
+  streams[0].handlers.onDone();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    t.mock.timers.tick(1000 * 2 ** attempt);
+    assert.equal(streams.length, attempt + 2);
+    streams[attempt + 1].handlers.onDone();
+  }
+  const message = store.getState().conversations[0].messages[1];
+  assert.equal(message.status, "error");
+  assert.equal(message.content, "部分");
+  assert.equal(store.getState().reconnecting, false);
+  assert.equal(store.getState().sending, false);
+});
+
+test("不可重试的失败与尚未创建任务的失败直接报错，不尝试续接", () => {
+  const { store, streams, Event } = setup();
+  store.getState().send("第一条");
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", payload: { delta: "x" } },
+    "1-0",
+  );
+  streams[0].handlers.onError(new StreamRequestError("登录已过期", false));
+  assert.equal(store.getState().conversations[0].messages[1].status, "error");
+  assert.equal(store.getState().reconnecting, false);
+
+  store.getState().send("第二条");
+  streams[1].handlers.onError(new StreamRequestError("network", true));
+  assert.equal(streams.length, 2, "没有 taskId 时无法安全续接");
+  assert.equal(store.getState().sending, false);
+});
+
+test("退避期间退出账号会取消待执行的续接", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { store, streams, Event } = setup();
+  store.getState().send("消息");
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", payload: { delta: "x" } },
+    "1-0",
+  );
+  streams[0].handlers.onError(new StreamRequestError("network", true));
+  store.getState().reset();
+  t.mock.timers.tick(5000);
+  assert.equal(streams.length, 1);
 });
