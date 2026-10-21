@@ -23,6 +23,9 @@ export function AssistantMessage({
   const toggleStreamFeedback = useChatStore((s) => s.toggleStreamFeedback);
   const submitApproval = useChatStore((s) => s.submitApproval);
   const submitPlanReview = useChatStore((s) => s.submitPlanReview);
+  const reconnecting = useChatStore(
+    (s) => s.reconnecting && s.activeMessageId === message.id,
+  );
   const pending = message.pendingApproval?.approval;
   const resolved = message.resolvedApproval;
 
@@ -81,6 +84,11 @@ export function AssistantMessage({
         <div className="text-sm leading-[1.75]">
           <MarkdownContent content={message.content} />
         </div>
+      )}
+      {reconnecting && (
+        <p className="muted text-xs mt-2" role="status">
+          连接中断，正在重新连接…（任务仍在服务端继续）
+        </p>
       )}
       {message.status === "error" && (
         <p className="message-error" role="alert">

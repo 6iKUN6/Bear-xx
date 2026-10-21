@@ -25,6 +25,8 @@ import {
 } from "@litter-bear/types/protocol";
 import { cancelStreamTask, getConversations } from "@/api/endpoints";
 import {
+  StreamRequestError,
+  resumeTaskStream,
   streamApproval,
   streamChatMessage,
   streamPlanReview,
@@ -68,6 +70,8 @@ interface ChatState {
   activeMessageId: string | null;
   taskId: string | null;
   canceling: boolean;
+  /** 连接中断后正在用同一任务续接（重放断点之后的帧，不会重新生成） */
+  reconnecting: boolean;
   taskError: string | null;
   drafts: Record<string, string>;
   setDraft: (key: string, value: string) => void;
@@ -106,8 +110,15 @@ interface ActiveStreamContext {
   seen: Set<string>;
   taskId?: string;
   lastEventId?: string;
+  /** 连续续接次数；收到任何新帧即清零 */
+  reconnectAttempts: number;
+  reconnectTimer?: ReturnType<typeof setTimeout>;
 }
 let activeStream: ActiveStreamContext | null = null;
+
+/** 连续续接上限与退避基数：1s、2s、4s、8s、16s 后放弃 */
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 1_000;
 let sessionEpoch = 0;
 let loadSequence = 0;
 
@@ -212,6 +223,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   function finish(context: ActiveStreamContext) {
     if (activeStream !== context) return;
     const message = findMessage(context.assistantMessageId);
+    clearTimeout(context.reconnectTimer);
     activeStream = null;
     set({
       sending: false,
@@ -219,8 +231,32 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeMessageId: null,
       taskId: null,
       canceling: false,
+      reconnecting: false,
     });
     if (message) context.options.onComplete?.(message);
+  }
+  /**
+   * 连接异常结束时尝试用同一任务续接
+   * @returns 已安排续接返回 true；没有任务 ID 或次数用尽返回 false，由调用方收敛为错误
+   * @description 任务在服务端继续执行，断线只丢失了推送；续接从 lastEventId 之后重放，
+   * seen 集合再挡一层重复帧，所以正文不会重复拼接，也不会重新调用模型。
+   */
+  function scheduleReconnect(context: ActiveStreamContext): boolean {
+    if (!context.taskId || context.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
+      return false;
+    const delay = RECONNECT_BASE_DELAY_MS * 2 ** context.reconnectAttempts;
+    context.reconnectAttempts += 1;
+    set({ reconnecting: true });
+    const taskId = context.taskId;
+    context.reconnectTimer = setTimeout(() => {
+      if (activeStream !== context) return;
+      context.handle = resumeTaskStream(
+        taskId,
+        context.lastEventId ?? "0",
+        handlers(context),
+      );
+    }, delay);
+    return true;
   }
   // 普通对话、创作助手与审批续跑共用同一事件处理，保持工具/审批行为一致。
   function handlers(context: ActiveStreamContext): ChatStreamHandlers {
@@ -228,6 +264,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     return {
       onEvent(event, frameId) {
         if (activeStream !== context) return;
+        if (context.reconnectAttempts > 0) {
+          context.reconnectAttempts = 0;
+          set({ reconnecting: false });
+        }
         if (frameId) {
           if (context.seen.has(frameId)) return;
           context.seen.add(frameId);
@@ -339,6 +379,9 @@ export const useChatStore = create<ChatState>((set, get) => {
       },
       onError(error) {
         if (activeStream !== context) return;
+        const retryable =
+          error instanceof StreamRequestError && error.retryable;
+        if (retryable && scheduleReconnect(context)) return;
         patch(id, (m) => ({
           ...m,
           status: "error",
@@ -350,6 +393,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       onDone() {
         if (activeStream !== context) return;
         if (findMessage(id)?.pendingApproval) return;
+        // 服务端或代理提前关闭了连接，但任务尚未终态：先续接，用尽次数才报错
+        if (!context.terminal && scheduleReconnect(context)) return;
         if (!context.terminal)
           patch(id, (m) => ({
             ...m,
@@ -387,6 +432,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       return;
     const resolvedApproval = resolve(pending.approval);
     if (!resolvedApproval) return;
+    clearTimeout(context.reconnectTimer);
     context.handle?.abort();
     set({ approvalSubmitting: true });
     patch(messageId, (m) => ({
@@ -410,6 +456,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     activeMessageId: null,
     taskId: null,
     canceling: false,
+    reconnecting: false,
     taskError: null,
     approvalSubmitting: false,
     drafts: {},
@@ -522,6 +569,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         options,
         terminal: false,
         seen: new Set(),
+        reconnectAttempts: 0,
       };
       activeStream = context;
       options.onConversationId?.(draftId);
@@ -574,6 +622,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         if (activeStream !== context) return;
         if (result.status !== "canceled")
           throw new Error("任务状态已变化，尚未确认取消，请等待当前结果。");
+        clearTimeout(context.reconnectTimer);
         context.handle?.abort();
         patch(context.assistantMessageId, (m) => ({
           ...m,
@@ -591,6 +640,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
     reset() {
+      clearTimeout(activeStream?.reconnectTimer);
       activeStream?.handle?.abort();
       activeStream = null;
       sessionEpoch += 1;
@@ -604,6 +654,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         taskId: null,
         taskError: null,
         canceling: false,
+        reconnecting: false,
         approvalSubmitting: false,
         drafts: {},
       });
