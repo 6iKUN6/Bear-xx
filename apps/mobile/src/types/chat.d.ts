@@ -52,6 +52,8 @@ interface Message {
   pendingPlanReview?: import("@litter-bear/types/protocol").PlanReviewRequiredPayload;
   /** 由 order.created 实时下发或会话历史回填的安全订单卡片。 */
   orders?: import("../api/mcdonaldsOrder").McDonaldsOrder[];
+  /** 服务端：尚未结束的生成任务 ID；进入会话时据此续接（换设备也能接上） */
+  activeTaskId?: string | null;
 }
 
 type ConversationType = "SINGLE" | "GROUP";
@@ -67,7 +69,20 @@ interface Conversation {
   defaultAgentId?: string | null;
   /** 本地记录上一轮已提交的模型选择，只用于给出上下文切换建议 */
   lastModelSelectionFingerprint?: string;
+  /** 已加载的消息（最新若干页，本地缓存）；会话列表接口不带消息 */
   messages: Message[];
+  /** 服务端还有更早的消息未加载；缺省 = 尚未从服务端同步过 */
+  hasMoreMessages?: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+/** 会话列表 / 创建接口返回的基础信息（不含消息） */
+type ConversationSummary = Omit<Conversation, "messages" | "hasMoreMessages">;
+
+/** 分页消息接口返回的一页 */
+interface ConversationMessagePage {
+  /** 时间正序（最早的在前） */
+  messages: Message[];
+  hasMore: boolean;
 }

@@ -16,6 +16,12 @@ interface MessageListProps {
   onToggleStreamFeedback?: (messageId: string) => void;
   onApproval?: (messageId: string, decision: ApprovalDecision) => void;
   onPlanReview?: (messageId: string, decision: PlanReviewDecision) => void;
+  /** 服务端还有更早的消息 */
+  hasMore?: boolean;
+  /** 正在加载更早的消息 */
+  loadingOlder?: boolean;
+  /** 加载更早的一页（显式点击触发，避免停在顶部时连续触发） */
+  onLoadOlder?: () => void;
 }
 
 export default function MessageList({
@@ -25,6 +31,9 @@ export default function MessageList({
   onToggleStreamFeedback,
   onApproval,
   onPlanReview,
+  hasMore = false,
+  loadingOlder = false,
+  onLoadOlder,
 }: MessageListProps) {
   const scrollSignal = useMemo(
     () => messages.map(getMessageScrollSignal).join("|"),
@@ -46,7 +55,7 @@ export default function MessageList({
     enabled: messages.length > 0,
     isStreaming,
     scrollSignal,
-    messageCount: messages.length,
+    latestMessageId: messages[messages.length - 1]?.id,
     resetKey: conversationId,
   });
 
@@ -81,6 +90,16 @@ export default function MessageList({
           </View>
         ) : (
           <View id={contentId} className="flex flex-col gap-[1.125rem]">
+            {hasMore && (
+              <View
+                className="self-center rounded-full px-[0.875rem] py-[0.375rem] text-[0.8125rem] text-[var(--lb-text-secondary)] active:opacity-70"
+                onClick={() => {
+                  if (!loadingOlder) onLoadOlder?.();
+                }}
+              >
+                <Text>{loadingOlder ? "正在加载…" : "加载更早的消息"}</Text>
+              </View>
+            )}
             {messages.map((msg) => (
               <ChatBubble
                 key={msg.id}
