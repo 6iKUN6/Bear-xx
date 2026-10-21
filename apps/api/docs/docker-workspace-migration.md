@@ -356,7 +356,9 @@ A/B 实测：容器内去掉 `--watch` 跑同一入口，Worker 稳定 RUNNING �
 
 修法：`start:temporal-worker:dev` 去掉 `--watch`（`package.json` 是 JSON 不能写注释，原因记在此处）。
 
-**代价**：两个 worker 失去热重载，改完需 `docker compose restart temporal-orchestrator-worker temporal-activity-worker`。若要恢复热重载，需引入 `nodemon` / `ts-node-dev` 这类**以子进程方式**重启的 watcher（子进程 execArgv 干净，不会被污染），但那是新增依赖，需另行决策。
+**代价**：两个 worker 失去热重载，改完需 `docker compose restart temporal-orchestrator-worker temporal-activity-worker`。
+
+> 2026-10 更新：开发与生产均已改为 Worker 内嵌在 `app` 进程（`TEMPORAL_EMBEDDED_WORKERS=true`），独立 Worker 容器、`temporal-db` 已移除，改完重启 `app` 即可。本节保留作为 `--watch` 问题的排查记录；内嵌模式下 `nest start --watch` 走子进程重启，不受此问题影响。若要恢复热重载，需引入 `nodemon` / `ts-node-dev` 这类**以子进程方式**重启的 watcher（子进程 execArgv 干净，不会被污染），但那是新增依赖，需另行决策。
 
 ## 遗留：缺失的数据库迁移
 

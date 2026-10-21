@@ -1,3 +1,6 @@
+# 项目名决定 Docker Desktop 中的容器组名，以及容器、镜像、数据卷的前缀。
+name: bearxx-server-dev
+
 x-application-build: &application-build
   context: ../..
   dockerfile: apps/api/Dockerfile
@@ -26,7 +29,7 @@ x-application-volumes: &application-volumes
 # apps/api/node_modules/@prisma/client 虽然在共享卷里，但只是软链，指回各容器
 # 自己的镜像层——所以卷共享给不了 client 共享。
 #
-# 因此三个应用服务的 command 各自带一次 `db:generate`。少做这一步的后果是静默的：
+# 因此每个应用服务的 command 各自带一次 `db:generate`。少做这一步的后果是静默的：
 # worker 会因为缺少新模型的类型而崩溃重启，前端只表现为接口 ERR_EMPTY_RESPONSE
 # 或 Flow 任务不动，控制台里看不出跟数据库有关。
 #
@@ -34,6 +37,11 @@ x-application-volumes: &application-volumes
 # 新增依赖会被旧卷遮住，得 down -v 才能恢复，比每次几百毫秒难查得多。
 #
 # generate 只读 schema.prisma 生成类型，不连数据库、不改数据，可无条件跑在启动前。
+#
+# 资源形态与生产一致：Temporal 编排与 Activity Worker 内嵌在 app 进程（共用一套 Nest 上下文），
+# Temporal 的存储放在主 Postgres 的 temporal / temporal_visibility 库，Temporal UI 默认不启动
+# （需要时 `docker compose --profile debug up -d temporal-ui`）。mem_limit 按单机小规格设定，
+# 只有 app 额外给了 tsc --watch 的余量。
 
 services:
   app:
@@ -44,6 +52,9 @@ services:
       - .env
     environment:
       <<: *application-environment
+      TEMPORAL_EMBEDDED_WORKERS: 'true'
+    # 开发态包含 nest --watch 的 tsc 增量编译；生产镜像只跑编译产物，占用明显更低
+    mem_limit: 2g
     depends_on:
       db:
         condition: service_healthy
@@ -56,48 +67,6 @@ services:
     volumes: *application-volumes
     working_dir: /workspace/apps/api
     command: sh -c 'pnpm run db:generate && pnpm run start:dev'
-
-  temporal-orchestrator-worker:
-    build: *application-build
-    env_file:
-      - .env
-    environment:
-      <<: *application-environment
-      TEMPORAL_WORKER_ROLE: orchestrator
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      temporal:
-        condition: service_healthy
-      workspace-bootstrap:
-        condition: service_completed_successfully
-    volumes: *application-volumes
-    working_dir: /workspace/apps/api
-    command: sh -c 'pnpm run db:generate && pnpm run start:temporal-worker:orchestrator:dev'
-    restart: unless-stopped
-
-  temporal-activity-worker:
-    build: *application-build
-    env_file:
-      - .env
-    environment:
-      <<: *application-environment
-      TEMPORAL_WORKER_ROLE: activity
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      temporal:
-        condition: service_healthy
-      workspace-bootstrap:
-        condition: service_completed_successfully
-    volumes: *application-volumes
-    working_dir: /workspace/apps/api
-    command: sh -c 'pnpm run db:generate && pnpm run start:temporal-worker:activity:dev'
-    restart: unless-stopped
 
   workspace-bootstrap:
     build: *application-build
@@ -117,6 +86,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    mem_limit: 512m
     environment:
       POSTGRES_DB: litter_bear
       POSTGRES_USER: postgres
@@ -133,6 +103,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    mem_limit: 128m
     ports:
       - '6379:6379'
     volumes:
@@ -143,30 +114,22 @@ services:
       timeout: 5s
       retries: 5
 
-  temporal-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: temporal
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-    volumes:
-      - temporal_pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U temporal -d temporal']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   temporal:
     image: temporalio/auto-setup:1.25.2
+    mem_limit: 512m
     environment:
       DB: postgres12
       DB_PORT: 5432
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: temporal
-      POSTGRES_SEEDS: temporal-db
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: postgres
+      POSTGRES_SEEDS: db
+      # auto-setup 首次启动在主 Postgres 内建这两个库，与业务库 litter_bear 互不干扰
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      # Go 运行时软上限，低于 mem_limit 留出余量，避免内存涨到上限被 OOM kill
+      GOMEMLIMIT: 400MiB
     depends_on:
-      temporal-db:
+      db:
         condition: service_healthy
     ports:
       - '7233:7233'
@@ -181,6 +144,8 @@ services:
 
   temporal-ui:
     image: temporalio/ui:2.31.2
+    profiles: ['debug']
+    mem_limit: 128m
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     depends_on:
@@ -194,4 +159,3 @@ volumes:
   types_node_modules:
   pg_data:
   redis_data:
-  temporal_pg_data:

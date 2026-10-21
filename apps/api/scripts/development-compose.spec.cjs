@@ -34,14 +34,23 @@ function readDevelopmentComposeSource() {
 
 /**
  * 读取结构化的开发 Docker Compose 配置
+ * @param extraArgs 追加在 config 之前的全局参数，例如 `--profile debug`
  * @returns 返回 Docker Compose 解析后的服务配置对象
  * @description 通过 JSON 结构断言服务依赖，避免测试依赖 YAML 展开文本的缩进格式。
  */
-function readDevelopmentComposeJson() {
+function readDevelopmentComposeJson(extraArgs = []) {
   return JSON.parse(
     execFileSync(
       'docker',
-      ['compose', '--file', composeFile, 'config', '--format', 'json'],
+      [
+        'compose',
+        '--file',
+        composeFile,
+        ...extraArgs,
+        'config',
+        '--format',
+        'json',
+      ],
       {
         cwd: apiRoot,
         encoding: 'utf8',
@@ -50,41 +59,40 @@ function readDevelopmentComposeJson() {
   );
 }
 
-test('开发 Compose 包含独立 Temporal 持久化、服务、UI 与双 Worker', () => {
-  const config = readDevelopmentComposeConfig();
+test('开发 Compose 内嵌 Worker、共用主 Postgres，Temporal UI 按需启动', () => {
+  const services = readDevelopmentComposeJson().services;
 
-  for (const serviceName of [
-    'temporal-db',
-    'temporal',
-    'temporal-ui',
-    'temporal-orchestrator-worker',
-    'temporal-activity-worker',
-  ]) {
-    assert.ok(
-      new RegExp(`^  ${serviceName}:$`, 'm').test(config),
-      `开发 Compose 缺少 ${serviceName} 服务`,
-    );
+  assert.deepEqual(
+    Object.keys(services).sort(),
+    ['app', 'db', 'redis', 'temporal', 'workspace-bootstrap'],
+    '默认只应启动 app / db / redis / temporal 与一次性 bootstrap',
+  );
+  assert.equal(
+    services.app.environment.TEMPORAL_EMBEDDED_WORKERS,
+    'true',
+    'app 必须内嵌运行 Temporal Worker',
+  );
+  assert.equal(services.app.environment.TEMPORAL_ADDRESS, 'temporal:7233');
+  assert.equal(
+    services.temporal.environment.POSTGRES_SEEDS,
+    'db',
+    'Temporal 必须使用主 Postgres，而不是独立数据库容器',
+  );
+  assert.equal(
+    services.temporal.depends_on.db.condition,
+    'service_healthy',
+  );
+  for (const name of ['app', 'db', 'redis', 'temporal']) {
+    assert.ok(services[name].mem_limit, `${name} 必须设置 mem_limit`);
   }
 
-  assert.ok(
-    /TEMPORAL_ADDRESS: temporal:7233/.test(config),
-    '开发 Compose 未将应用连接到 Temporal Server',
-  );
-  assert.ok(
-    /TEMPORAL_WORKER_ROLE: orchestrator/.test(config),
-    '开发 Compose 未配置编排 Worker 角色',
-  );
-  assert.ok(
-    /TEMPORAL_WORKER_ROLE: activity/.test(config),
-    '开发 Compose 未配置 Activity Worker 角色',
-  );
-  assert.ok(
-    /published: "8233"/.test(config),
-    '开发 Compose 未暴露 Temporal UI 端口',
-  );
+  const debugServices = readDevelopmentComposeJson(['--profile', 'debug'])
+    .services;
+  assert.ok(debugServices['temporal-ui'], 'debug profile 应包含 Temporal UI');
+  assert.equal(debugServices['temporal-ui'].ports[0].published, '8233');
 });
 
-test('开发 Compose 在工作区 bootstrap 成功后启动 API 与双 Worker', () => {
+test('开发 Compose 在工作区 bootstrap 成功后启动 API', () => {
   const config = readDevelopmentComposeConfig();
   const structuredConfig = readDevelopmentComposeJson();
   const source = readDevelopmentComposeSource();
@@ -93,11 +101,7 @@ test('开发 Compose 在工作区 bootstrap 成功后启动 API 与双 Worker', 
     /^  workspace-bootstrap:$/m.test(config),
     '开发 Compose 缺少 workspace-bootstrap 服务',
   );
-  for (const serviceName of [
-    'app',
-    'temporal-orchestrator-worker',
-    'temporal-activity-worker',
-  ]) {
+  for (const serviceName of ['app']) {
     assert.equal(
       structuredConfig.services[serviceName].depends_on['workspace-bootstrap']
         .condition,

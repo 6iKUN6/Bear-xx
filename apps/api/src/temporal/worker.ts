@@ -1,8 +1,10 @@
 import { NestFactory } from '@nestjs/core';
-import { NativeConnection, Worker } from '@temporalio/worker';
+import { NativeConnection } from '@temporalio/worker';
 import { AppModule } from '../app.module';
-import { AgentFlowActivities } from '../modules/agent-flow/temporal/agent-flow.activities';
-import { getAgentFlowWorkflowBuildId } from './agent-flow.workflow-revision';
+import {
+  createActivityWorker,
+  createOrchestratorWorker,
+} from './agent-flow-workers';
 import {
   getTemporalConnectionOptions,
   getTemporalWorkerConfig,
@@ -14,7 +16,8 @@ type TemporalWorkerRole = 'orchestrator' | 'activity';
 /**
  * 启动独立的 AgentFlow Temporal Worker
  * @returns 无返回值
- * @description TEMPORAL_WORKER_ROLE=orchestrator 时只注册纯 Workflow；activity 时才创建 Nest application context 并注册可访问数据库的 Activity。HTTP API 进程不调用此入口。
+ * @description TEMPORAL_WORKER_ROLE=orchestrator 时只注册纯 Workflow；activity 时才创建 Nest application context 并注册可访问数据库的 Activity。
+ * 用于多进程部署；单机部署可改由 API 进程内嵌运行（TEMPORAL_EMBEDDED_WORKERS=true），两者不要同时启用。
  */
 async function bootstrapTemporalWorker(): Promise<void> {
   const role = getTemporalWorkerRole(process.env);
@@ -31,7 +34,7 @@ async function bootstrapTemporalWorker(): Promise<void> {
  * 读取并校验当前 Worker 的进程角色
  * @param environment 待读取的环境变量集合
  * @returns 返回 orchestrator 或 activity 角色
- * @description 强制显式指定角色，避免单一进程同时消费 Workflow 与 Activity 任务队列而破坏部署隔离。
+ * @description 独立 Worker 进程必须显式指定角色；需要单进程同时运行两者时用 API 内嵌模式，而不是在这里混合。
  */
 function getTemporalWorkerRole(
   environment: Readonly<Record<string, string | undefined>>,
@@ -58,15 +61,7 @@ async function runOrchestratorWorker(
     getTemporalConnectionOptions(config),
   );
   try {
-    const worker = await Worker.create({
-      connection,
-      namespace: config.namespace,
-      taskQueue: config.orchestratorTaskQueue,
-      workflowsPath: require.resolve('./workflows/agent-flow.workflow'),
-      // 让每个 Workflow Task 携带推进它的代码修订，便于事后定位非确定性问题；
-      // 未开启 useVersioning，因此不参与任务路由，仅作元数据。
-      buildId: getAgentFlowWorkflowBuildId(),
-    });
+    const worker = await createOrchestratorWorker(connection, config);
     await worker.run();
   } finally {
     await connection.close();
@@ -85,14 +80,7 @@ async function runActivityWorker(config: TemporalWorkerConfig): Promise<void> {
     getTemporalConnectionOptions(config),
   );
   try {
-    const activities = application.get(AgentFlowActivities);
-    const worker = await Worker.create({
-      connection,
-      namespace: config.namespace,
-      taskQueue: config.activityTaskQueue,
-      activities: activities.getActivityHandlers(),
-      buildId: getAgentFlowWorkflowBuildId(),
-    });
+    const worker = await createActivityWorker(connection, config, application);
     await worker.run();
   } finally {
     await connection.close();

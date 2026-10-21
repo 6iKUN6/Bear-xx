@@ -1,11 +1,16 @@
 import { createServer } from 'node:net';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { API_GLOBAL_PREFIX } from './app.constants';
 import { createSwaggerDocument } from './swagger';
+import { runEmbeddedAgentFlowWorkers } from './temporal/agent-flow-workers';
+import {
+  getTemporalWorkerConfig,
+  isTemporalEmbeddedWorkersEnabled,
+} from './temporal/temporal.config';
 
 const MAX_PORT_ATTEMPTS = 10;
 const SERVER_NAME = 'XX SERVER';
@@ -72,6 +77,33 @@ async function bootstrap() {
   console.log(`${SERVER_NAME} running on http://localhost:${port}`);
   console.log(`API Prefix: http://localhost:${port}/${API_GLOBAL_PREFIX}`);
   console.log(`API Docs: http://localhost:${port}/api-docs`);
+
+  if (isTemporalEmbeddedWorkersEnabled()) {
+    startEmbeddedTemporalWorkers(app);
+  }
+}
+
+/**
+ * 在 API 进程内启动 AgentFlow Worker
+ * @param app 已开始监听的 API 应用
+ * @returns 无返回值；Worker 在后台运行
+ * @description Temporal Runtime 接管 SIGINT/SIGTERM 并优雅停止 Worker，停止后由这里关闭应用并退出。
+ * Worker 异常退出时整个进程以非零码退出交给容器重启，不留下「接口正常但 Flow 无人执行」的半活状态。
+ */
+function startEmbeddedTemporalWorkers(app: INestApplication): void {
+  const config = getTemporalWorkerConfig();
+  console.log(
+    `Temporal Workers embedded: ${config.orchestratorTaskQueue}, ${config.activityTaskQueue}`,
+  );
+  runEmbeddedAgentFlowWorkers(app, config)
+    .catch((error: unknown) => {
+      console.error('内嵌 Temporal Worker 异常退出', error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await app.close();
+      process.exit();
+    });
 }
 
 bootstrap()

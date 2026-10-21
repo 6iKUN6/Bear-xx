@@ -338,11 +338,12 @@ pnpm run dev:docker:up      # = docker compose up --build，镜像构建期重�
 Client 就生成在那里。`apps/api/node_modules/@prisma/client` 虽然在共享卷里，但只是软链，
 指回各容器自己的镜像层——**卷共享给不了 client 共享**。
 
-compose 已给三个应用服务的 command 前置了 `db:generate`，所以只需重启，不必重新构建：
+compose 已给应用服务的 command 前置了 `db:generate`，所以只需重启，不必重新构建：
+（Temporal Worker 已内嵌在 `app` 进程，重启 `app` 即可。）
 
 ```bash
 pnpm --filter ./apps/api run db:migrate       # 宿主机，由用户执行
-docker compose restart app temporal-orchestrator-worker temporal-activity-worker
+docker compose restart app
 ```
 
 **顺序不能反**：先重启的话容器生成的还是旧 schema 的 client。

@@ -48,6 +48,28 @@ export function getTemporalWorkerConfig(
 }
 
 /**
+ * 读取 API 进程是否内嵌运行 Temporal Worker
+ * @param environment 待读取的环境变量，默认使用当前进程环境
+ * @returns 返回是否在 API 进程内启动编排与 Activity Worker
+ * @description 缺省关闭，保持 API 与独立 Worker 进程分离；只接受 true / false，拼写错误直接启动失败而不是静默不跑 Worker。
+ */
+export function isTemporalEmbeddedWorkersEnabled(
+  environment: TemporalEnvironment = process.env,
+): boolean {
+  const value = readOptionalTemporalValue(
+    environment,
+    'TEMPORAL_EMBEDDED_WORKERS',
+  );
+  if (!value || value === 'false') {
+    return false;
+  }
+  if (value === 'true') {
+    return true;
+  }
+  throw new Error('TEMPORAL_EMBEDDED_WORKERS 只能是 true 或 false');
+}
+
+/**
  * 构造 Temporal SDK 连接参数
  * @param config 已通过严格校验的 Temporal Worker 配置
  * @returns 返回不含业务任务数据的连接参数
