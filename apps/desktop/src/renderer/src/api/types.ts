@@ -12,7 +12,10 @@ import type {
 import type { ReasoningSelection } from "@litter-bear/types";
 import type {
   ApprovalDecisionType,
-  ApprovalRequiredPayload,
+  FlowPlanReviewApprovalPayload,
+  FlowToolApprovalPayload,
+  FlowWaitingHumanPayload,
+  PlanReviewDecisionType,
 } from "@litter-bear/types/protocol";
 
 export type MembershipTier = "FREE" | "PLUS" | "PRO";
@@ -70,14 +73,24 @@ export interface ConversationMessage {
   metrics?: MessageRunMetrics | null;
   errorMessage?: string;
   canceled?: boolean;
-  /** HITL：待人工审批（approval.required 载荷）；提交决定后清空 */
-  pendingApproval?: ApprovalRequiredPayload;
-  /** HITL：已处理的审批结论（决定 + 原载荷），历史卡收敛为一行 */
-  resolvedApproval?: {
-    decision: ApprovalDecisionType;
-    payload: ApprovalRequiredPayload;
-  };
+  /** HITL：Flow 待人工审批（flow.waiting_human 载荷，含 approvalId）；提交决定后清空 */
+  pendingApproval?: FlowWaitingHumanPayload;
+  /** HITL：已处理的审批结论（决定 + 原载荷），卡片收敛为一行 */
+  resolvedApproval?: ResolvedApproval;
 }
+
+/** 已处理的 Flow 审批：工具审批与计划审批的决定闭集不同，按 kind 区分 */
+export type ResolvedApproval =
+  | {
+      kind: "tool";
+      payload: FlowToolApprovalPayload;
+      decision: ApprovalDecisionType;
+    }
+  | {
+      kind: "plan-review";
+      payload: FlowPlanReviewApprovalPayload;
+      decision: PlanReviewDecisionType;
+    };
 
 export interface Conversation {
   id: string;

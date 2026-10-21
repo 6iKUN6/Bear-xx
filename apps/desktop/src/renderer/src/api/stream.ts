@@ -1,5 +1,6 @@
 import type {
   ApprovalDecision,
+  PlanReviewDecision,
   StreamTaskEventEnvelope,
 } from "@litter-bear/types/protocol";
 import { authStorage } from "./auth-storage";
@@ -31,21 +32,41 @@ export function streamChatMessage(
 }
 
 /**
- * 提交人工审批决定并续跑（POST /stream-tasks/:taskId/approval，HITL）
- * @description 审批端点同样是 SSE：提交 decide 后任务从中断处继续推流，
- * 复用同一套帧解析与事件回调。lastEventId 传断点游标，服务端只补新帧。
+ * 提交工具审批决定并续跑（POST /stream-tasks/:taskId/approval，HITL）
+ * @description 审批端点同样是 SSE：决定落库后经 Temporal 恢复，任务从中断处继续推流，
+ * 复用同一套帧解析与事件回调。approvalId 来自 flow.waiting_human，lastEventId 传断点游标，服务端只补新帧。
  */
 export function streamApproval(
   taskId: string,
+  approvalId: string,
   decision: ApprovalDecision,
   lastEventId: string | undefined,
   handlers: ChatStreamHandlers,
 ): StreamHandle {
   return openSseStream(
-    `/api/stream-tasks/${taskId}/approval`,
-    { ...decision, lastEventId },
+    `/api/stream-tasks/${encodeURIComponent(taskId)}/approval`,
+    { ...decision, approvalId, lastEventId },
     handlers,
     "提交审批失败",
+  );
+}
+
+/**
+ * 提交计划审批决定并续跑（POST /stream-tasks/:taskId/plan-review，HITL）
+ * @description 与工具审批共用续跑管道，只是决定闭集不同（通过 / 修改 / 打回重规划 / 终止）。
+ */
+export function streamPlanReview(
+  taskId: string,
+  approvalId: string,
+  decision: PlanReviewDecision,
+  lastEventId: string | undefined,
+  handlers: ChatStreamHandlers,
+): StreamHandle {
+  return openSseStream(
+    `/api/stream-tasks/${encodeURIComponent(taskId)}/plan-review`,
+    { ...decision, approvalId, lastEventId },
+    handlers,
+    "提交计划确认失败",
   );
 }
 

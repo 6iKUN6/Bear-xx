@@ -3,6 +3,7 @@ import { CopyButton } from "./ui";
 import type { ConversationMessage } from "@/api/types";
 import { useChatStore } from "@/stores/chat-store";
 import { ApprovalCard } from "@/components/ApprovalCard";
+import { PlanReviewCard } from "@/components/PlanReviewCard";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { StreamingMarkdownContent } from "@/components/StreamingMarkdownContent";
 import { TraceBlock } from "@/components/TraceBlock";
@@ -21,6 +22,9 @@ export function AssistantMessage({
   const approvalSubmitting = useChatStore((s) => s.approvalSubmitting);
   const toggleStreamFeedback = useChatStore((s) => s.toggleStreamFeedback);
   const submitApproval = useChatStore((s) => s.submitApproval);
+  const submitPlanReview = useChatStore((s) => s.submitPlanReview);
+  const pending = message.pendingApproval?.approval;
+  const resolved = message.resolvedApproval;
 
   return (
     <div className="assistant-message">
@@ -35,17 +39,33 @@ export function AssistantMessage({
         onToggle={() => toggleStreamFeedback(message.id)}
       />
 
-      {message.pendingApproval && (
+      {pending?.kind === "tool" && (
         <ApprovalCard
-          payload={message.pendingApproval}
+          // 同一消息可能先后出现多次审批，换 approvalId 时重建卡片内部编辑态
+          key={message.pendingApproval?.approvalId}
+          payload={pending}
           submitting={approvalSubmitting}
           onDecision={(decision) => submitApproval(message.id, decision)}
         />
       )}
-      {!message.pendingApproval && message.resolvedApproval && (
+      {pending?.kind === "plan-review" && (
+        <PlanReviewCard
+          key={message.pendingApproval?.approvalId}
+          payload={pending}
+          submitting={approvalSubmitting}
+          onDecision={(decision) => submitPlanReview(message.id, decision)}
+        />
+      )}
+      {!pending && resolved?.kind === "tool" && (
         <ApprovalCard
-          payload={message.resolvedApproval.payload}
-          resolvedDecision={message.resolvedApproval.decision}
+          payload={resolved.payload}
+          resolvedDecision={resolved.decision}
+        />
+      )}
+      {!pending && resolved?.kind === "plan-review" && (
+        <PlanReviewCard
+          payload={resolved.payload}
+          resolvedDecision={resolved.decision}
         />
       )}
 

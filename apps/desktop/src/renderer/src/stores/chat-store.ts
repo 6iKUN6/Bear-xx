@@ -13,11 +13,13 @@ import {
   TASK_ERROR_CATEGORY_LABELS,
   StreamTaskEventType,
   type ApprovalDecision,
-  type ApprovalRequiredPayload,
-  type ApprovalResolvedPayload,
   type ConversationTitleUpdatedPayload,
+  type FlowApprovalPayload,
+  type FlowRunResumedPayload,
+  type FlowWaitingHumanPayload,
   type MessageDeltaPayload,
   type MessageDonePayload,
+  type PlanReviewDecision,
   type StreamTaskEventEnvelope,
   type TaskErrorPayload,
 } from "@litter-bear/types/protocol";
@@ -25,10 +27,15 @@ import { cancelStreamTask, getConversations } from "@/api/endpoints";
 import {
   streamApproval,
   streamChatMessage,
+  streamPlanReview,
   type ChatStreamHandlers,
   type StreamHandle,
 } from "@/api/stream";
-import type { Conversation, ConversationMessage } from "@/api/types";
+import type {
+  Conversation,
+  ConversationMessage,
+  ResolvedApproval,
+} from "@/api/types";
 import type { ReasoningSelection } from "@litter-bear/types";
 
 /** 发送一条消息的可选项：智能体、模型与思考设置 */
@@ -72,8 +79,10 @@ interface ChatState {
   send: (content: string, options?: SendOptions) => string | null;
   /** 展开 / 收起某条消息的执行轨迹 */
   toggleStreamFeedback: (messageId: string) => void;
-  /** 提交人工审批决定（HITL），审批端点续跑同一任务 */
+  /** 提交工具审批决定（HITL），审批端点续跑同一任务 */
   submitApproval: (messageId: string, decision: ApprovalDecision) => void;
+  /** 提交计划审批决定（HITL），计划审批端点续跑同一任务 */
+  submitPlanReview: (messageId: string, decision: PlanReviewDecision) => void;
   /** 退出登录 / 清理本地会话态 */
   reset: () => void;
 }
@@ -267,25 +276,21 @@ export const useChatStore = create<ChatState>((set, get) => {
             }));
             break;
           }
-          case StreamTaskEventType.ApprovalRequired:
-            patch(id, (m) => ({
-              ...m,
-              pendingApproval: event.payload as
-                ApprovalRequiredPayload | undefined,
-            }));
+          case StreamTaskEventType.FlowWaitingHuman: {
+            // Flow 是唯一编排路径：工具审批与计划审批都以 flow.waiting_human 下发，
+            // approvalId 是提交决定时必须回传的审批事实标识。
+            const payload = event.payload as
+              FlowWaitingHumanPayload | undefined;
+            if (!payload) break;
+            patch(id, (m) => ({ ...m, pendingApproval: payload }));
             set({ approvalSubmitting: false });
             break;
-          case StreamTaskEventType.ApprovalResolved: {
-            const payload = event.payload as
-              ApprovalResolvedPayload | undefined;
-            if (!payload) break;
-            patch(id, (m) => ({
-              ...m,
-              pendingApproval: undefined,
-              resolvedApproval: m.pendingApproval
-                ? { decision: payload.decision, payload: m.pendingApproval }
-                : m.resolvedApproval,
-            }));
+          }
+          case StreamTaskEventType.FlowRunResumed: {
+            const payload = event.payload as FlowRunResumedPayload | undefined;
+            if (payload?.reason !== "approval") break;
+            patch(id, (m) => ({ ...m, pendingApproval: undefined }));
+            set({ approvalSubmitting: false });
             break;
           }
           case StreamTaskEventType.MessageDone: {
@@ -354,6 +359,47 @@ export const useChatStore = create<ChatState>((set, get) => {
         finish(context);
       },
     };
+  }
+  /**
+   * 提交审批决定并接续同一条助手消息的流
+   * @param resolve 按审批类型生成本地结论；类型与提交入口不符时返回 null 并放弃提交
+   * @description 先中止仍挂着的等待流，再由审批端点从 lastEventId 续推；本地先把卡片收敛为结论，
+   * 决定被服务端拒绝时由 onError 把消息置为错误态，不会假装已经通过。
+   */
+  function resumeWithDecision(
+    messageId: string,
+    resolve: (approval: FlowApprovalPayload) => ResolvedApproval | null,
+    open: (
+      taskId: string,
+      approvalId: string,
+      lastEventId: string | undefined,
+      handlers: ChatStreamHandlers,
+    ) => StreamHandle,
+  ) {
+    const context = activeStream;
+    const pending = findMessage(messageId)?.pendingApproval;
+    if (
+      !context?.taskId ||
+      context.assistantMessageId !== messageId ||
+      get().approvalSubmitting ||
+      !pending
+    )
+      return;
+    const resolvedApproval = resolve(pending.approval);
+    if (!resolvedApproval) return;
+    context.handle?.abort();
+    set({ approvalSubmitting: true });
+    patch(messageId, (m) => ({
+      ...m,
+      pendingApproval: undefined,
+      resolvedApproval,
+    }));
+    context.handle = open(
+      context.taskId,
+      pending.approvalId,
+      context.lastEventId,
+      handlers(context),
+    );
   }
   return {
     conversations: [],
@@ -494,30 +540,29 @@ export const useChatStore = create<ChatState>((set, get) => {
       return assistantMessage.id;
     },
     submitApproval(messageId, decision) {
-      const context = activeStream;
-      const message = findMessage(messageId);
-      if (
-        !context?.taskId ||
-        context.assistantMessageId !== messageId ||
-        get().approvalSubmitting ||
-        !message?.pendingApproval
-      )
-        return;
-      context.handle?.abort();
-      patch(messageId, (m) => ({
-        ...m,
-        pendingApproval: undefined,
-        resolvedApproval: {
-          decision: decision.decision,
-          payload: message.pendingApproval!,
-        },
-      }));
-      set({ approvalSubmitting: true });
-      context.handle = streamApproval(
-        context.taskId,
-        decision,
-        context.lastEventId,
-        handlers(context),
+      resumeWithDecision(
+        messageId,
+        (approval) =>
+          approval.kind === "tool"
+            ? { kind: "tool", payload: approval, decision: decision.decision }
+            : null,
+        (taskId, approvalId, lastEventId, h) =>
+          streamApproval(taskId, approvalId, decision, lastEventId, h),
+      );
+    },
+    submitPlanReview(messageId, decision) {
+      resumeWithDecision(
+        messageId,
+        (approval) =>
+          approval.kind === "plan-review"
+            ? {
+                kind: "plan-review",
+                payload: approval,
+                decision: decision.decision,
+              }
+            : null,
+        (taskId, approvalId, lastEventId, h) =>
+          streamPlanReview(taskId, approvalId, decision, lastEventId, h),
       );
     },
     async cancel() {

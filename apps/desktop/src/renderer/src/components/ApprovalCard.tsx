@@ -5,15 +5,16 @@ import {
   APPROVAL_DECISION_LABELS,
   type ApprovalDecision,
   type ApprovalDecisionType,
-  type ApprovalRequiredPayload,
+  type FlowToolApprovalPayload,
+  type FlowToolApprovalRequest,
 } from "@litter-bear/types/protocol";
 
 interface ApprovalCardProps {
-  /** 后端 approval.required 事件载荷 */
-  payload: ApprovalRequiredPayload;
+  /** flow.waiting_human 中的工具审批批次 */
+  payload: FlowToolApprovalPayload;
   /** 提交中（恢复请求发起后禁用交互，避免重复提交） */
   submitting?: boolean;
-  /** 已做出的决定；传入即收敛为一行结论（历史卡只读） */
+  /** 已做出的决定；传入即收敛为一行结论 */
   resolvedDecision?: ApprovalDecisionType;
   /** 提交人工决定 */
   onDecision?: (decision: ApprovalDecision) => void;
@@ -21,8 +22,9 @@ interface ApprovalCardProps {
 
 /**
  * 工具级人工审批卡片（HITL）
- * @description 待审批时展示工具名/说明/参数事实行，提供 通过 / 修改 / 拒绝 三态；
- * 嵌套与长文本参数收进「查看调用参数」折叠区，已处理的历史卡收敛为一行结论。
+ * @description 一次 interrupt 可能包含多个工具请求，它们组成不可拆分的批次、共用一个决定。
+ * 每个请求展示工具名 / 说明 / 参数事实行，嵌套与长文本参数收进折叠区；
+ * 只有单个请求且后端允许时才能「修改参数」——一份改后参数无法安全映射到多个工具。
  * 纯展示组件：决定通过 onDecision 上抛，由上层调用 /approval 端点恢复续跑。
  */
 export function ApprovalCard({
@@ -31,38 +33,34 @@ export function ApprovalCard({
   resolvedDecision,
   onDecision,
 }: ApprovalCardProps) {
-  const allowed = payload.allowedDecisions ?? ["approve", "reject"];
+  const allowed = payload.allowedDecisions;
+  const single = payload.requests.length === 1 ? payload.requests[0] : null;
   const canApprove = allowed.includes("approve");
   const canReject = allowed.includes("reject");
-  const canEdit = allowed.includes("edit");
+  const canEdit = Boolean(single) && allowed.includes("edit");
 
   const [editing, setEditing] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
   const [editText, setEditText] = useState(() =>
-    formatApprovalArgs(payload.args),
+    formatApprovalArgs(single?.args),
   );
   const [parseError, setParseError] = useState<string | null>(null);
 
-  // 已处理：整张卡收敛为一行结论
   if (resolvedDecision) {
     return (
-      <ResolvedLine toolName={payload.toolName} decision={resolvedDecision} />
+      <ResolvedLine
+        toolNames={payload.requests.map((request) => request.toolName)}
+        decision={resolvedDecision}
+      />
     );
   }
 
   const disabled = submitting;
-  const { facts, rawText } = splitApprovalArgs(payload.args);
-
   const emit = (decision: ApprovalDecision) => {
-    if (!disabled) {
-      onDecision?.(decision);
-    }
+    if (!disabled) onDecision?.(decision);
   };
 
   const handleConfirmEdit = () => {
-    if (disabled) {
-      return;
-    }
+    if (disabled) return;
     try {
       const editedArgs = editText.trim()
         ? (JSON.parse(editText) as Record<string, unknown>)
@@ -81,18 +79,12 @@ export function ApprovalCard({
           !
         </span>
         <span className="text-[13px] font-semibold">待人工确认</span>
-        {payload.toolName && (
-          <span className="rounded-full bg-[var(--lb-surface-hover)] px-2 py-0.5 font-mono text-[11px] text-[var(--lb-text-secondary)]">
-            {payload.toolName}
+        {payload.requests.length > 1 && (
+          <span className="text-[12px] text-[var(--lb-text-secondary)]">
+            {payload.requests.length} 个操作需一起确认
           </span>
         )}
       </div>
-
-      {payload.description && (
-        <p className="mt-2 text-[13px] leading-relaxed text-[var(--lb-text-secondary)]">
-          {payload.description}
-        </p>
-      )}
 
       {editing ? (
         <div className="mt-2.5">
@@ -111,46 +103,9 @@ export function ApprovalCard({
           )}
         </div>
       ) : (
-        <>
-          {facts.length > 0 && (
-            <div className="mt-2.5 flex flex-col gap-1.5">
-              {facts.map((fact) => (
-                <div
-                  key={fact.key}
-                  className="flex items-baseline gap-2 text-[12px]"
-                >
-                  <span className="shrink-0 font-mono text-[var(--lb-text-muted)]">
-                    {fact.key}
-                  </span>
-                  <span className="min-w-0 break-all text-[var(--lb-text-primary)]">
-                    {fact.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {rawText && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={() => setShowRaw((v) => !v)}
-                className="flex items-center gap-1 text-[12px] text-[var(--lb-text-secondary)] transition-colors hover:text-[var(--lb-text-primary)]"
-              >
-                <ChevronRight
-                  size={12}
-                  className={`transition-transform ${showRaw ? "rotate-90" : ""}`}
-                />
-                {showRaw ? "收起调用参数" : "查看调用参数"}
-              </button>
-              {showRaw && (
-                <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap rounded-[var(--lb-radius-sm)] bg-[var(--lb-page-background)] p-2 font-mono text-[11px] leading-relaxed text-[var(--lb-text-secondary)]">
-                  {rawText}
-                </pre>
-              )}
-            </div>
-          )}
-        </>
+        payload.requests.map((request) => (
+          <RequestDetail key={request.index} request={request} />
+        ))
       )}
 
       <div className="mt-3 flex items-center gap-2">
@@ -169,7 +124,7 @@ export function ApprovalCard({
               onClick={() => {
                 setEditing(false);
                 setParseError(null);
-                setEditText(formatApprovalArgs(payload.args));
+                setEditText(formatApprovalArgs(single?.args));
               }}
               className="inline-flex h-8 items-center rounded-[var(--lb-radius-sm)] border border-[var(--lb-line-strong)] px-3 text-[12px] transition-colors hover:bg-[var(--lb-surface-hover)]"
             >
@@ -215,12 +170,64 @@ export function ApprovalCard({
   );
 }
 
+/** 单个工具请求的说明与参数事实行 */
+function RequestDetail({ request }: { request: FlowToolApprovalRequest }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const { facts, rawText } = splitApprovalArgs(request.args);
+  return (
+    <div className="mt-2.5">
+      <span className="rounded-full bg-[var(--lb-surface-hover)] px-2 py-0.5 font-mono text-[11px] text-[var(--lb-text-secondary)]">
+        {request.toolName}
+      </span>
+      {request.description && (
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--lb-text-secondary)]">
+          {request.description}
+        </p>
+      )}
+      {facts.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {facts.map((fact) => (
+            <div key={fact.key} className="flex items-baseline gap-2 text-[12px]">
+              <span className="shrink-0 font-mono text-[var(--lb-text-muted)]">
+                {fact.key}
+              </span>
+              <span className="min-w-0 break-all text-[var(--lb-text-primary)]">
+                {fact.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {rawText && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setShowRaw((v) => !v)}
+            className="flex items-center gap-1 text-[12px] text-[var(--lb-text-secondary)] transition-colors hover:text-[var(--lb-text-primary)]"
+          >
+            <ChevronRight
+              size={12}
+              className={`transition-transform ${showRaw ? "rotate-90" : ""}`}
+            />
+            {showRaw ? "收起调用参数" : "查看调用参数"}
+          </button>
+          {showRaw && (
+            <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap rounded-[var(--lb-radius-sm)] bg-[var(--lb-page-background)] p-2 font-mono text-[11px] leading-relaxed text-[var(--lb-text-secondary)]">
+              {rawText}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 已处理审批的一行结论 */
 function ResolvedLine({
-  toolName,
+  toolNames,
   decision,
 }: {
-  toolName?: string;
+  toolNames: string[];
   decision: ApprovalDecisionType;
 }) {
   const rejected = decision === "reject";
@@ -233,7 +240,7 @@ function ResolvedLine({
       {rejected ? <X size={13} /> : <Check size={13} />}
       <span>
         {APPROVAL_DECISION_LABELS[decision]}
-        {toolName ? ` · ${toolName}` : ""}
+        {toolNames.length ? ` · ${toolNames.join("、")}` : ""}
       </span>
     </div>
   );
