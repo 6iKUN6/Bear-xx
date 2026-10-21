@@ -4,7 +4,9 @@ import type {
   Agent,
   AgentModelOptions,
   AuthResponse,
-  Conversation,
+  ConversationMessagePage,
+  ConversationSummary,
+  StreamTaskStatus,
 } from "./types";
 
 /**
@@ -25,9 +27,27 @@ export function logoutAccount(): Promise<{ success: boolean }> {
   return request<{ success: boolean }>("/auth/logout", { method: "POST" });
 }
 
-/** 获取当前用户的全部会话（含消息列表），按服务端返回顺序 */
-export function getConversations(): Promise<Conversation[]> {
-  return request<Conversation[]>("/conversations");
+/** 获取当前用户的会话目录（按更新时间倒序，不含消息） */
+export function getConversations(): Promise<ConversationSummary[]> {
+  return request<ConversationSummary[]>("/conversations");
+}
+
+/** 分页读取会话消息：before 缺省取最新一页，否则取早于该消息的一页 */
+export function getConversationMessages(
+  conversationId: string,
+  before?: string,
+): Promise<ConversationMessagePage> {
+  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  return request<ConversationMessagePage>(
+    `/conversations/${encodeURIComponent(conversationId)}/messages${query}`,
+  );
+}
+
+/** 查询任务状态：判断能否续接，已结束时取终稿 */
+export function getStreamTaskStatus(taskId: string): Promise<StreamTaskStatus> {
+  return request<StreamTaskStatus>(
+    `/stream-tasks/${encodeURIComponent(taskId)}`,
+  );
 }
 
 /** 获取智能体列表（供选择器；含 canUse 标记，会员不可用的置灰展示） */

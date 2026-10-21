@@ -14,6 +14,9 @@ function setup() {
   const canceled = [];
   let remote = Promise.resolve([]);
   let cancelResult = Promise.resolve({ status: "canceled" });
+  const pages = [];
+  const pageRequests = [];
+  let taskStatus = Promise.resolve({ canResume: false, status: "completed" });
   const Event = {
     MessageDelta: "delta",
     MessageDone: "done",
@@ -36,6 +39,11 @@ function setup() {
   const { useChatStore: store } = loadStore("stores/chat-store.ts", {
     "@/api/endpoints": {
       getConversations: () => remote,
+      getConversationMessages: (id, before) => {
+        pageRequests.push({ id, before });
+        return pages.shift() ?? Promise.resolve({ messages: [], hasMore: false });
+      },
+      getStreamTaskStatus: () => taskStatus,
       cancelStreamTask: (id) => {
         canceled.push(id);
         return cancelResult;
@@ -75,7 +83,30 @@ function setup() {
     setCancel(value) {
       cancelResult = value;
     },
+    pushPage(value) {
+      pages.push(Promise.resolve(value));
+    },
+    pageRequests,
+    setTaskStatus(value) {
+      taskStatus = Promise.resolve(value);
+    },
   };
+}
+
+function serverMessage(id, overrides = {}) {
+  return {
+    id,
+    role: "assistant",
+    content: id,
+    status: "done",
+    createdAt: 1,
+    activeTaskId: null,
+    ...overrides,
+  };
+}
+
+async function settle() {
+  for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
 }
 
 function deferred() {
@@ -365,3 +396,103 @@ test("退避期间退出账号会取消待执行的续接", (t) => {
   t.mock.timers.tick(5000);
   assert.equal(streams.length, 1);
 });
+
+test("会话目录不带消息：沿用已加载的消息，进入会话再按页拉取", async () => {
+  const { store, setRemote, pushPage, pageRequests } = setup();
+  setRemote(Promise.resolve([{ id: "c1", title: "一", createdAt: 1, updatedAt: 2 }]));
+  await store.getState().loadConversations();
+  assert.deepEqual(store.getState().conversations[0].messages, []);
+
+  pushPage({ messages: [serverMessage("m2"), serverMessage("m3")], hasMore: true });
+  store.getState().setActive("c1");
+  await settle();
+  assert.deepEqual(pageRequests[0], { id: "c1", before: undefined });
+  let conv = store.getState().conversations[0];
+  assert.deepEqual(conv.messages.map((m) => m.id), ["m2", "m3"]);
+  assert.equal(conv.hasMoreMessages, true);
+
+  // 刷新目录不丢已加载的消息
+  setRemote(Promise.resolve([{ id: "c1", title: "一（改名）", createdAt: 1, updatedAt: 3 }]));
+  await store.getState().loadConversations();
+  conv = store.getState().conversations[0];
+  assert.equal(conv.title, "一（改名）");
+  assert.equal(conv.messages.length, 2);
+
+  pushPage({ messages: [serverMessage("m1"), serverMessage("m2")], hasMore: false });
+  await store.getState().loadOlderMessages("c1");
+  assert.deepEqual(pageRequests[1], { id: "c1", before: "m2" });
+  conv = store.getState().conversations[0];
+  assert.deepEqual(conv.messages.map((m) => m.id), ["m1", "m2", "m3"], "重叠的消息去重");
+  assert.equal(conv.hasMoreMessages, false);
+  await store.getState().loadOlderMessages("c1");
+  assert.equal(pageRequests.length, 2, "没有更早消息时不再请求");
+});
+
+test("本机正在生成的会话不被服务端旧快照覆盖", async () => {
+  const { store, streams, Event, setRemote, pushPage, pageRequests } = setup();
+  setRemote(Promise.resolve([{ id: "c1", title: "一", createdAt: 1, updatedAt: 2 }]));
+  await store.getState().loadConversations();
+  pushPage({ messages: [], hasMore: false });
+  store.getState().setActive("c1");
+  await settle();
+  store.getState().send("问题");
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task", conversationId: "c1", payload: { delta: "半截" } },
+    "1-0",
+  );
+  await store.getState().loadMessages("c1");
+  assert.equal(pageRequests.length, 1, "活动流期间不重新拉取");
+  assert.equal(store.getState().conversations[0].messages[1].content, "半截");
+});
+
+test("进入会话时接回未结束的任务：从游标 0 重放并清空半截正文", async () => {
+  const { store, streams, Event, setRemote, pushPage, setTaskStatus } = setup();
+  setRemote(Promise.resolve([{ id: "c1", title: "一", createdAt: 1, updatedAt: 2 }]));
+  await store.getState().loadConversations();
+  pushPage({
+    messages: [
+      serverMessage("u1", { role: "user" }),
+      serverMessage("a1", { status: "streaming", content: "半截", activeTaskId: "task-1" }),
+    ],
+    hasMore: false,
+  });
+  setTaskStatus({ canResume: true, status: "streaming", fullContent: "半截" });
+  store.getState().setActive("c1");
+  await settle();
+  assert.deepEqual(streams[0].body, { kind: "resume", id: "task-1", cursor: "0" });
+  assert.equal(store.getState().sending, true);
+  let message = store.getState().conversations[0].messages[1];
+  assert.equal(message.content, "");
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDelta, taskId: "task-1", payload: { delta: "完整回答" } },
+    "1-0",
+  );
+  streams[0].handlers.onEvent(
+    { type: Event.MessageDone, payload: { content: "完整回答" } },
+    "2-0",
+  );
+  streams[0].handlers.onDone();
+  message = store.getState().conversations[0].messages[1];
+  assert.equal(message.content, "完整回答");
+  assert.equal(message.status, "done");
+  assert.equal(store.getState().sending, false);
+});
+
+test("任务已结束时用终稿收敛，不再显示生成中", async () => {
+  const { store, streams, setRemote, pushPage, setTaskStatus } = setup();
+  setRemote(Promise.resolve([{ id: "c1", title: "一", createdAt: 1, updatedAt: 2 }]));
+  await store.getState().loadConversations();
+  pushPage({
+    messages: [serverMessage("a1", { status: "streaming", content: "半", activeTaskId: "task-1" })],
+    hasMore: false,
+  });
+  setTaskStatus({ canResume: false, status: "error", fullContent: "半截终稿" });
+  store.getState().setActive("c1");
+  await settle();
+  assert.equal(streams.length, 0);
+  const message = store.getState().conversations[0].messages[0];
+  assert.equal(message.content, "半截终稿");
+  assert.equal(message.status, "error");
+  assert.equal(message.activeTaskId, null);
+});
+
