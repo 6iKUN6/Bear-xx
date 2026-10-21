@@ -19,15 +19,26 @@ const DRAFT_CONVERSATION_PREFIX = "draft_";
 interface ChatState {
   conversations: Conversation[];
   currentConversation: Conversation | null;
+  /** 最近一次与服务端完成消息同步的会话（成功或失败都会置位），续接探测据此等待同步 */
+  syncedConversationId: string | null;
+  /** 正在加载更早消息的会话 */
+  loadingOlderConversationId: string | null;
 
   loadConversations: () => Promise<void>;
+  /**
+   * 进入会话时拉取最新一页消息，以服务端为准刷新本地缓存
+   * @description 调用方须保证该会话没有本机正在拼接的流：服务端此刻落后于本地增量内容，覆盖会抹掉半截回答。
+   */
+  loadMessages: (conversationId: string) => Promise<void>;
+  /** 加载当前已加载范围之前的一页消息 */
+  loadOlderMessages: (conversationId: string) => Promise<void>;
   createConversation: () => Promise<string>;
   deleteConversation: (id: string) => Promise<void>;
   setCurrentConversation: (id: string) => void;
   /** 开始新对话：清空当前会话，下一次发送时创建草稿 */
   clearCurrentConversation: () => void;
-  /** 服务端创建的会话（单聊/群聊）放入列表并置为当前 */
-  upsertConversation: (conversation: Conversation) => void;
+  /** 服务端创建的会话（单聊/群聊）放入列表并置为当前；已存在时保留其消息 */
+  upsertConversation: (conversation: ConversationSummary) => void;
   ensureDraftConversation: () => string;
   replaceConversationId: (draftId: string, conversationId: string) => void;
   updateConversationTitle: (conversationId: string, title: string) => void;
@@ -79,6 +90,8 @@ interface ChatState {
 export const useChatStore = createBoundStore<ChatState>((set, get) => ({
   conversations: [],
   currentConversation: null,
+  syncedConversationId: null,
+  loadingOlderConversationId: null,
 
   async loadConversations() {
     const remote = await chatApi.getConversations();
@@ -94,39 +107,117 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
       const drafts = state.conversations.filter((c) =>
         isDraftConversation(c.id),
       );
-      const conversations = [
+      // 列表只带基础信息：消息沿用本地缓存，进入会话时再由 loadMessages 以服务端为准刷新
+      const localById = new Map(state.conversations.map((c) => [c.id, c]));
+      const conversations: Conversation[] = [
         ...drafts,
-        ...remote.map(normalizeConversationStreamFeedback),
+        ...remote.map((summary) => {
+          const local = localById.get(summary.id);
+          return {
+            ...local,
+            ...summary,
+            messages: local?.messages ?? [],
+            hasMoreMessages: local?.hasMoreMessages,
+          };
+        }),
       ];
 
       const current = state.currentConversation;
       if (!current) {
         return { conversations };
       }
-
-      // 流式进行中不能用远程覆盖：服务端此刻的消息落后于正在增量拼接的本地内容，
-      // 覆盖会把已经渲染出来的半截回答抹掉。草稿同理，远程没有对应记录。
-      const hasInFlight = current.messages.some(
-        (m) => m.status === "streaming",
-      );
-      if (hasInFlight || isDraftConversation(current.id)) {
-        return { conversations };
-      }
-
-      // 重新指向刷新后的对象。不这样做，当前会话会一直停在 hydrate 时的旧快照，
-      // 本地残留（例如请求失败留下的占位消息）永远等不到服务端数据来纠正——
-      // 表现为切走再切回来才恢复正常。
       const refreshed = conversations.find((c) => c.id === current.id);
       return {
         conversations,
-        // 远端已不存在（在别处删了）时保留当前对象，避免视图突然空掉
-        currentConversation: refreshed ?? current,
+        // 远端已不存在（在别处删了）时保留当前对象，避免视图突然空掉；
+        // 消息保持当前对象的，避免覆盖正在流式拼接的内容
+        currentConversation: refreshed
+          ? { ...refreshed, messages: current.messages }
+          : current,
       };
     });
   },
 
+  async loadMessages(conversationId: string) {
+    if (isDraftConversation(conversationId)) {
+      return;
+    }
+    try {
+      const page = await chatApi.getConversationMessages(conversationId);
+      set((state) => {
+        const target = state.conversations.find((c) => c.id === conversationId);
+        if (!target) {
+          return { syncedConversationId: conversationId };
+        }
+        return {
+          syncedConversationId: conversationId,
+          ...replaceConversation(state, {
+            ...target,
+            messages: page.messages.map(normalizeMessageStreamFeedback),
+            hasMoreMessages: page.hasMore,
+          }),
+        };
+      });
+      get().persistConversations();
+    } catch (error) {
+      // 失败时保留本地缓存继续可用，同时放行续接探测；错误交由调用方提示
+      set({ syncedConversationId: conversationId });
+      throw error;
+    }
+  },
+
+  async loadOlderMessages(conversationId: string) {
+    const state = get();
+    const target = state.conversations.find((c) => c.id === conversationId);
+    const oldest = target?.messages[0];
+    if (
+      !target?.hasMoreMessages ||
+      !oldest ||
+      state.loadingOlderConversationId === conversationId
+    ) {
+      return;
+    }
+    set({ loadingOlderConversationId: conversationId });
+    try {
+      const page = await chatApi.getConversationMessages(
+        conversationId,
+        oldest.id,
+      );
+      set((current) => {
+        const latest = current.conversations.find(
+          (c) => c.id === conversationId,
+        );
+        if (!latest) {
+          return { loadingOlderConversationId: null };
+        }
+        const known = new Set(latest.messages.map((m) => m.id));
+        return {
+          loadingOlderConversationId: null,
+          ...replaceConversation(current, {
+            ...latest,
+            messages: [
+              ...page.messages
+                .filter((m) => !known.has(m.id))
+                .map(normalizeMessageStreamFeedback),
+              ...latest.messages,
+            ],
+            hasMoreMessages: page.hasMore,
+          }),
+        };
+      });
+      get().persistConversations();
+    } catch (error) {
+      set({ loadingOlderConversationId: null });
+      throw error;
+    }
+  },
+
   async createConversation() {
-    const conv = await chatApi.createConversation();
+    const conv: Conversation = {
+      ...(await chatApi.createConversation()),
+      messages: [],
+      hasMoreMessages: false,
+    };
     set((state) => ({
       conversations: [conv, ...state.conversations],
       currentConversation: conv,
@@ -155,13 +246,10 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
     set({ currentConversation: null });
   },
 
-  upsertConversation(conversation: Conversation) {
+  upsertConversation(conversation: ConversationSummary) {
     set((state) => {
       const exists = state.conversations.some((c) => c.id === conversation.id);
-      const normalized = {
-        ...conversation,
-        messages: conversation.messages ?? [],
-      };
+      const normalized: Conversation = { ...conversation, messages: [] };
       const conversations = exists
         ? state.conversations.map((c) =>
             c.id === normalized.id
@@ -577,6 +665,25 @@ export const useChatStore = createBoundStore<ChatState>((set, get) => ({
     });
   },
 }));
+
+/**
+ * 用新对象替换会话列表与当前会话中的同一会话
+ * @description 列表与 currentConversation 是两份引用，所有写入都必须同时更新两处，否则当前视图停在旧快照。
+ */
+function replaceConversation(
+  state: Pick<ChatState, "conversations" | "currentConversation">,
+  next: Conversation,
+) {
+  return {
+    conversations: state.conversations.map((c) =>
+      c.id === next.id ? next : c,
+    ),
+    currentConversation:
+      state.currentConversation?.id === next.id
+        ? next
+        : state.currentConversation,
+  };
+}
 
 /**
  * 判断是否为本地草稿会话

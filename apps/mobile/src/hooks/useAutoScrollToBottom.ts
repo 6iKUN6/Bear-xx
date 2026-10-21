@@ -31,11 +31,12 @@ interface UseAutoScrollToBottomOptions {
   /** 内容信号：消息内容、状态、trace 展开等变化时触发一次「跟随底部」检查 */
   scrollSignal: string | number;
   /**
-   * 消息条数
-   * @description 条数变化（发出/收到新消息）时无条件贴底——这是用户明确发起的
+   * 最新一条消息的 id
+   * @description 最新消息变化（发出/收到新消息）时无条件贴底——这是用户明确发起的
    * 新内容；内容信号只在用户本来就贴着底时跟随，trace 展开这类操作不会把人拽走。
+   * 用最新 id 而不是条数：在顶部加载更早的消息也会改变条数，但不应把人拽到底部。
    */
-  messageCount: number;
+  latestMessageId: string | undefined;
   isStreaming?: boolean;
   containerId?: string;
   bottomThreshold?: number;
@@ -52,7 +53,7 @@ interface UseAutoScrollToBottomOptions {
  * 管理聊天列表自动滚动到底部
  * @param enabled 是否启用自动滚动
  * @param scrollSignal 触发滚动检查的外部信号，通常由消息内容、状态和事件数量拼接生成
- * @param messageCount 消息条数，条数增长时无条件贴底
+ * @param latestMessageId 最新消息 id，变化时无条件贴底
  * @param isStreaming 当前是否处于流式输出中
  * @param containerId ScrollView 容器节点 ID
  * @param bottomThreshold 距离底部多少像素以内视为仍在底部
@@ -67,7 +68,7 @@ interface UseAutoScrollToBottomOptions {
 export function useAutoScrollToBottom({
   enabled = true,
   scrollSignal,
-  messageCount,
+  latestMessageId,
   isStreaming = false,
   containerId = "chat-message-scroll",
   bottomThreshold = 96,
@@ -365,18 +366,18 @@ export function useAutoScrollToBottom({
     scheduleScrollToBottom(false);
   }, [enabled, isStreaming, scheduleScrollToBottom, scrollSignal]);
 
-  // 消息条数变化（发出/收到新消息）：无条件贴底，这是用户发起的新内容。
-  const prevMessageCountRef = useRef(messageCount);
+  // 最新消息变化（发出/收到新消息）：无条件贴底，这是用户发起的新内容。
+  const prevLatestMessageIdRef = useRef(latestMessageId);
   useEffect(() => {
-    if (prevMessageCountRef.current === messageCount) {
+    if (prevLatestMessageIdRef.current === latestMessageId) {
       return;
     }
-    prevMessageCountRef.current = messageCount;
+    prevLatestMessageIdRef.current = latestMessageId;
 
     if (enabled) {
       scheduleScrollToBottom(true);
     }
-  }, [enabled, messageCount, scheduleScrollToBottom]);
+  }, [enabled, latestMessageId, scheduleScrollToBottom]);
 
   useEffect(() => {
     return () => {

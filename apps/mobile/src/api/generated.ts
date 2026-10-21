@@ -9,6 +9,7 @@ import {
   conversationControllerCreate,
   conversationControllerDelete,
   conversationControllerFindAll,
+  conversationControllerFindMessages,
   healthControllerCheck,
   streamTaskControllerCancelTask,
   streamTaskControllerGetTask,
@@ -20,6 +21,7 @@ import {
 import type {
   AccountLoginDto,
   ChatCompletionsDto,
+  ConversationControllerFindMessagesParams,
   CreateConversationDto,
   ImageGenerationDto,
   PhoneLoginDto,
@@ -88,6 +90,16 @@ export class Api extends BaseApiClient {
 
   findAll(): Promise<unknown> {
     return conversationControllerFindAll() as Promise<unknown>;
+  }
+
+  findMessages(args: {
+    id: string;
+    params?: ConversationControllerFindMessagesParams;
+  }): Promise<unknown> {
+    return conversationControllerFindMessages(
+      args.id,
+      args.params,
+    ) as Promise<unknown>;
   }
 
   create(body: CreateConversationDto): Promise<unknown> {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { View } from "@tarojs/components";
-import { useDidHide } from "@tarojs/taro";
+import Taro, { useDidHide } from "@tarojs/taro";
 import type {
   ApprovalDecision,
   ApprovalRequiredPayload,
@@ -97,6 +97,10 @@ export default function ChatWorkspace({
     setMessagePlanReview,
     upsertMessageOrder,
     persistConversations,
+    loadMessages,
+    loadOlderMessages,
+    syncedConversationId,
+    loadingOlderConversationId,
   } = useChatStore();
 
   const activeAssistantMessageIdRef = useRef<string | null>(null);
@@ -192,11 +196,31 @@ export default function ChatWorkspace({
     persistConversations();
   });
 
-  // 跨页面/重启续接：进入会话时若存在进行中任务指针，探测任务状态——
+  // 进入会话：以服务端为准刷新最新一页。本机正在拼接流时跳过——服务端此刻落后于
+  // 本地增量内容（含草稿 id 被替换成真实 id 的那一刻），覆盖会抹掉半截回答。
+  useEffect(() => {
+    const convId = currentConversation?.id;
+    if (!convId || convId.startsWith("draft_")) {
+      return;
+    }
+    if (activeAssistantMessageIdRef.current) {
+      return;
+    }
+    loadMessages(convId).catch((error: unknown) => {
+      console.warn("Load messages failed:", error);
+      void Taro.showToast({ title: "消息加载失败，显示的是本地记录", icon: "none" });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentConversation?.id]);
+
+  // 跨页面/重启续接：消息同步后，若存在进行中任务（本机指针或服务端 activeTaskId），探测任务状态——
   // 可续接则从 0 游标重放帧接回流；已终态则直接取终稿刷新消息。
   useEffect(() => {
     const convId = currentConversation?.id;
     if (!convId || convId.startsWith("draft_")) {
+      return;
+    }
+    if (syncedConversationId !== convId) {
       return;
     }
     if (activeAssistantMessageIdRef.current) {
@@ -210,7 +234,12 @@ export default function ChatWorkspace({
     const stuckMessage = [...(currentConversation?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant" && m.status === "streaming");
-    const pending = getPendingTask(convId);
+    // 本机指针优先；换设备或指针丢失时用服务端下发的未结束任务 ID
+    const pending =
+      getPendingTask(convId) ??
+      (stuckMessage?.activeTaskId
+        ? { taskId: stuckMessage.activeTaskId }
+        : null);
 
     if (!pending) {
       // 无指针但消息卡在 streaming（历史遗留）：收敛为 done，避免永久转圈
@@ -276,7 +305,7 @@ export default function ChatWorkspace({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentConversation]);
+  }, [currentConversation, syncedConversationId]);
 
   useEffect(() => {
     return () => {
@@ -595,6 +624,19 @@ export default function ChatWorkspace({
             messages={messages}
             isStreaming={!!isStreaming}
             conversationId={currentConversation?.id}
+            hasMore={!!currentConversation?.hasMoreMessages}
+            loadingOlder={
+              !!currentConversation &&
+              loadingOlderConversationId === currentConversation.id
+            }
+            onLoadOlder={() => {
+              const convId = currentConversation?.id;
+              if (!convId) return;
+              loadOlderMessages(convId).catch((error: unknown) => {
+                console.warn("Load older messages failed:", error);
+                void Taro.showToast({ title: "加载失败，请重试", icon: "none" });
+              });
+            }}
             onToggleStreamFeedback={toggleMessageStreamFeedback}
             onApproval={handleApproval}
             onPlanReview={handlePlanReview}
