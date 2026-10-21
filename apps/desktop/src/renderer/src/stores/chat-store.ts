@@ -23,7 +23,12 @@ import {
   type StreamTaskEventEnvelope,
   type TaskErrorPayload,
 } from "@litter-bear/types/protocol";
-import { cancelStreamTask, getConversations } from "@/api/endpoints";
+import {
+  cancelStreamTask,
+  getConversationMessages,
+  getConversations,
+  getStreamTaskStatus,
+} from "@/api/endpoints";
 import {
   StreamRequestError,
   resumeTaskStream,
@@ -66,6 +71,12 @@ interface ChatState {
   loading: boolean;
   /** 会话列表加载失败文案；null = 正常 */
   loadError: string | null;
+  /** 正在加载最新一页消息的会话 */
+  messagesLoadingId: string | null;
+  /** 正在加载更早消息的会话 */
+  olderLoadingId: string | null;
+  /** 消息加载失败文案（按会话）；null = 正常 */
+  messagesError: Record<string, string>;
   sending: boolean;
   activeMessageId: string | null;
   taskId: string | null;
@@ -79,6 +90,13 @@ interface ChatState {
   /** 审批提交中（禁用审批卡交互，避免重复提交） */
   approvalSubmitting: boolean;
   loadConversations: () => Promise<void>;
+  /**
+   * 拉取会话最新一页消息并以服务端为准替换本地；存在未结束任务时自动续接
+   * @description 本机正在拼接该会话的流时跳过，避免服务端较旧的快照覆盖半截回答。
+   */
+  loadMessages: (conversationId: string) => Promise<void>;
+  /** 加载已加载范围之前的一页消息 */
+  loadOlderMessages: (conversationId: string) => Promise<void>;
   setActive: (id: string | null) => void;
   send: (content: string, options?: SendOptions) => string | null;
   /** 展开 / 收起某条消息的执行轨迹 */
@@ -406,6 +424,63 @@ export const useChatStore = create<ChatState>((set, get) => {
     };
   }
   /**
+   * 接回会话中尚未结束的任务（重启、换设备或切回会话后）
+   * @description 只处理最新一条带 activeTaskId 的助手消息；桌面端同一时间只有一条活动流，已有活动流时不接管。
+   * 可续接时从游标 0 全量重放，正文先清空再由帧重建，避免与历史快照里的半截正文重复拼接；
+   * 已结束时直接用任务表的终稿收敛，不再显示为生成中。
+   */
+  async function recoverActiveTask(conversationId: string) {
+    if (activeStream) return;
+    const conversation = get().conversations.find(
+      (c) => c.id === conversationId,
+    );
+    const message = [...(conversation?.messages ?? [])]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.activeTaskId);
+    if (!message?.activeTaskId) return;
+    const taskId = message.activeTaskId;
+    const epoch = sessionEpoch;
+    const status = await getStreamTaskStatus(taskId);
+    if (epoch !== sessionEpoch || activeStream) return;
+    if (!status.canResume) {
+      patch(message.id, (m) => ({
+        ...m,
+        activeTaskId: null,
+        content: status.fullContent ?? m.content,
+        status:
+          status.status === "error" || status.status === "expired"
+            ? "error"
+            : "done",
+        canceled: status.status === "canceled" || m.canceled,
+      }));
+      return;
+    }
+    const context: ActiveStreamContext = {
+      assistantMessageId: message.id,
+      conversationId,
+      options: {},
+      terminal: false,
+      seen: new Set(),
+      taskId,
+      reconnectAttempts: 0,
+    };
+    activeStream = context;
+    patch(message.id, (m) => ({
+      ...m,
+      content: "",
+      status: "streaming",
+      streamFeedback: undefined,
+      pendingApproval: undefined,
+    }));
+    set({
+      sending: true,
+      activeMessageId: message.id,
+      taskId,
+      taskError: null,
+    });
+    context.handle = resumeTaskStream(taskId, "0", handlers(context));
+  }
+  /**
    * 提交审批决定并接续同一条助手消息的流
    * @param resolve 按审批类型生成本地结论；类型与提交入口不符时返回 null 并放弃提交
    * @description 先中止仍挂着的等待流，再由审批端点从 lastEventId 续推；本地先把卡片收敛为结论，
@@ -452,6 +527,9 @@ export const useChatStore = create<ChatState>((set, get) => {
     activeId: null,
     loading: false,
     loadError: null,
+    messagesLoadingId: null,
+    olderLoadingId: null,
+    messagesError: {},
     sending: false,
     activeMessageId: null,
     taskId: null,
@@ -470,19 +548,22 @@ export const useChatStore = create<ChatState>((set, get) => {
       try {
         const remote = await getConversations();
         if (epoch !== sessionEpoch || sequence !== loadSequence) return;
-        // 刷新目录时保留本机尚在进行的消息与局部错误，不覆盖活动流。
-        const local = get().conversations.filter((c) =>
-          c.messages.some((m) => m.id.startsWith("local-")),
+        // 列表只带基础信息：已加载的消息沿用内存中的；本机尚未落库的新会话（local- id）原样保留
+        const localById = new Map(get().conversations.map((c) => [c.id, c]));
+        const localOnly = get().conversations.filter((c) =>
+          c.id.startsWith("local-"),
         );
-        const conversations = [
-          ...local,
-          ...remote.filter((c) => !local.some((item) => item.id === c.id)),
-        ]
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map((c) => ({
-            ...c,
-            messages: c.messages.map(withHistoryFeedback),
-          }));
+        const conversations: Conversation[] = [
+          ...localOnly,
+          ...remote.map((summary) => {
+            const local = localById.get(summary.id);
+            return {
+              ...summary,
+              messages: local?.messages ?? [],
+              hasMoreMessages: local?.hasMoreMessages,
+            };
+          }),
+        ].sort((a, b) => b.updatedAt - a.updatedAt);
         set({ conversations, loading: false });
       } catch (error) {
         if (epoch !== sessionEpoch || sequence !== loadSequence) return;
@@ -492,8 +573,96 @@ export const useChatStore = create<ChatState>((set, get) => {
         });
       }
     },
+    async loadMessages(conversationId) {
+      if (conversationId.startsWith("local-")) return;
+      if (activeStream?.conversationId === conversationId) return;
+      const epoch = sessionEpoch;
+      set((state) => ({
+        messagesLoadingId: conversationId,
+        messagesError: omitKey(state.messagesError, conversationId),
+      }));
+      try {
+        const page = await getConversationMessages(conversationId);
+        if (epoch !== sessionEpoch) return;
+        // 等待期间本机开始了这个会话的新一轮：保留本地，不用旧快照覆盖
+        if (activeStream?.conversationId === conversationId) return;
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === conversationId
+              ? {
+                  ...c,
+                  messages: page.messages.map(withHistoryFeedback),
+                  hasMoreMessages: page.hasMore,
+                }
+              : c,
+          ),
+        }));
+        await recoverActiveTask(conversationId);
+      } catch (error) {
+        if (epoch !== sessionEpoch) return;
+        set((state) => ({
+          messagesError: {
+            ...state.messagesError,
+            [conversationId]:
+              error instanceof Error ? error.message : "消息加载失败",
+          },
+        }));
+      } finally {
+        if (epoch === sessionEpoch && get().messagesLoadingId === conversationId)
+          set({ messagesLoadingId: null });
+      }
+    },
+    async loadOlderMessages(conversationId) {
+      const target = get().conversations.find((c) => c.id === conversationId);
+      const oldest = target?.messages[0];
+      if (
+        !target?.hasMoreMessages ||
+        !oldest ||
+        oldest.id.startsWith("local-") ||
+        get().olderLoadingId === conversationId
+      )
+        return;
+      const epoch = sessionEpoch;
+      set((state) => ({
+        olderLoadingId: conversationId,
+        messagesError: omitKey(state.messagesError, conversationId),
+      }));
+      try {
+        const page = await getConversationMessages(conversationId, oldest.id);
+        if (epoch !== sessionEpoch) return;
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id !== conversationId) return c;
+            const known = new Set(c.messages.map((m) => m.id));
+            return {
+              ...c,
+              messages: [
+                ...page.messages
+                  .filter((m) => !known.has(m.id))
+                  .map(withHistoryFeedback),
+                ...c.messages,
+              ],
+              hasMoreMessages: page.hasMore,
+            };
+          }),
+        }));
+      } catch (error) {
+        if (epoch !== sessionEpoch) return;
+        set((state) => ({
+          messagesError: {
+            ...state.messagesError,
+            [conversationId]:
+              error instanceof Error ? error.message : "更早的消息加载失败",
+          },
+        }));
+      } finally {
+        if (epoch === sessionEpoch && get().olderLoadingId === conversationId)
+          set({ olderLoadingId: null });
+      }
+    },
     setActive(id) {
       set({ activeId: id });
+      if (id) void get().loadMessages(id);
     },
     toggleStreamFeedback(id) {
       patch(id, (m) =>
@@ -649,6 +818,9 @@ export const useChatStore = create<ChatState>((set, get) => {
         activeId: null,
         loading: false,
         loadError: null,
+        messagesLoadingId: null,
+        olderLoadingId: null,
+        messagesError: {},
         sending: false,
         activeMessageId: null,
         taskId: null,
@@ -661,3 +833,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
   };
 });
+
+/** 返回去掉指定键的新对象 */
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const { [key]: _removed, ...rest } = record;
+  return rest;
+}

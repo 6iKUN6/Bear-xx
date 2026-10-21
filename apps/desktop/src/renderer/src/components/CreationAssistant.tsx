@@ -51,6 +51,12 @@ export function CreationAssistant({
   const follows = useRef(true);
   const messages = conversation?.messages ?? [];
   const last = messages[messages.length - 1];
+  // 会话目录不带消息：项目绑定的会话出现后单独拉取最新一页
+  const conversationListed = Boolean(conversation);
+  useEffect(() => {
+    if (conversationId && conversationListed)
+      void useChatStore.getState().loadMessages(conversationId);
+  }, [conversationId, conversationListed]);
   useEffect(() => {
     if (follows.current && scroll.current)
       scroll.current.scrollTop = scroll.current.scrollHeight;

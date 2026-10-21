@@ -64,6 +64,8 @@ export interface ConversationMessage {
   createdAt: number;
   /** 助手消息的单轮执行轨迹（历史回显用，实时流式走 SSE 事件） */
   trace?: MessageTraceItem[];
+  /** 服务端：尚未结束的生成任务 ID；进入会话时据此续接。本地刚发出的消息没有该字段 */
+  activeTaskId?: string | null;
 
   /* ── 以下为前端运行态字段（非 DTO），由 chat-store 在流式 / 加载时装配 ── */
 
@@ -92,15 +94,38 @@ export type ResolvedApproval =
       decision: PlanReviewDecisionType;
     };
 
-export interface Conversation {
+/** GET /conversations 的列表项：只含基础信息，消息经分页接口读取 */
+export interface ConversationSummary {
   id: string;
   title: string;
   type?: string;
   agentIds?: string[];
   defaultAgentId?: string | null;
-  messages: ConversationMessage[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Conversation extends ConversationSummary {
+  /** 已加载的消息（最新若干页） */
+  messages: ConversationMessage[];
+  /** 服务端还有更早的消息未加载；缺省 = 尚未加载过消息 */
+  hasMoreMessages?: boolean;
+}
+
+/** GET /conversations/:id/messages 响应 */
+export interface ConversationMessagePage {
+  /** 时间正序（最早的在前） */
+  messages: ConversationMessage[];
+  hasMore: boolean;
+}
+
+/** GET /stream-tasks/:taskId 响应中客户端用到的字段 */
+export interface StreamTaskStatus {
+  taskId: string;
+  status: string;
+  messageId: string;
+  fullContent: string | null;
+  canResume: boolean;
 }
 
 /** POST /chat/message 请求体（SSE）；不传 conversationId 时后端自动创建会话 */

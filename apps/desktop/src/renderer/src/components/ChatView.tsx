@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -13,18 +13,33 @@ import { modelSelectionKey, useModelStore } from "@/stores/model-store";
 import { AssistantMessage } from "./AssistantMessage";
 import { Composer } from "./Composer";
 import { ModelControls } from "./ModelControls";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, Notice } from "./ui";
 
 export function ChatView() {
   const user = useAppStore((s) => s.user);
-  const { conversations, activeId, sending, send, drafts, setDraft } =
-    useChatStore();
+  const {
+    conversations,
+    activeId,
+    sending,
+    send,
+    drafts,
+    setDraft,
+    messagesLoadingId,
+    olderLoadingId,
+    messagesError,
+    loadMessages,
+    loadOlderMessages,
+  } = useChatStore();
   const { agents, selectedAgentId } = useAgentStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const follows = useRef(true);
+  /** 加载更早消息前距底部的距离；插入后据此还原，阅读位置不随顶部新增内容跳动 */
+  const prependAnchor = useRef<number | null>(null);
   const [showLatest, setShowLatest] = useState(false);
   const conv = conversations.find((c) => c.id === activeId);
   const messages = conv?.messages ?? [];
+  const loadingMessages = Boolean(conv && messagesLoadingId === conv.id);
+  const messageError = conv ? messagesError[conv.id] : undefined;
   const draftKey = activeId ?? "new";
   const draft = drafts[draftKey] ?? "";
   const effectiveAgentId =
@@ -38,7 +53,15 @@ export function ChatView() {
       : undefined,
   );
   const last = messages[messages.length - 1];
+  const firstId = messages[0]?.id;
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (prependAnchor.current === null || !el) return;
+    el.scrollTop = el.scrollHeight - prependAnchor.current;
+    prependAnchor.current = null;
+  }, [firstId]);
   useEffect(() => {
+    prependAnchor.current = null;
     follows.current = true;
     setShowLatest(false);
   }, [activeId]);
@@ -88,7 +111,23 @@ export function ChatView() {
           setShowLatest(!follows.current);
         }}
       >
-        {messages.length === 0 ? (
+        {messages.length === 0 && (loadingMessages || messageError) ? (
+          <div className="chat-welcome">
+            {messageError ? (
+              <Notice
+                action={
+                  <Button onClick={() => conv && void loadMessages(conv.id)}>
+                    重试
+                  </Button>
+                }
+              >
+                {messageError}
+              </Notice>
+            ) : (
+              <p className="muted">正在加载消息…</p>
+            )}
+          </div>
+        ) : messages.length === 0 ? (
           <div className="chat-welcome">
             <p className="eyebrow">A LITTLE SPARK, A NEW BEGINNING</p>
             <h1>今天，从哪个想法开始？</h1>
@@ -120,6 +159,27 @@ export function ChatView() {
           </div>
         ) : (
           <div className="message-list">
+            {conv?.hasMoreMessages && (
+              <div className="flex justify-center">
+                <Button
+                  disabled={olderLoadingId === conv.id}
+                  onClick={() => {
+                    // 加载更早的消息不应把视图拽到底部
+                    follows.current = false;
+                    const el = scrollRef.current;
+                    if (el) prependAnchor.current = el.scrollHeight - el.scrollTop;
+                    void loadOlderMessages(conv.id);
+                  }}
+                >
+                  {olderLoadingId === conv.id ? "正在加载…" : "加载更早的消息"}
+                </Button>
+              </div>
+            )}
+            {messageError && messages.length > 0 && (
+              <p className="message-error" role="alert">
+                {messageError}
+              </p>
+            )}
             {messages.map((message) =>
               message.role === "user" ? (
                 <div key={message.id} className="user-message">
