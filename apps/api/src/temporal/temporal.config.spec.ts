@@ -1,6 +1,7 @@
 import {
   getTemporalConnectionOptions,
   getTemporalWorkerConfig,
+  isTemporalEmbeddedWorkersEnabled,
 } from './temporal.config';
 
 describe('Temporal 配置', () => {
@@ -51,5 +52,18 @@ describe('Temporal 配置', () => {
     expect(config.orchestratorTaskQueue).toBe('flow-orchestrator-v2');
     expect(config.activityTaskQueue).toBe('flow-activities-v2');
     expect(config.tls).toBe(false);
+  });
+
+  it('API 内嵌 Worker 缺省关闭，只接受 true 或 false', () => {
+    expect(isTemporalEmbeddedWorkersEnabled({})).toBe(false);
+    expect(
+      isTemporalEmbeddedWorkersEnabled({ TEMPORAL_EMBEDDED_WORKERS: 'false' }),
+    ).toBe(false);
+    expect(
+      isTemporalEmbeddedWorkersEnabled({ TEMPORAL_EMBEDDED_WORKERS: 'true' }),
+    ).toBe(true);
+    expect(() =>
+      isTemporalEmbeddedWorkersEnabled({ TEMPORAL_EMBEDDED_WORKERS: 'yes' }),
+    ).toThrow('TEMPORAL_EMBEDDED_WORKERS 只能是 true 或 false');
   });
 });

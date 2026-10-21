@@ -208,6 +208,10 @@ export class EnvConfig {
   @Matches(/^(true|false)$/)
   TEMPORAL_TLS?: string;
 
+  @IsOptional()
+  @Matches(/^(true|false)$/)
+  TEMPORAL_EMBEDDED_WORKERS?: string;
+
   @ValidateIf(
     (config: EnvConfig) =>
       config.MCDONALDS_CREDENTIAL_ENCRYPTION_KEY !== undefined &&
