@@ -18,6 +18,7 @@ describe('ConversationService（单聊/群聊）', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
+      message: { findFirst: jest.fn(), findMany: jest.fn() },
       agent: { findMany: jest.fn() },
       user: {
         findUnique: jest.fn().mockResolvedValue({
@@ -148,23 +149,124 @@ describe('ConversationService（单聊/群聊）', () => {
     );
   });
 
-  it('会话历史按 assistant messageId 回填安全订单卡片', async () => {
+  const messageRow = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    role: 'ASSISTANT',
+    content: id,
+    modelContext: { version: 1, secret: 'hidden' },
+    agentId: null,
+    imageAsset: null,
+    imageUrl: null,
+    status: 'DONE',
+    createdAt: new Date('2026-08-12T10:00:00.000Z'),
+    turnTraceItems: [],
+    streamTasks: [],
+    ...overrides,
+  });
+
+  it('会话列表只返回基础信息，不加载消息', async () => {
     const { service, prisma } = createService();
-    prisma.conversation.findMany.mockResolvedValue([
-      conversationRow({
-        messages: [
-          {
-            id: 'message-1',
-            role: 'ASSISTANT',
-            content: '订单已创建',
-            modelContext: { version: 1, secret: 'hidden' },
-            agentId: null,
-            status: 'DONE',
-            createdAt: new Date('2026-08-12T10:00:00.000Z'),
-            turnTraceItems: [],
-          },
-        ],
+    prisma.conversation.findMany.mockResolvedValue([conversationRow()]);
+
+    const conversations = await service.findAllByUser('user-1');
+
+    expect(prisma.conversation.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', isTest: false },
+      orderBy: { updatedAt: 'desc' },
+    });
+    expect(conversations[0]).not.toHaveProperty('messages');
+    expect(conversations[0]?.id).toBe('conv-1');
+  });
+
+  it('消息分页：多取一条判断 hasMore，本页按时间正序返回', async () => {
+    const { service, prisma } = createService();
+    prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    // 数据库按时间倒序返回 limit + 1 条
+    prisma.message.findMany.mockResolvedValue([
+      messageRow('m3'),
+      messageRow('m2'),
+      messageRow('m1'),
+    ]);
+    prisma.mcDonaldsOrder.findMany.mockResolvedValue([]);
+
+    const page = await service.findMessages('conv-1', 'user-1', { limit: 2 });
+
+    expect(page.hasMore).toBe(true);
+    expect(page.messages.map((m) => m.id)).toEqual(['m2', 'm3']);
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { conversationId: 'conv-1' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 3,
       }),
+    );
+    expect(page.messages[0]).not.toHaveProperty('modelContext');
+  });
+
+  it('消息分页：before 只取严格早于游标的消息，同毫秒用 id 定序', async () => {
+    const { service, prisma } = createService();
+    const cursorAt = new Date('2026-08-12T10:00:00.000Z');
+    prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm5',
+      createdAt: cursorAt,
+    });
+    prisma.message.findMany.mockResolvedValue([messageRow('m4')]);
+    prisma.mcDonaldsOrder.findMany.mockResolvedValue([]);
+
+    const page = await service.findMessages('conv-1', 'user-1', {
+      before: 'm5',
+      limit: 30,
+    });
+
+    expect(page.hasMore).toBe(false);
+    expect(prisma.message.findFirst).toHaveBeenCalledWith({
+      where: { id: 'm5', conversationId: 'conv-1' },
+      select: { id: true, createdAt: true },
+    });
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          conversationId: 'conv-1',
+          OR: [
+            { createdAt: { lt: cursorAt } },
+            { createdAt: cursorAt, id: { lt: 'm5' } },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('消息分页：游标不属于该会话时报错，不退化为第一页', async () => {
+    const { service, prisma } = createService();
+    prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    prisma.message.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.findMessages('conv-1', 'user-1', { before: 'other', limit: 30 }),
+    ).rejects.toThrow('分页游标对应的消息不存在');
+    expect(prisma.message.findMany).not.toHaveBeenCalled();
+  });
+
+  it('消息分页：非会话属主无法读取', async () => {
+    const { service, prisma } = createService();
+    prisma.conversation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.findMessages('conv-1', 'intruder', { limit: 30 }),
+    ).rejects.toThrow('会话不存在');
+    expect(prisma.message.findMany).not.toHaveBeenCalled();
+  });
+
+  it('消息分页：回填进行中任务 ID 与本页消息的订单卡片', async () => {
+    const { service, prisma } = createService();
+    prisma.conversation.findFirst.mockResolvedValue(conversationRow());
+    prisma.message.findMany.mockResolvedValue([
+      messageRow('message-2', {
+        status: 'STREAMING',
+        streamTasks: [{ id: 'task-2' }],
+      }),
+      messageRow('message-1'),
     ]);
     prisma.agent.findMany.mockResolvedValue([]);
     prisma.mcDonaldsOrder.findMany.mockResolvedValue([
@@ -186,15 +288,21 @@ describe('ConversationService（单聊/群聊）', () => {
       },
     ]);
 
-    const conversations = await service.findAllByUser('user-1');
+    const page = await service.findMessages('conv-1', 'user-1', { limit: 30 });
 
-    expect(conversations[0]?.messages[0]?.orders).toEqual([
+    const [first, second] = page.messages;
+    expect(first?.id).toBe('message-1');
+    expect(first?.activeTaskId).toBeNull();
+    expect(first?.orders).toEqual([
       expect.objectContaining({ id: 'order-1', externalOrderId: 'external-1' }),
     ]);
-    expect(conversations[0]?.messages[0]).not.toHaveProperty('modelContext');
+    expect(second?.activeTaskId).toBe('task-2');
     expect(prisma.mcDonaldsOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { userId: 'user-1', messageId: { not: null } },
+        where: {
+          userId: 'user-1',
+          messageId: { in: ['message-1', 'message-2'] },
+        },
       }),
     );
   });

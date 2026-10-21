@@ -6,7 +6,6 @@
  * OpenAPI spec version: 1.0
  */
 import type { ConversationDtoDefaultAgentId } from './conversationDtoDefaultAgentId';
-import type { ConversationMessageDto } from './conversationMessageDto';
 
 export interface ConversationDto {
   /** 会话 ID */
@@ -22,8 +21,6 @@ export interface ConversationDto {
      * @nullable
      */
   defaultAgentId?: ConversationDtoDefaultAgentId;
-  /** 会话消息列表 */
-  messages: ConversationMessageDto[];
   /** 会话创建时间戳（毫秒） */
   createdAt: number;
   /** 会话更新时间戳（毫秒） */

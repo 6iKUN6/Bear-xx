@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0
  */
 import type { TaskTraceItemDto } from './taskTraceItemDto';
+import type { TestMessageExecutionDto } from './testMessageExecutionDto';
 import type { TestSessionMessageDtoAgentId } from './testSessionMessageDtoAgentId';
 import type { TestSessionMessageDtoRole } from './testSessionMessageDtoRole';
 import type { TestSessionMessageDtoStatus } from './testSessionMessageDtoStatus';
@@ -22,4 +23,6 @@ export interface TestSessionMessageDto {
   status: TestSessionMessageDtoStatus;
   createdAt: number;
   trace: TaskTraceItemDto[];
+  /** @nullable */
+  execution: TestMessageExecutionDto | null;
 }

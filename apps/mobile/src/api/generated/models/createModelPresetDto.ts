@@ -5,6 +5,7 @@
  * 办伴 Banban 后端接口文档
  * OpenAPI spec version: 1.0
  */
+import type { CreateModelPresetDtoContextWindowTokens } from './createModelPresetDtoContextWindowTokens';
 import type { CreateModelPresetDtoUpstreamFormat } from './createModelPresetDtoUpstreamFormat';
 
 export interface CreateModelPresetDto {
@@ -20,6 +21,11 @@ export interface CreateModelPresetDto {
   temperature?: number;
   /** 最大输出 token */
   maxOutputTokens?: number;
+  /**
+     * 供应商实际上下文容量（token）；聊天前必须配置
+     * @nullable
+     */
+  contextWindowTokens?: CreateModelPresetDtoContextWindowTokens;
   /** topP */
   topP?: number;
   /** 是否启用 */

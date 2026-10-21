@@ -9,6 +9,8 @@ import type { AgentFlowVersionResponseDtoArchivedAt } from './agentFlowVersionRe
 import type { AgentFlowVersionResponseDtoDefinition } from './agentFlowVersionResponseDtoDefinition';
 import type { AgentFlowVersionResponseDtoDigest } from './agentFlowVersionResponseDtoDigest';
 import type { AgentFlowVersionResponseDtoPublishedAt } from './agentFlowVersionResponseDtoPublishedAt';
+import type { AgentFlowVersionResponseDtoSchemaStatus } from './agentFlowVersionResponseDtoSchemaStatus';
+import type { AgentFlowVersionResponseDtoSchemaTargetVersion } from './agentFlowVersionResponseDtoSchemaTargetVersion';
 import type { AgentFlowVersionResponseDtoStatus } from './agentFlowVersionResponseDtoStatus';
 import type { FlowDefinitionValidationErrorDto } from './flowDefinitionValidationErrorDto';
 
@@ -18,7 +20,9 @@ export interface AgentFlowVersionResponseDto {
   version: number;
   status: AgentFlowVersionResponseDtoStatus;
   definition: AgentFlowVersionResponseDtoDefinition;
-  schemaCompatible: boolean;
+  schemaStatus: AgentFlowVersionResponseDtoSchemaStatus;
+  /** @nullable */
+  schemaTargetVersion: AgentFlowVersionResponseDtoSchemaTargetVersion;
   schemaErrors?: FlowDefinitionValidationErrorDto[];
   /** @nullable */
   digest: AgentFlowVersionResponseDtoDigest;

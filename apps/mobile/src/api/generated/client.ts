@@ -28,11 +28,13 @@ import type {
   AdminUserPageDto,
   AdminUserResponseDto,
   AgentCapabilitiesDto,
+  AgentFlowDefinitionInspectionResponseDto,
   AgentFlowDetailResponseDto,
   AgentFlowResponseDto,
   AgentFlowTemplateResponseDto,
   AgentFlowValidationResponseDto,
   AgentFlowVersionResponseDto,
+  AgentFlowVersionUpgradeResponseDto,
   AgentModelOptionsDto,
   AgentResponseDto,
   AgentTestDto,
@@ -41,7 +43,9 @@ import type {
   CancelStreamTaskResultDto,
   ChatCompletionsDto,
   ChatTaskResultDto,
+  ConversationControllerFindMessagesParams,
   ConversationDto,
+  ConversationMessagePageDto,
   CosUploadCredentialDto,
   CosUploadCredentialResponseDto,
   CreateAgentDto,
@@ -99,6 +103,7 @@ import type {
   UpdateModelProviderConnectionDto,
   UpdateProfileDto,
   UserProfileDto,
+  ValidateAgentFlowDefinitionDto,
   VoiceCompletionsFormDataDto,
   WechatBindDto,
   WechatLoginDto
@@ -2078,6 +2083,54 @@ export const agentFlowControllerUpdateDraft = async (versionId: string,
 
 
 
+export const getAgentFlowControllerValidateDefinitionUrl = () => {
+
+
+
+
+  return `/api/admin/agent-flows/validate-definition`
+}
+
+/**
+ * @summary 校验未保存的 FlowDefinition（管理员）
+ */
+export const agentFlowControllerValidateDefinition = async (validateAgentFlowDefinitionDto: ValidateAgentFlowDefinitionDto, options?: RequestInit): Promise<AgentFlowValidationResponseDto> => {
+
+  return taroRequest<AgentFlowValidationResponseDto>(getAgentFlowControllerValidateDefinitionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(validateAgentFlowDefinitionDto)
+  }
+);}
+
+
+
+export const getAgentFlowControllerInspectDefinitionUrl = () => {
+
+
+
+
+  return `/api/admin/agent-flows/inspect-definition`
+}
+
+/**
+ * @summary 预检并规范化 FlowDefinition（管理员）
+ */
+export const agentFlowControllerInspectDefinition = async (validateAgentFlowDefinitionDto: ValidateAgentFlowDefinitionDto, options?: RequestInit): Promise<AgentFlowDefinitionInspectionResponseDto> => {
+
+  return taroRequest<AgentFlowDefinitionInspectionResponseDto>(getAgentFlowControllerInspectDefinitionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(validateAgentFlowDefinitionDto)
+  }
+);}
+
+
+
 export const getAgentFlowControllerValidateUrl = (versionId: string,) => {
 
 
@@ -2116,6 +2169,30 @@ export const getAgentFlowControllerPublishUrl = (versionId: string,) => {
 export const agentFlowControllerPublish = async (versionId: string, options?: RequestInit): Promise<AgentFlowVersionResponseDto> => {
 
   return taroRequest<AgentFlowVersionResponseDto>(getAgentFlowControllerPublishUrl(versionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export const getAgentFlowControllerUpgradeToCurrentDraftUrl = (versionId: string,) => {
+
+
+
+
+  return `/api/admin/agent-flow-versions/${versionId}/upgrade-to-current`
+}
+
+/**
+ * @summary 升级历史 FlowDefinition 为当前草稿（管理员）
+ */
+export const agentFlowControllerUpgradeToCurrentDraft = async (versionId: string, options?: RequestInit): Promise<AgentFlowVersionUpgradeResponseDto> => {
+
+  return taroRequest<AgentFlowVersionUpgradeResponseDto>(getAgentFlowControllerUpgradeToCurrentDraftUrl(versionId),
   {
     ...options,
     method: 'POST'
@@ -2209,8 +2286,8 @@ export const getConversationControllerFindAllUrl = () => {
 }
 
 /**
- * 返回当前用户的所有会话及消息列表
- * @summary 获取所有会话
+ * 返回当前用户的会话基础信息（按更新时间倒序），不含消息；消息经 /conversations/:id/messages 分页读取
+ * @summary 获取会话列表
  */
 export const conversationControllerFindAll = async ( options?: RequestInit): Promise<ConversationDto[]> => {
 
@@ -2245,6 +2322,40 @@ export const conversationControllerCreate = async (createConversationDto: Create
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(createConversationDto)
+  }
+);}
+
+
+
+export const getConversationControllerFindMessagesUrl = (id: string,
+    params?: ConversationControllerFindMessagesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/conversations/${id}/messages?${stringifiedParams}` : `/api/conversations/${id}/messages`
+}
+
+/**
+ * 从最新消息往回翻页，本页按时间正序返回；hasMore 为 true 时以本页第一条消息 ID 作为 before 继续请求
+ * @summary 分页获取会话消息
+ */
+export const conversationControllerFindMessages = async (id: string,
+    params?: ConversationControllerFindMessagesParams, options?: RequestInit): Promise<ConversationMessagePageDto> => {
+
+  return taroRequest<ConversationMessagePageDto>(getConversationControllerFindMessagesUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 
