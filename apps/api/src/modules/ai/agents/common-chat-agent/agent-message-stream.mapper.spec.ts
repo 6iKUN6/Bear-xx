@@ -122,3 +122,48 @@ describe('mapMessagesStream 的模型调用计数', () => {
     );
   });
 });
+
+describe('mapMessagesStream 的工具结果事件', () => {
+  it('审批恢复后的流没见过工具调用分片时，用 ToolMessage 自带的工具名', async () => {
+    const toolMessage = {
+      type: 'tool',
+      content: '深圳晴，26℃',
+      tool_call_id: 'call-1',
+      name: 'getWeather',
+    } as unknown as BaseMessageChunk;
+    const stream: AsyncIterable<MessagesModeChunk> = {
+      [Symbol.asyncIterator]: () => {
+        let sent = false;
+        return {
+          next: () => {
+            if (sent) return Promise.resolve({ value: undefined, done: true });
+            sent = true;
+            return Promise.resolve({
+              value: [
+                toolMessage,
+                { langgraph_node: 'tools', langgraph_step: 1 },
+              ],
+              done: false,
+            });
+          },
+        };
+      },
+    };
+
+    const events = [];
+    for await (const { event } of mapMessagesStream(stream)) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'tool.call.done',
+        payload: expect.objectContaining({
+          toolCallId: 'call-1',
+          name: 'getWeather',
+          toolName: 'getWeather',
+        }),
+      }),
+    ]);
+  });
+});

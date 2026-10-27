@@ -20,6 +20,12 @@ export interface CommonChatAgentLoopRequest {
   threadId?: string;
   /** 需要人工审批的工具名，驱动 HITL 中间件 interruptOn */
   approvalToolNames?: string[];
+  /**
+   * 单次运行内最多几轮「模型 → 工具」往返
+   * @description 换算成 LangGraph 的 recursionLimit；超出时底层抛 GraphRecursionError，由调用方收敛为预算停止。
+   * 不传时沿用 LangGraph 默认上限。
+   */
+  maxToolIterations?: number;
   abortSignal?: AbortSignal;
   /**
    * 底层模型每被真实调用一次回调一次

@@ -41,6 +41,8 @@ export interface CommonChatAgentRequest {
   threadId?: string;
   /** 需要人工审批的工具名，驱动 HITL 中间件 interruptOn */
   approvalToolNames?: string[];
+  /** 单次运行内最多几轮工具往返；见 CommonChatAgentLoopRequest.maxToolIterations */
+  maxToolIterations?: number;
   abortSignal?: AbortSignal;
   /** 底层模型每被真实调用一次回调一次；见 CommonChatAgentLoopRequest.onModelTurn */
   onModelTurn?: () => void;
@@ -191,6 +193,7 @@ export class CommonChatAgentService {
       tools: request.tools,
       threadId: request.threadId,
       approvalToolNames: request.approvalToolNames,
+      maxToolIterations: request.maxToolIterations,
       abortSignal: request.abortSignal,
       contextBudget: request.contextBudget
         ? {
@@ -239,6 +242,7 @@ export class CommonChatAgentService {
       tools: request.tools,
       threadId: request.threadId,
       approvalToolNames: request.approvalToolNames,
+      maxToolIterations: request.maxToolIterations,
       decision: request.decision,
       abortSignal: request.abortSignal,
       contextBudget: request.contextBudget

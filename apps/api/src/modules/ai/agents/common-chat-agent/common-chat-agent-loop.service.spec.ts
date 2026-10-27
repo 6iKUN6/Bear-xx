@@ -5,7 +5,10 @@ import {
   ToolMessage,
 } from '@langchain/core/messages';
 
-import { CommonChatAgentLoopService } from './common-chat-agent-loop.service';
+import {
+  CommonChatAgentLoopService,
+  toRecursionLimit,
+} from './common-chat-agent-loop.service';
 
 describe('CommonChatAgentLoopService model context collection', () => {
   it('普通执行会按模型轮次合并 AI chunk 并保留工具结果顺序', async () => {
@@ -44,6 +47,42 @@ describe('CommonChatAgentLoopService model context collection', () => {
       { type: 'tool', content: 'result', tool_call_id: 'call-1' },
       { type: 'ai', content: '完成' },
     ]);
+  });
+
+  it('把工具往返轮数换算成 recursionLimit 传给 LangGraph，未配置时不覆盖默认上限', async () => {
+    const runnable = {
+      stream: jest
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(
+            asyncChunks([[new AIMessageChunk('好'), at('agent', 1)]]),
+          ),
+        ),
+      getState: jest.fn(),
+    };
+    const service = createService(runnable);
+
+    for await (const _event of service.stream({
+      model: null as never,
+      messages: [new HumanMessage('问题')],
+      maxToolIterations: 4,
+    })) {
+      // 只验证流配置
+    }
+    for await (const _event of service.stream({
+      model: null as never,
+      messages: [new HumanMessage('问题')],
+    })) {
+      // 只验证流配置
+    }
+
+    expect(runnable.stream.mock.calls[0]?.[1]).toMatchObject({
+      recursionLimit: toRecursionLimit(4),
+    });
+    expect(runnable.stream.mock.calls[1]?.[1]).not.toHaveProperty(
+      'recursionLimit',
+    );
+    expect(toRecursionLimit(4)).toBe(16);
   });
 
   it('HITL 恢复完成后从最终 checkpoint 取回中断前后的完整消息', async () => {
