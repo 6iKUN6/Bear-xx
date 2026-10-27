@@ -146,6 +146,8 @@ model Agent {
   defaultModelPreset     ModelPreset?              @relation("AgentDefaultModelPreset", fields: [defaultModelPresetId], references: [id], onDelete: Restrict)
   /// direct Agent 默认模型的版本化思考选择；自定义 Flow Agent 不使用
   defaultReasoningConfig Json?                     @map("default_reasoning_config")
+  /// 默认助手（未绑定 Flow）可用的工具组；绑定自定义 Flow 时必须为空，工具由 Flow 节点声明
+  toolGroups             String[]                  @default([]) @map("tool_groups")
   allowedModelPresets    AgentAllowedModelPreset[]
   createdById            String?                   @map("created_by_id")
   createdBy              User?                     @relation(fields: [createdById], references: [id], onDelete: SetNull)
@@ -167,6 +169,8 @@ model AgentFlow {
   name               String
   description        String   @default("") @db.Text
   publishedVersionId String?  @unique @map("published_version_id")
+  /// 允许被默认助手作为工具调用；模型依据名称与描述决定何时调用
+  callableAsTool     Boolean  @default(false) @map("callable_as_tool")
   createdById        String?  @map("created_by_id")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
@@ -452,6 +456,7 @@ model SseTask {
 model StreamTask {
   id                           String                      @id @default(cuid())
   type                         StreamTaskType
+  runtime                      StreamTaskRuntime           @default(AGENT_FLOW)
   status                       StreamTaskStatus            @default(PENDING)
   userId                       String                      @map("user_id")
   user                         User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -469,6 +474,10 @@ model StreamTask {
   resolvedAgentModelPresetId   String?                     @map("resolved_agent_model_preset_id")
   /// 与 resolvedAgentModelPresetId 同时固化的版本化思考选择；重试和恢复只读该快照。
   resolvedAgentReasoningConfig Json?                       @map("resolved_agent_reasoning_config")
+  /// 默认 ReAct 智能体任务与模型同时固化的工具组；重试和恢复只读该快照。
+  resolvedAgentToolGroups      String[]                    @default([]) @map("resolved_agent_tool_groups")
+  /// 锁定模型未通过工具探测，本轮按无工具执行
+  agentToolsDegraded           Boolean                     @default(false) @map("agent_tools_degraded")
   flowVersionId                String?                     @map("flow_version_id")
   flowDigest                   String?                     @map("flow_digest")
   /// Flow 的 flow.run.started 已发出的时刻，兼作「谁先抢到首个节点」的原子判据：
@@ -952,6 +961,12 @@ enum StreamTaskType {
   CHAT_COMPLETION
   VOICE_COMPLETION
   AGENT_WORKFLOW
+}
+
+/// 任务由哪套运行时执行：管理员编排的 AgentFlow，或代码定义的默认 ReAct 智能体
+enum StreamTaskRuntime {
+  AGENT_FLOW
+  CHAT_AGENT
 }
 
 enum StreamTaskStatus {
