@@ -267,7 +267,10 @@ function buildToolResultEvent(
 ): CommonChatAgentStreamEvent {
   const callId = readOptionalString(message.tool_call_id);
   const index = callId ? (tools.indexById.get(callId) ?? -1) : -1;
-  const name = callId ? tools.nameById.get(callId) : undefined;
+  // 审批恢复后的流从新解析器开始，看不到首轮登记的名字；ToolMessage 自带 name 作回退
+  const name =
+    (callId ? tools.nameById.get(callId) : undefined) ??
+    readOptionalString(message.name);
   const rawArgs = callId ? tools.argsById.get(callId) : undefined;
   const content = readMessageText(message.content);
 

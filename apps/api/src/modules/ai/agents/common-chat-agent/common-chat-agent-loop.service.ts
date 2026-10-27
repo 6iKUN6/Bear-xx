@@ -178,6 +178,9 @@ export class CommonChatAgentLoopService {
       signal: request.abortSignal,
       configurable:
         useHitl && request.threadId ? { thread_id: request.threadId } : {},
+      ...(request.maxToolIterations
+        ? { recursionLimit: toRecursionLimit(request.maxToolIterations) }
+        : {}),
     };
   }
 
@@ -191,6 +194,17 @@ export class CommonChatAgentLoopService {
     });
     return (state.values?.messages ?? []).slice(inputMessageCount);
   }
+}
+
+/**
+ * 把工具往返轮数换算成 LangGraph 的超步上限
+ * @param maxToolIterations 允许的「模型 → 工具」往返轮数
+ * @returns 返回 recursionLimit
+ * @description createAgent 图里每轮往返占 3 个超步（模型、HITL after_model、工具），最后一次回答占 2 个；
+ * 上下文预算中间件是 wrapModelCall，不占节点。再留 2 步余量，避免边界上把合法的最后一次回答截掉。
+ */
+export function toRecursionLimit(maxToolIterations: number): number {
+  return 3 * maxToolIterations + 4;
 }
 
 /** 普通无 checkpoint 流中按模型轮次合并 AI chunk，并保留工具结果顺序。 */
