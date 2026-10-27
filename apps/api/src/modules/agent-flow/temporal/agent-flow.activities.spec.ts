@@ -6,6 +6,7 @@ import type { AgentFlowWorkflowInput } from '../../../temporal/workflows/agent-f
 import { FlowCompiler } from '../runtime/flow-compiler.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
 import { FlowContextService } from '../runtime/flow-context.service';
+import { AgentRunSupport } from '../runtime/agent-run.support';
 import { ChatContextService } from '../../memory/chat-context.service';
 import { CommonChatAgentService } from '../../ai/agents';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
@@ -127,6 +128,7 @@ describe('AgentFlowActivities', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentFlowActivities,
+        AgentRunSupport,
         FlowContextService,
         {
           provide: PrismaService,
@@ -663,6 +665,85 @@ describe('AgentFlowActivities', () => {
       kind: 'completed',
       outcome: 'default',
       summary: '已生成回复',
+    });
+  });
+
+  it('工具 start/done 落库并改写为节点级 traceKey，入参分片不落库', async () => {
+    const definition = flowDefinition();
+    mockExecutionContext({
+      node: {
+        key: 'answer',
+        type: 'agent',
+        modelPreset: 'openai:test',
+        toolGroups: ['default'],
+        skills: [],
+        maxToolIterations: 2,
+        approvalToolNames: [],
+      },
+      definition: {
+        ...definition,
+        policy: { ...definition.policy, maxModelCalls: 2, maxToolCalls: 2 },
+      },
+    });
+    capabilityResolver.resolve.mockResolvedValue({
+      tools: [],
+      systemPromptAdditions: [],
+      approvalToolNames: [],
+    });
+    chatContextService.buildContextBundle.mockResolvedValue({
+      messageIds: [],
+      messages: [{ role: 'user', content: '深圳天气' }],
+    });
+    commonChatAgentService.streamEvents.mockReturnValue(toolRoundTripStream());
+
+    await expect(
+      activities.executeNode({
+        workflow: workflowInput(),
+        nodeKey: 'answer',
+        nodeExecutionId: 'task-1:version-1:answer#0',
+        iteration: 0,
+      }),
+    ).resolves.toMatchObject({ kind: 'completed' });
+
+    const toolEvents = taskEventService.persistInTransaction.mock.calls
+      .map(([, event]) => event as { eventName: string; payload: unknown })
+      .filter((event) => event.eventName.startsWith('tool.call.'));
+    expect(toolEvents.map((event) => event.eventName)).toEqual([
+      'tool.call.start',
+      'tool.call.done',
+    ]);
+    for (const event of toolEvents) {
+      expect(event.payload).toMatchObject({
+        nodeKey: 'answer',
+        traceKey: 'flow:tool:task-1:version-1:answer#0:call-1',
+      });
+    }
+  });
+
+  it('任务结束时把仍在运行的工具轨迹收敛为错误', async () => {
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      userId: 'user-1',
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      currentRunId: 'run-1',
+      fullContent: '',
+      status: 'WAITING_HUMAN',
+    });
+    prisma.agentFlowApproval.findMany.mockResolvedValue([]);
+
+    await activities.finalizeRun({
+      workflow: workflowInput(),
+      status: 'cancelled',
+      lastNodeKey: 'answer',
+    });
+
+    expect(prisma.conversationTurnTraceItem.updateMany).toHaveBeenCalledWith({
+      where: { taskId: 'task-1', type: 'TOOL_CALL', status: 'RUNNING' },
+      data: expect.objectContaining({
+        status: 'ERROR',
+        summary: '任务已取消，工具未执行完成',
+      }),
     });
   });
 
@@ -2264,6 +2345,45 @@ async function* toolCallEventStream(afterOverspend: () => void) {
   };
   afterOverspend();
   yield { type: 'message.delta' as const, delta: '不该走到这里' };
+}
+
+/**
+ * 构造一次完整工具往返的底层 Agent 流
+ * @returns 返回 start、入参分片、done 与最终回答
+ */
+async function* toolRoundTripStream() {
+  await Promise.resolve();
+  yield {
+    type: 'tool.call.start' as const,
+    payload: {
+      toolCallId: 'call-1',
+      name: 'getWeather',
+      toolName: 'getWeather',
+      index: 0,
+      nodeKey: 'common_chat_tool',
+      traceKey: 'tool:call-1',
+    },
+  };
+  yield {
+    type: 'tool.call.delta' as const,
+    toolCallId: 'call-1',
+    name: 'getWeather',
+    args: '{"city":"深圳"}',
+    index: 0,
+  };
+  yield {
+    type: 'tool.call.done' as const,
+    payload: {
+      toolCallId: 'call-1',
+      name: 'getWeather',
+      toolName: 'getWeather',
+      index: 0,
+      nodeKey: 'common_chat_tool',
+      traceKey: 'tool:call-1',
+      summary: '已使用 getWeather',
+    },
+  };
+  yield { type: 'message.delta' as const, delta: '深圳晴' };
 }
 
 /**

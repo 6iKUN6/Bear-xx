@@ -1,6 +1,7 @@
 import type { INestApplicationContext } from '@nestjs/common';
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { AgentFlowActivities } from '../modules/agent-flow/temporal/agent-flow.activities';
+import { ChatAgentActivities } from '../modules/chat-agent/chat-agent.activities';
 import { getAgentFlowWorkflowBuildId } from './agent-flow.workflow-revision';
 import {
   getTemporalConnectionOptions,
@@ -12,7 +13,7 @@ import {
  * @param connection 已建立的 Temporal 连接
  * @param config 已通过严格校验的 Temporal 配置
  * @returns 返回尚未运行的 Worker
- * @description 只注册纯 Workflow；Workflow 代码运行在 SDK 的隔离 VM 中，即使与 Activity 同进程也拿不到数据库、Redis、LLM 或 MCP。
+ * @description 只注册纯 Workflow（AgentFlow 与默认 ReAct 智能体）；Workflow 代码运行在 SDK 的隔离 VM 中，即使与 Activity 同进程也拿不到数据库、Redis、LLM 或 MCP。
  */
 export function createOrchestratorWorker(
   connection: NativeConnection,
@@ -22,7 +23,7 @@ export function createOrchestratorWorker(
     connection,
     namespace: config.namespace,
     taskQueue: config.orchestratorTaskQueue,
-    workflowsPath: require.resolve('./workflows/agent-flow.workflow'),
+    workflowsPath: require.resolve('./workflows'),
     // 让每个 Workflow Task 携带推进它的代码修订，便于事后定位非确定性问题；
     // 未开启 useVersioning，因此不参与任务路由，仅作元数据。
     buildId: getAgentFlowWorkflowBuildId(),
@@ -46,7 +47,11 @@ export function createActivityWorker(
     connection,
     namespace: config.namespace,
     taskQueue: config.activityTaskQueue,
-    activities: application.get(AgentFlowActivities).getActivityHandlers(),
+    // 两组 Activity 名称不重叠（见 ChatAgentActivityApi），合并后注册到同一个队列
+    activities: {
+      ...application.get(AgentFlowActivities).getActivityHandlers(),
+      ...application.get(ChatAgentActivities).getActivityHandlers(),
+    },
     buildId: getAgentFlowWorkflowBuildId(),
   });
 }

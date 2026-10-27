@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, StreamTaskType } from '@prisma/client';
+import { Prisma, StreamTaskRuntime, StreamTaskType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeFlowDefinition } from '../agent-flow/definition/flow-definition.versioning';
 import type {
@@ -79,7 +79,10 @@ export class AgentTestSessionService {
               select: {
                 id: true,
                 status: true,
+                runtime: true,
                 resolvedAgentModelPresetId: true,
+                resolvedAgentToolGroups: true,
+                agentToolsDegraded: true,
                 flowDigest: true,
                 flowVersion: {
                   select: {
@@ -104,10 +107,10 @@ export class AgentTestSessionService {
     const presetIds = new Set<string>();
     for (const message of conversation.messages) {
       const task = message.streamTasks[0];
-      if (!task?.flowVersion || !task.flowDigest) continue;
-      if (task.resolvedAgentModelPresetId) {
+      if (task?.resolvedAgentModelPresetId) {
         presetIds.add(task.resolvedAgentModelPresetId);
       }
+      if (!task?.flowVersion || !task.flowDigest) continue;
       const declarations = this.readModelNodeDeclarations(
         task.flowVersion.definition,
       );
@@ -193,15 +196,18 @@ export class AgentTestSessionService {
    * @param task assistant 消息关联的最新测试聊天任务
    * @param declarationsByVersionId 已按 FlowVersion 解析的模型节点声明
    * @param modelsById 当前仍存在的模型预设展示元数据
-   * @returns 返回任务冻结的 Flow 与模型快照；缺少完整 Flow 快照时返回 null
-   * @description Flow 版本、摘要和默认模型来自任务冻结字段，名称等友好信息允许读取当前元数据。
+   * @returns 返回任务冻结的 Flow 或默认智能体与模型快照；Flow 任务缺少完整快照时返回 null
+   * @description Flow 版本、摘要、默认模型与工具组来自任务冻结字段，名称等友好信息允许读取当前元数据。
    */
   private toExecutionSnapshot(
     task:
       | {
           id: string;
           status: string;
+          runtime: StreamTaskRuntime;
           resolvedAgentModelPresetId: string | null;
+          resolvedAgentToolGroups: string[];
+          agentToolsDegraded: boolean;
           flowDigest: string | null;
           flowVersion: {
             id: string;
@@ -214,8 +220,6 @@ export class AgentTestSessionService {
     declarationsByVersionId: ReadonlyMap<string, ModelNodeDeclaration[]>,
     modelsById: ReadonlyMap<string, ModelPresetDisplayMetadata>,
   ): TestMessageExecutionDto | null {
-    if (!task?.flowVersion || !task.flowDigest) return null;
-
     const toModel = (presetId: string): TestExecutionModelSnapshotDto => {
       const metadata = modelsById.get(presetId);
       return {
@@ -225,6 +229,22 @@ export class AgentTestSessionService {
         providerKey: metadata?.connection.providerKey ?? null,
       };
     };
+    if (task?.runtime === StreamTaskRuntime.CHAT_AGENT) {
+      return {
+        taskId: task.id,
+        taskStatus: task.status.toLowerCase(),
+        runtime: 'chat_agent',
+        flow: null,
+        toolGroups: task.resolvedAgentToolGroups,
+        toolsDegraded: task.agentToolsDegraded,
+        agentDefaultModel: task.resolvedAgentModelPresetId
+          ? toModel(task.resolvedAgentModelPresetId)
+          : null,
+        nodeModels: [],
+      };
+    }
+    if (!task?.flowVersion || !task.flowDigest) return null;
+
     const nodeModels: TestExecutionNodeModelDto[] = (
       declarationsByVersionId.get(task.flowVersion.id) ?? []
     ).map((item) => {
@@ -244,6 +264,9 @@ export class AgentTestSessionService {
     return {
       taskId: task.id,
       taskStatus: task.status.toLowerCase(),
+      runtime: 'agent_flow',
+      toolGroups: [],
+      toolsDegraded: false,
       flow: {
         id: task.flowVersion.flow.id,
         name: task.flowVersion.flow.name,

@@ -58,13 +58,13 @@ export class AgentFlowCancellationDispatcherService
   /**
    * 派发尚未记录成功的 Flow 取消 Signal
    * @returns 无返回值
-   * @description 查询已取消且锁定了 Temporal Workflow 的 Flow 任务；Signal 成功后将投递时间写入 executionState。重复 Signal 对 Workflow 是幂等的，而写入状态失败会在下轮扫描中重试。
+   * @description 查询已取消且已启动 Temporal Workflow 的任务（AgentFlow 与默认 ReAct 智能体）；Signal 成功后将投递时间写入 executionState。重复 Signal 对 Workflow 是幂等的，而写入状态失败会在下轮扫描中重试。
    */
   async dispatchPending(): Promise<void> {
     const tasks = await this.prisma.streamTask.findMany({
       where: {
         status: StreamTaskStatus.CANCELED,
-        flowVersionId: { not: null },
+        // 只看是否已启动 Workflow：默认 ReAct 智能体任务没有 flowVersionId，但同样需要取消 Signal
         temporalWorkflowId: { not: null },
         // 必须在 SQL 层排除已处理任务：若投递标记只在内存里过滤，已处理记录会长期
         // 停留在 updatedAt 最旧的位置占满 take 额度，累计到批次大小后新取消的任务
