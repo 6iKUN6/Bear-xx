@@ -57,7 +57,7 @@ export function strategyName(value: string): string {
 /** 工具组中文展示（组名来自后端能力闭集，未登记的组回退原名） */
 export const TOOL_GROUP_META: Record<string, { name: string; desc: string }> = {
   default: { name: "基础全集", desc: "包含当前全部基础工具" },
-  weather: { name: "天气查询", desc: "查询城市实时天气（执行前需人工审批）" },
+  weather: { name: "天气查询", desc: "查询城市实时天气" },
   search: { name: "联网搜索", desc: "Tavily 联网检索实时信息" },
   "image-gen": { name: "AI 生图", desc: "文生图并转存云存储（需配置生图模型）" },
 };

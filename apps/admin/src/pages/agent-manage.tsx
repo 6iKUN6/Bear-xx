@@ -117,7 +117,7 @@ export function AgentManagePage() {
                 {/* 绑定的 Flow 才是决定行为的东西；不展开图名是为了不给列表页
                     多加一次 Flow 列表请求，详情在编辑抽屉里 */}
                 <Badge variant={a.defaultFlowVersionId ? "default" : "outline"}>
-                  {a.defaultFlowVersionId ? "自定义 Flow" : "直接回复"}
+                  {a.defaultFlowVersionId ? "自定义 Flow" : "默认助手"}
                 </Badge>
                 <Badge variant="outline">
                   {a.defaultModelPresetId

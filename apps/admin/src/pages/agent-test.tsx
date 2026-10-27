@@ -566,7 +566,7 @@ function MessageBubble({
             </Badge>
             {message.execution ? (
               <span className="text-[10px] text-muted-foreground">
-                {message.execution.flow.name} v{message.execution.flow.version}
+                {executionLabel(message.execution)}
                 {message.execution.agentDefaultModel
                   ? ` · ${modelSnapshotLabel(message.execution.agentDefaultModel)}`
                   : ""}
@@ -637,7 +637,7 @@ function CurrentConfiguration({
   }
 
   const flowLabel = !agent.defaultFlowVersionId
-    ? "内置直接回复 Flow"
+    ? "内置默认助手 Flow"
     : flow?.publishedVersion
       ? `${flow.name} v${flow.publishedVersion.version}`
       : `FlowVersion ${shortId(agent.defaultFlowVersionId)}`;
@@ -661,6 +661,13 @@ function CurrentConfiguration({
   );
 }
 
+/** 消息气泡上的执行来源简述：Flow 名称与版本，或默认助手。 */
+function executionLabel(execution: TestMessageExecution): string {
+  return execution.flow
+    ? `${execution.flow.name} v${execution.flow.version}`
+    : "默认助手";
+}
+
 /**
  * 展示一条历史 assistant 消息冻结的执行配置
  * @param execution 后端从关联测试任务构造的不可变执行快照
@@ -681,18 +688,35 @@ function ExecutionSnapshot({ execution }: { execution: TestMessageExecution }) {
         <dd className="break-all font-mono text-foreground">
           {execution.taskId}
         </dd>
-        <dt className="text-muted-foreground">Flow</dt>
-        <dd className="text-foreground">
-          {execution.flow.name} v{execution.flow.version}
-        </dd>
-        <dt className="text-muted-foreground">版本 ID</dt>
-        <dd className="break-all font-mono text-foreground">
-          {execution.flow.versionId}
-        </dd>
-        <dt className="text-muted-foreground">digest</dt>
-        <dd className="break-all font-mono text-foreground">
-          {execution.flow.digest}
-        </dd>
+        {execution.flow ? (
+          <>
+            <dt className="text-muted-foreground">Flow</dt>
+            <dd className="text-foreground">
+              {execution.flow.name} v{execution.flow.version}
+            </dd>
+            <dt className="text-muted-foreground">版本 ID</dt>
+            <dd className="break-all font-mono text-foreground">
+              {execution.flow.versionId}
+            </dd>
+            <dt className="text-muted-foreground">digest</dt>
+            <dd className="break-all font-mono text-foreground">
+              {execution.flow.digest}
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt className="text-muted-foreground">执行</dt>
+            <dd className="text-foreground">默认助手（代码内置 ReAct）</dd>
+            <dt className="text-muted-foreground">工具组</dt>
+            <dd className="text-foreground">
+              {execution.toolGroups.length > 0
+                ? execution.toolGroups.join("、")
+                : execution.toolsDegraded
+                  ? "已配置，但当前模型未通过工具探测，本轮未启用"
+                  : "未配置工具"}
+            </dd>
+          </>
+        )}
         <dt className="text-muted-foreground">Agent 默认</dt>
         <dd className="text-foreground">
           {execution.agentDefaultModel
@@ -700,35 +724,39 @@ function ExecutionSnapshot({ execution }: { execution: TestMessageExecution }) {
             : "未冻结默认模型"}
         </dd>
       </dl>
-      <div>
-        <p className="mb-1.5 text-xs font-medium text-foreground">
-          节点模型配置
-        </p>
-        {execution.nodeModels.length > 0 ? (
-          <ul className="space-y-1.5">
-            {execution.nodeModels.map((item) => (
-              <li
-                key={item.nodeId}
-                className="flex flex-wrap items-center gap-1.5 text-xs"
-              >
-                <Badge variant="outline">
-                  {item.nodeName || item.nodeId} · {item.nodeType}
-                </Badge>
-                <span className="text-foreground">
-                  {modelSnapshotLabel(item.model)}
-                </span>
-                <span className="text-muted-foreground">
-                  {item.source === "explicit" ? "节点指定" : "继承 Agent 默认"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            没有可解析的模型节点配置；实际调用以轨迹为准
+      {execution.runtime === "agent_flow" ? (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-foreground">
+            节点模型配置
           </p>
-        )}
-      </div>
+          {execution.nodeModels.length > 0 ? (
+            <ul className="space-y-1.5">
+              {execution.nodeModels.map((item) => (
+                <li
+                  key={item.nodeId}
+                  className="flex flex-wrap items-center gap-1.5 text-xs"
+                >
+                  <Badge variant="outline">
+                    {item.nodeName || item.nodeId} · {item.nodeType}
+                  </Badge>
+                  <span className="text-foreground">
+                    {modelSnapshotLabel(item.model)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {item.source === "explicit"
+                      ? "节点指定"
+                      : "继承 Agent 默认"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              没有可解析的模型节点配置；实际调用以轨迹为准
+            </p>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

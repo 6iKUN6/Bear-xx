@@ -163,7 +163,14 @@ export interface TestExecutionNodeModel {
 export interface TestMessageExecution {
   taskId: string;
   taskStatus: string;
-  flow: TestExecutionFlowSnapshot;
+  /** agent_flow=绑定的 Flow；chat_agent=代码内置的默认 ReAct 智能体 */
+  runtime: "agent_flow" | "chat_agent";
+  /** 仅 agent_flow 有值 */
+  flow: TestExecutionFlowSnapshot | null;
+  /** 默认智能体本轮实际启用的工具组 */
+  toolGroups: string[];
+  /** 默认智能体配置了工具但因模型能力未启用 */
+  toolsDegraded: boolean;
   agentDefaultModel: TestExecutionModelSnapshot | null;
   nodeModels: TestExecutionNodeModel[];
 }
@@ -240,6 +247,8 @@ export interface CapabilityTool {
 export interface ToolGroup {
   name: string;
   tools: CapabilityTool[];
+  /** 默认助手（未绑定 Flow 的智能体）能否勾选此工具组 */
+  agentConfigurable: boolean;
 }
 
 /** 可写进节点 modelPreset 的预设选项；与后端 listAvailableModels 同一闭集。 */
@@ -273,9 +282,9 @@ export interface Agent {
   defaultModelPresetId: string | null;
   defaultReasoning: ReasoningSelection | null;
   allowedModelPresetIds: string[];
-  /** 绑定的已发布 FlowVersion；null = 执行内置的直接回复 Flow */
+  /** 绑定的已发布 FlowVersion；null = 执行内置的默认助手 Flow */
   defaultFlowVersionId: string | null;
-  /** 可用工具组，仅供展示；执行用的工具由 Flow 节点声明 */
+  /** 未绑定 Flow：后台为默认助手配置的工具组；绑定 Flow：从 Flow 节点推导，仅供展示 */
   toolGroups: string[];
   enabled: boolean;
   visible: boolean;
@@ -560,6 +569,8 @@ export interface AgentInput {
   defaultReasoning?: ReasoningSelection | null;
   allowedModelPresetIds?: string[];
   defaultFlowVersionId?: string | null;
+  /** 默认助手可用的工具组；绑定 Flow 时必须为空 */
+  toolGroups?: string[];
   enabled?: boolean;
   visible?: boolean;
   minimumMembershipTier?: "FREE" | "PLUS" | "PRO";
