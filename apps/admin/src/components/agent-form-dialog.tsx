@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  useAgentCapabilities,
   useAgentFlows,
   useAgentMutations,
   useModelPresets,
@@ -32,6 +33,7 @@ import { uploadAgentAvatar } from "@/api/upload";
 import { ApiError } from "@/api/client";
 import type { Agent, AgentInput } from "@/api/types";
 import { capabilityMeta } from "@/lib/model-preset-meta";
+import { TOOL_GROUP_META, toolGroupName } from "@/lib/agent-meta";
 
 /**
  * 智能体编辑弹窗
@@ -41,7 +43,7 @@ import { capabilityMeta } from "@/lib/model-preset-meta";
  * 抽屉那种窄长布局反而让描述文字挤成多行。
  *
  * 分组不是纯装饰：**身份**是这个智能体是谁（名称/头像/人设），**执行**是它怎么干活
- * （模型、绑哪张 Flow）。工具与编排都已移到 Flow 节点上配置，这里不再出现。
+ * （模型、工具、绑哪张 Flow）。工具只对默认助手在这里配置；绑定自定义 Flow 时由 Flow 节点声明。
  */
 export function AgentFormDialog({
   agent,
@@ -55,6 +57,7 @@ export function AgentFormDialog({
   const { create, update } = useAgentMutations();
   const { data: modelPresets } = useModelPresets();
   const { data: agentFlows } = useAgentFlows();
+  const { data: capabilities } = useAgentCapabilities();
   const [form, setForm] = useState<AgentInput>({ name: "" });
   const [executionMode, setExecutionMode] = useState<"direct" | "custom">(
     "direct",
@@ -76,6 +79,8 @@ export function AgentFormDialog({
         defaultReasoning: agent.defaultReasoning,
         allowedModelPresetIds: agent.allowedModelPresetIds,
         defaultFlowVersionId: agent.defaultFlowVersionId,
+        // 绑定 Flow 时这里是从图上推导的展示值，不是可编辑配置
+        toolGroups: agent.defaultFlowVersionId ? [] : agent.toolGroups,
         enabled: agent.enabled,
         visible: agent.visible,
         minimumMembershipTier: agent.minimumMembershipTier,
@@ -91,6 +96,7 @@ export function AgentFormDialog({
         defaultModelPresetId: null,
         defaultReasoning: null,
         allowedModelPresetIds: [],
+        toolGroups: [],
       });
       setExecutionMode("direct");
     }
@@ -115,6 +121,19 @@ export function AgentFormDialog({
   const defaultModel = availableModels.find(
     (model) => model.presetId === form.defaultModelPresetId,
   );
+  const configurableToolGroups = (capabilities?.toolGroups ?? []).filter(
+    (group) => group.agentConfigurable,
+  );
+  const selectedToolGroups = form.toolGroups ?? [];
+  // 选了工具却允许未通过工具探测的模型：这些模型被选中的轮次会自动不带工具
+  const modelsWithoutTools =
+    selectedToolGroups.length > 0
+      ? availableModels.filter(
+          (model) =>
+            form.allowedModelPresetIds?.includes(model.presetId) &&
+            model.capability !== "tools",
+        )
+      : [];
 
   const handleAvatarFile = async (file: File | undefined) => {
     if (!file) return;
@@ -166,6 +185,7 @@ export function AgentFormDialog({
         ? (form.defaultReasoning ?? null)
         : null,
       allowedModelPresetIds: usesAgentDefault ? form.allowedModelPresetIds : [],
+      toolGroups: usesAgentDefault ? selectedToolGroups : [],
     };
     try {
       if (agent) {
@@ -288,7 +308,7 @@ export function AgentFormDialog({
                     }}
                   >
                     <MessageCircle className="h-4 w-4" />
-                    直接回复
+                    默认助手
                   </Button>
                   <Button
                     type="button"
@@ -301,6 +321,7 @@ export function AgentFormDialog({
                         defaultModelPresetId: null,
                         defaultReasoning: null,
                         allowedModelPresetIds: [],
+                        toolGroups: [],
                       }));
                     }}
                   >
@@ -349,7 +370,7 @@ export function AgentFormDialog({
                 </Field>
               ) : (
                 <p className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  使用系统内置 direct Flow，由 Agent 默认模型直接生成回复。
+                  使用代码内置的 ReAct 智能体：按下方勾选的工具按需调用，没有勾选时直接回复。
                 </p>
               )}
 
@@ -423,6 +444,32 @@ export function AgentFormDialog({
                           ))}
                       </SelectContent>
                     </Select>
+                  </Field>
+
+                  <Field
+                    label="工具"
+                    hint="模型会按需调用；需要审批的工具执行前会请用户确认"
+                  >
+                    <MultiSelect
+                      options={configurableToolGroups.map((group) => ({
+                        value: group.name,
+                        label: toolGroupName(group.name),
+                        description:
+                          TOOL_GROUP_META[group.name]?.desc ??
+                          group.tools.map((tool) => tool.name).join("、"),
+                      }))}
+                      value={selectedToolGroups}
+                      onChange={(toolGroups) =>
+                        setForm((current) => ({ ...current, toolGroups }))
+                      }
+                      placeholder="不选则只做直接回复"
+                    />
+                    {modelsWithoutTools.length > 0 ? (
+                      <p className="text-xs text-[var(--lb-warning)]">
+                        {modelsWithoutTools.map((model) => model.name).join("、")}
+                        未通过工具探测，选用它们的对话轮次会自动不带工具。
+                      </p>
+                    ) : null}
                   </Field>
 
                   <ReasoningControls
