@@ -6,6 +6,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CapabilityRegistry } from '../ai/agent-loop';
+import { AGENT_CONFIGURABLE_TOOL_GROUPS } from '../ai/agent-loop/capability/tool-groups';
 import { LlmModelRegistryService } from '../llm/llm-model-registry.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -41,6 +42,7 @@ export class AdminCapabilityController {
           description: tool.description ?? '',
           requiresApproval: this.capabilityRegistry.requiresApproval(tool.name),
         })),
+        agentConfigurable: AGENT_CONFIGURABLE_TOOL_GROUPS.includes(group),
       })),
       // 与 FlowRuntimeValidator 用同一个判据，避免选择器列出发布期会被拒的预设
       modelPresets: this.modelRegistry.listAvailableModels().map((preset) => ({

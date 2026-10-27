@@ -18,6 +18,12 @@ export class ToolGroupDto {
 
   @ApiProperty({ type: CapabilityToolDto, isArray: true })
   tools: CapabilityToolDto[];
+
+  @ApiProperty({
+    description: '默认助手（未绑定 Flow 的智能体）能否在后台勾选此工具组',
+    example: true,
+  })
+  agentConfigurable: boolean;
 }
 
 export class ModelPresetOptionDto {

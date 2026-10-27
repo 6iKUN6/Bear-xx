@@ -47,14 +47,14 @@ export class AgentResponseDto {
   @ApiProperty({
     nullable: true,
     description:
-      '默认执行的已发布 FlowVersion ID；null=执行内置的直接回复 Flow',
+      '默认执行的已发布 FlowVersion ID；null=执行内置的默认助手 Flow',
   })
   defaultFlowVersionId: string | null;
 
   @ApiProperty({
     example: ['default'],
     description:
-      '该智能体可用的工具组，仅供列表展示。当前仍读 Agent 上的历史字段，待改为从绑定的 Flow 节点推导',
+      '该智能体可用的工具组：未绑定 Flow 时为后台为默认助手配置的工具组（编辑表单据此回填），绑定 Flow 时从 Flow 节点推导、仅供展示',
   })
   toolGroups: string[];
 

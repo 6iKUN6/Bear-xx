@@ -3,7 +3,7 @@ import { ConversationType, MessageRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeToolGroups } from '../ai/agent-loop/capability/tool-group-labels';
 import { groupContextPrompt } from '../../prompts';
-import { resolveBoundFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
+import { resolveAgentToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import type { LlmMessage } from '../llm/llm.types';
 import {
   ConversationSummaryService,
@@ -397,15 +397,14 @@ export class ChatContextService {
         id: true,
         name: true,
         description: true,
-        // 能力从绑定 Flow 的图上推导；Agent.toolGroups 那一列已删除
+        // 未绑 Flow 用后台配置的工具组，绑定时从 Flow 图上推导
+        toolGroups: true,
         defaultFlowVersion: { select: { definition: true } },
       },
     });
 
     const describe = (agent: (typeof agents)[number]) => {
-      const capability = describeToolGroups(
-        resolveBoundFlowToolGroups(agent.defaultFlowVersion?.definition),
-      );
+      const capability = describeToolGroups(resolveAgentToolGroups(agent));
       return agent.description
         ? `${capability}（${agent.description}）`
         : capability;

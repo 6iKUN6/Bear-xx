@@ -14,16 +14,21 @@ import type {
   SubagentDefinition,
 } from './capability.types';
 
-/** 默认工具组：无显式能力要求时可用的基础工具集合 */
-export const DEFAULT_TOOL_GROUP = 'default';
-/** 天气工具组：仅天气查询 */
-export const WEATHER_TOOL_GROUP = 'weather';
-/** 搜索工具组：仅联网搜索 */
-export const SEARCH_TOOL_GROUP = 'search';
-/** 生图工具组：AI 文生图（不入 default，按 agent 显式分配） */
-export const IMAGE_TOOL_GROUP = 'image-gen';
-/** 麦当劳点餐工具组：不入 default，只有绑定用户级凭据后才在请求内装配。 */
-export const MCDONALDS_ORDER_TOOL_GROUP = 'mcd-order';
+import {
+  DEFAULT_TOOL_GROUP,
+  IMAGE_TOOL_GROUP,
+  MCDONALDS_ORDER_TOOL_GROUP,
+  SEARCH_TOOL_GROUP,
+  WEATHER_TOOL_GROUP,
+} from './tool-groups';
+
+export {
+  DEFAULT_TOOL_GROUP,
+  IMAGE_TOOL_GROUP,
+  MCDONALDS_ORDER_TOOL_GROUP,
+  SEARCH_TOOL_GROUP,
+  WEATHER_TOOL_GROUP,
+} from './tool-groups';
 
 /**
  * 能力注册表

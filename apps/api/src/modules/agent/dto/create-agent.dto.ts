@@ -82,12 +82,26 @@ export class CreateAgentDto {
 
   @ApiPropertyOptional({
     description:
-      '默认执行的已发布 FlowVersion ID；null 表示执行系统内置的直接回复 Flow',
+      '默认执行的已发布 FlowVersion ID；null 表示执行系统内置的默认助手 Flow',
     nullable: true,
   })
   @IsOptional()
   @IsString()
   defaultFlowVersionId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      '默认助手可用的工具组；只对未绑定 Flow 的智能体生效，绑定 Flow 时必须为空（工具由 Flow 节点声明）',
+    type: String,
+    isArray: true,
+    example: ['weather', 'search'],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(16)
+  @IsString({ each: true })
+  toolGroups?: string[];
 
   @ApiPropertyOptional({ description: '是否启用', default: true })
   @IsOptional()

@@ -4,7 +4,6 @@ import { Agent, MembershipTier, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDefinitionService } from './agent-definition.service';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
-import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
 import { AgentService } from './agent.service';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { AgentAccessService } from '../agent-access/agent-access.service';
@@ -74,6 +73,7 @@ function buildAgent(overrides: Partial<Agent> = {}): Agent {
     defaultFlowVersionId: null,
     defaultModelPresetId: 'model-row-id',
     defaultReasoningConfig: null,
+    toolGroups: [],
     createdById: null,
     createdAt: new Date('2026-08-14T00:00:00.000Z'),
     updatedAt: new Date('2026-08-14T00:00:00.000Z'),
@@ -201,18 +201,73 @@ describe('AgentService', () => {
     });
   });
 
-  it('未绑定 Flow 时按内置 direct 形态推导', async () => {
-    // ⚠️ 这条区分不了「从预设推导」与「写死空数组」：direct 预设的工具组恒为空，两种
-    // 实现当前行为完全等价。断言写成调用 collectFlowToolGroups 是为了让期望值跟着预设
-    // 走——内置形态哪天带上工具，这条会自动开始有区分力，而不需要有人记得回来改。
+  it('未绑定 Flow 时展示后台为默认助手配置的工具组', async () => {
     findUnique.mockResolvedValue({
-      ...buildAgentWithExecution(),
+      ...buildAgentWithExecution({ toolGroups: ['weather', 'search'] }),
     });
 
     const result = await service.get('agent-id');
 
-    expect(result.toolGroups).toEqual(
-      collectFlowToolGroups(createFlowDefinitionPreset('direct')),
+    expect(result.toolGroups).toEqual(['search', 'weather']);
+  });
+
+  it('默认助手只能配置开放给它的工具组', async () => {
+    findUnique.mockResolvedValue(buildAgentWithExecution());
+
+    await expect(
+      service.update('agent-id', { toolGroups: ['mcd-order'] }),
+    ).rejects.toThrow('工具组「mcd-order」不可用于默认助手');
+    await expect(
+      service.update('agent-id', { toolGroups: ['not-exists'] }),
+    ).rejects.toThrow('工具组「not-exists」不可用于默认助手');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('默认助手保存去重后的工具组', async () => {
+    findUnique.mockResolvedValue(buildAgentWithExecution());
+    update.mockResolvedValue(
+      buildAgentWithExecution({ toolGroups: ['weather'] }),
+    );
+
+    await service.update('agent-id', { toolGroups: ['weather', 'weather'] });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ toolGroups: ['weather'] }),
+      }),
+    );
+  });
+
+  it('绑定 Flow 时拒绝显式配置工具组，未传时自动清空旧配置', async () => {
+    findUnique.mockResolvedValue(
+      buildAgentWithExecution({ toolGroups: ['weather'] }),
+    );
+    findFlowVersion.mockResolvedValue({
+      status: 'PUBLISHED',
+      definition: createFlowDefinitionPreset('blank'),
+    });
+    await expect(
+      service.update('agent-id', {
+        defaultFlowVersionId: 'flow-version',
+        allowedModelPresetIds: [],
+        defaultModelPresetId: null,
+        toolGroups: ['weather'],
+      }),
+    ).rejects.toThrow('绑定 Flow 的智能体工具由 Flow 节点声明');
+
+    update.mockResolvedValue({
+      ...buildAgentWithExecution({ defaultFlowVersionId: 'flow-version' }),
+      defaultFlowVersion: { definition: createFlowDefinitionPreset('blank') },
+    } as never);
+    await service.update('agent-id', {
+      defaultFlowVersionId: 'flow-version',
+      allowedModelPresetIds: [],
+      defaultModelPresetId: null,
+    });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ toolGroups: [] }),
+      }),
     );
   });
 
