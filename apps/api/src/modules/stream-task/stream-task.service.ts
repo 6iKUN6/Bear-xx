@@ -82,6 +82,7 @@ import { StreamTaskSnapshotService } from './stream-task-snapshot.service';
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
 import { AgentFlowApprovalService } from '../agent-flow/agent-flow-approval.service';
 import { AgentFlowSignalOutboxService } from '../agent-flow/temporal/agent-flow-signal-outbox.service';
+import { isTemporalTask } from '../agent-flow/runtime/agent-run.support';
 import {
   AgentAccessDenialReason,
   AgentAccessService,
@@ -675,15 +676,14 @@ export class StreamTaskService {
       };
     });
 
-    if (result.task.flowVersionId && result.task.flowDigest) {
-      await this.flowTaskDispatcher.dispatch({
-        taskId: result.task.id,
-        flowVersionId: result.task.flowVersionId,
-        flowDigest: result.task.flowDigest,
-        temporalWorkflowId: result.task.temporalWorkflowId,
-        temporalRunId: result.task.temporalRunId,
-      });
-    }
+    await this.flowTaskDispatcher.dispatch({
+      taskId: result.task.id,
+      runtime: result.task.runtime,
+      flowVersionId: result.task.flowVersionId,
+      flowDigest: result.task.flowDigest,
+      temporalWorkflowId: result.task.temporalWorkflowId,
+      temporalRunId: result.task.temporalRunId,
+    });
 
     return {
       taskId: result.task.id,
@@ -994,7 +994,7 @@ export class StreamTaskService {
   ): Promise<TaskStreamResult> {
     const task = await this.loadWaitingTask(taskId, userId);
 
-    if (task.flowVersionId) {
+    if (isTemporalTask(task)) {
       return this.resumeFlowTaskWithDecision(
         task,
         userId,
@@ -1036,7 +1036,7 @@ export class StreamTaskService {
   ): Promise<TaskStreamResult> {
     const task = await this.loadWaitingTask(taskId, userId);
 
-    if (task.flowVersionId) {
+    if (isTemporalTask(task)) {
       return this.resumeFlowTaskWithDecision(
         task,
         userId,
@@ -1354,15 +1354,19 @@ export class StreamTaskService {
       where: { id: taskId },
       select: {
         id: true,
+        runtime: true,
         flowVersionId: true,
         flowDigest: true,
         temporalWorkflowId: true,
         temporalRunId: true,
       },
     });
-    if (flowTask?.flowVersionId && flowTask.flowDigest) {
+    // 默认 ReAct 智能体任务没有 flowVersionId，必须按运行时判定；落进下面的旧进程内链路会
+    // 让它被一套已废弃的编排重跑
+    if (flowTask && isTemporalTask(flowTask)) {
       await this.flowTaskDispatcher.dispatch({
         taskId: flowTask.id,
+        runtime: flowTask.runtime,
         flowVersionId: flowTask.flowVersionId,
         flowDigest: flowTask.flowDigest,
         temporalWorkflowId: flowTask.temporalWorkflowId,

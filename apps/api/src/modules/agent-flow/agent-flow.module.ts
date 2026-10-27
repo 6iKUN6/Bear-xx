@@ -10,6 +10,7 @@ import { AgentFlowController } from './agent-flow.controller';
 import { AgentFlowService } from './agent-flow.service';
 import { BuiltinFlowService } from './builtin-flow.service';
 import { AgentFlowVersionService } from './agent-flow-version.service';
+import { AgentRunSupport } from './runtime/agent-run.support';
 import { FlowContextService } from './runtime/flow-context.service';
 import { FlowCompiler } from './runtime/flow-compiler.service';
 import { FlowRuntimeValidator } from './runtime/flow-runtime-validator.service';
@@ -40,6 +41,7 @@ import { StorageModule } from '../storage/storage.module';
     FlowCompiler,
     FlowContextService,
     FlowTemplateRegistry,
+    AgentRunSupport,
     AgentFlowActivities,
     TemporalClientService,
     AgentFlowSignalOutboxService,
@@ -55,6 +57,7 @@ import { StorageModule } from '../storage/storage.module';
     FlowCompiler,
     FlowContextService,
     FlowTemplateRegistry,
+    AgentRunSupport,
     AgentFlowActivities,
     TemporalClientService,
     AgentFlowSignalOutboxService,

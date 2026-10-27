@@ -1,5 +1,9 @@
 import { ConfigService } from '@nestjs/config';
-import { MembershipTier, StreamTaskStatus } from '@prisma/client';
+import {
+  MembershipTier,
+  StreamTaskRuntime,
+  StreamTaskStatus,
+} from '@prisma/client';
 import { StreamTaskEventType } from '@litter-bear/types/protocol';
 import { StreamTaskService } from './stream-task.service';
 import { runWithMcDonaldsOrderContext } from '../mcdonalds-order/mcdonalds-order-context';
@@ -19,7 +23,8 @@ describe('StreamTaskService', () => {
         create: jest.fn().mockResolvedValue({}),
       },
     };
-    const registry = { publish: jest.fn() };
+    const registry = { publish: jest.fn(), isRunning: jest.fn() };
+    const flowTaskDispatcher = { dispatch: jest.fn() };
     const snapshotService = {
       appendFrame: jest
         .fn()
@@ -53,7 +58,7 @@ describe('StreamTaskService', () => {
       mcdonaldsOrderService as never,
       capabilityRegistry as never,
       {} as never,
-      {} as never,
+      flowTaskDispatcher as never,
       flowApprovalService as never,
       flowSignalOutboxService as never,
       new AgentAccessService(),
@@ -68,6 +73,8 @@ describe('StreamTaskService', () => {
       capabilityRegistry,
       flowApprovalService,
       flowSignalOutboxService,
+      flowTaskDispatcher,
+      registry,
     };
   }
 
@@ -347,5 +354,53 @@ describe('StreamTaskService', () => {
       decision: { decision: 'approve' },
     });
     expect(flowSignalOutboxService.dispatchPending).toHaveBeenCalledTimes(1);
+  });
+
+  it('默认 ReAct 智能体任务没有 flowVersionId 也走 Temporal 审批恢复', async () => {
+    const { service, prisma, flowApprovalService } = createService();
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      userId: 'user-1',
+      status: StreamTaskStatus.WAITING_HUMAN,
+      runtime: StreamTaskRuntime.CHAT_AGENT,
+      flowVersionId: null,
+    });
+
+    await service.resumeTaskWithDecision(
+      'task-1',
+      'user-1',
+      { decision: 'approve' },
+      '0',
+      undefined,
+      'approval-1',
+    );
+
+    expect(flowApprovalService.decideAndQueueSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-1', approvalId: 'approval-1' }),
+    );
+  });
+
+  it('默认 ReAct 智能体任务派发到 Temporal，绝不进入旧的进程内执行', async () => {
+    const { service, prisma, flowTaskDispatcher, registry } = createService();
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      runtime: StreamTaskRuntime.CHAT_AGENT,
+      flowVersionId: null,
+      flowDigest: null,
+      temporalWorkflowId: null,
+      temporalRunId: null,
+    });
+
+    await service['ensureTaskExecution']('task-1');
+
+    expect(flowTaskDispatcher.dispatch).toHaveBeenCalledWith({
+      taskId: 'task-1',
+      runtime: StreamTaskRuntime.CHAT_AGENT,
+      flowVersionId: null,
+      flowDigest: null,
+      temporalWorkflowId: null,
+      temporalRunId: null,
+    });
+    expect(registry.isRunning).not.toHaveBeenCalled();
   });
 });

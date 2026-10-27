@@ -8,11 +8,17 @@ import {
 import {
   AGENT_FLOW_WORKFLOW_REVISION,
   AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY,
+  CHAT_AGENT_WORKFLOW_REVISION,
+  CHAT_AGENT_WORKFLOW_REVISION_MEMO_KEY,
 } from '../../../temporal/agent-flow.workflow-revision';
 import type {
   AgentFlowWorkflowInput,
   AgentFlowWorkflowStartInput,
 } from '../../../temporal/workflows/agent-flow.workflow.types';
+import type {
+  ChatAgentWorkflowInput,
+  ChatAgentWorkflowStartInput,
+} from '../../../temporal/workflows/chat-agent.workflow.types';
 
 /** 启动 AgentFlow Workflow 时使用的受限 Temporal 参数。 */
 export interface AgentFlowWorkflowStartOptions {
@@ -22,6 +28,15 @@ export interface AgentFlowWorkflowStartOptions {
   /** 只登记 Workflow 代码修订号，不放任何业务或用户数据。 */
   memo: Record<string, number>;
   args: [AgentFlowWorkflowInput];
+}
+
+/** 启动默认 ReAct 智能体 Workflow 时使用的受限 Temporal 参数。 */
+export interface ChatAgentWorkflowStartOptions {
+  taskQueue: string;
+  workflowId: string;
+  workflowIdConflictPolicy: 'USE_EXISTING';
+  memo: Record<string, number>;
+  args: [ChatAgentWorkflowInput];
 }
 
 /** Temporal Workflow 启动结果。 */
@@ -63,6 +78,27 @@ export class TemporalClientService implements OnModuleDestroy {
     const handle = await client.workflow.start(
       'agentFlowWorkflow',
       createAgentFlowWorkflowStartOptions(input, this.getConfig()),
+    );
+    return {
+      workflowId: handle.workflowId,
+      runId: handle.firstExecutionRunId,
+    };
+  }
+
+  /**
+   * 幂等启动或获取一个默认 ReAct 智能体 Workflow
+   * @param input 只包含 StreamTask 标识
+   * @returns 返回 Workflow ID 与 Temporal Run ID
+   * @description 与 AgentFlow 相同：Workflow ID 固定等于 StreamTask.id、冲突策略 USE_EXISTING，
+   * 审批与取消 Signal 也按同一 Workflow ID 投递。
+   */
+  async startChatAgentWorkflow(
+    input: ChatAgentWorkflowStartInput,
+  ): Promise<AgentFlowWorkflowStartResult> {
+    const client = await this.getClient();
+    const handle = await client.workflow.start(
+      'chatAgentWorkflow',
+      createChatAgentWorkflowStartOptions(input, this.getConfig()),
     );
     return {
       workflowId: handle.workflowId,
@@ -173,5 +209,27 @@ export function createAgentFlowWorkflowStartOptions(
         activityTaskQueue: config.activityTaskQueue,
       },
     ],
+  };
+}
+
+/**
+ * 构造默认 ReAct 智能体 Workflow 的幂等启动参数
+ * @param input 只包含 StreamTask 标识
+ * @param config 已校验的 Temporal 队列配置
+ * @returns 返回可直接传给 Temporal WorkflowClient.start 的受限参数
+ * @description 启动输入只有任务 ID 与 Activity 队列；模型、工具与用户消息都由 Activity 从任务快照读取。
+ */
+export function createChatAgentWorkflowStartOptions(
+  input: ChatAgentWorkflowStartInput,
+  config: TemporalWorkerConfig,
+): ChatAgentWorkflowStartOptions {
+  return {
+    taskQueue: config.orchestratorTaskQueue,
+    workflowId: input.streamTaskId,
+    workflowIdConflictPolicy: 'USE_EXISTING',
+    memo: {
+      [CHAT_AGENT_WORKFLOW_REVISION_MEMO_KEY]: CHAT_AGENT_WORKFLOW_REVISION,
+    },
+    args: [{ ...input, activityTaskQueue: config.activityTaskQueue }],
   };
 }

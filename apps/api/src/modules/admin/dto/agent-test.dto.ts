@@ -71,8 +71,27 @@ export class TestExecutionNodeModelDto {
 export class TestMessageExecutionDto {
   @ApiProperty() taskId: string;
   @ApiProperty() taskStatus: string;
-  @ApiProperty({ type: TestExecutionFlowSnapshotDto })
-  flow: TestExecutionFlowSnapshotDto;
+  @ApiProperty({
+    enum: ['agent_flow', 'chat_agent'],
+    description:
+      'agent_flow=绑定的 Flow；chat_agent=代码内置的默认 ReAct 智能体',
+  })
+  runtime: 'agent_flow' | 'chat_agent';
+  @ApiProperty({
+    type: TestExecutionFlowSnapshotDto,
+    nullable: true,
+    description: '仅 agent_flow 有值',
+  })
+  flow: TestExecutionFlowSnapshotDto | null;
+  @ApiProperty({
+    type: [String],
+    description: '默认智能体本轮实际启用的工具组；agent_flow 为空',
+  })
+  toolGroups: string[];
+  @ApiProperty({
+    description: '默认智能体配置了工具但因模型未通过工具探测而未启用',
+  })
+  toolsDegraded: boolean;
   @ApiProperty({ type: TestExecutionModelSnapshotDto, nullable: true })
   agentDefaultModel: TestExecutionModelSnapshotDto | null;
   @ApiProperty({ type: TestExecutionNodeModelDto, isArray: true })

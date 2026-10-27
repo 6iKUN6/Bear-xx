@@ -61,10 +61,23 @@ export const AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY =
   'agentFlowWorkflowRevision';
 
 /**
+ * 默认 ReAct 智能体 Workflow（`chat-agent.workflow.ts`）的代码修订号
+ * @description 规则与上面相同：改变它的命令序列时递增并登记。
+ *
+ * - `1` 初始版本：runChatAgent -> 审批等待/resumeChatAgent 循环 -> finalizeChatAgentRun。
+ */
+export const CHAT_AGENT_WORKFLOW_REVISION = 1;
+
+/** memo 中记录默认智能体 Workflow 启动修订号的键名。 */
+export const CHAT_AGENT_WORKFLOW_REVISION_MEMO_KEY =
+  'chatAgentWorkflowRevision';
+
+/**
  * 生成 Worker 上报的构建标识
- * @returns 返回形如 `agent-flow-r2` 的稳定标识
- * @description 与修订号一一对应，便于在 Temporal UI 的 Workflow Task 上直接读出代码版本。
+ * @returns 返回形如 `agent-flow-r6-chat-r1` 的稳定标识
+ * @description 同一个 Worker 承载两种 Workflow，标识里同时带两者的修订号，便于在 Temporal UI 的
+ * Workflow Task 上直接读出代码版本。
  */
 export function getAgentFlowWorkflowBuildId(): string {
-  return `agent-flow-r${AGENT_FLOW_WORKFLOW_REVISION}`;
+  return `agent-flow-r${AGENT_FLOW_WORKFLOW_REVISION}-chat-r${CHAT_AGENT_WORKFLOW_REVISION}`;
 }

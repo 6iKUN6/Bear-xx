@@ -1,4 +1,8 @@
-import { AgentFlowVersionStatus, Prisma } from '@prisma/client';
+import {
+  AgentFlowVersionStatus,
+  Prisma,
+  StreamTaskRuntime,
+} from '@prisma/client';
 import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
 import { calculateFlowDefinitionDigest } from '../agent-flow/definition/flow-definition.digest';
 import { FlowTaskDispatcherService } from './flow-task-dispatcher.service';
@@ -10,7 +14,12 @@ describe('FlowTaskDispatcherService', () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
       ...agentModelConfig('model-enabled'),
-      defaultFlowVersion: null,
+      defaultFlowVersion: {
+        id: 'flow-version-1',
+        digest: directDigest,
+        status: AgentFlowVersionStatus.PUBLISHED,
+        definition: createFlowDefinitionPreset('direct'),
+      },
     });
     runtimeValidator.validate.mockReturnValue({
       valid: false,
@@ -34,8 +43,12 @@ describe('FlowTaskDispatcherService', () => {
   const directDigest = calculateFlowDefinitionDigest(
     createFlowDefinitionPreset('direct'),
   );
-  function agentModelConfig(presetId: string | null) {
+  function agentModelConfig(
+    presetId: string | null,
+    toolGroups: string[] = [],
+  ) {
     return {
+      toolGroups,
       defaultModelPreset: presetId ? { presetId } : null,
       defaultReasoningConfig: null,
       allowedModelPresets: presetId
@@ -81,21 +94,14 @@ describe('FlowTaskDispatcherService', () => {
     };
     const temporalClient = {
       startWorkflow: jest.fn(),
-    };
-    // 内置 Flow 替身：默认已初始化，专门的用例再让它缺失
-    const builtinFlow = {
-      findDirectVersion: jest.fn().mockResolvedValue({
-        id: 'builtin-version-1',
-        digest: directDigest,
-        status: AgentFlowVersionStatus.PUBLISHED,
-        definition: createFlowDefinitionPreset('direct'),
-      }),
+      startChatAgentWorkflow: jest.fn(),
     };
     const modelRegistry = {
       normalizePresetReasoning: jest.fn(
         (_presetId: string, selection: unknown) => selection,
       ),
       getVisionTransport: jest.fn(),
+      getCapability: jest.fn<string | undefined, [string]>(() => 'tools'),
     };
 
     return {
@@ -103,13 +109,11 @@ describe('FlowTaskDispatcherService', () => {
         prisma as never,
         temporalClient as never,
         runtimeValidator as never,
-        builtinFlow as never,
         modelRegistry as never,
       ),
       prisma,
       temporalClient,
       runtimeValidator,
-      builtinFlow,
       modelRegistry,
     };
   }
@@ -177,10 +181,11 @@ describe('FlowTaskDispatcherService', () => {
 
     const snapshot = await service.resolveTaskFlowSnapshot(
       { agent: prisma.agent } as never,
-      { agentId: 'agent-1', isTest: true },
+      { agentId: 'agent-1' },
     );
 
     expect(snapshot).toEqual({
+      runtime: StreamTaskRuntime.AGENT_FLOW,
       flowVersionId: 'flow-version-1',
       flowDigest: directDigest,
       // 入口现在是声明式的 start 节点，不再是「第一个没有入边的业务节点」
@@ -209,7 +214,6 @@ describe('FlowTaskDispatcherService', () => {
     await expect(
       service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
         agentId: 'agent-1',
-        isTest: true,
       }),
     ).rejects.toThrow('当前智能体尚未配置默认模型');
 
@@ -328,23 +332,6 @@ describe('FlowTaskDispatcherService', () => {
     ).rejects.toThrow('当前 Flow 不使用 agent-default');
   });
 
-  it('普通聊天同样走 Flow，不再有 isTest 闸门', async () => {
-    // 这条替代了原先的「普通聊天不查询 FlowVersion」：Flow 已是唯一编排路径
-    const { service, prisma } = createService();
-    prisma.agent.findUnique.mockResolvedValue({
-      id: 'agent-1',
-      ...agentModelConfig('openai:gpt-5.5'),
-      defaultFlowVersion: null,
-    });
-
-    const snapshot = await service.resolveTaskFlowSnapshot(
-      { agent: prisma.agent } as never,
-      { agentId: 'agent-1' },
-    );
-
-    expect(snapshot?.flowVersionId).toBe('builtin-version-1');
-  });
-
   it('没有指定 Agent 时回落到 isDefault 的 Agent', async () => {
     // 内置 Flow 的 agent-default 需要一个具体的模型来源，「没有 Agent」提供不了。
     // 现存 34 个单聊里有 17 个没有 defaultAgentId，这条路径不是边角情况。
@@ -365,7 +352,7 @@ describe('FlowTaskDispatcherService', () => {
         where: { isDefault: true, enabled: true },
       }),
     );
-    expect(snapshot?.flowVersionId).toBe('builtin-version-1');
+    expect(snapshot.runtime).toBe(StreamTaskRuntime.CHAT_AGENT);
     // 回落到的 Agent 必须回传，调用方要把它写进 StreamTask 与助手消息。只在解析时
     // 用、不写回去，任务上的 agentId 就是 null，Activity 会以快照不一致失败——
     // 历史上没有 defaultAgentId 的会话就是这样断的
@@ -392,6 +379,7 @@ describe('FlowTaskDispatcherService', () => {
 
     const result = await service.dispatch({
       taskId: 'task-1',
+      runtime: StreamTaskRuntime.AGENT_FLOW,
       flowVersionId: 'flow-version-1',
       flowDigest: 'a'.repeat(64),
       temporalWorkflowId: null,
@@ -421,6 +409,7 @@ describe('FlowTaskDispatcherService', () => {
 
     const result = await service.dispatch({
       taskId: 'task-1',
+      runtime: StreamTaskRuntime.AGENT_FLOW,
       flowVersionId: 'flow-version-1',
       flowDigest: 'a'.repeat(64),
       temporalWorkflowId: 'task-1',
@@ -432,36 +421,8 @@ describe('FlowTaskDispatcherService', () => {
     expect(prisma.streamTask.update).not.toHaveBeenCalled();
   });
 
-  it('未绑定 Flow 的 Agent 回落到内置直接回复 Flow', async () => {
-    // 这条是方案 A 的地基：Agent 绑没绑 Flow 不再决定走哪套编排，只决定用哪张图
-    const { service, prisma, builtinFlow } = createService();
-    prisma.agent.findUnique.mockResolvedValue({
-      id: 'agent-1',
-      ...agentModelConfig('openai:gpt-5.5'),
-      defaultFlowVersion: null,
-    });
-
-    const snapshot = await service.resolveTaskFlowSnapshot(
-      { agent: prisma.agent } as never,
-      {
-        agentId: 'agent-1',
-        isTest: true,
-      },
-    );
-
-    expect(builtinFlow.findDirectVersion).toHaveBeenCalled();
-    expect(snapshot).toEqual({
-      flowVersionId: 'builtin-version-1',
-      flowDigest: directDigest,
-      currentStep: 'start',
-      agentId: 'agent-1',
-      resolvedAgentModelPresetId: 'openai:gpt-5.5',
-      resolvedAgentReasoningConfig: Prisma.JsonNull,
-    });
-  });
-
-  it('绑定了 Flow 时不去读内置 Flow', async () => {
-    const { service, prisma, builtinFlow } = createService();
+  it('绑定了 Flow 时锁定该版本并交给 agentFlowWorkflow', async () => {
+    const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1',
       ...agentModelConfig('openai:gpt-5.5'),
@@ -477,12 +438,13 @@ describe('FlowTaskDispatcherService', () => {
       { agent: prisma.agent } as never,
       {
         agentId: 'agent-1',
-        isTest: true,
       },
     );
 
-    expect(builtinFlow.findDirectVersion).not.toHaveBeenCalled();
-    expect(snapshot?.flowVersionId).toBe('flow-version-1');
+    expect(snapshot).toMatchObject({
+      runtime: StreamTaskRuntime.AGENT_FLOW,
+      flowVersionId: 'flow-version-1',
+    });
   });
 
   it('任务创建前拒绝 Definition 与已发布摘要不一致的工件', async () => {
@@ -506,27 +468,8 @@ describe('FlowTaskDispatcherService', () => {
     expect(runtimeValidator.validate).not.toHaveBeenCalled();
   });
 
-  it('内置 Flow 未初始化时显式失败，不静默回落旧链路', async () => {
-    // 静默回落会让「启动时 ensure 失败」一直不被发现，而用户拿到的是一条没人知道
-    // 走了哪套编排的回复
-    const { service, prisma, builtinFlow } = createService();
-    prisma.agent.findUnique.mockResolvedValue({
-      id: 'agent-1',
-      ...agentModelConfig('openai:gpt-5.5'),
-      defaultFlowVersion: null,
-    });
-    builtinFlow.findDirectVersion.mockResolvedValue(null);
-
-    await expect(
-      service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
-        agentId: 'agent-1',
-        isTest: true,
-      }),
-    ).rejects.toThrow('内置 Flow 尚未初始化');
-  });
-
-  it('指定的 Agent 不存在时明确失败，不去跑内置 Flow', async () => {
-    const { service, prisma, builtinFlow } = createService();
+  it('指定的 Agent 不存在时明确失败', async () => {
+    const { service, prisma } = createService();
     prisma.agent.findUnique.mockResolvedValue(null);
 
     await expect(
@@ -534,6 +477,157 @@ describe('FlowTaskDispatcherService', () => {
         agentId: 'missing',
       }),
     ).rejects.toThrow('指定的智能体不存在或已停用');
-    expect(builtinFlow.findDirectVersion).not.toHaveBeenCalled();
+  });
+
+  describe('未绑定 Flow：默认 ReAct 智能体', () => {
+    it('锁定模型、思考与工具组，不经过 Flow 校验', async () => {
+      const { service, prisma, runtimeValidator } = createService();
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        ...agentModelConfig('openai:gpt-5.5', ['weather', 'search']),
+        defaultFlowVersion: null,
+      });
+
+      const snapshot = await service.resolveTaskFlowSnapshot(
+        { agent: prisma.agent } as never,
+        { agentId: 'agent-1' },
+      );
+
+      expect(snapshot).toEqual({
+        runtime: StreamTaskRuntime.CHAT_AGENT,
+        currentStep: 'chat',
+        agentId: 'agent-1',
+        resolvedAgentModelPresetId: 'openai:gpt-5.5',
+        resolvedAgentReasoningConfig: Prisma.JsonNull,
+        resolvedAgentToolGroups: ['weather', 'search'],
+        agentToolsDegraded: false,
+      });
+      expect(runtimeValidator.validate).not.toHaveBeenCalled();
+    });
+
+    it('模型未通过工具探测时锁空工具组并标记降级，而不是拒绝任务', async () => {
+      const { service, prisma, modelRegistry } = createService();
+      modelRegistry.getCapability.mockReturnValue('basic');
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        ...agentModelConfig('deepseek:chat', ['weather']),
+        defaultFlowVersion: null,
+      });
+
+      const snapshot = await service.resolveTaskFlowSnapshot(
+        { agent: prisma.agent } as never,
+        { agentId: 'agent-1' },
+      );
+
+      expect(snapshot).toMatchObject({
+        resolvedAgentToolGroups: [],
+        agentToolsDegraded: true,
+      });
+    });
+
+    it('没有配置工具时不算降级', async () => {
+      const { service, prisma, modelRegistry } = createService();
+      modelRegistry.getCapability.mockReturnValue('basic');
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        ...agentModelConfig('deepseek:chat'),
+        defaultFlowVersion: null,
+      });
+
+      await expect(
+        service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+          agentId: 'agent-1',
+        }),
+      ).resolves.toMatchObject({ agentToolsDegraded: false });
+    });
+
+    it('允许本轮选择模型与覆盖思考参数', async () => {
+      const { service, prisma, modelRegistry } = createService();
+      modelRegistry.normalizePresetReasoning.mockReturnValue({
+        effort: 'high',
+      });
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        ...agentModelConfig('model-selected'),
+        defaultModelPreset: { presetId: 'model-default' },
+        defaultFlowVersion: null,
+      });
+
+      const snapshot = await service.resolveTaskFlowSnapshot(
+        { agent: prisma.agent } as never,
+        {
+          agentId: 'agent-1',
+          selectedModelPresetId: 'model-selected',
+          reasoning: { effort: 'high' },
+        },
+      );
+
+      expect(snapshot.resolvedAgentModelPresetId).toBe('model-selected');
+      expect(snapshot.resolvedAgentReasoningConfig).toEqual({
+        version: 1,
+        selection: { effort: 'high' },
+      });
+    });
+
+    it('图片任务的锁定模型不支持视觉时创建前拒绝', async () => {
+      const { service, prisma, modelRegistry } = createService();
+      modelRegistry.getVisionTransport.mockReturnValue(undefined);
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        ...agentModelConfig('deepseek:chat'),
+        defaultFlowVersion: null,
+      });
+
+      await expect(
+        service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+          agentId: 'agent-1',
+          requiresVision: true,
+        }),
+      ).rejects.toThrow('不支持图片输入');
+    });
+
+    it('未配置默认模型时明确拒绝', async () => {
+      const { service, prisma } = createService();
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1',
+        ...agentModelConfig(null),
+        defaultFlowVersion: null,
+      });
+
+      await expect(
+        service.resolveTaskFlowSnapshot({ agent: prisma.agent } as never, {
+          agentId: 'agent-1',
+        }),
+      ).rejects.toThrow('当前智能体尚未配置默认模型');
+    });
+
+    it('派发到 chatAgentWorkflow 并保存执行标识', async () => {
+      const { service, prisma, temporalClient } = createService();
+      temporalClient.startChatAgentWorkflow.mockResolvedValue({
+        workflowId: 'task-1',
+        runId: 'temporal-run-1',
+      });
+
+      await service.dispatch({
+        taskId: 'task-1',
+        runtime: StreamTaskRuntime.CHAT_AGENT,
+        flowVersionId: null,
+        flowDigest: null,
+        temporalWorkflowId: null,
+        temporalRunId: null,
+      });
+
+      expect(temporalClient.startChatAgentWorkflow).toHaveBeenCalledWith({
+        streamTaskId: 'task-1',
+      });
+      expect(temporalClient.startWorkflow).not.toHaveBeenCalled();
+      expect(prisma.streamTask.update).toHaveBeenCalledWith({
+        where: { id: 'task-1' },
+        data: {
+          temporalWorkflowId: 'task-1',
+          temporalRunId: 'temporal-run-1',
+        },
+      });
+    });
   });
 });

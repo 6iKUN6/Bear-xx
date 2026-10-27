@@ -3,10 +3,7 @@ import {
   AgentFlowApprovalKind,
   AgentFlowApprovalStatus,
   AgentFlowNodeExecutionResultKind,
-  ConversationTraceItemStatus,
-  MessageStatus,
   Prisma,
-  StreamTaskRunStatus,
   StreamTaskStatus,
 } from '@prisma/client';
 import { ApplicationFailure } from '@temporalio/client';
@@ -28,16 +25,10 @@ import {
 import {
   AgentStrategyMode,
   StreamTaskEventType,
-  TASK_ERROR_CATEGORY_LABELS,
   type ApprovalDecision,
-  type ApprovalRequiredPayload,
   type PlanReviewDecision,
   type TaskErrorCategory,
 } from '@litter-bear/types/protocol';
-import {
-  classifyLlmError,
-  isRetryableTaskErrorCategory,
-} from '../../llm/llm-error';
 import { chatAgentCommonPrompt, planReviewGatePrompt } from '../../../prompts';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
@@ -46,7 +37,6 @@ import type {
   AgentStrategyDecision,
 } from '../../ai/agent-loop/agent-loop.types';
 import { CommonChatAgentService } from '../../ai/agents';
-import type { CommonChatAgentStreamEvent } from '../../ai/agents/common-chat-agent/common-chat-agent.types';
 import {
   buildStepPrompt,
   buildSynthesisPrompt,
@@ -55,11 +45,6 @@ import {
   PlannerService,
   buildPlannerMessages,
 } from '../../ai/agent-loop/execution/planner.service';
-import {
-  getModelCallTokenUsage,
-  getModelCallPeakInput,
-  runWithModelCallContext,
-} from '../../ai/telemetry/model-call-context';
 import { LlmService } from '../../llm/llm.service';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import type { LlmMessage } from '../../llm/llm.types';
@@ -82,6 +67,24 @@ import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.servi
 import { StorageAssetService } from '../../storage/storage-asset.service';
 import { normalizeFlowDefinition } from '../definition/flow-definition.versioning';
 import { FlowCompiler } from '../runtime/flow-compiler.service';
+import {
+  AGENT_FLOW_MODEL_RUNTIME,
+  AgentRunSupport,
+  FLOW_APPROVAL_TIMEOUT_SECONDS,
+  STOPPED_RESULT_KIND,
+  STOPPED_RESULT_STATUS,
+  createApprovalTraceKey,
+  createNonRetryableActivityFailure,
+  isJsonObject,
+  readJsonString,
+  toAgentFlowModelFailure,
+  toApprovalDecision,
+  toInputJsonValue,
+  toTaskErrorCategory,
+  type FlowBudgetDimension,
+  type FlowBudgetTracker,
+  type PersistedFlowBudgetUsage,
+} from '../runtime/agent-run.support';
 import type {
   CompiledAgentFlowNode,
   CompiledConditionFlowNode,
@@ -101,14 +104,6 @@ import type {
   AgentFlowRunSnapshot,
   AgentFlowWorkflowInput,
 } from '../../../temporal/workflows/agent-flow.workflow.types';
-import type { ReasoningSelection } from '@litter-bear/types';
-
-const FLOW_APPROVAL_TIMEOUT_SECONDS = 900;
-/** Flow 内由 LangChain 消费的单次模型请求边界；失败不再叠加 Temporal 整节点重试。 */
-const AGENT_FLOW_MODEL_RUNTIME = {
-  maxRetries: 1,
-  timeoutMs: 25000,
-} as const;
 
 /**
  * 计划审批门禁的结构化输出闭集
@@ -155,23 +150,6 @@ function createStructuredOutputSchema(
   return z.object(shape).strict();
 }
 
-/**
- * 把不可信字符串收窄为协议错误类别
- * @param value 来自数据库 JSON 的候选值
- * @returns 落在闭集内时返回该类别，否则返回 undefined
- * @description 成员判断直接借 TASK_ERROR_CATEGORY_LABELS 的键：它是
- * `Record<TaskErrorCategory, string>`，新增类别时编译器会强制补文案，
- * 因此不需要再维护第二份类别清单去和它对齐。
- */
-function toTaskErrorCategory(
-  value: string | undefined,
-): TaskErrorCategory | undefined {
-  if (value && Object.hasOwn(TASK_ERROR_CATEGORY_LABELS, value)) {
-    return value as TaskErrorCategory;
-  }
-  return undefined;
-}
-
 /** 审批节点自己的轮次状态；steps 是本轮待审计划（可能是打回后重新生成的）。 */
 interface ApprovalScratch {
   [key: string]: unknown;
@@ -186,17 +164,6 @@ interface PersistedFlowPlanLoop {
   stepIndex: number;
   observations: string[];
   lastStepHadToolCalls: boolean;
-}
-
-/**
- * Flow 运行至今的预算用量
- * @description 跨节点、跨 Activity retry、跨 HITL 恢复累计，因此必须落库；放在内存里会让
- * 每次 Activity 重试都把预算清零，护栏形同虚设。存 StreamTask 的整数列而不是 executionState
- * JSON：JSON 只能整块读改写，两个并发节点会互相吞掉计数，等于无限预算。
- */
-interface PersistedFlowBudgetUsage {
-  modelCalls: number;
-  toolCalls: number;
 }
 
 interface AgentFlowExecutionContext {
@@ -242,6 +209,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     private readonly llmService: LlmService,
     private readonly modelRegistry: LlmModelRegistryService,
     private readonly storageAssetService: StorageAssetService,
+    private readonly runSupport: AgentRunSupport,
   ) {}
 
   /**
@@ -524,154 +492,16 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
    * 收敛一次 Flow Workflow 的终态
    * @param input 待持久化的受限终态、最后节点与安全错误类别
    * @returns 无返回值
-   * @description 在事务内写入标准终态事件、任务/消息/run 状态与终态 trace，随后再收紧 Redis 帧保留窗口；重复调用已处于终态的任务不会产生第二组完成事件。
+   * @description 收尾逻辑与默认 ReAct 智能体共用，见 AgentRunSupport.finalizeTask。
    */
   async finalizeRun(input: AgentFlowFinalizeRunInput): Promise<void> {
-    const task = await this.prisma.streamTask.findUnique({
-      where: { id: input.workflow.streamTaskId },
-      select: {
-        id: true,
-        userId: true,
-        status: true,
-        conversationId: true,
-        messageId: true,
-        currentRunId: true,
-        fullContent: true,
-      },
+    await this.runSupport.finalizeTask({
+      streamTaskId: input.workflow.streamTaskId,
+      status: input.status,
+      lastNodeKey: input.lastNodeKey,
+      ...(input.errorCategory ? { errorCategory: input.errorCategory } : {}),
+      ...(input.errorReason ? { errorReason: input.errorReason } : {}),
     });
-    if (!task) {
-      return;
-    }
-    const conversationId = task.conversationId;
-    const messageId = task.messageId;
-    if (!conversationId || !messageId) {
-      return;
-    }
-    if (isTerminalTaskStatus(task.status)) {
-      if (task.status === StreamTaskStatus.CANCELED) {
-        await this.prisma.$transaction((transaction) =>
-          this.settlePendingApprovalsInTransaction(
-            transaction,
-            task.id,
-            AgentFlowApprovalStatus.CANCELED,
-            '任务已取消',
-          ),
-        );
-      }
-      return;
-    }
-
-    const completed = input.status === 'completed';
-    const cancelled = input.status === 'cancelled';
-    const taskStatus = completed
-      ? StreamTaskStatus.COMPLETED
-      : cancelled
-        ? StreamTaskStatus.CANCELED
-        : StreamTaskStatus.ERROR;
-    // 有具体原因就用它：泛化成「流程执行失败」会让用户和排障者都只能去翻 worker 日志。
-    // errorReason 只可能来自我们自己抛的 ApplicationFailure，第三方错误已在 Workflow 侧滤掉。
-    const errorMessage = completed
-      ? undefined
-      : cancelled
-        ? '流程已取消'
-        : input.errorReason?.trim() || '流程执行失败';
-    const events = await this.prisma.$transaction(async (transaction) => {
-      const persisted: PersistedAgentFlowTaskEvent[] = [];
-      if (completed) {
-        persisted.push(
-          await this.taskEventService.persistInTransaction(transaction, {
-            taskId: task.id,
-            streamId: task.currentRunId,
-            userId: task.userId,
-            conversationId,
-            messageId,
-            eventName: StreamTaskEventType.MessageDone,
-            status: StreamTaskStatus.STREAMING,
-            payload: { content: task.fullContent },
-            taskUpdate: { fullContent: task.fullContent },
-          }),
-        );
-      }
-      const eventName = completed
-        ? StreamTaskEventType.TaskCompleted
-        : cancelled
-          ? StreamTaskEventType.TaskCanceled
-          : StreamTaskEventType.TaskError;
-      persisted.push(
-        await this.taskEventService.persistInTransaction(transaction, {
-          taskId: task.id,
-          streamId: task.currentRunId,
-          userId: task.userId,
-          conversationId,
-          messageId,
-          eventName,
-          status: taskStatus,
-          ...(eventName === StreamTaskEventType.TaskError
-            ? {
-                errorMessage,
-                payload: {
-                  // 曾硬编码为 'server'，把配置错误（invalid）也说成"服务暂时不可用，
-                  // 请稍后重试"，前端据此给出的重试建议是错的；类别由 Workflow 侧按
-                  // ApplicationFailure 类型判定后传入
-                  category: input.errorCategory ?? 'server',
-                  retryable: isRetryableTaskErrorCategory(
-                    input.errorCategory ?? 'server',
-                  ),
-                },
-              }
-            : {}),
-          taskUpdate: {
-            currentStep: input.lastNodeKey ?? taskStatus.toLowerCase(),
-            completedAt: new Date(),
-            fullContent: task.fullContent,
-            errorMessage: errorMessage ?? null,
-          },
-        }),
-      );
-      await transaction.message.update({
-        where: { id: messageId },
-        data: {
-          content: task.fullContent || errorMessage || '流程已完成',
-          status: completed ? MessageStatus.DONE : MessageStatus.ERROR,
-        },
-      });
-      if (task.currentRunId) {
-        await transaction.streamTaskRun.update({
-          where: { id: task.currentRunId },
-          data: {
-            status: completed
-              ? StreamTaskRunStatus.COMPLETED
-              : cancelled
-                ? StreamTaskRunStatus.CANCELED
-                : StreamTaskRunStatus.ERROR,
-            endedAt: new Date(),
-            closeReason: input.status,
-            endEventId: persisted[persisted.length - 1]?.eventId,
-          },
-        });
-      }
-      if (!completed) {
-        await this.settlePendingApprovalsInTransaction(
-          transaction,
-          task.id,
-          cancelled
-            ? AgentFlowApprovalStatus.CANCELED
-            : input.status === 'timed_out'
-              ? AgentFlowApprovalStatus.TIMED_OUT
-              : AgentFlowApprovalStatus.ERROR,
-          cancelled
-            ? '任务已取消'
-            : input.status === 'timed_out'
-              ? '审批等待超时'
-              : '流程执行失败',
-        );
-      }
-      return persisted;
-    });
-    for (const event of events) {
-      await this.taskEventService.publishAfterCommit(event);
-    }
-    await this.taskEventService.markCompletedAfterCommit(task.id);
   }
 
   /**
@@ -1196,7 +1026,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         return { needsReview: true, reason: '模型额度已用尽，转人工确认' };
       budget.countModelCall();
       await budget.flush();
-      const parsed = await this.runTrackedModelNode(
+      const parsed = await this.runSupport.runTrackedModelNode(
         context,
         input,
         modelPreset,
@@ -1353,7 +1183,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           systemPrompt: chatContext.systemPrompt,
           contextBudget: {
             inputTokenLimit: chatContext.inputTokenLimit,
-            onSummaryModelCall: this.countSummaryModelCall(
+            onSummaryModelCall: this.runSupport.countSummaryModelCall(
               budget,
               '工具上下文压缩已达到模型调用预算',
             ),
@@ -1362,6 +1192,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           tools,
           threadId: stepExecutionId,
           approvalToolNames,
+          maxToolIterations: node.executor.maxToolIterations,
           decision: resumeDecision,
           onModelTurn: budget.countModelCall,
           modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
@@ -1373,7 +1204,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           systemPrompt: chatContext.systemPrompt,
           contextBudget: {
             inputTokenLimit: chatContext.inputTokenLimit,
-            onSummaryModelCall: this.countSummaryModelCall(
+            onSummaryModelCall: this.runSupport.countSummaryModelCall(
               budget,
               '工具上下文压缩已达到模型调用预算',
             ),
@@ -1382,19 +1213,20 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           tools,
           threadId: stepExecutionId,
           approvalToolNames,
+          maxToolIterations: node.executor.maxToolIterations,
           onModelTurn: budget.countModelCall,
           modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
         });
-    let result: Awaited<ReturnType<AgentFlowActivities['consumeAgentStream']>>;
+    let result: Awaited<ReturnType<AgentRunSupport['consumeAgentStream']>>;
     try {
-      result = await this.runTrackedModelNode(
+      result = await this.runSupport.runTrackedModelNode(
         context,
         input,
         node.executor.modelPreset,
         node.executor.reasoning,
         chatContext.estimatedInputTokens,
         () =>
-          this.consumeAgentStream(context, input, stream, {
+          this.runSupport.consumeAgentStream(context, input, stream, {
             initialContent: '',
             publishMessageDelta: false,
             budget,
@@ -1411,7 +1243,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       return this.stopOnBudgetExceeded(context, input, result.overspent);
     }
     if (result.approvals.length > 0) {
-      return this.createToolApprovalWait(
+      return this.runSupport.createToolApprovalWait(
         context,
         input,
         result.approvals,
@@ -1639,7 +1471,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const schema = createStructuredOutputSchema(node.fields);
     let parsed: Record<string, unknown> | null;
     try {
-      parsed = await this.runTrackedModelNode(
+      parsed = await this.runSupport.runTrackedModelNode(
         context,
         input,
         node.modelPreset,
@@ -1705,7 +1537,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     ];
     let parsed: { passed: boolean; score: number; reason: string } | null;
     try {
-      parsed = await this.runTrackedModelNode(
+      parsed = await this.runSupport.runTrackedModelNode(
         context,
         input,
         node.modelPreset,
@@ -1831,7 +1663,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         '会话压缩后模型调用预算已用尽',
         'AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED',
       );
-    return this.runTrackedModelNode(
+    return this.runSupport.runTrackedModelNode(
       context,
       input,
       modelPreset,
@@ -1959,7 +1791,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         messages: options.messages,
         tools,
         extraTokens,
-        onSummaryModelCall: this.countSummaryModelCall(
+        onSummaryModelCall: this.runSupport.countSummaryModelCall(
           budget,
           '会话压缩已达到模型调用预算上限',
         ),
@@ -2133,7 +1965,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     const isAnswer = isAnswerNode(context);
     const vision =
       isAnswer && context.task.imageAssetId
-        ? await this.prepareAnswerVision(
+        ? await this.runSupport.prepareAnswerVision(
             context,
             node.modelPreset,
             chatContext.messages,
@@ -2153,7 +1985,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           systemPrompt: chatContext.systemPrompt,
           contextBudget: {
             inputTokenLimit: chatContext.inputTokenLimit,
-            onSummaryModelCall: this.countSummaryModelCall(
+            onSummaryModelCall: this.runSupport.countSummaryModelCall(
               budget,
               '工具上下文压缩已达到模型调用预算',
             ),
@@ -2162,6 +1994,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
+          maxToolIterations: node.maxToolIterations,
           decision: resumeDecision,
           onModelTurn,
           modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
@@ -2175,7 +2008,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           systemPrompt: chatContext.systemPrompt,
           contextBudget: {
             inputTokenLimit: chatContext.inputTokenLimit,
-            onSummaryModelCall: this.countSummaryModelCall(
+            onSummaryModelCall: this.runSupport.countSummaryModelCall(
               budget,
               '工具上下文压缩已达到模型调用预算',
             ),
@@ -2184,6 +2017,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
           tools: capabilities.tools,
           threadId: input.nodeExecutionId,
           approvalToolNames: capabilities.approvalToolNames,
+          maxToolIterations: node.maxToolIterations,
           onModelTurn,
           modelRuntime: AGENT_FLOW_MODEL_RUNTIME,
           ...(onCompletedModelContext ? { onCompletedModelContext } : {}),
@@ -2191,16 +2025,16 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         });
     // 只有终节点的产出会成为这条助手消息的正文；中间 agent 节点静默执行，正文进
     // outputs.text 供下游 $ref 引用。理由见 isAnswerNode。
-    let result: Awaited<ReturnType<AgentFlowActivities['consumeAgentStream']>>;
+    let result: Awaited<ReturnType<AgentRunSupport['consumeAgentStream']>>;
     try {
-      result = await this.runTrackedModelNode(
+      result = await this.runSupport.runTrackedModelNode(
         context,
         input,
         node.modelPreset,
         node.reasoning,
         chatContext.estimatedInputTokens,
         async () =>
-          this.consumeAgentStream(context, input, stream, {
+          this.runSupport.consumeAgentStream(context, input, stream, {
             initialContent: isAnswer ? context.task.fullContent : '',
             publishMessageDelta: isAnswer,
             budget,
@@ -2225,7 +2059,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       );
     }
     if (result.approvals.length > 0) {
-      return this.createToolApprovalWait(
+      return this.runSupport.createToolApprovalWait(
         context,
         input,
         result.approvals,
@@ -2243,266 +2077,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         ...(modelContext ? { modelContext } : {}),
       },
     );
-  }
-
-  /**
-   * 为最终回答节点注入当前用户图片。
-   * @param context 当前 Flow 执行上下文
-   * @param modelPreset 回答节点锁定的模型预设 ID
-   * @param messages 当前会话文字上下文
-   * @returns 返回带公网图片 URL 的消息；K3 额外返回仅驻留内存的发包替换
-   * @description 只给本轮原文附图；原文由引用提供时追加图片消息。历史图片不自动回放；Data URI 不进入消息状态，
-   * 因而不会写进 LangGraph checkpoint、数据库、Redis 或 Temporal History。
-   */
-  private async prepareAnswerVision(
-    context: AgentFlowExecutionContext,
-    modelPreset: string,
-    messages: LlmMessage[],
-  ) {
-    const transport = this.modelRegistry.getVisionTransport(modelPreset);
-    if (!transport || !context.task.imageAssetId) {
-      throw createNonRetryableActivityFailure(
-        `回答节点模型「${modelPreset}」不支持图片输入`,
-        'AGENT_FLOW_VISION_MODEL_UNSUPPORTED',
-      );
-    }
-    const image = await this.storageAssetService.prepareChatImageForModel(
-      context.task.userId,
-      context.task.imageAssetId,
-      transport,
-    );
-    const lastUserIndex = messages.findLastIndex(
-      (message) =>
-        message.role === 'user' && message.content === context.task.inputText,
-    );
-    const withImage = messages.map((message, index) =>
-      index === lastUserIndex
-        ? {
-            ...message,
-            content: context.task.inputText,
-            image: { url: image.publicUrl, detail: 'auto' as const },
-          }
-        : message,
-    );
-    // 显式引用 start.text 时当前正文已经包含在来源消息中，只追加图片，不能覆盖上游结果。
-    if (lastUserIndex < 0)
-      withImage.push({
-        role: 'user',
-        content: '',
-        image: { url: image.publicUrl, detail: 'auto' },
-      });
-    return {
-      messages: withImage,
-      ...(image.wireDataUri
-        ? {
-            transform: {
-              sourceUrl: image.publicUrl,
-              dataUri: image.wireDataUri,
-            },
-          }
-        : {}),
-    };
-  }
-
-  /**
-   * 消费底层 Agent 的结构化事件流
-   * @param context 当前节点执行上下文
-   * @param input Temporal 节点执行标识
-   * @param stream CommonChatAgentService 的事件流
-   * @returns 返回累计正文、同一轮待审批工具请求批次，以及是否已突破预算
-   * @description token 增量只写 Redis Frame；工具生命周期仍由 Flow 节点统一投影。LangGraph 同一轮 interrupt 可能含多个工具请求，必须完整消费并作为一个审批批次持久化，随后由 Temporal Workflow 等待同一个 approvalId。工具调用在此按 tool.call.start 计入预算，模型调用由调用方经 onModelTurn 计入。
-   */
-  private async consumeAgentStream(
-    context: AgentFlowExecutionContext,
-    input: AgentFlowNodeExecutionInput,
-    stream: AsyncGenerator<CommonChatAgentStreamEvent, void, unknown>,
-    options: {
-      initialContent: string;
-      publishMessageDelta: boolean;
-      budget: FlowBudgetTracker;
-    },
-  ): Promise<{
-    fullContent: string;
-    /** 只含本节点这一轮产出的正文，作为节点声明输出 text；fullContent 是任务累计正文 */
-    nodeText: string;
-    hadToolCalls: boolean;
-    approvals: ApprovalRequiredPayload[];
-    overspent: FlowBudgetDimension | null;
-  }> {
-    let fullContent = options.initialContent;
-    let nodeText = '';
-    let hadToolCalls = false;
-    const approvals: ApprovalRequiredPayload[] = [];
-    for await (const event of stream) {
-      if (event.type === StreamTaskEventType.ToolCallStart) {
-        // 只在 start 上计数：同一次工具调用还会产出 delta / done，重复计会虚高
-        hadToolCalls = true;
-        options.budget.countToolCall();
-      }
-      // 计数后立刻判定并 return：for-await 提前退出会对生成器调用 return()，
-      // 从而中断底层 LangGraph 流，工具在本轮不会被真正执行。留到下一个事件再判
-      // 会放过一次超额调用。
-      const overspent = options.budget.overspent();
-      if (overspent) {
-        return {
-          fullContent,
-          nodeText,
-          hadToolCalls,
-          approvals,
-          overspent,
-        };
-      }
-      if (event.type === StreamTaskEventType.ToolCallStart) {
-        continue;
-      }
-      if (event.type === StreamTaskEventType.MessageDelta) {
-        fullContent += event.delta;
-        nodeText += event.delta;
-        if (options.publishMessageDelta) {
-          await this.taskEventService.publishTransient(
-            context.task.id,
-            StreamTaskEventType.MessageDelta,
-            JSON.stringify({
-              type: StreamTaskEventType.MessageDelta,
-              taskId: context.task.id,
-              streamId: context.task.streamId ?? undefined,
-              conversationId: context.task.conversationId,
-              messageId: context.task.messageId,
-              status: StreamTaskStatus.STREAMING.toLowerCase(),
-              payload: { delta: event.delta },
-            }),
-          );
-        }
-        continue;
-      }
-      if (
-        event.type === StreamTaskEventType.ToolCallDelta ||
-        event.type === StreamTaskEventType.ToolCallDone ||
-        event.type === StreamTaskEventType.ToolCallError
-      ) {
-        hadToolCalls = true;
-        continue;
-      }
-      if (event.type === StreamTaskEventType.ApprovalRequired) {
-        approvals.push(event.payload);
-      }
-    }
-    return {
-      fullContent,
-      nodeText,
-      hadToolCalls,
-      approvals,
-      overspent: options.budget.overspent(),
-    };
-  }
-
-  /**
-   * 创建或复用一个工具审批等待事实
-   * @param context 当前节点执行上下文
-   * @param input Temporal 节点执行标识
-   * @param requests 同一轮底层 agent 产出的安全工具审批请求批次
-   * @param fullContent 等待前累计的回复正文
-   * @returns 返回 Workflow 可等待的稳定 approvalId
-   * @description 审批、Flow waiting 事件、审批 trace 和 StreamTask.WAITING_HUMAN 在同一事务提交。Activity 重试命中同节点的 PENDING 审批时直接复用，避免重复卡片和重复 trace。
-   */
-  private async createToolApprovalWait(
-    context: AgentFlowExecutionContext,
-    input: AgentFlowNodeExecutionInput,
-    requests: ApprovalRequiredPayload[],
-    fullContent: string,
-    traceKey = createApprovalTraceKey(input.nodeExecutionId),
-  ): Promise<AgentFlowNodeExecutionResult> {
-    const allowedDecisions = resolveBatchAllowedDecisions(requests);
-    const existing = await this.prisma.agentFlowApproval.findFirst({
-      where: {
-        taskId: context.task.id,
-        nodeKey: context.node.key,
-        kind: AgentFlowApprovalKind.TOOL,
-        status: AgentFlowApprovalStatus.PENDING,
-      },
-      select: { id: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (existing) {
-      return {
-        kind: 'waiting_human',
-        approvalId: existing.id,
-        timeoutSeconds: FLOW_APPROVAL_TIMEOUT_SECONDS,
-      };
-    }
-    const expiresAt = new Date(
-      Date.now() + FLOW_APPROVAL_TIMEOUT_SECONDS * 1_000,
-    );
-    const result = await this.prisma.$transaction(async (transaction) => {
-      const approval = await transaction.agentFlowApproval.create({
-        data: {
-          taskId: context.task.id,
-          runId: context.task.streamId,
-          nodeKey: context.node.key,
-          kind: AgentFlowApprovalKind.TOOL,
-          requestSummary: toInputJsonValue({
-            requests: requests.map((request) => ({
-              toolName: request.toolName,
-              ...(request.args ? { args: request.args } : {}),
-              ...(request.description
-                ? { description: request.description }
-                : {}),
-              index: request.index,
-            })),
-            allowedDecisions,
-          }),
-        },
-      });
-      const event = await this.taskEventService.persistInTransaction(
-        transaction,
-        {
-          taskId: context.task.id,
-          streamId: context.task.streamId,
-          userId: context.task.userId,
-          conversationId: context.task.conversationId,
-          messageId: context.task.messageId,
-          eventName: StreamTaskEventType.FlowWaitingHuman,
-          status: StreamTaskStatus.WAITING_HUMAN,
-          payload: {
-            approvalId: approval.id,
-            nodeKey: context.node.key,
-            traceKey,
-            approval: {
-              kind: 'tool',
-              requests: requests.map((request) => ({
-                toolName: request.toolName,
-                ...(request.args ? { args: request.args } : {}),
-                ...(request.description
-                  ? { description: request.description }
-                  : {}),
-                index: request.index,
-              })),
-              allowedDecisions,
-            },
-            expiresAt: expiresAt.toISOString(),
-          },
-          taskUpdate: {
-            currentStep: context.node.key,
-            fullContent,
-            pausedAt: new Date(),
-            expiresAt,
-          },
-        },
-      );
-      if (event.traceItemId) {
-        await transaction.agentFlowApproval.update({
-          where: { id: approval.id },
-          data: { traceItemId: event.traceItemId },
-        });
-      }
-      return { approvalId: approval.id, event };
-    });
-    await this.taskEventService.publishAfterCommit(result.event);
-    return {
-      kind: 'waiting_human',
-      approvalId: result.approvalId,
-      timeoutSeconds: FLOW_APPROVAL_TIMEOUT_SECONDS,
-    };
   }
 
   /**
@@ -2627,55 +2201,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     await this.prisma.streamTask.update({
       where: { id: context.task.id },
       data: { currentStep: context.node.key, lastHeartbeatAt: new Date() },
-    });
-  }
-
-  /**
-   * 在任务终态事务中收敛仍待处理的 Flow 审批及 trace
-   * @param transaction 当前 PostgreSQL 事务客户端
-   * @param taskId 当前 Flow 任务ID
-   * @param status 审批应迁移到的不可逆终态
-   * @param summary 写入审批 trace 的安全摘要
-   * @returns 无返回值
-   * @description 只更新 PENDING 审批，因此取消、超时或 Workflow retry 重复收尾均幂等；先读取关联 traceId，再在同一事务中把对应 RUNNING trace 标记为 ERROR，避免历史页面永久显示等待人工确认。
-   */
-  private async settlePendingApprovalsInTransaction(
-    transaction: Prisma.TransactionClient,
-    taskId: string,
-    status: Extract<
-      AgentFlowApprovalStatus,
-      'CANCELED' | 'TIMED_OUT' | 'ERROR'
-    >,
-    summary: string,
-  ): Promise<void> {
-    const pendingApprovals = await transaction.agentFlowApproval.findMany({
-      where: { taskId, status: AgentFlowApprovalStatus.PENDING },
-      select: { id: true, traceItemId: true },
-    });
-    if (pendingApprovals.length === 0) {
-      return;
-    }
-    await transaction.agentFlowApproval.updateMany({
-      where: { taskId, status: AgentFlowApprovalStatus.PENDING },
-      data: { status },
-    });
-    const traceItemIds = pendingApprovals
-      .map((approval) => approval.traceItemId)
-      .filter((traceItemId): traceItemId is string => Boolean(traceItemId));
-    if (traceItemIds.length === 0) {
-      return;
-    }
-    await transaction.conversationTurnTraceItem.updateMany({
-      where: {
-        id: { in: traceItemIds },
-        status: ConversationTraceItemStatus.RUNNING,
-      },
-      data: {
-        status: ConversationTraceItemStatus.ERROR,
-        summary,
-        error: { message: summary },
-        endedAt: new Date(),
-      },
     });
   }
 
@@ -2912,140 +2437,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   }
 
   /**
-   * 追踪一个 Flow 模型节点的完整调用段
-   * @description 一个 Agent 节点可能包含多次 ReAct 往返，这里将它们聚合为同一条模型节点 trace，
-   * 同时保留每次供应商 usage 的累加结果。思考内容只传递配置与 token，不把私有思维链写入事件。
-   */
-  private async runTrackedModelNode<T>(
-    context: AgentFlowExecutionContext,
-    input: AgentFlowNodeExecutionInput,
-    modelPreset: string | undefined,
-    reasoning: ReasoningSelection | undefined,
-    estimatedInputTokens: number,
-    fn: () => Promise<T>,
-    snapshot?: FlowNodeContextSnapshot,
-  ): Promise<T> {
-    const limits = this.modelRegistry.getContextLimits(modelPreset);
-    const resolved = this.modelRegistry.resolveTextRequest({
-      model: { modelId: modelPreset },
-      reasoning,
-    });
-    const traceKey = `model:${input.nodeExecutionId}:${snapshot?.phase ?? 'model'}:${context.task.streamId ?? 'initial'}`;
-    const contextSources = snapshot
-      ? {
-          conversation: snapshot.manifest.conversation,
-          historyMessageCount: snapshot.manifest.messageIds.length,
-          summaryMessageCount: snapshot.manifest.summaryMessageCount,
-          upstream: snapshot.manifest.sources,
-        }
-      : undefined;
-    const percent = this.contextUsagePercent(
-      estimatedInputTokens,
-      limits.contextWindowTokens,
-    );
-    await this.publishModelTraceEvent(context, input, {
-      eventName: StreamTaskEventType.ModelCallStart,
-      payload: {
-        nodeKey: context.node.key,
-        traceKey,
-        publicStatus: '正在调用模型',
-        contextSources,
-        inputTokenLimit: snapshot?.inputTokenLimit,
-        model: resolved.model.model,
-        provider: resolved.model.platform,
-        modelPresetId: limits.modelPreset,
-        contextWindowTokens: limits.contextWindowTokens,
-        estimatedInputTokens,
-        contextUsagePercent: percent,
-        ...(reasoning ? { reasoning } : {}),
-      },
-    });
-
-    const startedAt = Date.now();
-    let completed = false;
-    let peak: ReturnType<typeof getModelCallPeakInput>;
-    let usage: ReturnType<typeof getModelCallTokenUsage>;
-    try {
-      const result = await runWithModelCallContext(
-        context.task.id,
-        async () => {
-          try {
-            return await fn();
-          } finally {
-            // AsyncLocalStorage 在 run 返回后会恢复父上下文，必须在这里读取聚合结果。
-            usage = getModelCallTokenUsage();
-            peak = getModelCallPeakInput();
-          }
-        },
-        context.task.userId,
-      );
-      completed = true;
-      return result;
-    } finally {
-      const inputTokens = usage?.inputTokens;
-      await this.publishModelTraceEvent(context, input, {
-        eventName: StreamTaskEventType.ModelCallDone,
-        payload: {
-          nodeKey: context.node.key,
-          traceKey,
-          model: resolved.model.model,
-          provider: resolved.model.platform,
-          modelPresetId: limits.modelPreset,
-          contextWindowTokens: limits.contextWindowTokens,
-          inputTokens,
-          status: completed ? 'success' : 'error',
-          contextSources,
-          inputTokenLimit: snapshot?.inputTokenLimit,
-          peakInputTokens: peak?.tokens ?? estimatedInputTokens,
-          contextUsageEstimated: peak?.estimated ?? true,
-          outputTokens: usage?.outputTokens,
-          totalTokens: usage?.totalTokens,
-          invocations: usage?.invocations,
-          cachedInputTokens: usage?.cachedInputTokens,
-          reasoningTokens: usage?.reasoningTokens,
-          contextUsagePercent: this.contextUsagePercent(
-            peak?.tokens ?? estimatedInputTokens,
-            snapshot?.contextWindowTokens ?? limits.contextWindowTokens,
-          ),
-          estimated: usage?.estimated ?? true,
-          durationMs: Date.now() - startedAt,
-          ...(reasoning ? { reasoning } : {}),
-        },
-      });
-    }
-  }
-
-  private contextUsagePercent(inputTokens: number, capacity: number): number {
-    return Math.min(100, Math.round((inputTokens / capacity) * 1000) / 10);
-  }
-
-  private async publishModelTraceEvent(
-    context: AgentFlowExecutionContext,
-    input: AgentFlowNodeExecutionInput,
-    event: {
-      eventName:
-        StreamTaskEventType.ModelCallStart | StreamTaskEventType.ModelCallDone;
-      payload:
-        | import('@litter-bear/types/protocol').ModelCallStartPayload
-        | import('@litter-bear/types/protocol').ModelCallDonePayload;
-    },
-  ): Promise<void> {
-    const persisted = await this.prisma.$transaction((transaction) =>
-      this.taskEventService.persistInTransaction(transaction, {
-        taskId: context.task.id,
-        streamId: context.task.streamId,
-        userId: context.task.userId,
-        conversationId: context.task.conversationId,
-        messageId: context.task.messageId,
-        eventName: event.eventName,
-        status: StreamTaskStatus.STREAMING,
-        payload: event.payload,
-      }),
-    );
-    await this.taskEventService.publishAfterCommit(persisted);
-  }
-
-  /**
    * 为当前节点创建已接上原子落库的预算追踪器
    * @param context 当前编译后的节点执行上下文
    * @returns 返回可计数、判定与落库的追踪器
@@ -3056,46 +2447,10 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   private createBudgetTracker(
     context: AgentFlowExecutionContext,
   ): FlowBudgetTracker {
-    return createBudgetTracker(
+    return this.runSupport.createTaskBudgetTracker(
+      context,
       context.definition.policy,
-      context.task.budgetUsage,
-      async (delta) => {
-        const task = await this.prisma.streamTask.update({
-          where: { id: context.task.id },
-          data: {
-            flowModelCalls: { increment: delta.modelCalls },
-            flowToolCalls: { increment: delta.toolCalls },
-          },
-          select: { flowModelCalls: true, flowToolCalls: true },
-        });
-        return {
-          modelCalls: task.flowModelCalls,
-          toolCalls: task.flowToolCalls,
-        };
-      },
     );
-  }
-
-  /**
-   * 为上下文压缩的摘要调用占用 Flow 模型调用额度
-   * @param budget 当前节点的预算追踪器
-   * @param exhaustedMessage 额度已用尽时的失败说明
-   * @returns 摘要调用前执行的计数回调
-   * @description 先检查再计数并立即落库，额度用尽时不可重试地终止，不跳过摘要继续发送超预算请求。
-   */
-  private countSummaryModelCall(
-    budget: FlowBudgetTracker,
-    exhaustedMessage: string,
-  ): () => Promise<void> {
-    return async () => {
-      if (budget.modelCallExhausted())
-        throw createNonRetryableActivityFailure(
-          exhaustedMessage,
-          'AGENT_FLOW_CONTEXT_BUDGET_EXCEEDED',
-        );
-      budget.countModelCall();
-      await budget.flush();
-    };
   }
 
   /**
@@ -3288,87 +2643,6 @@ function readNonNegativeInteger(value: unknown): number {
     : 0;
 }
 
-/** 已被突破的预算维度，直接对应 FlowDefinition.policy 的字段名。 */
-type FlowBudgetDimension = 'maxModelCalls' | 'maxToolCalls';
-
-/** 一次 Activity 内的预算追踪器。 */
-interface FlowBudgetTracker {
-  countModelCall: () => void;
-  countToolCall: () => void;
-  /**
-   * 把本次 Activity 新增的调用数原子累加到库里，并用返回的权威总量刷新基线
-   * @description 刻意不并入节点完成事务：额度是真花掉的，节点写入失败或回滚不该让这笔消耗
-   * 从账上消失——那是把护栏往松的方向改。刷新基线的副作用是同一个 Activity 内后续的
-   * overspent 判定也能看到其他并行分支的消耗。
-   */
-  flush: () => Promise<void>;
-  /**
-   * 模型调用额度已用尽（用量 >= 上限）；发起新的模型调用前的准入检查
-   * @description 只看模型维度：maxToolCalls 为 0 是合法配置（禁用工具的纯问答节点），
-   * 若在此一并要求工具额度，这类 Flow 会一次都跑不起来。工具超支由 overspent 在流中拦。
-   */
-  modelCallExhausted: () => boolean;
-  /** 任一维度已突破上限（用量 > 上限）；用于在流中途立即停止消费 */
-  overspent: () => FlowBudgetDimension | null;
-}
-
-/**
- * 创建 Flow 预算追踪器
- * @param limits 已发布 FlowDefinition 冻结的预算上限
- * @param usage 任务锁定时从计数列读到的历史累计用量
- * @param persist 把增量原子累加进库并返回累加后权威总量的写入函数
- * @returns 返回可计数、判定与落库的追踪器
- * @description 区分两个判定是为了既不浪费额度也不超支：进入一次模型调用前用
- * modelCallExhausted 拦截（没额度就不该再调模型），流内则用 overspent，让最后一次允许的
- * 调用完整产出后再中断，而不是把额度内的回复截断在半句话。
- * 计数在内存里累积、由 flush 成批落库，是因为 onModelTurn 是流映射层的同步回调，
- * 改成异步会把每次模型轮次都卡在一次数据库写上。
- */
-function createBudgetTracker(
-  limits: { maxModelCalls: number; maxToolCalls: number },
-  usage: PersistedFlowBudgetUsage,
-  persist: (
-    delta: PersistedFlowBudgetUsage,
-  ) => Promise<PersistedFlowBudgetUsage>,
-): FlowBudgetTracker {
-  let persisted: PersistedFlowBudgetUsage = { ...usage };
-  const pending: PersistedFlowBudgetUsage = { modelCalls: 0, toolCalls: 0 };
-  const total = (): PersistedFlowBudgetUsage => ({
-    modelCalls: persisted.modelCalls + pending.modelCalls,
-    toolCalls: persisted.toolCalls + pending.toolCalls,
-  });
-  return {
-    countModelCall: () => {
-      pending.modelCalls += 1;
-    },
-    countToolCall: () => {
-      pending.toolCalls += 1;
-    },
-    modelCallExhausted: () => total().modelCalls >= limits.maxModelCalls,
-    overspent: () => {
-      const current = total();
-      if (current.modelCalls > limits.maxModelCalls) {
-        return 'maxModelCalls';
-      }
-      if (current.toolCalls > limits.maxToolCalls) {
-        return 'maxToolCalls';
-      }
-      return null;
-    },
-    flush: async () => {
-      const delta = { ...pending };
-      if (delta.modelCalls === 0 && delta.toolCalls === 0) {
-        return;
-      }
-      // 先写成功再扣减 pending：写失败时增量必须留在待落库账上，否则这次消耗静默消失
-      const next = await persist(delta);
-      pending.modelCalls -= delta.modelCalls;
-      pending.toolCalls -= delta.toolCalls;
-      persisted = next;
-    },
-  };
-}
-
 /**
  * 生成预算终止的安全摘要
  * @param dimension 被突破的预算维度
@@ -3513,27 +2787,6 @@ function toPlanLoopOutputs(
     observations: planLoop.observations,
   };
 }
-
-/** 终止语义到落库枚举的映射；两侧都是闭集，编译器强制补齐。 */
-const STOPPED_RESULT_KIND: Readonly<
-  Record<'completed' | 'cancelled' | 'error', AgentFlowNodeExecutionResultKind>
-> = {
-  completed: AgentFlowNodeExecutionResultKind.STOPPED_COMPLETED,
-  cancelled: AgentFlowNodeExecutionResultKind.STOPPED_CANCELLED,
-  error: AgentFlowNodeExecutionResultKind.STOPPED_ERROR,
-};
-
-/** 落库枚举回到 Workflow 终止语义的映射。 */
-const STOPPED_RESULT_STATUS: Readonly<
-  Record<
-    Exclude<AgentFlowNodeExecutionResultKind, 'COMPLETED'>,
-    'completed' | 'cancelled' | 'error'
-  >
-> = {
-  STOPPED_COMPLETED: 'completed',
-  STOPPED_CANCELLED: 'cancelled',
-  STOPPED_ERROR: 'error',
-};
 
 /**
  * 把已落库的节点执行事实回放为 Workflow 结果
@@ -3688,99 +2941,6 @@ function createPlanStepExecutionId(
 }
 
 /**
- * 将持久化 JSON 解析为工具审批决定
- * @param value AgentFlowApproval.decision 的 JSON 值
- * @returns 返回合法工具审批决定；格式异常时返回 undefined
- * @description 只接受工具审批的 approve/reject/edit 闭集，计划审批不会被误送进 CommonChatAgentService 的 HITL Command。
- */
-function toApprovalDecision(
-  value: Prisma.JsonValue | null,
-): ApprovalDecision | undefined {
-  if (!isJsonObject(value) || typeof value.decision !== 'string') {
-    return undefined;
-  }
-  if (value.decision === 'approve') {
-    return { decision: 'approve' };
-  }
-  if (value.decision === 'reject') {
-    return {
-      decision: 'reject',
-      ...(typeof value.reason === 'string' ? { reason: value.reason } : {}),
-    };
-  }
-  if (value.decision === 'edit') {
-    return {
-      decision: 'edit',
-      ...(isJsonObject(value.editedArgs)
-        ? { editedArgs: toUnknownRecord(value.editedArgs) }
-        : {}),
-    };
-  }
-  return undefined;
-}
-
-/**
- * 计算一组工具请求可共同提交的审批决定
- * @param requests 同一轮 LangGraph interrupt 产出的工具审批请求
- * @returns 返回所有请求均允许的决定集合
- * @description 恢复时一个 ApprovalDecision 会被 `buildHitlResponse` 应用于整批 actionRequests，因此只向客户端暴露交集，避免对部分工具不合法的 edit 决定。
- */
-function resolveBatchAllowedDecisions(
-  requests: ApprovalRequiredPayload[],
-): ApprovalRequiredPayload['allowedDecisions'] {
-  const firstRequest = requests[0];
-  if (!firstRequest) {
-    return [];
-  }
-  const commonDecisions = firstRequest.allowedDecisions.filter((decision) =>
-    requests.every((request) => request.allowedDecisions.includes(decision)),
-  );
-  return requests.length > 1
-    ? commonDecisions.filter((decision) => decision !== 'edit')
-    : commonDecisions;
-}
-
-/**
- * 将受限 JSON 对象转换为工具入参记录
- * @param value 已验证为 JSON 对象的值
- * @returns 返回不含原型链的普通记录
- * @description 仅用于把审批事实中的 editedArgs 交给既有 HITL 恢复 API；值仍来自已持久化并经 DTO 验证的决定。
- */
-function toUnknownRecord(value: Prisma.JsonObject): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(value));
-}
-
-/**
- * 从任务请求 JSON 中读取一个字符串字段
- * @param value StreamTask.requestPayload 的 JSON 值
- * @param key 允许读取的顶层固定字段名
- * @returns 返回非空字符串；不存在或格式错误时返回 undefined
- * @description 只读取任务创建期冻结的用户凭据标识，不读取或解析任意嵌套对象。
- */
-function readJsonString(
-  value: Prisma.JsonValue,
-  key: string,
-): string | undefined {
-  if (!isJsonObject(value)) {
-    return undefined;
-  }
-  const field = value[key];
-  return typeof field === 'string' && field.length > 0 ? field : undefined;
-}
-
-/**
- * 判断值是否为 Prisma 支持的 JSON 对象
- * @param value 待检查的 JSON 值
- * @returns 值为非数组对象时返回 true
- * @description 用于收敛历史 executionState 和审批 JSON，避免 `null`、数组或标量被当作有字段的对象读取。
- */
-function isJsonObject(
-  value: Prisma.JsonValue | null | undefined,
-): value is Prisma.JsonObject {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-/**
  * 从节点执行标识读取 Workflow 已冻结的循环轮次
  * @param nodeExecutionId 形如 `task:version:node#12` 的稳定节点执行标识
  * @returns 返回非负整数轮次；没有轮次段的部署前历史标识按第 0 轮处理
@@ -3794,16 +2954,6 @@ function readNodeExecutionIteration(nodeExecutionId: string): number {
   }
   const iteration = Number(match[1]);
   return Number.isSafeInteger(iteration) ? iteration : 0;
-}
-
-/**
- * 将普通值转换为 Prisma JSON 输入
- * @param value 已由服务端构造的安全对象
- * @returns 返回独立的 Prisma JSON 值
- * @description JSON 往返移除 undefined，确保审批请求摘要不会因运行时对象或可选字段破坏数据库写入。
- */
-function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
 /**
@@ -3864,16 +3014,6 @@ function createNodeTraceKey(nodeExecutionId: string): string {
 }
 
 /**
- * 创建 Flow 审批 traceKey
- * @param nodeExecutionId Temporal 计算出的稳定节点执行标识
- * @returns 返回审批等待与决策收敛共用的 traceKey
- * @description 工具审批从所属节点派生，避免相同工具名在不同 Flow 节点或不同任务中发生 trace 归并冲突。
- */
-function createApprovalTraceKey(nodeExecutionId: string): string {
-  return `flow:approval:${nodeExecutionId}`;
-}
-
-/**
  * 创建计划审批 traceKey
  * @param nodeExecutionId Temporal 计算出的稳定节点执行标识
  * @param revision 当前计划修订轮次
@@ -3885,21 +3025,6 @@ function createPlanReviewTraceKey(
   revision: number,
 ): string {
   return `flow:approval:${nodeExecutionId}:plan-review:${revision}`;
-}
-
-/**
- * 判断 StreamTask 是否已进入终态
- * @param status 当前任务状态
- * @returns 任务不可再被 Flow finalizer 更新时返回 true
- * @description 与 StreamTaskService 的终态集合保持一致，避免 Workflow retry 在用户取消或已有错误后覆盖最终状态。
- */
-function isTerminalTaskStatus(status: StreamTaskStatus): boolean {
-  return (
-    status === StreamTaskStatus.COMPLETED ||
-    status === StreamTaskStatus.ERROR ||
-    status === StreamTaskStatus.EXPIRED ||
-    status === StreamTaskStatus.CANCELED
-  );
 }
 
 /**
@@ -3925,44 +3050,6 @@ function toTerminalNodeResult(
     };
   }
   return undefined;
-}
-
-/**
- * 创建不会触发 Temporal Activity retry 的业务失败
- * @param message 可安全记录的错误说明
- * @param type 固定错误类别
- * @returns 返回带 nonRetryable 标记的 Temporal ApplicationFailure
- * @description 版本快照损坏、上下文缺失、审批格式异常和未接入节点不能通过重复调用修复，必须直接交给管理端或后续阶段的补偿流程处理。
- */
-function createNonRetryableActivityFailure(
-  message: string,
-  type: string,
-): ApplicationFailure {
-  return ApplicationFailure.nonRetryable(message, type);
-}
-
-/**
- * 将 Agent 节点的模型超时转换为不会重复整轮 Activity 的安全失败
- * @param error LangChain 或模型 SDK 抛出的原始错误
- * @returns 非超时错误保持原样；该返回仅用于满足 throw 表达式的类型
- * @description AgentFlow 已允许 LangChain 在同一次模型请求内补试一次。若补试仍超时，
- * 再交给 Temporal 重跑整个节点会重复消息生成甚至工具循环，并把 30 秒故障放大到数分钟。
- * OpenAI SDK 在外部 timeout signal 触发时会使用 “Request was aborted.”，而 AgentFlow
- * 不向模型传用户取消 signal，因此这里可明确把该文案归为请求超时。
- */
-function toAgentFlowModelFailure(error: unknown): unknown {
-  const classified = classifyLlmError(error);
-  const abortedByModelTimeout =
-    classified.category === 'unknown' &&
-    error instanceof Error &&
-    error.message.trim().toLowerCase() === 'request was aborted.';
-  if (classified.category === 'timeout' || abortedByModelTimeout) {
-    return ApplicationFailure.nonRetryable(
-      '模型响应超时，请重试',
-      'AGENT_FLOW_LLM_TIMEOUT',
-    );
-  }
-  return error;
 }
 
 /**

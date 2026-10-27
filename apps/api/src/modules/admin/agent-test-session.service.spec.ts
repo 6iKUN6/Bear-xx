@@ -86,7 +86,10 @@ describe('AgentTestSessionService', () => {
             {
               id: 'task-1',
               status: 'COMPLETED',
+              runtime: 'AGENT_FLOW',
               resolvedAgentModelPresetId: 'default-model',
+              resolvedAgentToolGroups: [],
+              agentToolsDegraded: false,
               flowDigest: 'digest-1',
               flowVersion: {
                 id: 'version-1',
@@ -128,6 +131,9 @@ describe('AgentTestSessionService', () => {
     expect(result.messages[1].execution).toEqual({
       taskId: 'task-1',
       taskStatus: 'completed',
+      runtime: 'agent_flow',
+      toolGroups: [],
+      toolsDegraded: false,
       flow: {
         id: 'flow-1',
         name: '三节点 Flow',
@@ -155,6 +161,63 @@ describe('AgentTestSessionService', () => {
           },
         },
       ],
+    });
+  });
+
+  it('默认 ReAct 智能体任务返回锁定模型与工具组，而不是空快照', async () => {
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: 'conversation-1',
+      title: '默认助手',
+      updatedAt: new Date('2026-09-10T00:00:00.000Z'),
+      messages: [
+        {
+          id: 'message-1',
+          role: 'ASSISTANT',
+          content: '深圳晴',
+          agentId: 'agent-1',
+          status: 'DONE',
+          createdAt: new Date('2026-09-10T00:00:00.000Z'),
+          turnTraceItems: [],
+          streamTasks: [
+            {
+              id: 'task-1',
+              status: 'COMPLETED',
+              runtime: 'CHAT_AGENT',
+              resolvedAgentModelPresetId: 'default-model',
+              resolvedAgentToolGroups: ['weather'],
+              agentToolsDegraded: false,
+              flowDigest: null,
+              flowVersion: null,
+            },
+          ],
+        },
+      ],
+    });
+    prisma.modelPreset.findMany.mockResolvedValue([
+      {
+        presetId: 'default-model',
+        name: '默认模型',
+        model: 'gpt-default',
+        connection: { providerKey: 'openai' },
+      },
+    ]);
+
+    const result = await createService().detail('admin-1', 'conversation-1');
+
+    expect(result.messages[0].execution).toEqual({
+      taskId: 'task-1',
+      taskStatus: 'completed',
+      runtime: 'chat_agent',
+      flow: null,
+      toolGroups: ['weather'],
+      toolsDegraded: false,
+      agentDefaultModel: {
+        presetId: 'default-model',
+        name: '默认模型',
+        model: 'gpt-default',
+        providerKey: 'openai',
+      },
+      nodeModels: [],
     });
   });
 

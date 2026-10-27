@@ -14,6 +14,7 @@ import {
 import { StreamTaskEventType } from '@litter-bear/types/protocol';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentFlowTaskEventService } from './agent-flow-task-event.service';
+import { isTemporalTask } from './runtime/agent-run.support';
 
 /** 提交持久化审批决定所需的最小输入。 */
 export interface DecideAgentFlowApprovalInput {
@@ -96,8 +97,8 @@ export class AgentFlowApprovalService {
         input.taskId,
         input.approvalId,
       );
-      if (!approval.task.flowVersionId) {
-        throw new BadRequestException('该审批不属于 AgentFlow 任务');
+      if (!isTemporalTask(approval.task)) {
+        throw new BadRequestException('该审批不属于 Temporal 执行的任务');
       }
       if (approval.kind !== input.kind) {
         throw new BadRequestException('审批类型与当前提交入口不匹配');
@@ -243,6 +244,7 @@ export class AgentFlowApprovalService {
             conversationId: true,
             messageId: true,
             currentRunId: true,
+            runtime: true,
             flowVersionId: true,
           },
         },

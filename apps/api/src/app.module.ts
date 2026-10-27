@@ -23,6 +23,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { McDonaldsOrderModule } from './modules/mcdonalds-order/mcdonalds-order.module';
 import { McDonaldsCredentialModule } from './modules/mcdonalds-credential/mcdonalds-credential.module';
 import { AgentFlowModule } from './modules/agent-flow/agent-flow.module';
+import { ChatAgentModule } from './modules/chat-agent/chat-agent.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { AgentFlowModule } from './modules/agent-flow/agent-flow.module';
     McDonaldsCredentialModule,
     McDonaldsOrderModule,
     AgentFlowModule,
+    ChatAgentModule,
   ],
   providers: [
     {
