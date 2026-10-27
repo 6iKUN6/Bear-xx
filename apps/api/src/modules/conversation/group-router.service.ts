@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { LlmService } from '../llm/llm.service';
 import { describeToolGroups } from '../ai/agent-loop/capability/tool-group-labels';
 import { groupRouterPrompt } from '../../prompts';
-import { resolveBoundFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
+import { resolveAgentToolGroups } from '../agent-flow/definition/flow-tool-groups';
 
 const ROUTER_TEMPERATURE = 0;
 const ROUTER_MAX_OUTPUT_TOKENS = 100;
@@ -88,8 +88,9 @@ export class GroupRouterService {
           name: true,
           description: true,
           isDefault: true,
-          // 能力从绑定 Flow 的图上推导：Agent.toolGroups 那一列已删除，工具只在
-          // Flow 节点上声明。一并 select 进来而不是逐个再查，避免 N+1
+          // 能力：未绑 Flow 用后台配置的工具组，绑定时从 Flow 图上推导。
+          // 一并 select 进来而不是逐个再查，避免 N+1
+          toolGroups: true,
           defaultFlowVersion: { select: { definition: true } },
         },
       });
@@ -103,7 +104,7 @@ export class GroupRouterService {
       const memberLines = members
         .map((m) => {
           const isLast = context?.lastAgentId === m.id;
-          return `- id: ${m.id} | 名称: ${m.name}${m.isDefault ? '（默认）' : ''}${isLast ? '（上一轮回答者）' : ''} | 简介: ${m.description || '无'} | 能力: ${describeToolGroups(resolveBoundFlowToolGroups(m.defaultFlowVersion?.definition))}`;
+          return `- id: ${m.id} | 名称: ${m.name}${m.isDefault ? '（默认）' : ''}${isLast ? '（上一轮回答者）' : ''} | 简介: ${m.description || '无'} | 能力: ${describeToolGroups(resolveAgentToolGroups(m))}`;
         })
         .join('\n');
 

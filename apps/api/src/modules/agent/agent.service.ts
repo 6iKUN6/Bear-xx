@@ -4,10 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  flowDefinitionUsesAgentDefault,
-  type FlowDefinition,
-} from '@litter-bear/types/agent-flow';
+import { flowDefinitionUsesAgentDefault } from '@litter-bear/types/agent-flow';
 import {
   AgentFlowVersionStatus,
   ManagementAuditAction,
@@ -17,8 +14,8 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { collectFlowToolGroups } from '../agent-flow/definition/flow-tool-groups';
-import { createFlowDefinitionPreset } from '../agent-flow/definition/flow-definition.templates';
+import { resolveAgentToolGroups } from '../agent-flow/definition/flow-tool-groups';
+import { AGENT_CONFIGURABLE_TOOL_GROUPS } from '../ai/agent-loop/capability/tool-groups';
 import { normalizeFlowDefinition } from '../agent-flow/definition/flow-definition.versioning';
 import { AgentDefinitionService } from './agent-definition.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -123,10 +120,7 @@ export class AgentService {
       throw new ForbiddenException('当前用户无权使用该智能体');
     }
 
-    const definition = this.resolveEffectiveDefinition(
-      agent.defaultFlowVersion?.definition,
-    );
-    if (!flowDefinitionUsesAgentDefault(definition)) {
+    if (!this.usesAgentModels(agent.defaultFlowVersion?.definition)) {
       return {
         agentId: agent.id,
         defaultModelPresetId: null,
@@ -194,6 +188,7 @@ export class AgentService {
         defaultReasoning: parseReasoningSelection(
           dto.defaultReasoning ?? undefined,
         ),
+        toolGroups: dto.toolGroups,
       });
       const created = await tx.agent.create({
         include: AGENT_FLOW_INCLUDE,
@@ -224,6 +219,7 @@ export class AgentService {
               modelPresetId: model.id,
             })),
           },
+          toolGroups: execution.toolGroups,
           enabled: dto.enabled ?? true,
           visible: dto.visible ?? true,
           minimumMembershipTier:
@@ -278,6 +274,10 @@ export class AgentService {
             ? parsePersistedReasoningConfig(currentAgent.defaultReasoningConfig)
                 ?.selection
             : parseReasoningSelection(dto.defaultReasoning ?? undefined),
+        // 未传时沿用现值；改为绑定 Flow 而未显式传值时由校验收敛为空，不留死配置
+        toolGroups:
+          dto.toolGroups ??
+          (dto.defaultFlowVersionId ? undefined : currentAgent.toolGroups),
       });
       const executionChanged =
         dto.defaultFlowVersionId !== undefined ||
@@ -301,6 +301,7 @@ export class AgentService {
                 : { disconnect: true },
             }
           : {}),
+        toolGroups: execution.toolGroups,
         ...(executionChanged
           ? {
               defaultModelPreset: execution.defaultModel
@@ -488,9 +489,9 @@ export class AgentService {
    * @param tx 当前可串行化事务客户端
    * @param input 待保存的 FlowVersion、允许模型和默认模型业务标识
    * @returns 返回可直接写入关系字段的 FlowVersion ID、默认模型和允许模型记录
-   * @description 未绑定 Flow 时使用内置 direct Definition；绑定时要求版本已发布且 Definition
+   * @description 未绑定 Flow 时运行代码定义的默认 ReAct 智能体；绑定时要求版本已发布且 Definition
    * 符合当前契约。只有有效 Definition 使用 agent-default 时才允许并要求配置模型集合，且集合内
-   * 每个预设及其供应商连接都必须启用。
+   * 每个预设及其供应商连接都必须启用。工具组只对默认助手生效：绑定 Flow 时必须为空。
    */
   private async resolveExecutionConfig(
     tx: Prisma.TransactionClient,
@@ -499,9 +500,14 @@ export class AgentService {
       allowedModelPresetIds: string[];
       defaultModelPresetId: string | null;
       defaultReasoning?: ReasoningSelection;
+      toolGroups?: string[];
     },
   ) {
-    let definition: FlowDefinition;
+    const toolGroups = this.resolveToolGroups(
+      input.flowVersionId,
+      input.toolGroups,
+    );
+    let boundDefinition: Prisma.JsonValue | null = null;
     if (input.flowVersionId) {
       const version = await tx.agentFlowVersion.findUnique({
         where: { id: input.flowVersionId },
@@ -510,13 +516,10 @@ export class AgentService {
       if (!version || version.status !== AgentFlowVersionStatus.PUBLISHED) {
         throw new BadRequestException('只能绑定已发布的 Flow 版本');
       }
-      definition = this.resolveEffectiveDefinition(version.definition);
-    } else {
-      definition = createFlowDefinitionPreset('direct');
+      boundDefinition = version.definition;
     }
 
-    const usesAgentDefault = flowDefinitionUsesAgentDefault(definition);
-    if (!usesAgentDefault) {
+    if (!this.usesAgentModels(boundDefinition)) {
       if (
         input.allowedModelPresetIds.length > 0 ||
         input.defaultModelPresetId !== null ||
@@ -531,6 +534,7 @@ export class AgentService {
         defaultModel: null,
         allowedModels: [],
         defaultReasoning: undefined,
+        toolGroups,
       };
     }
 
@@ -584,21 +588,50 @@ export class AgentService {
       defaultModel: modelsByPresetId.get(input.defaultModelPresetId)!,
       allowedModels: orderedModels,
       defaultReasoning,
+      toolGroups,
     };
   }
 
   /**
-   * 解析智能体当前生效的 Flow Definition
-   * @param boundDefinition 已绑定发布版本的 Definition；为空表示使用内置 direct Flow
-   * @returns 返回符合当前 schemaVersion 和图结构约束的 Flow Definition
-   * @description 该方法用于读取端判断 agent-default 依赖；损坏或旧版本工件会明确报错，
-   * 避免向终端返回一套实际无法执行的模型选项。
+   * 校验并收敛默认助手的工具组
+   * @param flowVersionId 待绑定的 FlowVersion；非空表示工具由 Flow 节点声明
+   * @param toolGroups 请求中的工具组；undefined 表示未配置
+   * @returns 返回去重且按闭集校验过的工具组
+   * @description 绑定 Flow 时显式传入非空工具组直接拒绝——那是一个不会驱动执行的死配置。
    */
-  private resolveEffectiveDefinition(
+  private resolveToolGroups(
+    flowVersionId: string | null,
+    toolGroups: string[] | undefined,
+  ): string[] {
+    const groups = [...new Set(toolGroups ?? [])];
+    if (flowVersionId) {
+      if (groups.length > 0) {
+        throw new BadRequestException(
+          '绑定 Flow 的智能体工具由 Flow 节点声明，不能再配置工具组',
+        );
+      }
+      return [];
+    }
+    const unknown = groups.find(
+      (group) => !AGENT_CONFIGURABLE_TOOL_GROUPS.includes(group),
+    );
+    if (unknown) {
+      throw new BadRequestException(`工具组「${unknown}」不可用于默认助手`);
+    }
+    return groups;
+  }
+
+  /**
+   * 判断智能体是否使用自身的模型配置（允许模型集合与默认模型）
+   * @param boundDefinition 已绑定发布版本的 Definition；为空表示运行代码定义的默认 ReAct 智能体
+   * @returns 默认智能体恒为 true；绑定 Flow 时取决于图上是否有 agent-default 节点
+   * @description 损坏或旧版本工件会明确报错，避免向终端返回一套实际无法执行的模型选项。
+   */
+  private usesAgentModels(
     boundDefinition: Prisma.JsonValue | null | undefined,
-  ): FlowDefinition {
+  ): boolean {
     if (!boundDefinition) {
-      return createFlowDefinitionPreset('direct');
+      return true;
     }
     const parsed = normalizeFlowDefinition(boundDefinition);
     if (!parsed.success) {
@@ -606,7 +639,7 @@ export class AgentService {
         `智能体绑定的 Flow 版本无法升级或定义无效：${parsed.inspection.errors[0]?.message ?? 'Definition 无效'}`,
       );
     }
-    return parsed.definition;
+    return flowDefinitionUsesAgentDefault(parsed.definition);
   }
 
   private toResponse(
@@ -638,7 +671,7 @@ export class AgentService {
         (item) => item.modelPreset.presetId,
       ),
       defaultFlowVersionId: agent.defaultFlowVersionId,
-      toolGroups: resolveAgentToolGroups(agent.defaultFlowVersion?.definition),
+      toolGroups: resolveAgentToolGroups(agent),
       enabled: agent.enabled,
       visible: agent.visible ?? true,
       minimumMembershipTier: agent.minimumMembershipTier ?? MembershipTier.FREE,
@@ -733,23 +766,3 @@ const AGENT_FLOW_INCLUDE = {
 type AgentWithFlow = Prisma.AgentGetPayload<{
   include: typeof AGENT_FLOW_INCLUDE;
 }>;
-
-/**
- * 推导一个智能体可用的工具组
- * @param boundDefinition 绑定 FlowVersion 的 Definition 原文；未绑定时为空
- * @returns 返回可直接展示的工具组名
- * @description 未绑定 Flow 的智能体执行内置 direct Flow，因此这里取同一份代码预设去算，
- * 而不是写死一个空数组——内置形态哪天加了工具，展示会跟着变，不会静默漂移。
- *
- * Definition 解析失败时返回空数组：这是个纯展示字段，为了它让整个智能体列表报错不值得；
- * 真正的契约不兼容会在任务创建与画布读取时被明确拒绝。
- */
-function resolveAgentToolGroups(
-  boundDefinition: Prisma.JsonValue | null | undefined,
-): string[] {
-  if (!boundDefinition) {
-    return [...collectFlowToolGroups(createFlowDefinitionPreset('direct'))];
-  }
-  const parsed = normalizeFlowDefinition(boundDefinition);
-  return parsed.success ? [...collectFlowToolGroups(parsed.definition)] : [];
-}
