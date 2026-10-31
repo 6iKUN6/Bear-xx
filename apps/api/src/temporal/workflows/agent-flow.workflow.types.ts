@@ -37,6 +37,8 @@ export interface AgentFlowWorkflowNode {
   join?: { waitFor: readonly string[]; policy: 'all' | 'any' };
   /** 仅 loop 节点有：进入下一轮时必须重置的体内节点 */
   loop?: { body: readonly string[] };
+  /** 仅 agent / plan-loop 节点有：声明了渲染工具组，需走长超时 Activity */
+  longRunning?: boolean;
 }
 
 /** 从数据库冻结版本转换出的脱敏执行快照。 */
@@ -122,6 +124,14 @@ export interface AgentFlowFinalizeRunInput {
 export interface AgentFlowActivityApi {
   loadRunSnapshot(input: AgentFlowWorkflowInput): Promise<AgentFlowRunSnapshot>;
   executeNode(
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<AgentFlowNodeExecutionResult>;
+  /**
+   * 执行声明了渲染工具组的 agent / plan-loop 节点
+   * @description 与 executeNode 语义相同，但由 Workflow 用独立的长超时与心跳代理调度：
+   * 这类节点的工具循环里可能执行数分钟的渲染，混进普通节点的 5 分钟超时会让渲染必然超时。
+   */
+  executeLongNode(
     input: AgentFlowNodeExecutionInput,
   ): Promise<AgentFlowNodeExecutionResult>;
   /**

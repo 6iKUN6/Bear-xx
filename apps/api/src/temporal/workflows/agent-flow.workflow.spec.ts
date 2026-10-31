@@ -356,6 +356,38 @@ describe('agentFlowWorkflow', () => {
     }
   });
 
+  it('声明渲染工具组的 agent 节点走 executeLongNode，不混进普通节点调度', async () => {
+    const scheduled: string[] = [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: longRunningAgentSnapshot(),
+        executeNode: ({ nodeKey }) => {
+          scheduled.push(`execute:${nodeKey}`);
+          return Promise.resolve({ kind: 'completed', outcome: 'default' });
+        },
+        executeLongNode: ({ nodeKey }) => {
+          scheduled.push(`long:${nodeKey}`);
+          return Promise.resolve({ kind: 'completed', outcome: 'default' });
+        },
+        finalizeRun: () => Promise.resolve(),
+      }),
+    );
+
+    try {
+      await expect(running.handle.result()).resolves.toEqual({
+        status: 'completed',
+        lastNodeKey: 'end',
+      });
+      expect(scheduled).toEqual([
+        'execute:start',
+        'long:produce',
+        'execute:end',
+      ]);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
   it('节点返回 continued 时逐步调度同一节点，每步一次 Activity', async () => {
     const scheduled: string[] = [];
     let continueCalls = 0;
@@ -1231,6 +1263,9 @@ function createActivities(
     executeNode:
       overrides.executeNode ??
       (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
+    executeLongNode:
+      overrides.executeLongNode ??
+      (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
     renderNode:
       overrides.renderNode ??
       (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
@@ -1276,6 +1311,28 @@ function renderSnapshot(): AgentFlowRunSnapshot {
     nodes: [
       { key: 'start', type: 'start', next: { default: ['render'] } },
       { key: 'render', type: 'render', next: { default: ['end'] } },
+      { key: 'end', type: 'end', next: {} },
+    ],
+  };
+}
+
+/**
+ * 创建 start → agent(longRunning) → end 的执行快照
+ * @returns 返回含一个声明渲染工具组的 agent 节点的脱敏快照
+ * @description 用来验证 longRunning agent 节点被路由到 executeLongNode，而不是普通 executeNode。
+ */
+function longRunningAgentSnapshot(): AgentFlowRunSnapshot {
+  return {
+    entryNodeKey: 'start',
+    maxDurationSeconds: 60,
+    nodes: [
+      { key: 'start', type: 'start', next: { default: ['produce'] } },
+      {
+        key: 'produce',
+        type: 'agent',
+        longRunning: true,
+        next: { default: ['end'] },
+      },
       { key: 'end', type: 'end', next: {} },
     ],
   };

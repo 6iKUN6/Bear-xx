@@ -210,6 +210,38 @@ describe('AgentFlowActivities', () => {
     });
   });
 
+  it('声明渲染工具组的 agent 节点在快照里标记 longRunning', async () => {
+    const definition = longRunningAgentFlowDefinition();
+    const digest = calculateFlowDefinitionDigest(definition);
+    prisma.streamTask.findUnique.mockResolvedValue({
+      id: 'task-1',
+      flowVersionId: 'version-1',
+      flowDigest: digest,
+      flowVersion: {
+        id: 'version-1',
+        digest,
+        definition,
+      },
+    });
+
+    await expect(
+      activities.loadRunSnapshot(workflowInput(digest)),
+    ).resolves.toEqual({
+      entryNodeKey: 'start',
+      maxDurationSeconds: 60,
+      nodes: [
+        { key: 'start', type: 'start', next: { default: ['produce'] } },
+        {
+          key: 'produce',
+          type: 'agent',
+          longRunning: true,
+          next: { default: ['end'] },
+        },
+        { key: 'end', type: 'end', next: {} },
+      ],
+    });
+  });
+
   it('拒绝任务、输入和版本间不一致的 digest 快照', async () => {
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
@@ -3095,6 +3127,42 @@ function renderNodeFlowDefinition() {
     edges: [
       { from: 'start', to: 'render' },
       { from: 'render', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造声明渲染工具组的 agent 节点测试图
+ * @returns 返回 start → agent(render 工具组) → end 的当前版本 Definition
+ * @description 用来验证快照给这类节点标记 longRunning，供 Workflow 路由到长超时 Activity。
+ */
+function longRunningAgentFlowDefinition() {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow' as const,
+    name: '长任务 agent 测试图',
+    policy: {
+      maxSteps: 1,
+      maxModelCalls: 1,
+      maxToolCalls: 1,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
+      {
+        id: 'produce',
+        type: 'agent' as const,
+        config: {
+          toolGroups: ['render'],
+          skills: [],
+          maxToolIterations: 1,
+        },
+      },
+      { id: 'end', type: 'end' as const, config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'produce' },
+      { from: 'produce', to: 'end' },
     ],
   };
 }

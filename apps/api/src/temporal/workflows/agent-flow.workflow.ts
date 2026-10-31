@@ -43,6 +43,7 @@ export async function agentFlowWorkflow(
 ): Promise<AgentFlowWorkflowResult> {
   const activities = createActivities(input.activityTaskQueue);
   const renderActivities = createRenderActivities(input.activityTaskQueue);
+  const longActivities = createLongActivities(input.activityTaskQueue);
   const finalizeActivities = createFinalizeActivities(input.activityTaskQueue);
   const resolvedApprovalIds = new Set<string>();
   let cancelled = false;
@@ -109,8 +110,8 @@ export async function agentFlowWorkflow(
       const node = getSnapshotNode(nodesByKey, nodeKey);
       lastNodeKey = node.key;
       const nodeExecutionId = createNodeExecutionId(input, node.key, iteration);
-      // 渲染走独立的长超时代理；其余节点保持原来的 5 分钟。命令序列只在 render 节点上
-      // 多一次不同的 Activity 名称，非渲染节点与旧版本逐条一致，因此在途 run 仍可重放。
+      // 渲染走独立的长超时代理；声明渲染工具组的 agent/plan-loop 节点走 executeLongNode，
+      // 其余节点保持原来的 5 分钟。非 longRunning 节点与旧版本逐条一致，因此在途 run 仍可重放。
       const nodeInput = {
         workflow: input,
         nodeKey: node.key,
@@ -127,7 +128,9 @@ export async function agentFlowWorkflow(
                 deadlineMs,
               )
             : await renderActivities.renderNode(nodeInput)
-          : await activities.executeNode(nodeInput);
+          : node.longRunning
+            ? await longActivities.executeLongNode(nodeInput)
+            : await activities.executeNode(nodeInput);
 
       // 已观测到的步骤进度，用于拒绝不推进的空转调度；人工恢复后重置
       let observedSteps = -1;
@@ -377,6 +380,33 @@ function createRenderActivities(
         'AGENT_FLOW_RENDER_VERSIONING_UNSAFE',
         'AGENT_FLOW_RENDER_OBJECT_CONFLICT',
         'AGENT_FLOW_RENDER_ABORTED',
+      ],
+    },
+  });
+}
+
+/**
+ * 创建长任务 agent / plan-loop 节点专用的 Activity 代理
+ * @param activityTaskQueue 由启动输入冻结的业务 Activity 队列名
+ * @returns 返回只含 executeLongNode 的 Activity 集合
+ * @description 声明了渲染工具组的节点，工具循环里可能执行数分钟渲染，必须与普通节点的
+ * 5 分钟超时分开配置；心跳覆盖整个 agent 循环，重试策略与普通 executeNode 一致。
+ */
+function createLongActivities(
+  activityTaskQueue: string,
+): Pick<AgentFlowActivityApi, 'executeLongNode'> {
+  return proxyActivities<Pick<AgentFlowActivityApi, 'executeLongNode'>>({
+    taskQueue: activityTaskQueue,
+    startToCloseTimeout: '30 minutes',
+    heartbeatTimeout: '30 seconds',
+    retry: {
+      initialInterval: '1 second',
+      maximumInterval: '10 seconds',
+      maximumAttempts: 3,
+      nonRetryableErrorTypes: [
+        'AGENT_FLOW_INVALID_SNAPSHOT',
+        'AGENT_FLOW_NODE_EXECUTOR_UNAVAILABLE',
+        'AGENT_FLOW_NON_RETRYABLE',
       ],
     },
   });

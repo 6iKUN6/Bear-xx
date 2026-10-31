@@ -38,6 +38,9 @@
  *
  * ## 修订历史
  *
+ * - `10` 声明了渲染工具组的 agent / plan-loop 节点改走独立的 `executeLongNode` Activity
+ *   （30 分钟超时 + 心跳）。render 工具组是本次新加，在途 run 的快照里不可能出现
+ *   longRunning 节点，非 longRunning 节点的命令序列与 r9 逐条一致，因此未加 patch。
  * - `9` 原生取消可先拒绝 render 的 condition，因此额外等待 Activity 异步清理完成后
  *   才调度终态写入；render-native-cancellation-wait-v1 patch 保留 r8 History 的顺序。
  * - `8` render 分支增加业务取消/剩余时长等待，取消后等待 Activity 确认停止；使用
@@ -61,7 +64,7 @@
  *   部署时依赖"无在途 run"，未加 patch。
  * - `1` 初始版本：loadRunSnapshot -> executeNode/resumeNode 循环 -> finalizeRun。
  */
-export const AGENT_FLOW_WORKFLOW_REVISION = 9;
+export const AGENT_FLOW_WORKFLOW_REVISION = 10;
 
 /** memo 中记录启动修订号的键名。 */
 export const AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY =

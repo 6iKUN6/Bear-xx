@@ -35,6 +35,7 @@ import {
 import { chatAgentCommonPrompt, planReviewGatePrompt } from '../../../prompts';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CapabilityResolver } from '../../ai/agent-loop/capability/capability.resolver';
+import { RENDER_TOOL_GROUP } from '../../ai/agent-loop/capability/tool-groups';
 import type {
   AgentLoopInput,
   AgentStrategyDecision,
@@ -237,6 +238,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     return {
       loadRunSnapshot: (input) => this.loadRunSnapshot(input),
       executeNode: (input) => this.executeNode(input),
+      executeLongNode: (input) => this.executeLongNode(input),
       renderNode: (input) => this.renderNode(input),
       continueNode: (input) => this.continueNode(input),
       resumeNode: (input) => this.resumeNode(input),
@@ -320,6 +322,28 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     input: AgentFlowNodeExecutionInput,
   ): Promise<AgentFlowNodeExecutionResult> {
     return this.runNode(input, true);
+  }
+
+  /**
+   * 执行一个声明了渲染工具组的 agent / plan-loop 节点
+   * @param input 节点键与稳定 execution identity
+   * @returns 返回完成分支、人工等待或明确停止结果
+   * @description 与 executeNode 语义完全一致，但独立成 Activity 名称让 Workflow 配 30 分钟
+   * 超时与心跳：这类节点的工具循环里可能执行数分钟渲染，混进 5 分钟超时会让渲染必然超时。
+   * 心跳覆盖整个 agent 循环（模型往返 + 工具执行），不伪造帧进度。
+   */
+  async executeLongNode(
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    const activity = ActivityContext.current();
+    activity.cancellationSignal.throwIfAborted();
+    activity.heartbeat();
+    const timer = setInterval(() => activity.heartbeat(), 5_000);
+    try {
+      return await this.runNode(input, true);
+    } finally {
+      clearInterval(timer);
+    }
   }
 
   /**
@@ -2696,21 +2720,35 @@ function toRunSnapshot(definition: FlowDefinition): AgentFlowRunSnapshot {
   return {
     entryNodeKey: entryNode.id,
     maxDurationSeconds: definition.policy.maxDurationSeconds,
-    nodes: definition.nodes.map((node) => ({
-      key: node.id,
-      type: node.type,
-      next: nextByNodeKey.get(node.id) ?? {},
-      ...(node.type === 'join'
-        ? { join: { waitFor: node.config.waitFor, policy: node.config.policy } }
-        : {}),
-      ...(node.type === 'loop'
-        ? {
-            loop: {
-              body: [...(loopRegions.get(node.id)?.body ?? [])].sort(),
-            },
-          }
-        : {}),
-    })),
+    nodes: definition.nodes.map((node) => {
+      // 声明了渲染工具组的 agent/plan-loop 节点，工具循环里可能执行数分钟渲染，需走长超时 Activity。
+      const longRunning =
+        (node.type === 'agent' &&
+          node.config.toolGroups.includes(RENDER_TOOL_GROUP)) ||
+        (node.type === 'plan-loop' &&
+          node.config.executor.toolGroups.includes(RENDER_TOOL_GROUP));
+      return {
+        key: node.id,
+        type: node.type,
+        next: nextByNodeKey.get(node.id) ?? {},
+        ...(node.type === 'join'
+          ? {
+              join: {
+                waitFor: node.config.waitFor,
+                policy: node.config.policy,
+              },
+            }
+          : {}),
+        ...(node.type === 'loop'
+          ? {
+              loop: {
+                body: [...(loopRegions.get(node.id)?.body ?? [])].sort(),
+              },
+            }
+          : {}),
+        ...(longRunning ? { longRunning: true } : {}),
+      };
+    }),
   };
 }
 
