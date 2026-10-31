@@ -12,6 +12,7 @@ const FLOW_PRESETS: readonly FlowDefinitionPreset[] = [
   'react',
   'plan_execute',
   'hybrid',
+  'vibe',
 ];
 
 /**

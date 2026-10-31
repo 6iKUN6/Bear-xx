@@ -773,7 +773,12 @@ export function flowDefinitionUsesAgentDefault(
 
 /** 内置 Flow 预设名称。 */
 export type FlowDefinitionPreset =
-  "blank" | "direct" | "react" | "plan_execute" | "hybrid";
+  | "blank"
+  | "direct"
+  | "react"
+  | "plan_execute"
+  | "hybrid"
+  | "vibe";
 
 /**
  * 计算每个节点执行前「必定已完成」的节点集合

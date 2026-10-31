@@ -15,6 +15,7 @@ describe('FlowTemplateRegistry', () => {
       'react',
       'plan_execute',
       'hybrid',
+      'vibe',
     ]);
     expect(direct).not.toBe(directAgain);
     expect(registry.get('direct')).toEqual(
@@ -27,5 +28,6 @@ describe('FlowTemplateRegistry', () => {
     expect(registry.get('hybrid')).toEqual(
       createFlowDefinitionPreset('hybrid'),
     );
+    expect(registry.get('vibe')).toEqual(createFlowDefinitionPreset('vibe'));
   });
 });

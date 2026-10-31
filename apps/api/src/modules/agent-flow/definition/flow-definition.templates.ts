@@ -31,6 +31,8 @@ export function createFlowDefinitionPreset(
       return planExecutePreset();
     case 'hybrid':
       return hybridPreset();
+    case 'vibe':
+      return vibePreset();
   }
 }
 
@@ -206,6 +208,46 @@ function hybridPreset(): FlowDefinition {
       { from: 'plan', to: 'execute' },
       { from: 'execute', to: 'answer' },
       { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 生成 vibe 制片预设
+ * @returns 返回装配渲染工具与渲染 skill 的单 Agent Flow
+ * @description 一期自媒体 Bot 的最小闭环：agent 依据渲染 skill 的说明判断用户意图，需要时
+ * 生成 HTML 分镜并调用 renderHtmlToVideo 工具出片，普通聊天则正常回复。声明了 render 工具组，
+ * 该节点会走长超时 Activity，渲染不会被 5 分钟截断。工具组与 skill 名对应 capability 注册表的常量。
+ */
+function vibePreset(): FlowDefinition {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: 'vibe 制片',
+    description: '理解用户意图，需要时生成 HTML 分镜并渲染成片',
+    policy: {
+      maxSteps: 8,
+      maxModelCalls: 20,
+      maxToolCalls: 24,
+      maxDurationSeconds: 1800,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'produce',
+        type: 'agent',
+        config: {
+          modelPreset: 'agent-default',
+          toolGroups: ['render'],
+          skills: ['render-video'],
+          maxToolIterations: 8,
+        },
+      },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'produce' },
+      { from: 'produce', to: 'end' },
     ],
   };
 }

@@ -611,14 +611,18 @@ describe('FlowDefinitionValidator', () => {
     );
   });
 
-  it.each(['blank', 'direct', 'react', 'plan_execute', 'hybrid'] as const)(
-    '%s 预设通过与导入 JSON 相同的校验器',
-    (preset) => {
-      const result = validateFlowDefinition(createFlowDefinitionPreset(preset));
+  it.each([
+    'blank',
+    'direct',
+    'react',
+    'plan_execute',
+    'hybrid',
+    'vibe',
+  ] as const)('%s 预设通过与导入 JSON 相同的校验器', (preset) => {
+    const result = validateFlowDefinition(createFlowDefinitionPreset(preset));
 
-      expect(result.success).toBe(true);
-    },
-  );
+    expect(result.success).toBe(true);
+  });
 
   it('拒绝 V1 工件，不做双运行时兼容', () => {
     expectValidationError(
