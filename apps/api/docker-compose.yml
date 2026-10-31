@@ -8,6 +8,19 @@ x-application-build: &application-build
   args:
     NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim}
     PNPM_REGISTRY: ${PNPM_REGISTRY:-https://registry.npmjs.org/}
+    # 留空用官方 binaries.prisma.sh；国内网络建议在 .env 里指向 npmmirror 镜像
+    PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-}
+
+# 渲染 Activity 需要 Chromium、中文字体与 ffmpeg，只有这个镜像带它们。
+# 与 app 分开构建，避免把浏览器塞进处理 HTTP 的进程。
+x-render-build: &render-build
+  context: ../..
+  dockerfile: apps/api/Dockerfile
+  target: development-activity
+  args:
+    NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim}
+    PNPM_REGISTRY: ${PNPM_REGISTRY:-https://registry.npmjs.org/}
+    PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-}
 
 x-application-environment: &application-environment
   DATABASE_URL: postgresql://postgres:postgres@db:5432/litter_bear
@@ -24,6 +37,15 @@ x-application-volumes: &application-volumes
   - api_node_modules:/workspace/apps/api/node_modules
   - types_node_modules:/workspace/packages/types/node_modules
 
+# 渲染 Worker 的应用卷与上面完全一致，只多一个帧图磁盘卷。YAML 的序列不能像映射那样用
+# `<<` 合并，因此这里重复列一次；改动应用卷时两处必须同步。
+x-activity-volumes: &activity-volumes
+  - ../../apps/api:/workspace/apps/api
+  - ../../packages/types:/workspace/packages/types
+  - api_node_modules:/workspace/apps/api/node_modules
+  - types_node_modules:/workspace/packages/types/node_modules
+  - render_frames:/var/tmp/html-render
+
 # 注意根 /workspace/node_modules **不在**上面的列表里：它是镜像层，每个容器一份、
 # 互不相通，而 Prisma Client 恰恰生成在那里的 .pnpm 存储中。
 # apps/api/node_modules/@prisma/client 虽然在共享卷里，但只是软链，指回各容器
@@ -38,10 +60,13 @@ x-application-volumes: &application-volumes
 #
 # generate 只读 schema.prisma 生成类型，不连数据库、不改数据，可无条件跑在启动前。
 #
-# 资源形态与生产一致：Temporal 编排与 Activity Worker 内嵌在 app 进程（共用一套 Nest 上下文），
-# Temporal 的存储放在主 Postgres 的 temporal / temporal_visibility 库，Temporal UI 默认不启动
-# （需要时 `docker compose --profile debug up -d temporal-ui`）。mem_limit 按单机小规格设定，
-# 只有 app 额外给了 tsc --watch 的余量。
+# 资源形态与生产一致：编排 Worker 与 Activity Worker 是独立进程，API 进程不内嵌任何
+# Worker（TEMPORAL_EMBEDDED_WORKERS=false）。拆开的原因不只是资源：渲染 Activity 会启动
+# Chromium 与 ffmpeg，一次成片要跑几十分钟，塞进 API 进程会直接把接口拖死；而编排 Worker
+# 运行在 Temporal 的隔离沙箱里，本来就不该有数据库与浏览器能力。
+# Temporal 的存储放在主 Postgres 的 temporal / temporal_visibility 库，Temporal UI 默认不
+# 启动（需要时 `docker compose --profile debug up -d temporal-ui`）。mem_limit 按单机小规格
+# 设定：app 额外给 tsc --watch 留余量，activity worker 额外给 Chromium 与 ffmpeg 留余量。
 
 services:
   app:
@@ -52,7 +77,7 @@ services:
       - .env
     environment:
       <<: *application-environment
-      TEMPORAL_EMBEDDED_WORKERS: 'true'
+      TEMPORAL_EMBEDDED_WORKERS: 'false'
     # 开发态包含 nest --watch 的 tsc 增量编译；生产镜像只跑编译产物，占用明显更低
     mem_limit: 2g
     depends_on:
@@ -67,6 +92,61 @@ services:
     volumes: *application-volumes
     working_dir: /workspace/apps/api
     command: sh -c 'pnpm run db:generate && pnpm run start:dev'
+
+  worker-orchestrator:
+    build: *application-build
+    env_file:
+      - .env
+    environment:
+      <<: *application-environment
+      TEMPORAL_WORKER_ROLE: orchestrator
+      TEMPORAL_EMBEDDED_WORKERS: 'false'
+    mem_limit: 512m
+    depends_on:
+      db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      workspace-bootstrap:
+        condition: service_completed_successfully
+    volumes: *application-volumes
+    working_dir: /workspace/apps/api
+    command: sh -c 'pnpm run db:generate && pnpm run start:temporal-worker:orchestrator:dev'
+
+  worker-activity:
+    build: *render-build
+    env_file:
+      - .env
+    environment:
+      <<: *application-environment
+      TEMPORAL_WORKER_ROLE: activity
+      TEMPORAL_EMBEDDED_WORKERS: 'false'
+      # 镜像里已装好 Chromium/ffmpeg；这里显式写出来，避免 .env 覆盖后指向不存在的路径
+      HTML_RENDER_CHROME_PATH: /usr/bin/chromium
+      # 帧图必须落在可写磁盘卷上，不能堆进镜像层，也不能放 tmpfs
+      HTML_RENDER_TMP_ROOT: /var/tmp/html-render
+      # 单次只跑一支渲染：并发渲染会同时抢 Chromium 内存与临时磁盘
+      HTML_RENDER_MAX_CONCURRENCY: '1'
+    # Chromium 的 setuid 沙箱需要创建 PID/network namespace；默认容器能力会拒绝它。
+    # 只给独立渲染 Worker 此能力，仍以 node 运行并保留 Docker seccomp 与浏览器沙箱；
+    # 不使用 privileged、seccomp=unconfined 或 --no-sandbox。生产运行同镜像也需此能力。
+    cap_add:
+      - SYS_ADMIN
+    mem_limit: 4g
+    depends_on:
+      db:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      workspace-bootstrap:
+        condition: service_completed_successfully
+    # 帧图走磁盘卷而不是 tmpfs：tmpfs 的页算进 mem_limit，帧图会和 Chromium 抢同一份内存
+    # 预算。成片要跑几十分钟、帧图按 GB 计，因此改用磁盘承接。
+    # 渲染服务每次渲染一个独立目录并在 finally 里整目录删除，
+    # 因此这里只需要一个可写卷承接运行中的帧。
+    volumes: *activity-volumes
+    working_dir: /workspace/apps/api
+    command: sh -c 'pnpm run db:generate && pnpm run start:temporal-worker:activity:dev'
 
   workspace-bootstrap:
     build: *application-build
@@ -159,3 +239,4 @@ volumes:
   types_node_modules:
   pg_data:
   redis_data:
+  render_frames:
