@@ -1,7 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Context as ActivityContext } from '@temporalio/activity';
 import { createHash } from 'node:crypto';
-import { openAsBlob } from 'node:fs';
 import {
   AgentFlowApprovalKind,
   AgentFlowApprovalStatus,
@@ -69,16 +68,12 @@ import type { FlowModelContextConfig } from '@litter-bear/types/agent-flow';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
+import { CosObjectWriteError } from '../../storage/cos-storage.service';
 import {
-  CosObjectWriteError,
-  CosStorageService,
-} from '../../storage/cos-storage.service';
-import {
-  HtmlRenderService,
   HtmlRenderError,
   type HtmlRenderErrorCode,
 } from '../../html-render/html-render.service';
-import { buildRenderVideoObjectKey } from '../../html-render/render-object-key';
+import { RenderPipelineService } from '../../html-render/render-pipeline.service';
 import {
   RENDER_WORKER_ROLE_ERROR,
   assertRenderWorkerRole,
@@ -229,8 +224,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     private readonly llmService: LlmService,
     private readonly modelRegistry: LlmModelRegistryService,
     private readonly storageAssetService: StorageAssetService,
-    private readonly cosStorageService: CosStorageService,
-    private readonly htmlRenderService: HtmlRenderService,
+    private readonly renderPipeline: RenderPipelineService,
     private readonly runSupport: AgentRunSupport,
   ) {}
 
@@ -1663,7 +1657,6 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       nodeKey: node.key,
       isTest: context.task.isTest,
     };
-    const objectKey = buildRenderVideoObjectKey(execution);
     const inputDigest = createHash('sha256')
       .update(
         JSON.stringify([
@@ -1677,74 +1670,42 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         ]),
       )
       .digest('hex');
-    if (
-      await this.cosStorageService.objectExists(objectKey, {
-        execution,
-        inputDigest,
-        contentType: 'video/mp4',
-      })
-    ) {
-      signal.throwIfAborted();
-      return this.completeNode(
-        context,
-        input,
-        'default',
-        '成片已存在，复用已有渲染结果',
-        { outputs: { path: objectKey } },
+    signal.throwIfAborted();
+    const result = await this.renderPipeline.renderToObject({
+      html,
+      width: node.width,
+      height: node.height,
+      durationSeconds: node.durationSeconds,
+      fps: node.fps,
+      execution,
+      inputDigest,
+      signal,
+      onFrame: ({ frame, totalFrames }) =>
+        activity.heartbeat({ frame, totalFrames }),
+    });
+    signal.throwIfAborted();
+    // 渲染与上传完成后、登记完成前，再确认任务仍活跃；已终止则丢弃成片结果。
+    const currentTask = await this.prisma.streamTask.findUnique({
+      where: { id: context.task.id },
+      select: { status: true },
+    });
+    if (!currentTask) {
+      throw createNonRetryableActivityFailure(
+        'Flow 任务不存在',
+        'AGENT_FLOW_TASK_NOT_FOUND',
       );
     }
-
-    signal.throwIfAborted();
-    try {
-      const rendered = await this.htmlRenderService.render({
-        html,
-        width: node.width,
-        height: node.height,
-        durationSeconds: node.durationSeconds,
-        fps: node.fps,
-        signal,
-        onFrame: ({ frame, totalFrames }) =>
-          activity.heartbeat({ frame, totalFrames }),
-      });
-      try {
-        signal.throwIfAborted();
-        const currentTask = await this.prisma.streamTask.findUnique({
-          where: { id: context.task.id },
-          select: { status: true },
-        });
-        if (!currentTask) {
-          throw createNonRetryableActivityFailure(
-            'Flow 任务不存在',
-            'AGENT_FLOW_TASK_NOT_FOUND',
-          );
-        }
-        const terminal = toTerminalNodeResult(currentTask.status);
-        if (terminal) return terminal;
-        const data = await openAsBlob(rendered.filePath);
-        signal.throwIfAborted();
-        const uploaded = await this.cosStorageService.putObjectIfAbsent({
-          key: objectKey,
-          execution,
-          data,
-          inputDigest,
-          contentType: 'video/mp4',
-          signal,
-        });
-        signal.throwIfAborted();
-        return await this.completeNode(
-          context,
-          input,
-          'default',
-          `已渲染 ${rendered.frameCount} 帧成片`,
-          { outputs: { path: uploaded.key } },
-        );
-      } finally {
-        await rendered.dispose();
-      }
-    } catch (error) {
-      signal.throwIfAborted();
-      throw toRenderActivityFailure(error);
-    }
+    const terminal = toTerminalNodeResult(currentTask.status);
+    if (terminal) return terminal;
+    return await this.completeNode(
+      context,
+      input,
+      'default',
+      result.created
+        ? `已渲染 ${result.frameCount} 帧成片`
+        : '成片已存在，复用已有渲染结果',
+      { outputs: { path: result.key } },
+    );
   }
 
   /**

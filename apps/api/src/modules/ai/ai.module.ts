@@ -31,7 +31,6 @@ import { McpModule } from './mcp/mcp.module';
 import { McDonaldsOrderModule } from '../mcdonalds-order/mcdonalds-order.module';
 import { McDonaldsCredentialModule } from '../mcdonalds-credential/mcdonalds-credential.module';
 import { HtmlRenderModule } from '../html-render/html-render.module';
-import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -43,7 +42,6 @@ import { StorageModule } from '../storage/storage.module';
     McDonaldsCredentialModule,
     McDonaldsOrderModule,
     HtmlRenderModule,
-    StorageModule,
   ],
   providers: [
     AiService,

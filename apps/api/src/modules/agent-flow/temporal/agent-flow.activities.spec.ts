@@ -27,6 +27,7 @@ import {
   HtmlRenderError,
   HtmlRenderService,
 } from '../../html-render/html-render.service';
+import { RenderPipelineService } from '../../html-render/render-pipeline.service';
 import { buildRenderVideoObjectKey } from '../../html-render/render-object-key';
 import { AgentFlowActivities } from './agent-flow.activities';
 import { calculateFlowDefinitionDigest } from '../definition/flow-definition.digest';
@@ -113,6 +114,12 @@ describe('AgentFlowActivities', () => {
     >(),
   };
   const htmlRenderService = { render: jest.fn() };
+  // 用 mock 内核构造真实编排服务：render 节点现在只调编排，幂等/渲染/上传逻辑由它真实执行，
+  // 因此沿用对 cosStorageService / htmlRenderService 的断言即可验证节点行为不变。
+  const renderPipeline = new RenderPipelineService(
+    htmlRenderService as unknown as HtmlRenderService,
+    cosStorageService as unknown as CosStorageService,
+  );
   const stepEvaluator = { enough: jest.fn() };
   const taskEventService = {
     persistInTransaction: jest.fn(),
@@ -168,8 +175,7 @@ describe('AgentFlowActivities', () => {
         { provide: LlmService, useValue: llmService },
         { provide: LlmModelRegistryService, useValue: modelRegistry },
         { provide: StorageAssetService, useValue: storageAssetService },
-        { provide: CosStorageService, useValue: cosStorageService },
-        { provide: HtmlRenderService, useValue: htmlRenderService },
+        { provide: RenderPipelineService, useValue: renderPipeline },
       ],
     }).compile();
     activities = module.get(AgentFlowActivities);

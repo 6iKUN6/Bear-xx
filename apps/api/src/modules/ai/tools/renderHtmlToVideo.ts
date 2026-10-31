@@ -1,15 +1,10 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { openAsBlob } from 'node:fs';
 import { FLOW_RENDER_LIMITS } from '@litter-bear/types/agent-flow';
 import { getTaskId, getTaskIsTest } from '../telemetry/model-call-context';
-import type { HtmlRenderService } from '../../html-render/html-render.service';
-import { buildRenderVideoObjectKey } from '../../html-render/render-object-key';
-import type {
-  CosObjectExecution,
-  CosStorageService,
-} from '../../storage/cos-storage.service';
+import type { RenderPipelineService } from '../../html-render/render-pipeline.service';
+import type { CosObjectExecution } from '../../storage/cos-storage.service';
 
 /** 渲染工具的运行时名称；同时作为 COS 幂等身份的 nodeKey。 */
 const RENDER_TOOL_NAME = 'renderHtmlToVideo';
@@ -25,16 +20,14 @@ interface RenderToolInput {
 
 /**
  * 创建 HTML 渲染成片工具
- * @param htmlRenderService HTML → mp4 渲染服务
- * @param cosStorageService 对象存储服务，负责幂等上传与复用
+ * @param renderPipeline 渲染执行编排服务，承担渲染与幂等上传
  * @returns 返回 LangChain 工具实例
  * @description 让 agent 在工具循环里把一段 HTML 渲染成竖屏/横屏视频并拿回成片地址。
  * 幂等用内容寻址：html 与四个渲染参数共同确定一个稳定 key，同样的请求复用同一成片，
  * 不依赖节点执行身份。成片地址由工具真实返回，不信任模型复述的路径。
  */
 export function createRenderHtmlToVideoTool(
-  htmlRenderService: HtmlRenderService,
-  cosStorageService: CosStorageService,
+  renderPipeline: RenderPipelineService,
 ) {
   return tool(
     async (input: RenderToolInput) => {
@@ -66,37 +59,19 @@ export function createRenderHtmlToVideoTool(
         nodeKey: RENDER_TOOL_NAME,
         isTest,
       };
-      const objectKey = buildRenderVideoObjectKey(execution);
       try {
-        if (
-          await cosStorageService.objectExists(objectKey, {
-            execution,
-            inputDigest,
-            contentType: 'video/mp4',
-          })
-        ) {
-          return `成片已存在，复用已有渲染结果。成片地址：${objectKey}`;
-        }
-        const rendered = await htmlRenderService.render({
+        const result = await renderPipeline.renderToObject({
           html: input.html,
           width: input.width,
           height: input.height,
           durationSeconds: input.durationSeconds,
           fps: input.fps,
+          execution,
+          inputDigest,
         });
-        try {
-          const data = await openAsBlob(rendered.filePath);
-          const uploaded = await cosStorageService.putObjectIfAbsent({
-            key: objectKey,
-            execution,
-            data,
-            inputDigest,
-            contentType: 'video/mp4',
-          });
-          return `已渲染 ${rendered.frameCount} 帧成片。成片地址：${uploaded.key}`;
-        } finally {
-          await rendered.dispose();
-        }
+        return result.created
+          ? `已渲染 ${result.frameCount} 帧成片。成片地址：${result.key}`
+          : `成片已存在，复用已有渲染结果。成片地址：${result.key}`;
       } catch (error) {
         return `渲染失败：${error instanceof Error ? error.message : String(error)}。请把失败原因告知用户。`;
       }
