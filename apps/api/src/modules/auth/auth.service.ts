@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  BadRequestException,
   UnauthorizedException,
   ConflictException,
 } from '@nestjs/common';
@@ -103,7 +104,15 @@ export class AuthService {
    * @description 将微信 code 换取的 OpenID/UnionID 绑定到当前用户；如果微信身份已绑定其他账号，则拒绝绑定。
    */
   async bindWechat(userId: string, code: string): Promise<LoginResult> {
-    const { openid, unionid } = await this.code2Session(code);
+    // 绑定阶段的微信凭证失败是业务参数错误，不是登录态失效；沿用 401 会让客户端
+    // 的通用未授权处理清掉 token，把刚登录成功的用户又踢回登录页。
+    const { openid, unionid } = await this.code2Session(code).catch(
+      (error: unknown) => {
+        throw new BadRequestException(
+          error instanceof Error ? error.message : '微信授权码无效',
+        );
+      },
+    );
     const currentUser = await this.userService.findById(userId);
 
     if (!currentUser) {
