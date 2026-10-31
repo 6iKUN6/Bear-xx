@@ -11,6 +11,7 @@ import {
   Braces,
   Gauge,
   UserCheck,
+  Film,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -25,6 +26,7 @@ import {
   type FlowEdge,
   type FlowNode,
   type FlowNodeType,
+  type FlowValueType,
 } from "@litter-bear/types/agent-flow";
 
 /** 画布节点坐标。 */
@@ -255,6 +257,7 @@ export const NODE_TYPE_ICONS: Record<FlowNodeType, LucideIcon> = {
   loop: RefreshCw,
   "structured-output": Braces,
   evaluate: Gauge,
+  render: Film,
 };
 
 /** 节点类型的展示元数据；`type` 是契约里的英文类型名，与节点标识是两回事。 */
@@ -276,6 +279,12 @@ export type FlowNodeCategory = "基础" | "逻辑" | "执行" | "人机协作";
  * agent 类型，只看到「汇总回复」和「answer」两个词，会以为它们是两个重复的东西。
  */
 const NODE_TYPE_META: Record<FlowNodeType, NodeTypeMeta> = {
+  render: {
+    name: "视频渲染",
+    type: "render",
+    desc: "将上游 HTML 渲染为 MP4 并上传 COS，只输出成片路径",
+    category: "执行",
+  },
   start: {
     name: "开始",
     type: "start",
@@ -773,6 +782,8 @@ export function variableOptions(
   definition: CanvasDefinition,
   /** 只保留该字段名的输出；用于 planRef 这类固定字段的引用 */
   onlyField?: string,
+  /** 只保留该值类型；render 的 HTML 来源必须是 string，不限定字段名。 */
+  onlyValueType?: FlowValueType,
 ): FlowVariableOption[] {
   const dominators = flowMustCompleteBefore(definition.nodes, definition.edges);
   const dominating = dominators.get(nodeId);
@@ -797,7 +808,10 @@ export function variableOptions(
       node.type,
       node.config,
     )) {
-      if (onlyField && field !== onlyField) {
+      if (
+        (onlyField && field !== onlyField) ||
+        (onlyValueType && valueType !== onlyValueType)
+      ) {
         continue;
       }
       options.push({

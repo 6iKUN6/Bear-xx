@@ -57,6 +57,7 @@ import {
 } from "@/lib/flow-graph";
 import { nodeTypeColors } from "@/lib/flow-node-colors";
 import {
+  ADDABLE_NODE_TYPES,
   addNode,
   branchKeysOf,
   connect,
@@ -78,23 +79,6 @@ import {
 import type { AgentFlowValidation } from "@/api/types";
 import { confirm } from "@/components/confirm-dialog";
 import { FLOW_EDITOR_PANEL_LIMITS, useUiStore } from "@/stores/ui-store";
-
-/**
- * 左栏可添加的节点类型
- * @description start 与 end 不在其中——它们都唯一，由模板带来且不能删除。
- */
-const ADDABLE_NODE_TYPES: FlowNodeType[] = [
-  "agent",
-  "plan",
-  "approval",
-  "plan-loop",
-  "synthesize",
-  "condition",
-  "join",
-  "loop",
-  "structured-output",
-  "evaluate",
-];
 
 const NODE_CATEGORY_ORDER: FlowNodeCategory[] = [
   "基础",
@@ -170,14 +154,20 @@ export function FlowEditorPage() {
     [flow, versionId],
   );
 
+  // 脏状态与编辑使用同一份规范化基线，避免 JSONB 返回的边键顺序被误判为未保存。
+  const editableVersion = useMemo(
+    () => (version ? toEditableDefinition(version.definition) : null),
+    [version],
+  );
+
   // updatedAt 进 key：保存成功后服务端返回的规范化 Definition 要回灌草稿
   const versionKey = version ? `${version.id}:${version.updatedAt}` : null;
   const [syncedKey, setSyncedKey] = useState<string | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   // 渲染期同步派生状态而非用 effect：避免先渲染一帧旧图再被覆盖
-  if (version && versionKey !== syncedKey) {
+  if (version && editableVersion && versionKey !== syncedKey) {
     setSyncedKey(versionKey);
-    const parsed = toEditableDefinition(version.definition);
+    const parsed = editableVersion;
     setDraft(parsed.ok ? parsed.definition : null);
     setReadError(parsed.ok ? null : parsed.reason);
     setValidation(null);
@@ -193,11 +183,11 @@ export function FlowEditorPage() {
   const dirty = useMemo(
     () =>
       Boolean(
-        version &&
+        editableVersion?.ok &&
         draft &&
-        JSON.stringify(draft) !== JSON.stringify(version.definition),
+        JSON.stringify(draft) !== JSON.stringify(editableVersion.definition),
       ),
-    [draft, version],
+    [draft, editableVersion],
   );
 
   const validateCurrentDefinition = validateDefinition.mutateAsync;

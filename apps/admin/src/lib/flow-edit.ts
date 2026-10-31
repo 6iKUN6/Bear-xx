@@ -4,6 +4,7 @@ import {
   flowNodeBranchKeys,
   type FlowNode,
   type FlowNodeType,
+  type FlowRenderNodeConfig,
 } from "@litter-bear/types/agent-flow";
 import {
   LOOP_CONTAINER_LAYOUT,
@@ -11,6 +12,24 @@ import {
   type FlowNodeLayout,
   type FlowNodePosition,
 } from "./flow-graph.ts";
+
+/**
+ * 左栏可添加的节点类型
+ * @description start 与 end 不在其中——它们都唯一，由模板带来且不能删除。
+ */
+export const ADDABLE_NODE_TYPES: readonly FlowNodeType[] = [
+  "agent",
+  "plan",
+  "approval",
+  "plan-loop",
+  "synthesize",
+  "render",
+  "condition",
+  "join",
+  "loop",
+  "structured-output",
+  "evaluate",
+];
 
 /**
  * 可编辑的 Definition 草稿
@@ -130,6 +149,14 @@ const DEFAULT_CONFIG: Record<FlowNodeType, () => Record<string, unknown>> = {
   }),
   approval: () => ({ kind: "plan-review", policy: "always" }),
   synthesize: () => ({}),
+  // htmlRef 必填但新节点尚无上游连线，留给 Inspector 选择，不伪造可用引用。
+  render: () =>
+    ({
+      width: 1080,
+      height: 1920,
+      durationSeconds: 60,
+      fps: 30,
+    }) satisfies Omit<FlowRenderNodeConfig, "htmlRef">,
   // waitFor 留空：新节点还没有入边，等谁只能由用户在 inspector 里选
   join: () => ({ waitFor: [], policy: "all" }),
   // breakWhen 留空即「只按 maxIterations 跑满」，是合法配置；要按条件退出再去

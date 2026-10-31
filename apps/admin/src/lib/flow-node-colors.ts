@@ -36,6 +36,7 @@ export const NODE_TYPE_COLORS: Record<FlowNodeType, NodeTypeColor> = {
   plan: ACCENT,
   "plan-loop": ACCENT,
   synthesize: ACCENT,
+  render: ACCENT,
   condition: INFO,
   join: INFO,
   loop: INFO,

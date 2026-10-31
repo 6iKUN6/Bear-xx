@@ -1,8 +1,10 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import {
   FLOW_CONDITION_OPERATORS,
+  FLOW_RENDER_LIMITS,
   type FlowConditionOperator,
   type FlowValueType,
+  type FlowRenderNodeConfig,
 } from "@litter-bear/types/agent-flow";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -188,7 +190,12 @@ export function FlowNodeInspector({
 
       <ContextFields node={node} definition={definition} editing={editing} />
 
-      <NodeConfig node={node} definition={definition} editing={editing} />
+      <NodeConfig
+        node={node}
+        definition={definition}
+        errors={errors}
+        editing={editing}
+      />
 
       {editing && node.type !== "start" && node.type !== "end" ? (
         <Button
@@ -314,12 +321,9 @@ function ContextFields({
 function NodeConfig({
   node,
   definition,
+  errors,
   editing,
-}: {
-  node: EditableNode;
-  definition: CanvasDefinition;
-  editing?: InspectorEditing;
-}) {
+}: Pick<FlowNodeInspectorProps, "node" | "definition" | "errors" | "editing">) {
   if (node.type === "start") {
     return (
       <InspectorSection title="配置">
@@ -338,6 +342,17 @@ function NodeConfig({
           无需配置。它是流程唯一出口，不产生输出，也不能再连接后继节点。
         </p>
       </InspectorSection>
+    );
+  }
+
+  if (node.type === "render") {
+    return (
+      <RenderConfig
+        node={node}
+        definition={definition}
+        errors={errors}
+        editing={editing}
+      />
     );
   }
 
@@ -581,6 +596,135 @@ function NodeConfig({
       <pre className="overflow-auto rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
         {JSON.stringify(node.config, null, 2)}
       </pre>
+    </InspectorSection>
+  );
+}
+
+/** 参数边界直接取共享契约；合法性仍由服务端自动校验与保存裁定。 */
+const RENDER_NUMBER_FIELDS = [
+  {
+    key: "width",
+    label: "宽度（px）",
+    min: FLOW_RENDER_LIMITS.minWidth,
+    max: FLOW_RENDER_LIMITS.maxWidth,
+    step: 2,
+  },
+  {
+    key: "height",
+    label: "高度（px）",
+    min: FLOW_RENDER_LIMITS.minHeight,
+    max: FLOW_RENDER_LIMITS.maxHeight,
+    step: 2,
+  },
+  {
+    key: "durationSeconds",
+    label: "时长（秒）",
+    min: FLOW_RENDER_LIMITS.minDurationSeconds,
+    max: FLOW_RENDER_LIMITS.maxDurationSeconds,
+    step: 1,
+  },
+  {
+    key: "fps",
+    label: "帧率（fps）",
+    min: FLOW_RENDER_LIMITS.minFps,
+    max: FLOW_RENDER_LIMITS.maxFps,
+    step: 1,
+  },
+] as const satisfies ReadonlyArray<{
+  key: Exclude<keyof FlowRenderNodeConfig, "htmlRef">;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}>;
+
+function RenderConfig({
+  node,
+  definition,
+  errors,
+  editing,
+}: Pick<FlowNodeInspectorProps, "node" | "definition" | "errors" | "editing">) {
+  const id = useId();
+  const fieldError = (field: keyof FlowRenderNodeConfig) =>
+    errors
+      .filter(({ path }) => {
+        const configPath = path.split(".config.")[1];
+        return configPath === field || configPath?.startsWith(`${field}.`);
+      })
+      .map(({ message }) => message)
+      .join("；");
+
+  return (
+    <InspectorSection title="渲染配置">
+      <div className="space-y-3">
+        <RefField
+          label="HTML 来源"
+          hint="选择必经上游的 string 输出；HTML 需提供 window.renderFrame(timeSeconds)，资源需内嵌"
+          nodeId={node.id}
+          definition={definition}
+          valueType="string"
+          value={readRef(node.config.htmlRef)}
+          error={fieldError("htmlRef") || undefined}
+          editing={editing}
+          onChange={(htmlRef) => {
+            if (htmlRef) editing?.onChangeConfig({ ...node.config, htmlRef });
+          }}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          {RENDER_NUMBER_FIELDS.map(({ key, label, min, max, step }) => {
+            const inputId = `${id}-${key}`;
+            const error = fieldError(key);
+            const value = node.config[key];
+            return (
+              <Field key={key} label={label} htmlFor={inputId}>
+                <Input
+                  id={inputId}
+                  type="number"
+                  required
+                  min={min}
+                  max={max}
+                  step={step}
+                  disabled={!editing}
+                  value={
+                    typeof value === "number" && Number.isFinite(value)
+                      ? value
+                      : ""
+                  }
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={`${inputId}-hint${error ? ` ${inputId}-error` : ""}`}
+                  onChange={(event) => {
+                    const next = { ...node.config };
+                    if (event.target.value === "") delete next[key];
+                    else next[key] = event.target.valueAsNumber;
+                    editing?.onChangeConfig(next);
+                  }}
+                />
+                <p
+                  id={`${inputId}-hint`}
+                  className="text-xs text-muted-foreground"
+                >
+                  {min}–{max}
+                  {step === 2 ? "，必须为偶数" : "，整数"}
+                </p>
+                {error ? (
+                  <p
+                    id={`${inputId}-error`}
+                    role="alert"
+                    className="text-xs text-[var(--lb-danger)]"
+                  >
+                    {error}
+                  </p>
+                ) : null}
+              </Field>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          单帧最多 {FLOW_RENDER_LIMITS.maxPixels.toLocaleString()} 像素；时长 ×
+          帧率最多 {FLOW_RENDER_LIMITS.maxTotalFrames.toLocaleString()} 帧。
+          帧图和视频字节不进入 Flow 输出，下游只引用 path（string）。
+        </p>
+      </div>
     </InspectorSection>
   );
 }
@@ -1729,7 +1873,9 @@ function RefField({
   nodeId,
   definition,
   field,
+  valueType,
   value,
+  error,
   editing,
   optional,
   onChange,
@@ -1739,13 +1885,24 @@ function RefField({
   nodeId: string;
   definition: CanvasDefinition;
   field?: string;
+  valueType?: FlowValueType;
   value: string | null;
+  error?: string;
   editing?: InspectorEditing;
   optional?: boolean;
   onChange: (ref: { $ref: [string, string] } | null) => void;
 }) {
-  const options = variableOptions(nodeId, definition, field);
+  const messageId = useId();
+  const options = variableOptions(nodeId, definition, field, valueType);
   const matched = options.find((option) => option.ref.join(".") === value);
+  const invalid = Boolean(error || (!matched && value));
+  const message =
+    error ||
+    (!matched && value
+      ? `引用「${value}」不在可引用范围内，保存会被拒绝`
+      : !value && !optional
+        ? "必填：没选之前这个节点保存会被拒绝"
+        : undefined);
   return (
     <Field label={label} hint={hint}>
       <Select
@@ -1762,7 +1919,11 @@ function RefField({
           }
         }}
       >
-        <SelectTrigger>
+        <SelectTrigger
+          aria-label={label}
+          aria-invalid={invalid}
+          aria-describedby={message ? messageId : undefined}
+        >
           <SelectValue
             placeholder={
               value
@@ -1784,14 +1945,17 @@ function RefField({
           ))}
         </SelectContent>
       </Select>
-      {!matched && value ? (
-        <p className="text-xs text-[var(--lb-danger)]">
-          引用「{value}」不在可引用范围内，保存会被拒绝
-        </p>
-      ) : null}
-      {!value && !optional ? (
-        <p className="text-xs text-[var(--lb-warning)]">
-          必填：没选之前这个节点保存会被拒绝
+      {message ? (
+        <p
+          id={messageId}
+          role={invalid ? "alert" : undefined}
+          className={
+            invalid
+              ? "text-xs text-[var(--lb-danger)]"
+              : "text-xs text-[var(--lb-warning)]"
+          }
+        >
+          {message}
         </p>
       ) : null}
     </Field>
@@ -1891,15 +2055,23 @@ function InspectorSection({
 function Field({
   label,
   hint,
+  htmlFor,
   children,
 }: {
   label: string;
   hint?: string;
+  htmlFor?: string;
   children: ReactNode;
 }) {
   return (
     <div className="space-y-1">
-      <div className="text-xs text-muted-foreground">{label}</div>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className="text-xs text-muted-foreground">
+          {label}
+        </label>
+      ) : (
+        <div className="text-xs text-muted-foreground">{label}</div>
+      )}
       {children}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
