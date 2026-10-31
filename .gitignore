@@ -12,3 +12,4 @@ apps/mobile/UI
 .turbo
 apps/*/pnpm-lock.yaml
 .superpowers
+project.private.config.json
