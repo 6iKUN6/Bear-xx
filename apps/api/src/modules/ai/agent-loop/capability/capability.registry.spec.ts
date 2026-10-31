@@ -1,6 +1,8 @@
 import {
   CapabilityRegistry,
   MCDONALDS_ORDER_TOOL_GROUP,
+  RENDER_SKILL_NAME,
+  RENDER_TOOL_GROUP,
 } from './capability.registry';
 
 describe('CapabilityRegistry 用户级麦当劳工具组', () => {
@@ -8,6 +10,7 @@ describe('CapabilityRegistry 用户级麦当劳工具组', () => {
     const registry = new CapabilityRegistry(
       {} as never,
       { get: jest.fn() } as never,
+      {} as never,
     );
 
     expect(registry.listToolGroups()).toContain(MCDONALDS_ORDER_TOOL_GROUP);
@@ -27,6 +30,7 @@ describe('CapabilityRegistry 用户级麦当劳工具组', () => {
     const registry = new CapabilityRegistry(
       {} as never,
       { get: jest.fn() } as never,
+      {} as never,
     );
 
     expect(registry.requiresApproval('mcdonalds__create-order')).toBe(true);
@@ -40,6 +44,7 @@ describe('CapabilityRegistry 用户级麦当劳工具组', () => {
     const registry = new CapabilityRegistry(
       {} as never,
       { get: jest.fn().mockReturnValue('partner') } as never,
+      {} as never,
     );
 
     expect(registry.requiresApproval('partner__mcdonalds__create-order')).toBe(
@@ -57,8 +62,24 @@ describe('CapabilityRegistry 用户级麦当劳工具组', () => {
     const registry = new CapabilityRegistry(
       {} as never,
       { get: jest.fn() } as never,
+      {} as never,
     );
 
     expect(registry.getToolMetadata('mcdonalds__unknown-tool')).toBeUndefined();
+  });
+
+  it('注册渲染工具、渲染工具组与渲染 skill', () => {
+    const registry = new CapabilityRegistry(
+      {} as never,
+      { get: jest.fn() } as never,
+      {} as never,
+    );
+
+    expect(registry.listToolGroups()).toContain(RENDER_TOOL_GROUP);
+    expect(registry.getTool('renderHtmlToVideo')).toBeDefined();
+    const skill = registry.getSkill(RENDER_SKILL_NAME);
+    expect(skill).toBeDefined();
+    expect(skill?.toolNames).toContain('renderHtmlToVideo');
+    expect(skill?.systemPrompt).toContain('renderFrame');
   });
 });

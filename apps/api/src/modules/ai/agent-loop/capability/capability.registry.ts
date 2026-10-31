@@ -7,6 +7,7 @@ import {
 } from '../../tools';
 import { ImageGenerationService } from '../../../images/image-generation.service';
 import { RenderPipelineService } from '../../../html-render/render-pipeline.service';
+import { renderSkillPrompt } from '../../../../prompts';
 import { ConfigService } from '@nestjs/config';
 import {
   getMcDonaldsMcpToolName,
@@ -38,6 +39,9 @@ export {
   WEATHER_TOOL_GROUP,
 } from './tool-groups';
 
+/** 渲染 skill 的运行时名称；agent 节点在 skills 里声明它即获得渲染能力。 */
+export const RENDER_SKILL_NAME = 'render-video';
+
 /**
  * 能力注册表
  * @description 集中登记静态 tools / skills / subagents，以及工具组、审批与 MCP 来源元数据。
@@ -64,9 +68,15 @@ export class CapabilityRegistry {
       [IMAGE_TOOL_GROUP],
       { requiresApproval: true },
     );
-    this.registerTool(createRenderHtmlToVideoTool(this.renderPipeline), [
-      RENDER_TOOL_GROUP,
-    ]);
+    const renderTool = createRenderHtmlToVideoTool(this.renderPipeline);
+    this.registerTool(renderTool, [RENDER_TOOL_GROUP]);
+    // 渲染 skill：把渲染能力说明注入系统提示词并绑定渲染工具；agent 节点在 skills 里声明它。
+    this.registerSkill({
+      name: RENDER_SKILL_NAME,
+      description: '把 HTML 渲染成视频的能力',
+      systemPrompt: renderSkillPrompt,
+      toolNames: [renderTool.name],
+    });
     // 组本身是稳定的可配置能力；实际远程工具仅在用户有活跃凭据时由 resolver 按请求加载。
     this.toolGroups.set(MCDONALDS_ORDER_TOOL_GROUP, []);
   }

@@ -23,6 +23,7 @@ export const strategyRouterPrompt = readPromptMarkdown('strategy-router.md');
  * CapabilityRegistry 推导，Flow 配置没有降低工具风险等级的入口。
  */
 export const planReviewGatePrompt = readPromptMarkdown('plan-review-gate.md');
+export const renderSkillPrompt = readPromptMarkdown('render-skill.md');
 const taskPlannerPromptTemplate = readPromptMarkdown('task-planner.md');
 
 /**
