@@ -79,6 +79,8 @@ function resolveOutputRoot(taroEnv?: string) {
   }
 }
 
+const isWatchBuild = process.argv.includes("--watch") || process.argv.includes("-w");
+
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<"vite">(async (merge) => {
   const taroEnv = process.env.TARO_ENV;
@@ -97,7 +99,10 @@ export default defineConfig<"vite">(async (merge) => {
     plugins: ["@tarojs/plugin-generator"],
     defineConstants: {
       __API_BASE_URL__: JSON.stringify(
-        process.env.TARO_APP_API_BASE_URL || "",
+        process.env.TARO_APP_API_BASE_URL ||
+          (process.env.NODE_ENV === "development" || isWatchBuild
+            ? "http://127.0.0.1:3000"
+            : ""),
       ),
     },
     postcss: {
