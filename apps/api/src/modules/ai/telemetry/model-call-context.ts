@@ -29,6 +29,8 @@ interface ModelCallContext {
   taskId: string;
   /** 任务归属用户：供工具（生图转存等）在执行期取归属，不用逐层传参 */
   userId?: string;
+  /** 任务是否为测试任务：渲染工具据此决定成片写入 dev 目录还是正式目录。 */
+  isTest?: boolean;
   counter: { model: number };
   modelCalls: Map<string, ModelCallRecord>;
 }
@@ -46,9 +48,16 @@ export function runWithModelCallContext<T>(
   taskId: string,
   fn: () => Promise<T>,
   userId?: string,
+  isTest?: boolean,
 ): Promise<T> {
   return storage.run(
-    { taskId, userId, counter: { model: 0 }, modelCalls: new Map() },
+    {
+      taskId,
+      userId,
+      isTest,
+      counter: { model: 0 },
+      modelCalls: new Map(),
+    },
     fn,
   );
 }
@@ -207,6 +216,24 @@ export function getModelCallCount(): number {
  */
 export function getTaskUserId(): string | undefined {
   return storage.getStore()?.userId;
+}
+
+/**
+ * 读取当前任务上下文的测试标记
+ * @returns 返回 isTest；不在任务上下文中返回 undefined
+ * @description 渲染工具据此决定成片写入 dev 目录还是正式目录，避免把测试成片混进正式产物。
+ */
+export function getTaskIsTest(): boolean | undefined {
+  return storage.getStore()?.isTest;
+}
+
+/**
+ * 读取当前任务上下文的稳定任务标识
+ * @returns 返回 taskId；不在任务上下文中返回 undefined
+ * @description 渲染工具用它与内容摘要共同构造幂等对象 key，保证重试与恢复复用同一成片。
+ */
+export function getTaskId(): string | undefined {
+  return storage.getStore()?.taskId;
 }
 
 /**

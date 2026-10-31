@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { createGenerateImageTool, getWeather, webSearch } from '../../tools';
+import {
+  createGenerateImageTool,
+  createRenderHtmlToVideoTool,
+  getWeather,
+  webSearch,
+} from '../../tools';
 import { ImageGenerationService } from '../../../images/image-generation.service';
+import type { HtmlRenderService } from '../../../html-render/html-render.service';
+import type { CosStorageService } from '../../../storage/cos-storage.service';
 import { ConfigService } from '@nestjs/config';
 import {
   getMcDonaldsMcpToolName,
@@ -18,6 +25,7 @@ import {
   DEFAULT_TOOL_GROUP,
   IMAGE_TOOL_GROUP,
   MCDONALDS_ORDER_TOOL_GROUP,
+  RENDER_TOOL_GROUP,
   SEARCH_TOOL_GROUP,
   WEATHER_TOOL_GROUP,
 } from './tool-groups';
@@ -26,6 +34,7 @@ export {
   DEFAULT_TOOL_GROUP,
   IMAGE_TOOL_GROUP,
   MCDONALDS_ORDER_TOOL_GROUP,
+  RENDER_TOOL_GROUP,
   SEARCH_TOOL_GROUP,
   WEATHER_TOOL_GROUP,
 } from './tool-groups';
@@ -47,6 +56,8 @@ export class CapabilityRegistry {
   constructor(
     private readonly imageGenerationService: ImageGenerationService,
     private readonly configService: ConfigService,
+    private readonly htmlRenderService: HtmlRenderService,
+    private readonly cosStorageService: CosStorageService,
   ) {
     this.registerTool(getWeather, [DEFAULT_TOOL_GROUP, WEATHER_TOOL_GROUP]);
     this.registerTool(webSearch, [DEFAULT_TOOL_GROUP, SEARCH_TOOL_GROUP]);
@@ -54,6 +65,13 @@ export class CapabilityRegistry {
       createGenerateImageTool(this.imageGenerationService),
       [IMAGE_TOOL_GROUP],
       { requiresApproval: true },
+    );
+    this.registerTool(
+      createRenderHtmlToVideoTool(
+        this.htmlRenderService,
+        this.cosStorageService,
+      ),
+      [RENDER_TOOL_GROUP],
     );
     // 组本身是稳定的可配置能力；实际远程工具仅在用户有活跃凭据时由 resolver 按请求加载。
     this.toolGroups.set(MCDONALDS_ORDER_TOOL_GROUP, []);

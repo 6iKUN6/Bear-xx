@@ -210,6 +210,7 @@ export class ChatAgentActivities implements ChatAgentActivityApi {
         conversationId: true,
         messageId: true,
         currentRunId: true,
+        isTest: true,
         agentId: true,
         fullContent: true,
         flowModelCalls: true,
@@ -260,6 +261,7 @@ export class ChatAgentActivities implements ChatAgentActivityApi {
         conversationId: task.conversationId,
         messageId: task.messageId,
         streamId: task.currentRunId,
+        isTest: task.isTest,
         agentId: task.agentId,
         fullContent: task.fullContent,
         budgetUsage: {

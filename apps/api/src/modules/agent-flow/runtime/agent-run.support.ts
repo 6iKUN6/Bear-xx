@@ -58,6 +58,8 @@ export interface AgentRunScope {
     /** 本轮用户消息正文 */
     inputText: string;
     imageAssetId?: string;
+    /** 任务是否为测试任务：渲染工具据此决定成片写入 dev 目录还是正式目录。 */
+    isTest: boolean;
     budgetUsage: PersistedFlowBudgetUsage;
   };
   /** 事件、审批与轨迹归属的节点键；默认 ReAct 智能体使用固定键 */
@@ -975,6 +977,7 @@ export class AgentRunSupport {
           }
         },
         context.task.userId,
+        context.task.isTest,
       );
       completed = true;
       return result;

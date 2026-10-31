@@ -30,6 +30,8 @@ import { AiService } from './ai.service';
 import { McpModule } from './mcp/mcp.module';
 import { McDonaldsOrderModule } from '../mcdonalds-order/mcdonalds-order.module';
 import { McDonaldsCredentialModule } from '../mcdonalds-credential/mcdonalds-credential.module';
+import { HtmlRenderModule } from '../html-render/html-render.module';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { McDonaldsCredentialModule } from '../mcdonalds-credential/mcdonalds-cre
     McpModule,
     McDonaldsCredentialModule,
     McDonaldsOrderModule,
+    HtmlRenderModule,
+    StorageModule,
   ],
   providers: [
     AiService,

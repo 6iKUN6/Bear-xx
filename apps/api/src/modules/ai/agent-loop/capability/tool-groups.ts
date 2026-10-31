@@ -8,6 +8,8 @@ export const SEARCH_TOOL_GROUP = 'search';
 export const IMAGE_TOOL_GROUP = 'image-gen';
 /** 麦当劳点餐工具组：不入 default，只有绑定用户级凭据后才在请求内装配。 */
 export const MCDONALDS_ORDER_TOOL_GROUP = 'mcd-order';
+/** 渲染工具组：把 HTML 渲染成竖屏/横屏视频（不入 default，按 agent 显式分配）。 */
+export const RENDER_TOOL_GROUP = 'render';
 
 /**
  * 默认助手可在后台配置的工具组
