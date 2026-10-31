@@ -108,7 +108,7 @@ test('发布预检失败时不会创建 Flow', async () => {
   assert.equal(createCalls, 0);
 });
 
-test('结构化评估 Loop fixture 符合当前完整 Definition 契约', () => {
+test('结构化评估 Loop fixture 经版本升级后符合当前完整 Definition 契约', () => {
   const apiRoot = path.resolve(__dirname, '..');
   process.env.TS_NODE_PROJECT = path.join(apiRoot, 'tsconfig.json');
   require('ts-node/register');
@@ -116,9 +116,20 @@ test('结构化评估 Loop fixture 符合当前完整 Definition 契约', () => 
   const {
     validateFlowDefinition,
   } = require('../src/modules/agent-flow/definition/flow-definition.validator');
+  const {
+    normalizeFlowDefinition,
+  } = require('../src/modules/agent-flow/definition/flow-definition.versioning');
   const fixture = require('./fixtures/structured-evaluation-loop-v11.json');
 
-  const result = validateFlowDefinition(fixture);
+  // fixture 是历史 v11 工件：契约升版后它不该被原地改写，而要先走与导入相同的
+  // 规范化链，再用当前版本校验器验收升级结果。
+  const normalized = normalizeFlowDefinition(fixture);
+  assert.equal(
+    normalized.success,
+    true,
+    normalized.success ? undefined : JSON.stringify(normalized.errors),
+  );
+  const result = validateFlowDefinition(normalized.definition);
   assert.equal(
     result.success,
     true,

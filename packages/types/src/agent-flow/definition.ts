@@ -7,12 +7,12 @@ import type { ReasoningSelection } from "../model-reasoning.js";
  * 传递，并给计划审批加上门禁策略；5 引入并行扇出与 join 节点；6 引入受控 loop 节点；
  * 7 引入每张图唯一且强制显式连接的 end 节点；8 让 plan 与模型审批显式声明模型，
  * 从而让 Flow 内全部模型调用都服从同一套模型归属规则；9 为每个真实模型调用节点增加
- * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局；11 增加受限结构化输出与评估节点，并将 Loop 条件改为 breakWhen；12 增加模型节点的显式输入与会话上下文策略。
+ * 供应商无关的思考选择；10 用 loopId 显式声明循环体归属，并支持 Loop 容器布局；11 增加受限结构化输出与评估节点，并将 Loop 条件改为 breakWhen；12 增加模型节点的显式输入与会话上下文策略；13 增加 render 节点，把上游 HTML 渲染成视频并只输出 COS 对象路径。
  * schemaVersion 的职责就是「本工件符合第 N 版形状」，
  * 新增一个必需节点类型即形状变更，因此升版而不是原地改 2。
  * 不做双运行时：版本化工件的兼容成本会同时渗进 validator、compiler 与 workflow 三处，旧工件一律拒绝。
  */
-export const AGENT_FLOW_SCHEMA_VERSION = 12 as const;
+export const AGENT_FLOW_SCHEMA_VERSION = 13 as const;
 
 /** AgentFlow 支持的节点闭集。 */
 export type FlowNodeType =
@@ -27,7 +27,8 @@ export type FlowNodeType =
   | "join"
   | "loop"
   | "structured-output"
-  | "evaluate";
+  | "evaluate"
+  | "render";
 
 /**
  * 变量可以承载的值类型闭集；不做泛型与嵌套类型参数
@@ -84,6 +85,10 @@ export const FLOW_NODE_OUTPUTS: Readonly<
   // structured-output 的字段由 flowNodeOutputTypes 按节点配置展开。
   "structured-output": {},
   evaluate: { passed: "boolean", score: "number", reason: "string" },
+  // render 只输出成片在对象存储上的**路径字符串**。帧图、mp4 字节、base64、临时文件路径
+  // 与上传凭据都不得进入节点输出：它们要么让 DB 行与 Temporal History 爆掉，要么把
+  // 宿主文件系统暴露给下游节点。下游要播放/评估视频就自己按路径取。
+  render: { path: "string" },
 };
 
 /** Flow 的运行预算策略。 */
@@ -369,6 +374,69 @@ export interface FlowEvaluateNode extends FlowNodeBase {
 }
 
 /**
+ * 渲染节点的参数边界
+ * @description 契约、Zod Schema、管理端表单与渲染服务共用这一份事实，避免四处各写一组
+ * 上下限后漂移。每个上限都对应一条真实的资源约束，不是随手取的整数：
+ *
+ * - 宽高必须是**偶数**：H.264 的 yuv420p 需要偶数的色度采样边界，奇数会让 ffmpeg 直接失败。
+ * - `maxPixels` 取 4K 竖屏/横屏的像素量，再大的画布会把 Chromium 的合成层撑爆。
+ * - `maxTotalFrames` 是渲染时长的真正护栏：时长×帧率才是磁盘帧图数量与截图次数的乘积。
+ * - `maxHtmlBytes` 限制单次渲染读入的 HTML 体积；上游 agent 产出可以很长，但不能无界。
+ */
+export const FLOW_RENDER_LIMITS = {
+  /** 成片宽度下限（像素，偶数）。 */
+  minWidth: 64,
+  /** 成片宽度上限（像素，偶数）。 */
+  maxWidth: 3840,
+  /** 成片高度下限（像素，偶数）。 */
+  minHeight: 64,
+  /** 成片高度上限（像素，偶数）。 */
+  maxHeight: 3840,
+  /** 成片时长下限（秒）。 */
+  minDurationSeconds: 1,
+  /** 成片时长上限（秒）；覆盖一次 15–25 分钟的长视频。 */
+  maxDurationSeconds: 1800,
+  /** 帧率下限。 */
+  minFps: 1,
+  /** 帧率上限。 */
+  maxFps: 60,
+  /** 单帧像素上限：3840×2160。 */
+  maxPixels: 8_294_400,
+  /** 单次渲染允许截取的总帧数上限。 */
+  maxTotalFrames: 60_000,
+  /** 单次渲染允许读入的 HTML 字节上限。 */
+  maxHtmlBytes: 5_000_000,
+} as const;
+
+/**
+ * 渲染节点配置
+ * @description 输入是**被引上游节点的 HTML 文本**，不是内联 HTML：把整段 HTML 存进
+ * Definition 会让每次编辑都重写发布工件，也让 digest 与人工 diff 失去意义。
+ *
+ * 四个参数都必须真正驱动执行：宽高决定视口与成片尺寸，`durationSeconds` 与 `fps`
+ * 共同决定总帧数与每帧的时间戳（第 i 帧的时间是 `i / fps` 秒）。任何一项被忽略，
+ * 用户配的就是一个不生效的死字段。
+ */
+export interface FlowRenderNodeConfig {
+  /** 要渲染的 HTML 来源；必须指向一个 string 类型的上游输出。 */
+  readonly htmlRef: FlowRef;
+  /** 视口与成片宽度（像素）。 */
+  readonly width: number;
+  /** 视口与成片高度（像素）。 */
+  readonly height: number;
+  /** 成片时长（秒）。 */
+  readonly durationSeconds: number;
+  /** 成片帧率；每帧时间戳按它计算。 */
+  readonly fps: number;
+}
+
+/** 渲染节点；把上游 HTML 渲染为视频，只输出对象存储路径。 */
+export interface FlowRenderNode extends FlowNodeBase {
+  readonly type: "render";
+  readonly config: FlowRenderNodeConfig;
+}
+
+/**
  * 循环节点配置
  * @description 循环的**唯一入口与出口**：回边必须指回它，否则轮次归属不明、校验期也算不出
  * 循环体范围。详见 `apps/api/docs/agent-flow-loops.md`。
@@ -434,7 +502,8 @@ export type FlowNode =
   | FlowJoinNode
   | FlowLoopNode
   | FlowStructuredOutputNode
-  | FlowEvaluateNode;
+  | FlowEvaluateNode
+  | FlowRenderNode;
 
 /**
  * 列出节点实际声明的输出字段

@@ -451,6 +451,29 @@ function validateConfigRefs(
       ),
     );
   }
+  if (node.type === 'render') {
+    const path = `nodes.${nodeIndex}.config.htmlRef`;
+    const valueType = checkRef(
+      node.config.htmlRef,
+      node,
+      path,
+      nodesById,
+      dominators,
+      loopRegions,
+      errors,
+    );
+    // 只校验「是字符串」，不强制字段名必须是 text：html 节点的正文确实在 text，但
+    // 结构化输出节点的某个字符串字段、或上游汇总的 text 同样是合法 HTML 来源。
+    // 锁死字段名会把合理用法一起拒掉，而真正会炸的只是非字符串来源。
+    if (valueType && valueType !== 'string') {
+      errors.push({
+        path,
+        rule: 'render-html-ref-type',
+        message: `渲染节点只能引用字符串类型的 HTML 输出，当前引用的是 ${valueType} 类型的「${node.config.htmlRef.$ref.join('.')}」`,
+      });
+    }
+    return;
+  }
   if (node.type === 'plan-loop') {
     requireArrayRef(
       node.config.planRef,

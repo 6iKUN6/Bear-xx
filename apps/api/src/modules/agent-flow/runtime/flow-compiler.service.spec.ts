@@ -182,7 +182,68 @@ describe('FlowCompiler', () => {
       ]),
     );
   });
+
+  it('把 render 的四项成片参数原样编译进运行计划', () => {
+    const result = compiler.compile(renderDefinition(), {
+      agentDefaultModelPreset: 'model-enabled',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      throw new Error('有效的渲染 Flow 不应编译失败');
+    }
+    expect(result.plan.nodes).toEqual(
+      expect.arrayContaining([
+        {
+          key: 'render',
+          type: 'render',
+          htmlRef: { $ref: ['start', 'text'] },
+          width: 1080,
+          height: 1920,
+          durationSeconds: 60,
+          fps: 30,
+        },
+      ]),
+    );
+  });
 });
+
+/**
+ * 创建 start → render → end 的有效 FlowDefinition
+ * @returns 返回带完整四项成片参数的 Definition
+ */
+function renderDefinition(): FlowDefinition {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow',
+    name: '渲染编译测试',
+    policy: {
+      maxSteps: 1,
+      maxModelCalls: 1,
+      maxToolCalls: 0,
+      maxDurationSeconds: 120,
+    },
+    nodes: [
+      { id: 'start', type: 'start', config: {} },
+      {
+        id: 'render',
+        type: 'render',
+        config: {
+          htmlRef: { $ref: ['start', 'text'] },
+          width: 1080,
+          height: 1920,
+          durationSeconds: 60,
+          fps: 30,
+        },
+      },
+      { id: 'end', type: 'end', config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'render' },
+      { from: 'render', to: 'end' },
+    ],
+  };
+}
 
 /**
  * 创建带模型审批的有效 FlowDefinition

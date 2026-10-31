@@ -362,7 +362,7 @@ describe('AgentFlowVersionService', () => {
     expect(runtimeValidate).toHaveBeenCalledWith(directDefinition);
   });
 
-  it('把合法 v9 物化为新的 v10 草稿且不冒用源 digest', async () => {
+  it('把合法 v9 物化为当前版本草稿且不冒用源 digest', async () => {
     const legacy = { ...directDefinition, schemaVersion: 9 };
     const source = {
       id: 'version-9',
@@ -401,14 +401,17 @@ describe('AgentFlowVersionService', () => {
       version: 3,
       schemaStatus: 'current',
     });
-    expect(result.report).toMatchObject({ fromVersion: 9, toVersion: 12 });
+    expect(result.report).toMatchObject({
+      fromVersion: 9,
+      toVersion: AGENT_FLOW_SCHEMA_VERSION,
+    });
     expect(createVersion).toHaveBeenCalledWith({
       data: expect.objectContaining({
         flowId: 'flow-1',
         version: 3,
         status: 'DRAFT',
         digest: null,
-        schemaVersion: 12,
+        schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
       }),
     });
     expect(createAudit).toHaveBeenCalledWith({
@@ -422,7 +425,7 @@ describe('AgentFlowVersionService', () => {
           sourceVersionId: 'version-9',
           targetVersionId: 'version-11',
           fromSchemaVersion: 9,
-          toSchemaVersion: 12,
+          toSchemaVersion: AGENT_FLOW_SCHEMA_VERSION,
         },
       },
     });

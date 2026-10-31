@@ -1,6 +1,7 @@
 import {
   AGENT_FLOW_SCHEMA_VERSION,
   FLOW_CONDITION_OPERATORS,
+  FLOW_RENDER_LIMITS,
   type FlowConditionOperator,
 } from '@litter-bear/types/agent-flow';
 import { z } from 'zod';
@@ -267,6 +268,69 @@ const evaluateNodeConfigSchema = z
     }
   });
 
+/**
+ * 渲染节点配置 Schema
+ * @description 四个参数都是**必填且有限**的整数：缺一个渲染服务就只能猜，猜出来的成片
+ * 与用户在画布上看到的不一致。偶数的约束来自 H.264 yuv420p 的色度采样边界——奇数宽高
+ * 会让 ffmpeg 在合成阶段直接失败，那时已经白白截完所有帧了。
+ *
+ * 帧数上限（时长×帧率）在这里就判定，而不是等到渲染服务里：一张 1800 秒 × 60 帧的图
+ * 会尝试截 10.8 万张图，必须在校验期就拒绝。
+ */
+const renderNodeConfigSchema = z
+  .object({
+    htmlRef: flowRefSchema,
+    width: z
+      .number()
+      .int()
+      .min(FLOW_RENDER_LIMITS.minWidth)
+      .max(FLOW_RENDER_LIMITS.maxWidth),
+    height: z
+      .number()
+      .int()
+      .min(FLOW_RENDER_LIMITS.minHeight)
+      .max(FLOW_RENDER_LIMITS.maxHeight),
+    durationSeconds: z
+      .number()
+      .int()
+      .min(FLOW_RENDER_LIMITS.minDurationSeconds)
+      .max(FLOW_RENDER_LIMITS.maxDurationSeconds),
+    fps: z
+      .number()
+      .int()
+      .min(FLOW_RENDER_LIMITS.minFps)
+      .max(FLOW_RENDER_LIMITS.maxFps),
+  })
+  .strict()
+  .superRefine((config, context) => {
+    for (const field of ['width', 'height'] as const) {
+      if (config[field] % 2 !== 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: '成片宽高必须是偶数，否则 H.264 无法按 yuv420p 编码',
+        });
+      }
+    }
+    if (config.width * config.height > FLOW_RENDER_LIMITS.maxPixels) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['width'],
+        message: `单帧像素不能超过 ${FLOW_RENDER_LIMITS.maxPixels}`,
+      });
+    }
+    if (
+      config.durationSeconds * config.fps >
+      FLOW_RENDER_LIMITS.maxTotalFrames
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fps'],
+        message: `时长×帧率不能超过 ${FLOW_RENDER_LIMITS.maxTotalFrames} 帧`,
+      });
+    }
+  });
+
 const flowNodeSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -405,6 +469,13 @@ const flowNodeSchema = z.discriminatedUnion('type', [
       config: evaluateNodeConfigSchema,
     })
     .strict(),
+  z
+    .object({
+      ...nodeBaseShape,
+      type: z.literal('render'),
+      config: renderNodeConfigSchema,
+    })
+    .strict(),
 ]);
 
 /** 当前 schemaVersion 的 FlowDefinition JSON 解析 Schema。 */
@@ -534,10 +605,34 @@ function normalizeLegacyLoopCondition(input: unknown): unknown {
 }
 
 /**
+ * 拒绝历史版本工件里的 render 节点
+ * @param definition 已按当前结构解析、但 schemaVersion 被投影为历史值的结果
+ * @param context 用于追加 issue 的 Zod 上下文
+ * @returns 无返回值
+ * @description 历史 schema 是拿当前 Schema 换掉版本字面量得到的，因此天然会接受 v13 才有的
+ * 新节点类型。render 是 v13 的形状变更：旧工件里出现它说明数据被越权写入或版本号被篡改，
+ * 必须显式拒绝，而不是让它悄悄通过「历史版本」通道进入运行时。
+ */
+function rejectLegacyRenderNodes(
+  definition: { nodes: readonly { type: string }[] },
+  context: z.RefinementCtx,
+): void {
+  definition.nodes.forEach((node, index) => {
+    if (node.type === 'render') {
+      context.addIssue({
+        code: 'custom',
+        path: ['nodes', index, 'type'],
+        message: '历史 schemaVersion 不支持 render 节点',
+      });
+    }
+  });
+}
+
+/**
  * schemaVersion 9 的只读解析 Schema
  * @description v9 与 v10 使用相同的历史节点闭集，但 v9 尚未声明 loopId 和容器布局字段。
- * 复用当前字段限制识别历史工件后显式拒绝 v10 新字段；当前 v11 新增节点仍会被历史工件
- * 的真实 schemaVersion 与升级校验共同约束。
+ * 复用当前字段限制识别历史工件后显式拒绝 v10 新字段与 v13 的 render 节点；当前版本新增
+ * 节点仍会被历史工件的真实 schemaVersion 与升级校验共同约束。
  * 该 Schema 只用于识别和迁移历史工件，任何写入入口仍只接受当前版本。
  */
 export const FlowDefinitionV9Schema = z
@@ -545,6 +640,7 @@ export const FlowDefinitionV9Schema = z
     normalizeLegacyLoopCondition,
     FlowDefinitionSchema.extend({ schemaVersion: z.literal(9) }),
   )
+  .superRefine(rejectLegacyRenderNodes)
   .superRefine((definition, context) => {
     definition.nodes.forEach((node, index) => {
       if (node.loopId !== undefined) {
@@ -573,12 +669,23 @@ export const FlowDefinitionV9Schema = z
   });
 
 /** schemaVersion 10 的只读解析 Schema；将历史 continueWhen 规范化为 breakWhen。 */
-export const FlowDefinitionV10Schema = z.preprocess(
-  normalizeLegacyLoopCondition,
-  FlowDefinitionSchema.extend({ schemaVersion: z.literal(10) }),
-);
+export const FlowDefinitionV10Schema = z
+  .preprocess(
+    normalizeLegacyLoopCondition,
+    FlowDefinitionSchema.extend({ schemaVersion: z.literal(10) }),
+  )
+  .superRefine(rejectLegacyRenderNodes);
 
 /** v11 工件只在入口规范化到当前版本，不维护第二套运行时。 */
 export const FlowDefinitionV11Schema = FlowDefinitionSchema.extend({
   schemaVersion: z.literal(11),
-});
+}).superRefine(rejectLegacyRenderNodes);
+
+/**
+ * v12 的只读解析 Schema
+ * @description v12 与 v13 的唯一差别就是还没有 render 节点。这里不能只换版本字面量：
+ * 那样 v12 会接受 render，等于让「旧 schema 接受新节点」的洞一直开着。
+ */
+export const FlowDefinitionV12Schema = FlowDefinitionSchema.extend({
+  schemaVersion: z.literal(12),
+}).superRefine(rejectLegacyRenderNodes);

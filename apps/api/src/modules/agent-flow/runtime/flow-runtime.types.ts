@@ -132,6 +132,21 @@ export interface CompiledStartFlowNode extends CompiledFlowNodeBase {
   type: 'start';
 }
 
+/**
+ * 编译后的渲染节点
+ * @description 四个参数原样带入运行时：它们必须真正驱动视口、帧数与每帧时间戳，
+ * 否则用户在画布上配的就是一组不生效的死字段。
+ */
+export interface CompiledRenderFlowNode extends CompiledFlowNodeBase {
+  type: 'render';
+  /** 要渲染的 HTML 来源；校验期已保证它指向一个 string 类型输出 */
+  htmlRef: FlowRef;
+  width: number;
+  height: number;
+  durationSeconds: number;
+  fps: number;
+}
+
 /** 编译后的结束节点；只记录流程显式收口，不执行模型或工具。 */
 export interface CompiledEndFlowNode extends CompiledFlowNodeBase {
   type: 'end';
@@ -174,7 +189,8 @@ export type CompiledFlowNode =
   | CompiledJoinFlowNode
   | CompiledLoopFlowNode
   | CompiledStructuredOutputFlowNode
-  | CompiledEvaluateFlowNode;
+  | CompiledEvaluateFlowNode
+  | CompiledRenderFlowNode;
 
 /** 已冻结且可被节点执行器消费的 Flow 计划。 */
 export interface CompiledFlowPlan {

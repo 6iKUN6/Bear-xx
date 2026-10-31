@@ -214,6 +214,17 @@ export class FlowCompiler {
             context,
           ),
         };
+      case 'render':
+        return {
+          key: node.id,
+          ...alias(node),
+          type: 'render',
+          htmlRef: node.config.htmlRef,
+          width: node.config.width,
+          height: node.config.height,
+          durationSeconds: node.config.durationSeconds,
+          fps: node.config.fps,
+        };
       case 'join':
         return {
           key: node.id,
