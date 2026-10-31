@@ -1,4 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Context as ActivityContext } from '@temporalio/activity';
+import { createHash } from 'node:crypto';
+import { openAsBlob } from 'node:fs';
 import {
   AgentFlowApprovalKind,
   AgentFlowApprovalStatus,
@@ -13,6 +16,7 @@ import {
   FLOW_CONDITION_ELSE_BRANCH,
   FLOW_LOOP_AGAIN_BRANCH,
   FLOW_LOOP_DONE_BRANCH,
+  FLOW_RENDER_LIMITS,
   flowDefinitionUsesAgentDefault,
   flowLoopRegions,
   flowNodeBranchKeys,
@@ -65,6 +69,20 @@ import type { FlowModelContextConfig } from '@litter-bear/types/agent-flow';
 import { AgentFlowTaskEventService } from '../agent-flow-task-event.service';
 import type { PersistedAgentFlowTaskEvent } from '../agent-flow-task-event.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
+import {
+  CosObjectWriteError,
+  CosStorageService,
+} from '../../storage/cos-storage.service';
+import {
+  HtmlRenderService,
+  HtmlRenderError,
+  type HtmlRenderErrorCode,
+} from '../../html-render/html-render.service';
+import { buildRenderVideoObjectKey } from '../../html-render/render-object-key';
+import {
+  RENDER_WORKER_ROLE_ERROR,
+  assertRenderWorkerRole,
+} from '../../html-render/render-worker-role';
 import { normalizeFlowDefinition } from '../definition/flow-definition.versioning';
 import { FlowCompiler } from '../runtime/flow-compiler.service';
 import {
@@ -91,6 +109,7 @@ import type {
   CompiledFlowNode,
   CompiledFlowPlan,
   CompiledLoopFlowNode,
+  CompiledRenderFlowNode,
   CompiledStructuredOutputFlowNode,
   CompiledEvaluateFlowNode,
 } from '../runtime/flow-runtime.types';
@@ -169,6 +188,7 @@ interface PersistedFlowPlanLoop {
 interface AgentFlowExecutionContext {
   task: {
     id: string;
+    isTest: boolean;
     userId: string;
     status: StreamTaskStatus;
     conversationId: string;
@@ -209,6 +229,8 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     private readonly llmService: LlmService,
     private readonly modelRegistry: LlmModelRegistryService,
     private readonly storageAssetService: StorageAssetService,
+    private readonly cosStorageService: CosStorageService,
+    private readonly htmlRenderService: HtmlRenderService,
     private readonly runSupport: AgentRunSupport,
   ) {}
 
@@ -221,6 +243,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     return {
       loadRunSnapshot: (input) => this.loadRunSnapshot(input),
       executeNode: (input) => this.executeNode(input),
+      renderNode: (input) => this.renderNode(input),
       continueNode: (input) => this.continueNode(input),
       resumeNode: (input) => this.resumeNode(input),
       finalizeRun: (input) => this.finalizeRun(input),
@@ -317,6 +340,33 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     input: AgentFlowNodeExecutionInput,
   ): Promise<AgentFlowNodeExecutionResult> {
     return this.runNode(input, false);
+  }
+
+  /**
+   * 执行一个渲染节点
+   * @param input 节点键与稳定 execution identity
+   * @returns 返回默认分支完成结果，输出只有对象存储路径
+   * @description 独立成一个 Activity 名称，是为了让 Workflow 能给渲染单独配 30 分钟超时与
+   * 心跳，而不必把普通节点的 5 分钟一起放宽。执行语义与 executeNode 完全一致：同样先回放
+   * 已落库终局事实，同样写节点开始事件。
+   */
+  async renderNode(
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    const activity = ActivityContext.current();
+    activity.cancellationSignal.throwIfAborted();
+    // 心跳覆盖读库、排队、浏览器启动、合成和上传；不能只在截图帧间发送。
+    // 它只表示 Activity 仍存活，不伪造帧进度；各阶段超时与 Flow 总预算仍独立生效。
+    activity.heartbeat();
+    const timer = setInterval(() => activity.heartbeat(), 5_000);
+    try {
+      return await this.runNode(input, true);
+    } catch (error) {
+      activity.cancellationSignal.throwIfAborted();
+      throw toRenderActivityFailure(error);
+    } finally {
+      clearInterval(timer);
+    }
   }
 
   /**
@@ -517,6 +567,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
       where: { id: input.workflow.streamTaskId },
       select: {
         id: true,
+        isTest: true,
         userId: true,
         status: true,
         conversationId: true,
@@ -629,6 +680,7 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
         messageId: task.messageId,
         streamId: task.currentRunId,
         agentId: task.agentId,
+        isTest: task.isTest,
         fullContent: task.fullContent,
         budgetUsage: {
           modelCalls: task.flowModelCalls,
@@ -754,6 +806,9 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     }
     if (context.node.type === 'evaluate') {
       return this.executeEvaluateNode(context, input, context.node);
+    }
+    if (context.node.type === 'render') {
+      return this.executeRenderNode(context, input, context.node);
     }
     if (context.node.type === 'plan') {
       return this.executePlanNode(context, input, context.node);
@@ -1570,6 +1625,156 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
   }
 
   /**
+   * 执行渲染节点
+   * @param context 当前编译后的节点执行上下文
+   * @param input Temporal 下传的稳定节点执行标识
+   * @param node 已编译的渲染节点，含 HTML 引用与四项成片参数
+   * @returns 返回默认分支完成结果，节点输出只有对象存储路径字符串
+   * @description 三条副作用纪律：
+   *
+   * 1. **先查后渲** —— 成片 key 由 taskId + nodeExecutionId 唯一确定，因此「上传成功但节点
+   *    事务失败」的重试会直接命中已存在的对象，不再重渲染，也不会重复上传。
+   * 2. **只输出路径** —— 帧图、mp4 字节、临时文件路径一律不进 outputs；Workflow 与 SSE
+   *    只看到一串 key。
+   * 3. **取消贯穿全程** —— 浏览器、ffmpeg 与上传共用 Activity 的取消信号；已经在 COS
+   *    原子提交的对象不回滚，下一次同轮恢复校验输入归属后复用。节点落库时另有终态门禁。
+   */
+  private async executeRenderNode(
+    context: AgentFlowExecutionContext,
+    input: AgentFlowNodeExecutionInput,
+    node: CompiledRenderFlowNode,
+  ): Promise<AgentFlowNodeExecutionResult> {
+    try {
+      assertRenderWorkerRole(process.env);
+    } catch {
+      throw createNonRetryableActivityFailure(
+        '渲染节点只允许在 TEMPORAL_WORKER_ROLE=activity 的 Activity Worker 中执行',
+        RENDER_WORKER_ROLE_ERROR,
+      );
+    }
+
+    const activity = ActivityContext.current();
+    const signal = activity.cancellationSignal;
+    signal.throwIfAborted();
+    const html = await this.readRenderHtml(context, node.htmlRef);
+    const execution = {
+      taskId: context.task.id,
+      nodeExecutionId: input.nodeExecutionId,
+      nodeKey: node.key,
+      isTest: context.task.isTest,
+    };
+    const objectKey = buildRenderVideoObjectKey(execution);
+    const inputDigest = createHash('sha256')
+      .update(
+        JSON.stringify([
+          context.task.flowDigest,
+          input.nodeExecutionId,
+          html,
+          node.width,
+          node.height,
+          node.durationSeconds,
+          node.fps,
+        ]),
+      )
+      .digest('hex');
+    if (
+      await this.cosStorageService.objectExists(objectKey, {
+        execution,
+        inputDigest,
+        contentType: 'video/mp4',
+      })
+    ) {
+      signal.throwIfAborted();
+      return this.completeNode(
+        context,
+        input,
+        'default',
+        '成片已存在，复用已有渲染结果',
+        { outputs: { path: objectKey } },
+      );
+    }
+
+    signal.throwIfAborted();
+    try {
+      const rendered = await this.htmlRenderService.render({
+        html,
+        width: node.width,
+        height: node.height,
+        durationSeconds: node.durationSeconds,
+        fps: node.fps,
+        signal,
+        onFrame: ({ frame, totalFrames }) =>
+          activity.heartbeat({ frame, totalFrames }),
+      });
+      try {
+        signal.throwIfAborted();
+        const currentTask = await this.prisma.streamTask.findUnique({
+          where: { id: context.task.id },
+          select: { status: true },
+        });
+        if (!currentTask) {
+          throw createNonRetryableActivityFailure(
+            'Flow 任务不存在',
+            'AGENT_FLOW_TASK_NOT_FOUND',
+          );
+        }
+        const terminal = toTerminalNodeResult(currentTask.status);
+        if (terminal) return terminal;
+        const data = await openAsBlob(rendered.filePath);
+        signal.throwIfAborted();
+        const uploaded = await this.cosStorageService.putObjectIfAbsent({
+          key: objectKey,
+          execution,
+          data,
+          inputDigest,
+          contentType: 'video/mp4',
+          signal,
+        });
+        signal.throwIfAborted();
+        return await this.completeNode(
+          context,
+          input,
+          'default',
+          `已渲染 ${rendered.frameCount} 帧成片`,
+          { outputs: { path: uploaded.key } },
+        );
+      } finally {
+        await rendered.dispose();
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      throw toRenderActivityFailure(error);
+    }
+  }
+
+  /**
+   * 读取被引上游节点产出的 HTML
+   * @param context 当前编译后的节点执行上下文
+   * @param ref 渲染节点声明的 HTML 引用
+   * @returns 返回非空的 HTML 文本
+   * @description 只读已被冻结的上游输出；取不到就明确失败，不回退到空页面——渲染一个空白
+   * 视频看起来像成功，实际把错误推到了人工验收环节。
+   */
+  private async readRenderHtml(
+    context: AgentFlowExecutionContext,
+    ref: FlowRef,
+  ): Promise<string> {
+    const [sourceId, field] = ref.$ref;
+    const outputs = await this.loadUpstreamOutputs(context.task.id);
+    const value = outputs.get(sourceId)?.[field];
+    if (typeof value !== 'string' || !value.trim()) {
+      throw createNonRetryableActivityFailure(
+        `渲染节点「${context.node.key}」引用的 HTML 输出「${sourceId}.${field}」不存在或为空`,
+        'AGENT_FLOW_RENDER_HTML_MISSING',
+      );
+    }
+    if (Buffer.byteLength(value, 'utf8') > FLOW_RENDER_LIMITS.maxHtmlBytes) {
+      throw new HtmlRenderError('HTML_TOO_LARGE', '待渲染的 HTML 超过体积上限');
+    }
+    return value;
+  }
+
+  /**
    * 执行最终汇总节点
    * @param context 当前编译后的节点执行上下文
    * @param input Temporal 节点执行标识
@@ -2102,6 +2307,22 @@ export class AgentFlowActivities implements AgentFlowActivityApi {
     } = {},
   ): Promise<AgentFlowNodeCompletedResult> {
     const event = await this.prisma.$transaction(async (transaction) => {
+      if (context.node.type === 'render') {
+        // 与取消事务争用同一行锁：已终止的任务不再登记完成、更不能被完成事件复活。
+        const active = await transaction.streamTask.updateMany({
+          where: {
+            id: context.task.id,
+            status: {
+              in: [StreamTaskStatus.PENDING, StreamTaskStatus.STREAMING],
+            },
+          },
+          data: { currentStep: context.node.key },
+        });
+        if (active.count !== 1) {
+          throw new HtmlRenderError('ABORTED', '渲染任务已经终止');
+        }
+        ActivityContext.current().cancellationSignal.throwIfAborted();
+      }
       await this.recordNodeExecutionInTransaction(transaction, context, input, {
         result: AgentFlowNodeExecutionResultKind.COMPLETED,
         outcome,
@@ -3000,7 +3221,61 @@ function getNodeTypeTitle(type: FlowNodeType): string {
       return '提取结构化结果';
     case 'evaluate':
       return '评估结果质量';
+    case 'render':
+      return '渲染视频成片';
   }
+}
+
+/** 渲染失败里属于「输入或环境错了，重试不会变好」的原因码。 */
+const NON_RETRYABLE_RENDER_CODES: ReadonlySet<HtmlRenderErrorCode> = new Set([
+  'INVALID_PARAMETERS',
+  'HTML_TOO_LARGE',
+  'CHROME_NOT_FOUND',
+  'FRAME_API_MISSING',
+  'CONFIG_INVALID',
+  'ABORTED',
+]);
+
+/** 只把闭集文案写入 Temporal，不能透传 HTML 脚本的异常正文或宿主路径。 */
+const RENDER_FAILURE_MESSAGES: Readonly<Record<HtmlRenderErrorCode, string>> = {
+  INVALID_PARAMETERS: '渲染参数无效',
+  HTML_TOO_LARGE: '待渲染的 HTML 超过体积上限',
+  CHROME_NOT_FOUND: '渲染浏览器不可用，请检查 Worker 配置',
+  FRAME_API_MISSING: 'HTML 未提供 window.renderFrame(timeSeconds)',
+  CONFIG_INVALID: '渲染环境配置无效，请检查 Worker 配置',
+  PAGE_ERROR: '渲染页面加载失败',
+  FRAME_CAPTURE_FAILED: '渲染取帧失败，请检查 HTML 时间接口',
+  FFMPEG_FAILED: '视频合成失败',
+  ABORTED: '渲染已被取消',
+};
+
+/**
+ * 把渲染失败收敛成 Activity 可判定的失败
+ * @param error 渲染服务或上传抛出的异常
+ * @returns 返回带固定错误码的 Temporal ApplicationFailure
+ * @description 参数越界、HTML 缺时间接口、找不到浏览器与取消都是确定性结果，重试只会再花
+ * 一次完整渲染的代价；截图/ffmpeg/网络类失败才交给 Temporal 的有限重试。错误文案只带原因码
+ * 与中文说明，不透出临时路径或 COS 响应正文。
+ */
+function toRenderActivityFailure(error: unknown): Error {
+  if (error instanceof ApplicationFailure) {
+    return error;
+  }
+  if (error instanceof CosObjectWriteError) {
+    const type = `AGENT_FLOW_RENDER_${error.code}`;
+    // 已声明但结果未知只允许有限次 HEAD 恢复；存储层永远不会因重试再发 PUT。
+    return error.code === 'WRITE_UNCONFIRMED'
+      ? ApplicationFailure.retryable(error.message, type)
+      : createNonRetryableActivityFailure(error.message, type);
+  }
+  if (error instanceof HtmlRenderError) {
+    const type = `AGENT_FLOW_RENDER_${error.code}`;
+    const message = RENDER_FAILURE_MESSAGES[error.code];
+    return NON_RETRYABLE_RENDER_CODES.has(error.code)
+      ? createNonRetryableActivityFailure(message, type)
+      : ApplicationFailure.retryable(message, type);
+  }
+  return error instanceof Error ? error : new Error('渲染失败');
 }
 
 /**

@@ -1,6 +1,10 @@
 import { AGENT_FLOW_SCHEMA_VERSION } from '@litter-bear/types/agent-flow';
 import { StreamTaskEventType } from '@litter-bear/types/protocol';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { MockActivityEnvironment } from '@temporalio/testing';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AgentFlowWorkflowInput } from '../../../temporal/workflows/agent-flow.workflow.types';
 import { FlowCompiler } from '../runtime/flow-compiler.service';
@@ -15,6 +19,15 @@ import { STEP_EVALUATOR } from '../../ai/agent-loop/execution/step-evaluator';
 import { LlmService } from '../../llm/llm.service';
 import { LlmModelRegistryService } from '../../llm/llm-model-registry.service';
 import { StorageAssetService } from '../../storage/storage-asset.service';
+import {
+  CosObjectWriteError,
+  CosStorageService,
+} from '../../storage/cos-storage.service';
+import {
+  HtmlRenderError,
+  HtmlRenderService,
+} from '../../html-render/html-render.service';
+import { buildRenderVideoObjectKey } from '../../html-render/render-object-key';
 import { AgentFlowActivities } from './agent-flow.activities';
 import { calculateFlowDefinitionDigest } from '../definition/flow-definition.digest';
 
@@ -89,6 +102,17 @@ describe('AgentFlowActivities', () => {
     })),
   };
   const storageAssetService = { prepareChatImageForModel: jest.fn() };
+  const cosStorageService = {
+    objectExists: jest.fn<
+      ReturnType<CosStorageService['objectExists']>,
+      Parameters<CosStorageService['objectExists']>
+    >(),
+    putObjectIfAbsent: jest.fn<
+      ReturnType<CosStorageService['putObjectIfAbsent']>,
+      Parameters<CosStorageService['putObjectIfAbsent']>
+    >(),
+  };
+  const htmlRenderService = { render: jest.fn() };
   const stepEvaluator = { enough: jest.fn() };
   const taskEventService = {
     persistInTransaction: jest.fn(),
@@ -144,6 +168,8 @@ describe('AgentFlowActivities', () => {
         { provide: LlmService, useValue: llmService },
         { provide: LlmModelRegistryService, useValue: modelRegistry },
         { provide: StorageAssetService, useValue: storageAssetService },
+        { provide: CosStorageService, useValue: cosStorageService },
+        { provide: HtmlRenderService, useValue: htmlRenderService },
       ],
     }).compile();
     activities = module.get(AgentFlowActivities);
@@ -620,6 +646,358 @@ describe('AgentFlowActivities', () => {
       errorCategory: 'budget_exceeded',
     });
     expect(llmService.generateStructured).not.toHaveBeenCalled();
+  });
+
+  describe('render 节点', () => {
+    const originalWorkerRole = process.env.TEMPORAL_WORKER_ROLE;
+    let environment: MockActivityEnvironment;
+
+    beforeEach(() => {
+      process.env.TEMPORAL_WORKER_ROLE = 'activity';
+      environment = new MockActivityEnvironment();
+      // 仅提供真实 SDK 的 Activity 上下文，绑定的仍是待测业务方法而不是 mock 实现。
+      const renderNode = activities.renderNode.bind(activities);
+      activities.renderNode = (input) => environment.run(renderNode, input);
+      mockRenderNode();
+      htmlRenderService.render.mockReset();
+      cosStorageService.objectExists.mockReset().mockResolvedValue(false);
+      cosStorageService.putObjectIfAbsent
+        .mockReset()
+        .mockImplementation((input) =>
+          Promise.resolve({ key: input.key, created: true }),
+        );
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      if (originalWorkerRole === undefined) {
+        delete process.env.TEMPORAL_WORKER_ROLE;
+      } else {
+        process.env.TEMPORAL_WORKER_ROLE = originalWorkerRole;
+      }
+    });
+
+    it('非 activity 角色直接拒绝且不启动渲染', async () => {
+      delete process.env.TEMPORAL_WORKER_ROLE;
+
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({ type: 'AGENT_FLOW_RENDER_WORKER_ROLE' });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(cosStorageService.putObjectIfAbsent).not.toHaveBeenCalled();
+    });
+
+    it('只把成片对象路径写进节点输出', async () => {
+      const rendered = await fakeRenderedFile();
+
+      await expect(activities.renderNode(renderNodeInput())).resolves.toEqual({
+        kind: 'completed',
+        outcome: 'default',
+        summary: '已渲染 60 帧成片',
+      });
+
+      expect(htmlRenderService.render).toHaveBeenCalledWith(
+        expect.objectContaining({
+          html: '<html>动画</html>',
+          width: 1080,
+          height: 1920,
+          durationSeconds: 2,
+          fps: 30,
+        }),
+      );
+      expect(cosStorageService.putObjectIfAbsent).toHaveBeenCalledWith({
+        key: renderObjectKey(0),
+        execution: {
+          taskId: 'task-1',
+          nodeExecutionId: renderNodeInput().nodeExecutionId,
+          nodeKey: 'render',
+          isTest: false,
+        },
+        data: expect.any(Blob),
+        inputDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        contentType: 'video/mp4',
+        signal: environment.context.cancellationSignal,
+      });
+      expect(
+        cosStorageService.putObjectIfAbsent.mock.calls[0][0].data.size,
+      ).toBe(rendered.bytes.byteLength);
+      // 输出必须是且只是路径字符串：帧数、字节数、临时路径都不允许进 outputs
+      expect(readCompletedOutputs()).toEqual({ path: renderObjectKey(0) });
+      expect(rendered.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('同轮重试命中已存在成片时不再渲染也不再上传', async () => {
+      cosStorageService.objectExists.mockResolvedValue(true);
+
+      await expect(activities.renderNode(renderNodeInput())).resolves.toEqual({
+        kind: 'completed',
+        outcome: 'default',
+        summary: '成片已存在，复用已有渲染结果',
+      });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(cosStorageService.putObjectIfAbsent).not.toHaveBeenCalled();
+      expect(readCompletedOutputs()).toEqual({ path: renderObjectKey(0) });
+    });
+
+    it('admin 测试任务只在 dev 目录检查、上传并返回成片路径', async () => {
+      mockRenderNode(true);
+      await fakeRenderedFile();
+
+      await activities.renderNode(renderNodeInput());
+
+      const key = `dev/${renderObjectKey(0)}`;
+      expect(cosStorageService.objectExists).toHaveBeenCalledWith(
+        key,
+        expect.objectContaining({
+          contentType: 'video/mp4',
+          execution: {
+            taskId: 'task-1',
+            nodeExecutionId: renderNodeInput().nodeExecutionId,
+            nodeKey: 'render',
+            isTest: true,
+          },
+        }),
+      );
+      expect(cosStorageService.putObjectIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({ key }),
+      );
+      expect(readCompletedOutputs()).toEqual({ path: key });
+    });
+
+    it('上传成功后落库失败的重试复用同一 key 且不重复渲染', async () => {
+      const rendered = await fakeRenderedFile();
+      prisma.agentFlowNodeExecution.create.mockRejectedValueOnce(
+        new Error('数据库写入失败'),
+      );
+
+      await expect(activities.renderNode(renderNodeInput())).rejects.toThrow(
+        '数据库写入失败',
+      );
+      expect(cosStorageService.putObjectIfAbsent).toHaveBeenCalledTimes(1);
+      const firstKey = cosStorageService.putObjectIfAbsent.mock.calls[0][0].key;
+      const firstInputDigest =
+        cosStorageService.putObjectIfAbsent.mock.calls[0][0].inputDigest;
+
+      // 第二次尝试：对象已在第一次上传时创建，必须短路，不再渲染也不再写对象
+      cosStorageService.objectExists.mockResolvedValue(true);
+      htmlRenderService.render.mockClear();
+
+      await expect(activities.renderNode(renderNodeInput())).resolves.toEqual({
+        kind: 'completed',
+        outcome: 'default',
+        summary: '成片已存在，复用已有渲染结果',
+      });
+      expect(cosStorageService.objectExists).toHaveBeenCalledWith(firstKey, {
+        execution:
+          cosStorageService.putObjectIfAbsent.mock.calls[0][0].execution,
+        inputDigest: firstInputDigest,
+        contentType: 'video/mp4',
+      });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(cosStorageService.putObjectIfAbsent).toHaveBeenCalledTimes(1);
+      expect(readCompletedOutputs()).toEqual({ path: firstKey });
+      expect(rendered.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('下一轮次使用新的对象 key 并真的重渲', async () => {
+      const first = await fakeRenderedFile();
+      const second = await fakeRenderedFile();
+
+      await activities.renderNode(renderNodeInput());
+      await activities.renderNode({
+        ...renderNodeInput(),
+        nodeExecutionId: 'task-1:version-1:render#1',
+      });
+
+      expect(htmlRenderService.render).toHaveBeenCalledTimes(2);
+      const keys = cosStorageService.putObjectIfAbsent.mock.calls.map(
+        ([input]) => input.key,
+      );
+      expect(keys).toEqual([renderObjectKey(0), renderObjectKey(1)]);
+      expect(first.dispose).toHaveBeenCalledTimes(1);
+      expect(second.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('等待 COS 检查超过心跳窗口仍心跳，完成后释放定时器', async () => {
+      await fakeRenderedFile();
+      jest.useFakeTimers();
+      const heartbeat = jest.fn();
+      environment.on('heartbeat', heartbeat);
+      let release!: (exists: boolean) => void;
+      cosStorageService.objectExists.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          release = resolve;
+        }),
+      );
+      const rendering = activities.renderNode(renderNodeInput());
+      await jest.advanceTimersByTimeAsync(35_000);
+      expect(heartbeat.mock.calls.length).toBeGreaterThanOrEqual(7);
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      release(false);
+      await rendering;
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('检查对象期间取消不再启动渲染或上传', async () => {
+      cosStorageService.objectExists.mockImplementationOnce(() => {
+        environment.cancel();
+        return Promise.resolve(false);
+      });
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        name: 'CancelledFailure',
+      });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(cosStorageService.putObjectIfAbsent).not.toHaveBeenCalled();
+    });
+
+    it('上传期间取消不登记完成，仍清理本次成片', async () => {
+      const rendered = await fakeRenderedFile();
+      cosStorageService.putObjectIfAbsent.mockImplementationOnce(
+        ({ key, signal }) => {
+          expect(signal).toBe(environment.context.cancellationSignal);
+          environment.cancel();
+          return Promise.resolve({ key, created: true });
+        },
+      );
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        name: 'CancelledFailure',
+      });
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+      expect(rendered.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('节点落库前任务已取消时不能被完成事件复活', async () => {
+      const rendered = await fakeRenderedFile();
+      prisma.streamTask.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_ABORTED',
+        nonRetryable: true,
+      });
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+      expect(lastPersistedEventName()).toBe(
+        StreamTaskEventType.FlowNodeStarted,
+      );
+      expect(rendered.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('COS 输入归属或内容冲突不可重试，不伪造成已渲染', async () => {
+      cosStorageService.objectExists.mockRejectedValueOnce(
+        new CosObjectWriteError('OBJECT_CONFLICT', '成片输入不一致'),
+      );
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_OBJECT_CONFLICT',
+        nonRetryable: true,
+      });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+    });
+
+    it('已声明但结果未知时只重试恢复，不再次渲染或写完成事实', async () => {
+      cosStorageService.objectExists.mockRejectedValueOnce(
+        new CosObjectWriteError('WRITE_UNCONFIRMED', '上传结果尚未确认'),
+      );
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_WRITE_UNCONFIRMED',
+        nonRetryable: false,
+      });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(cosStorageService.putObjectIfAbsent).not.toHaveBeenCalled();
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+
+      cosStorageService.objectExists.mockResolvedValueOnce(true);
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).resolves.toMatchObject({ kind: 'completed' });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(cosStorageService.putObjectIfAbsent).not.toHaveBeenCalled();
+      expect(readCompletedOutputs()).toEqual({ path: renderObjectKey(0) });
+    });
+
+    it('渲染完成后输掉写入声明竞争时仍清理文件，不伪造节点完成', async () => {
+      const rendered = await fakeRenderedFile();
+      cosStorageService.putObjectIfAbsent.mockRejectedValueOnce(
+        new CosObjectWriteError('WRITE_UNCONFIRMED', '上传结果尚未确认'),
+      );
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_WRITE_UNCONFIRMED',
+        nonRetryable: false,
+      });
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+      expect(rendered.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('超过体积上限的 HTML 在 COS 读取前就被拒绝', async () => {
+      prisma.agentFlowNodeExecution.findMany.mockResolvedValueOnce([
+        {
+          nodeKey: 'start',
+          nodeExecutionId: 'task-1:version-1:start#0',
+          outputs: { text: 'x'.repeat(5_000_001) },
+        },
+      ]);
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_HTML_TOO_LARGE',
+        nonRetryable: true,
+      });
+      expect(cosStorageService.objectExists).not.toHaveBeenCalled();
+    });
+
+    it('渲染环境配置错误不可重试，且不把宿主路径写入 History', async () => {
+      htmlRenderService.render.mockRejectedValueOnce(
+        new HtmlRenderError(
+          'CONFIG_INVALID',
+          '/private/worker/frame-volume 不可写',
+        ),
+      );
+
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_CONFIG_INVALID',
+        nonRetryable: true,
+        message: '渲染环境配置无效，请检查 Worker 配置',
+      });
+      expect(cosStorageService.putObjectIfAbsent).not.toHaveBeenCalled();
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+    });
+
+    it('取帧故障保留有限重试，但不透传 HTML 抛出的正文', async () => {
+      htmlRenderService.render.mockRejectedValueOnce(
+        new HtmlRenderError('FRAME_CAPTURE_FAILED', '仅属于输入的私密正文'),
+      );
+
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({
+        type: 'AGENT_FLOW_RENDER_FRAME_CAPTURE_FAILED',
+        nonRetryable: false,
+        message: '渲染取帧失败，请检查 HTML 时间接口',
+      });
+    });
+
+    it('上游 HTML 缺失时明确失败且不渲染空页面', async () => {
+      prisma.agentFlowNodeExecution.findMany.mockResolvedValue([]);
+
+      await expect(
+        activities.renderNode(renderNodeInput()),
+      ).rejects.toMatchObject({ type: 'AGENT_FLOW_RENDER_HTML_MISSING' });
+      expect(htmlRenderService.render).not.toHaveBeenCalled();
+      expect(prisma.agentFlowNodeExecution.create).not.toHaveBeenCalled();
+    });
   });
 
   it('突破工具调用预算时中断流并以 flow.node.failed 收敛', async () => {
@@ -2121,6 +2499,84 @@ describe('AgentFlowActivities', () => {
   }
 
   /**
+   * 装配渲染节点的最小冻结上下文
+   * @returns 无返回值
+   * @description Definition 用真实 render 节点与 start.text 引用，并预置 start 已产出的 HTML，
+   * 避免测试绕过快照校验、只用一条手写编译节点冒充渲染语义。
+   */
+  function mockRenderNode(isTest = false): void {
+    mockExecutionContext({
+      isTest,
+      node: {
+        key: 'render',
+        type: 'render',
+        htmlRef: { $ref: ['start', 'text'] },
+        width: 1080,
+        height: 1920,
+        durationSeconds: 2,
+        fps: 30,
+      },
+      definition: renderNodeFlowDefinition(),
+    });
+    prisma.agentFlowNodeExecution.findMany.mockResolvedValue([
+      {
+        nodeKey: 'start',
+        nodeExecutionId: 'task-1:version-1:start#0',
+        outputs: { text: '<html>动画</html>' },
+      },
+    ]);
+  }
+
+  /**
+   * 计算断言用的成片 key
+   * @param iteration 当前循环轮次
+   * @returns 返回包含完整执行标识摘要的 key
+   */
+  function renderObjectKey(iteration: number): string {
+    return buildRenderVideoObjectKey({
+      isTest: false,
+      taskId: 'task-1',
+      nodeExecutionId: `task-1:version-1:render#${iteration}`,
+    });
+  }
+
+  /**
+   * 构造渲染节点的 Activity 入参
+   * @returns 返回指向 render 节点的稳定执行标识
+   */
+  function renderNodeInput() {
+    return {
+      workflow: workflowInput(),
+      nodeKey: 'render',
+      nodeExecutionId: 'task-1:version-1:render#0',
+      iteration: 0,
+    };
+  }
+
+  /**
+   * 让渲染服务返回一个真实存在的临时成片文件
+   * @returns 返回写入的字节与清理函数
+   * @description Activity 会从磁盘读回成片再上传，因此这里必须落一个真文件；用临时目录而不是
+   * 仓库路径，避免测试产物污染工作区。
+   */
+  async function fakeRenderedFile() {
+    const directory = await mkdtemp(join(tmpdir(), 'render-activity-'));
+    const filePath = join(directory, 'output.mp4');
+    const bytes = Buffer.from('fake-mp4-bytes');
+    await writeFile(filePath, bytes);
+    const dispose = jest.fn(async () => {
+      await rm(directory, { recursive: true, force: true });
+    });
+    htmlRenderService.render.mockResolvedValueOnce({
+      filePath,
+      frameCount: 60,
+      byteLength: bytes.byteLength,
+      dispose,
+    });
+    return { filePath, bytes, dispose };
+  }
+
+  /**
    * 读取结构化模型调用的指定参数
    * @param index generateStructured 的参数下标
    * @returns 返回第一笔调用对应位置的未知值
@@ -2197,6 +2653,7 @@ describe('AgentFlowActivities', () => {
 
   function mockExecutionContext(input: {
     node: Record<string, unknown>;
+    isTest?: boolean;
     executionState?: Record<string, unknown>;
     budgetUsage?: { modelCalls: number; toolCalls: number };
     status?: string;
@@ -2206,6 +2663,7 @@ describe('AgentFlowActivities', () => {
     activeWorkflowDigest = calculateFlowDefinitionDigest(definition);
     prisma.streamTask.findUnique.mockResolvedValue({
       id: 'task-1',
+      isTest: input.isTest ?? false,
       userId: 'user-1',
       conversationId: 'conversation-1',
       messageId: 'message-1',
@@ -2592,6 +3050,45 @@ function flowDefinition() {
       { from: 'plan', to: 'review' },
       { from: 'review', to: 'answer', when: 'approved' as const },
       { from: 'answer', to: 'end' },
+    ],
+  };
+}
+
+/**
+ * 构造渲染节点 Activity 测试使用的最小合法图
+ * @returns 返回 start → render → end 的当前版本 Definition
+ * @description render 的 HTML 来源是 start.text，宽高/时长/帧率取契约允许范围内的固定值，
+ * 这样 Activity 侧断言的是「参数被原样带进渲染」，而不是测试自己算出来的默认值。
+ */
+function renderNodeFlowDefinition() {
+  return {
+    schemaVersion: AGENT_FLOW_SCHEMA_VERSION,
+    kind: 'agent-flow' as const,
+    name: '渲染节点测试图',
+    policy: {
+      maxSteps: 1,
+      maxModelCalls: 1,
+      maxToolCalls: 0,
+      maxDurationSeconds: 60,
+    },
+    nodes: [
+      { id: 'start', type: 'start' as const, config: {} },
+      {
+        id: 'render',
+        type: 'render' as const,
+        config: {
+          htmlRef: { $ref: ['start', 'text'] as [string, string] },
+          width: 1080,
+          height: 1920,
+          durationSeconds: 2,
+          fps: 30,
+        },
+      },
+      { id: 'end', type: 'end' as const, config: {} },
+    ],
+    edges: [
+      { from: 'start', to: 'render' },
+      { from: 'render', to: 'end' },
     ],
   };
 }

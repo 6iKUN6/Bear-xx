@@ -1,4 +1,5 @@
 import { ApplicationFailure } from '@temporalio/client';
+import { Context as ActivityContext } from '@temporalio/activity';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker, bundleWorkflowCode } from '@temporalio/worker';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +27,16 @@ jest.setTimeout(30_000);
 describe('agentFlowWorkflow', () => {
   let testEnvironment: TestWorkflowEnvironment | undefined;
   let workflowBundle: { code: string } | undefined;
+  const runningWorkers = new Map<Worker, Promise<void>>();
+
+  // 所有用例都在关闭测试服务端之前停止自己的 Worker，包括没有显式 finally 的并行用例。
+  // 否则断言虽已结束，遗留轮询仍持有原生句柄，Jest 只能依赖 forceExit 才能退出。
+  afterEach(async () => {
+    await stopWorkflow({
+      workers: [...runningWorkers.keys()],
+      workerRuns: [...runningWorkers.values()],
+    });
+  });
 
   // 整个 suite 共用一个测试服务端：每个用例起一个的话，本文件要拉起九次 Temporal
   // 服务端，与其余 suite 并行时会抢端口并间歇性 Connection refused。用例之间的隔离
@@ -308,6 +319,38 @@ describe('agentFlowWorkflow', () => {
         '不可恢复的节点错误',
       );
       expect(attempts).toBe(1);
+    } finally {
+      await stopWorkflow(running);
+    }
+  });
+
+  it('render 节点走独立的长超时 Activity，不混进普通节点的调度', async () => {
+    const scheduled: string[] = [];
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: renderSnapshot(),
+        executeNode: ({ nodeKey }) => {
+          scheduled.push(`execute:${nodeKey}`);
+          return Promise.resolve({ kind: 'completed', outcome: 'default' });
+        },
+        renderNode: ({ nodeKey }) => {
+          scheduled.push(`render:${nodeKey}`);
+          return Promise.resolve({ kind: 'completed', outcome: 'default' });
+        },
+        finalizeRun: () => Promise.resolve(),
+      }),
+    );
+
+    try {
+      await expect(running.handle.result()).resolves.toEqual({
+        status: 'completed',
+        lastNodeKey: 'end',
+      });
+      expect(scheduled).toEqual([
+        'execute:start',
+        'render:render',
+        'execute:end',
+      ]);
     } finally {
       await stopWorkflow(running);
     }
@@ -757,6 +800,217 @@ describe('agentFlowWorkflow', () => {
     };
   }
 
+  it.each(['signal', 'native', 'deadline'] as const)(
+    '渲染中 %s 会停止 Activity 后收敛，不继续调度 end',
+    async (mode) => {
+      let started!: () => void;
+      const renderingStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let renderStopped = false;
+      const scheduled: string[] = [];
+      const finalized: string[] = [];
+      const snapshot = renderSnapshot();
+      const running = await startWorkflow(
+        createActivities({
+          snapshot: {
+            ...snapshot,
+            maxDurationSeconds: mode === 'deadline' ? 2 : 60,
+          },
+          executeNode: ({ nodeKey }) => {
+            scheduled.push(nodeKey);
+            return Promise.resolve({ kind: 'completed', outcome: 'default' });
+          },
+          renderNode: async () => {
+            const activity = ActivityContext.current();
+            expect(activity.info.startToCloseTimeoutMs).toBe(30 * 60_000);
+            expect(activity.info.heartbeatTimeoutMs).toBe(30_000);
+            activity.heartbeat();
+            const timer = setInterval(() => activity.heartbeat(), 20);
+            started();
+            try {
+              await activity.cancelled;
+              throw new Error('取消 Promise 应拒绝而不是成功');
+            } finally {
+              clearInterval(timer);
+              renderStopped = true;
+            }
+          },
+          finalizeRun: ({ status }) => {
+            expect(renderStopped).toBe(true);
+            finalized.push(status);
+            return Promise.resolve();
+          },
+        }),
+      );
+      try {
+        await renderingStarted;
+        if (mode === 'signal')
+          await running.handle.signal(agentFlowCancelSignal);
+        if (mode === 'native') await running.handle.cancel();
+        if (mode === 'native') {
+          await expect(running.handle.result()).rejects.toThrow();
+        } else {
+          await expect(running.handle.result()).resolves.toMatchObject({
+            status: mode === 'deadline' ? 'timed_out' : 'cancelled',
+          });
+        }
+        expect(scheduled).toEqual(['start']);
+        expect(finalized).toEqual([
+          mode === 'deadline' ? 'timed_out' : 'cancelled',
+        ]);
+      } finally {
+        await stopWorkflow(running);
+      }
+    },
+  );
+
+  it('原生取消必须等渲染 Activity 的异步清理结束后才调度终态写入', async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let markCleanupStarted!: () => void;
+    const cleanupStarted = new Promise<void>((resolve) => {
+      markCleanupStarted = resolve;
+    });
+    let releaseCleanup!: () => void;
+    const cleanupReleased = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const finalized: string[] = [];
+    let cleanupFinished = false;
+    const running = await startWorkflow(
+      createActivities({
+        snapshot: renderSnapshot(),
+        renderNode: async () => {
+          const activity = ActivityContext.current();
+          const timer = setInterval(() => activity.heartbeat(), 20);
+          markStarted();
+          try {
+            await activity.cancelled;
+            throw new Error('取消 Promise 应拒绝而不是成功');
+          } finally {
+            clearInterval(timer);
+            markCleanupStarted();
+            await cleanupReleased;
+            cleanupFinished = true;
+          }
+        },
+        finalizeRun: ({ status }) => {
+          finalized.push(status);
+          return Promise.resolve();
+        },
+      }),
+    );
+    try {
+      await started;
+      await running.handle.cancel();
+      await cleanupStarted;
+      // 强一致查询确保取消事件已被 Workflow 处理；不用 sleep 猜测终态是否抢先调度。
+      await running.handle.query('__stack_trace');
+      const history = await running.handle.fetchHistory();
+      const finalizationScheduled = history.events?.some(
+        (event) =>
+          event.activityTaskScheduledEventAttributes?.activityType?.name ===
+          'finalizeRun',
+      );
+      expect(finalizationScheduled).toBe(false);
+      expect(finalized).toEqual([]);
+    } finally {
+      releaseCleanup();
+      await expect(running.handle.result()).rejects.toThrow();
+      await stopWorkflow(running);
+    }
+    expect(cleanupFinished).toBe(true);
+    expect(finalized).toEqual(['cancelled']);
+  });
+
+  it.each([true, false])(
+    '渲染确定性失败不可重试=%s，其他失败最多重试两次',
+    async (nonRetryable) => {
+      const attempts: number[] = [];
+      const identities: string[] = [];
+      const running = await startWorkflow(
+        createActivities({
+          snapshot: renderSnapshot(),
+          renderNode: ({ nodeExecutionId }) => {
+            attempts.push(ActivityContext.current().info.attempt);
+            identities.push(nodeExecutionId);
+            return Promise.reject(
+              ApplicationFailure.create({
+                type: nonRetryable
+                  ? 'AGENT_FLOW_RENDER_CONFIG_INVALID'
+                  : 'AGENT_FLOW_RENDER_FRAME_CAPTURE_FAILED',
+                message: '本次渲染明确失败',
+                nonRetryable,
+              }),
+            );
+          },
+        }),
+      );
+      try {
+        await expectWorkflowFailedBecause(
+          running.handle.result(),
+          '本次渲染明确失败',
+        );
+        expect(attempts).toEqual(nonRetryable ? [1] : [1, 2]);
+        expect(new Set(identities).size).toBe(1);
+      } finally {
+        await stopWorkflow(running);
+      }
+    },
+  );
+
+  it.each([true, false])(
+    '未确认的 COS 写入有限重试，后续可读=%s；同轮身份不变且不会伪造完成',
+    async (readableOnRetry) => {
+      const attempts: number[] = [];
+      const identities: string[] = [];
+      const finalized: string[] = [];
+      const running = await startWorkflow(
+        createActivities({
+          snapshot: renderSnapshot(),
+          renderNode: ({ nodeExecutionId }) => {
+            attempts.push(ActivityContext.current().info.attempt);
+            identities.push(nodeExecutionId);
+            if (readableOnRetry && attempts.length === 2) {
+              return Promise.resolve({ kind: 'completed', outcome: 'default' });
+            }
+            return Promise.reject(
+              ApplicationFailure.retryable(
+                '上传结果尚未确认，禁止重发同一对象的 PUT',
+                'AGENT_FLOW_RENDER_WRITE_UNCONFIRMED',
+              ),
+            );
+          },
+          finalizeRun: ({ status }) => {
+            finalized.push(status);
+            return Promise.resolve();
+          },
+        }),
+      );
+      try {
+        if (readableOnRetry) {
+          await expect(running.handle.result()).resolves.toMatchObject({
+            status: 'completed',
+          });
+          expect(finalized).toEqual(['completed']);
+        } else {
+          await expectWorkflowFailedBecause(
+            running.handle.result(),
+            '禁止重发同一对象',
+          );
+          expect(finalized).toEqual(['error']);
+        }
+        expect(attempts).toEqual([1, 2]);
+        expect(new Set(identities).size).toBe(1);
+      } finally {
+        await stopWorkflow(running);
+      }
+    },
+  );
+
   async function startWorkflow(activities: AgentFlowActivityApi) {
     if (!testEnvironment) {
       throw new Error('Temporal 测试环境未初始化');
@@ -775,8 +1029,14 @@ describe('agentFlowWorkflow', () => {
       connection: testEnvironment.nativeConnection,
       taskQueue: activityTaskQueue,
       activities,
+      maxHeartbeatThrottleInterval: '50 milliseconds',
     });
-    const workerRuns = [orchestratorWorker.run(), activityWorker.run()];
+    const workers = [orchestratorWorker, activityWorker];
+    const workerRuns = workers.map((worker) => {
+      const run = worker.run();
+      runningWorkers.set(worker, run);
+      return run;
+    });
     const workflowId = `task-${randomUUID()}`;
     const input: AgentFlowWorkflowInput = {
       streamTaskId: workflowId,
@@ -795,7 +1055,7 @@ describe('agentFlowWorkflow', () => {
 
     return {
       handle,
-      workers: [orchestratorWorker, activityWorker],
+      workers,
       workerRuns,
     };
   }
@@ -918,7 +1178,13 @@ describe('agentFlowWorkflow', () => {
     for (const worker of running.workers) {
       worker.shutdown();
     }
-    await Promise.all(running.workerRuns);
+    try {
+      await Promise.all(running.workerRuns);
+    } finally {
+      for (const worker of running.workers) {
+        runningWorkers.delete(worker);
+      }
+    }
   }
 });
 
@@ -965,6 +1231,9 @@ function createActivities(
     executeNode:
       overrides.executeNode ??
       (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
+    renderNode:
+      overrides.renderNode ??
+      (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
     continueNode:
       overrides.continueNode ??
       (() => Promise.resolve({ kind: 'completed', outcome: 'default' })),
@@ -991,6 +1260,23 @@ function approvalSnapshot(): AgentFlowRunSnapshot {
         next: { approved: ['answer'] },
       },
       { key: 'answer', type: 'synthesize', next: {} },
+    ],
+  };
+}
+
+/**
+ * 创建 start → render → end 的执行快照
+ * @returns 返回含一个渲染节点的脱敏快照
+ * @description 用来验证渲染节点被路由到独立的长超时 Activity，而不是普通 executeNode。
+ */
+function renderSnapshot(): AgentFlowRunSnapshot {
+  return {
+    entryNodeKey: 'start',
+    maxDurationSeconds: 60,
+    nodes: [
+      { key: 'start', type: 'start', next: { default: ['render'] } },
+      { key: 'render', type: 'render', next: { default: ['end'] } },
+      { key: 'end', type: 'end', next: {} },
     ],
   };
 }

@@ -38,6 +38,13 @@
  *
  * ## 修订历史
  *
+ * - `9` 原生取消可先拒绝 render 的 condition，因此额外等待 Activity 异步清理完成后
+ *   才调度终态写入；render-native-cancellation-wait-v1 patch 保留 r8 History 的顺序。
+ * - `8` render 分支增加业务取消/剩余时长等待，取消后等待 Activity 确认停止；使用
+ *   render-cancellation-v1 patch 兼容 r7 History，普通节点命令序列保持不变。
+ * - `7` render 节点改走独立的 `renderNode` Activity（30 分钟超时 + 心跳），非渲染节点的
+ *   命令序列与 r6 逐条一致。未加 patch：render 是 v13 才有的节点类型，在途 run 的快照里
+ *   不可能出现它，因此没有「旧 History 需要走旧分支」的情形。
  * - `6` 所有正常路径显式调度 end 节点：相较旧工件会多一次 `executeNode` Activity，命令
  *   数量发生变化。部署时依赖“无在途 run”，未加 patch。
  * - `5` 前沿执行器支持 loop 重入：Workflow 持有并下传真实轮次，`again` 后清除循环体与
@@ -54,7 +61,7 @@
  *   部署时依赖"无在途 run"，未加 patch。
  * - `1` 初始版本：loadRunSnapshot -> executeNode/resumeNode 循环 -> finalizeRun。
  */
-export const AGENT_FLOW_WORKFLOW_REVISION = 6;
+export const AGENT_FLOW_WORKFLOW_REVISION = 9;
 
 /** memo 中记录启动修订号的键名。 */
 export const AGENT_FLOW_WORKFLOW_REVISION_MEMO_KEY =

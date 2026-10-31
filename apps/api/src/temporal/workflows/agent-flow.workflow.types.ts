@@ -124,6 +124,15 @@ export interface AgentFlowActivityApi {
   executeNode(
     input: AgentFlowNodeExecutionInput,
   ): Promise<AgentFlowNodeExecutionResult>;
+  /**
+   * 执行渲染节点
+   * @description 与 executeNode 语义相同，但由 Workflow 用独立的长超时与心跳代理调度：
+   * 单次成片渲染可能持续数十分钟，把它混进普通节点的 5 分钟超时会让渲染必然超时，
+   * 而把普通节点一起放宽又会让真正卡死的节点长时间占着队列。
+   */
+  renderNode(
+    input: AgentFlowNodeExecutionInput,
+  ): Promise<AgentFlowNodeExecutionResult>;
   /** 继续推进已开始但未结束的节点；不重发节点开始事件。 */
   continueNode(
     input: AgentFlowNodeExecutionInput,

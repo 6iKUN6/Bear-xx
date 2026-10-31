@@ -1,9 +1,11 @@
 import {
   ApplicationFailure,
+  ActivityCancellationType,
   CancellationScope,
   condition,
   defineSignal,
   isCancellation,
+  patched,
   proxyActivities,
   setHandler,
 } from '@temporalio/workflow';
@@ -14,6 +16,7 @@ import type {
   AgentFlowApprovalSignalInput,
   AgentFlowFinalStatus,
   AgentFlowNodeCompletedResult,
+  AgentFlowNodeExecutionInput,
   AgentFlowNodeExecutionResult,
   AgentFlowRunSnapshot,
   AgentFlowWorkflowInput,
@@ -39,6 +42,7 @@ export async function agentFlowWorkflow(
   input: AgentFlowWorkflowInput,
 ): Promise<AgentFlowWorkflowResult> {
   const activities = createActivities(input.activityTaskQueue);
+  const renderActivities = createRenderActivities(input.activityTaskQueue);
   const finalizeActivities = createFinalizeActivities(input.activityTaskQueue);
   const resolvedApprovalIds = new Set<string>();
   let cancelled = false;
@@ -105,12 +109,25 @@ export async function agentFlowWorkflow(
       const node = getSnapshotNode(nodesByKey, nodeKey);
       lastNodeKey = node.key;
       const nodeExecutionId = createNodeExecutionId(input, node.key, iteration);
-      let result = await activities.executeNode({
+      // 渲染走独立的长超时代理；其余节点保持原来的 5 分钟。命令序列只在 render 节点上
+      // 多一次不同的 Activity 名称，非渲染节点与旧版本逐条一致，因此在途 run 仍可重放。
+      const nodeInput = {
         workflow: input,
         nodeKey: node.key,
         nodeExecutionId,
         iteration,
-      });
+      };
+      let result =
+        node.type === 'render'
+          ? patched('render-cancellation-v1')
+            ? await executeCancellableRender(
+                renderActivities.renderNode,
+                nodeInput,
+                () => cancelled,
+                deadlineMs,
+              )
+            : await renderActivities.renderNode(nodeInput)
+          : await activities.executeNode(nodeInput);
 
       // 已观测到的步骤进度，用于拒绝不推进的空转调度；人工恢复后重置
       let observedSteps = -1;
@@ -321,6 +338,109 @@ function createActivities(activityTaskQueue: string): AgentFlowActivityApi {
         'AGENT_FLOW_NON_RETRYABLE',
       ],
     },
+  });
+}
+
+/**
+ * 创建渲染节点专用的 Activity 代理
+ * @param activityTaskQueue 由启动输入冻结的业务 Activity 队列名
+ * @returns 返回只含 renderNode 的 Activity 集合
+ * @description 单次渲染可能持续数十分钟，必须与普通节点分开配置：
+ *
+ * - `startToCloseTimeout` 30 分钟，覆盖 15–25 分钟的长成片；
+ * - `heartbeatTimeout` 30 秒，Activity 全生命周期持续心跳，帧进度另行上报；
+ * - 取消等待 Activity 确认停止后才收敛，避免帧目录和上传仍在后台继续；
+ * - `maximumAttempts` 2，有限重试：重试会复用同一个对象 key，命中已存在的成片即短路，
+ *   因此第二次尝试的代价通常只有一次 HEAD 请求。
+ */
+function createRenderActivities(
+  activityTaskQueue: string,
+): Pick<AgentFlowActivityApi, 'renderNode'> {
+  return proxyActivities<Pick<AgentFlowActivityApi, 'renderNode'>>({
+    taskQueue: activityTaskQueue,
+    startToCloseTimeout: '30 minutes',
+    heartbeatTimeout: '30 seconds',
+    cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+    retry: {
+      initialInterval: '5 seconds',
+      maximumInterval: '30 seconds',
+      maximumAttempts: 2,
+      nonRetryableErrorTypes: [
+        'AGENT_FLOW_INVALID_SNAPSHOT',
+        'AGENT_FLOW_RENDER_WORKER_ROLE',
+        'AGENT_FLOW_RENDER_HTML_MISSING',
+        'AGENT_FLOW_RENDER_INVALID_PARAMETERS',
+        'AGENT_FLOW_RENDER_HTML_TOO_LARGE',
+        'AGENT_FLOW_RENDER_CHROME_NOT_FOUND',
+        'AGENT_FLOW_RENDER_FRAME_API_MISSING',
+        'AGENT_FLOW_RENDER_CONFIG_INVALID',
+        'AGENT_FLOW_RENDER_VERSIONING_UNSAFE',
+        'AGENT_FLOW_RENDER_OBJECT_CONFLICT',
+        'AGENT_FLOW_RENDER_ABORTED',
+      ],
+    },
+  });
+}
+
+/**
+ * 在渲染期间响应业务取消及本张 Flow 的剩余时长
+ * @param renderNode 独立渲染 Activity 代理
+ * @param input 仅包含稳定执行标识的入参
+ * @param isCancelled 当前是否收到业务取消 Signal
+ * @param deadlineMs 本张 Flow 的截止时间
+ * @returns 返回渲染结果；中断时等待 Activity 停止后抛出对应终态哨兵
+ * @description 仅 render 分支使用并由 patch 保护旧 History；不改变普通节点的命令序列和预算。
+ * 渲染结束后取消本次定时等待，不遗留长 Timer。原生取消仍由外层 Workflow 收敛。
+ */
+async function executeCancellableRender(
+  renderNode: AgentFlowActivityApi['renderNode'],
+  input: AgentFlowNodeExecutionInput,
+  isCancelled: () => boolean,
+  deadlineMs: number,
+): Promise<AgentFlowNodeExecutionResult> {
+  return CancellationScope.cancellable(async () => {
+    const scope = CancellationScope.current();
+    const rendering = renderNode(input);
+    const interrupted = condition(
+      isCancelled,
+      Math.max(1, deadlineMs - Date.now()),
+    ).then(() => ({ interrupted: true as const }));
+    try {
+      const winner = await Promise.race([
+        rendering.then((result) => ({ result })),
+        interrupted,
+      ]);
+      if ('result' in winner) {
+        if (isCancelled()) throw new RunHaltedError('cancelled');
+        if (Date.now() >= deadlineMs) throw new RunHaltedError('timed_out');
+        return winner.result;
+      }
+      scope.cancel();
+      try {
+        await rendering;
+      } catch {
+        // 已确定的业务取消/超时优先；这里仍等待 Activity 的终态，不把停止记成成功。
+      }
+      throw new RunHaltedError(isCancelled() ? 'cancelled' : 'timed_out');
+    } catch (error) {
+      if (
+        isCancellation(error) &&
+        patched('render-native-cancellation-wait-v1')
+      ) {
+        // 原生取消会先拒绝 condition，不会等 renderNode 的 WAIT_CANCELLATION_COMPLETED。
+        // 必须显式等 Activity 的异步资源清理完成，才能让外层调度 nonCancellable 终态写入。
+        // 单独的 patch 保留 r8 原生取消 History 的旧命令顺序。
+        scope.cancel();
+        try {
+          await rendering;
+        } catch {
+          // 保留原生取消原因；这里只等待停止确认，不把清理中的失败替换成成功。
+        }
+      }
+      throw error;
+    } finally {
+      scope.cancel();
+    }
   });
 }
 
